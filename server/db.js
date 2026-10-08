@@ -695,6 +695,22 @@ const MIGRATIONS = [
   CREATE INDEX event_signups_event ON event_signups (event_id, status);
   CREATE INDEX event_signups_pi ON event_signups (stripe_pi);
   `,
+  // 21: files on songs: chord charts, lyrics, sheet music and audio, optionally for one key.
+  `
+  CREATE TABLE song_files (
+    id INTEGER PRIMARY KEY,
+    song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'chart',                -- chart | lyrics | sheet | audio | other
+    name TEXT NOT NULL,
+    song_key TEXT NOT NULL DEFAULT '',                 -- e.g. G; blank = any key
+    file TEXT NOT NULL,                                -- stored name under uploads/songs
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX song_files_song ON song_files (song_id);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

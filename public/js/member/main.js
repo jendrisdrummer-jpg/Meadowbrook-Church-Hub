@@ -10,6 +10,7 @@ import { giveForm, giveThanks, myGiving } from '../give.js';
 import { homeGrid } from './widgets.js';
 import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
+import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -282,8 +283,9 @@ async function plan(el, id, q) {
       ${view === 'plan'
         ? html`<div class="card">${s.items.length ? s.items.map((i, n) => (i.kind === 'header'
           ? html`<div class="m-plan-row section">${i.title}</div>`
-          : html`<div class="m-plan-row"><span class="when">${fmt(times[n].from)}</span><div><b>${i.title || 'Item'}</b>${i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
+          : html`<div class="m-plan-row"><span class="when">${fmt(times[n].from)}</span><div>${i.kind === 'song' ? songTitle(i) : html`<b>${i.title || 'Item'}</b>`}${i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
               ${i.first_name || i.info ? html`<div class="muted small">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</div>` : ''}
+              ${i.files?.length ? html`<div>${fileChips(i.files, i.song_key)}</div>` : ''}
               ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</div></div>`))
           : html`<p class="muted" style="margin:0">The order of service isn’t ready yet.</p>`}</div>`
         : html`${teams.length > 1 ? html`<div class="m-chips" style="margin:0 0 10px">${[{ id: null, name: 'All teams' }, ...teams].map((t) => html`<button class="chip ${team === t.id ? 'on' : ''}" data-team="${t.id ?? ''}">${t.color ? html`<span class="dot" style="background:${t.color}"></span> ` : ''}${t.name}</button>`)}</div>` : ''}
@@ -294,6 +296,7 @@ async function plan(el, id, q) {
           : html`<p class="muted small" style="margin:0">No one has been scheduled yet.</p>`}</div>`}`);
   }
 
+  wireSongSheets(el, () => s.items);
   el.onclick = (e) => {
     const v = e.target.closest('[data-view]');
     if (v) { e.preventDefault(); view = v.dataset.view; return draw(); }
