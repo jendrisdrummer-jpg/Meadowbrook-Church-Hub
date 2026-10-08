@@ -8,6 +8,7 @@ const TAB_INFO = {
   watch: ['Watch', 'Your livestream. YouTube links play right in the app.'],
   give: ['Give', 'Opens your online giving page.'],
   connect: ['Connect card', 'Guests tell you they were here. Cards arrive under Connect cards.'],
+  chat: ['Chat', 'Team chats and groups, for signed-in volunteers. Always reachable from the chat button at the top too.'],
   page: ['Page', 'Your own text: beliefs, next steps, staff, anything.'],
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],

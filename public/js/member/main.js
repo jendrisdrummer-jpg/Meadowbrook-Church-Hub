@@ -4,6 +4,7 @@ import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription } from '../push.js';
+import { openChat } from '../chat.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -47,8 +48,17 @@ async function boot() {
 }
 
 function drawTabs(current) {
-  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}">${icon(t.icon)}<span>${t.label}</span></a>`));
+  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}">${icon(t.icon)}<span>${t.label}</span>${t.type === 'chat' ? html`<span class="nav-badge hidden" data-badge="chat"></span>` : ''}</a>`));
 }
+
+// Unread chat messages, on the chat button and the Chat tab.
+async function refreshChatBadge() {
+  if (!app.user || preview) return;
+  let total = 0;
+  try { total = (await get('/chats/unread')).total; } catch { return; }
+  document.querySelectorAll('[data-badge="chat"]').forEach((b) => { b.textContent = total > 99 ? '99+' : total; b.classList.toggle('hidden', !total); });
+}
+const chatTab = () => app.config.tabs.find((t) => t.type === 'chat');
 
 let seq = 0;
 async function route() {
@@ -62,6 +72,7 @@ async function route() {
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
+    if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
     const tab = app.config.tabs.find((t) => t.id === parts[0] && t.type !== 'link') || tabs()[0];
     drawTabs(tab.on ? tab.id : 'more');
@@ -70,6 +81,8 @@ async function route() {
     if (mine !== seq) return;
     setTitle('Something went wrong');
     mount(el, html`<div class="alert bad">${e.message}</div>`);
+  } finally {
+    if (mine === seq) refreshChatBadge();
   }
 }
 
@@ -370,6 +383,7 @@ async function more(el, tab, q) {
     ${app.user ? html`<div class="card app-card" data-notify></div>` : ''}
     <div class="card m-list">
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
+      ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}
@@ -395,9 +409,21 @@ async function more(el, tab, q) {
   };
 }
 
+// ---------------------------------------------------------------- chat
+async function chat(el, tab, id) {
+  if (!app.user) {
+    setTitle(tab.label, bellButton());
+    mount(el, html`<div class="card m-big-action">${icon('chat')}<h2 style="margin:0">Chat with your team</h2>
+      <p class="muted" style="margin:0">Sign in to message the teams you serve on.</p>
+      <a class="btn primary" href="${signInHref('/chat')}">Sign in</a></div>`);
+    return;
+  }
+  await openChat(el, { id: id ? Number(id) : null, split: false, setTitle, onUnread: refreshChatBadge });
+}
+
 // ---------------------------------------------------------------- notifications
 function bellButton() {
-  return app.user && !preview ? html`<a class="icon-btn bell" href="#/inbox" aria-label="Notifications">${icon('bell')}</a>` : '';
+  return app.user && !preview ? html`<a class="icon-btn m-chat-btn" href="#/chat" aria-label="Chat">${icon('chat')}<span class="nav-badge hidden" data-badge="chat"></span></a><a class="icon-btn bell" href="#/inbox" aria-label="Notifications">${icon('bell')}</a>` : '';
 }
 
 async function inbox(el) {
@@ -408,6 +434,6 @@ async function inbox(el) {
   if (d.unread) post('/notifications/read', {}).catch(() => {});
 }
 
-const PAGES = { home, serve, watch, give, connect, page, link, more };
+const PAGES = { home, serve, watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab) };
 
 boot().catch((e) => { document.body.textContent = e.message; });

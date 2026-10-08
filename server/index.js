@@ -18,6 +18,7 @@ import fieldRoutes from './routes/fields.js';
 import templateRoutes from './routes/templates.js';
 import notificationRoutes from './routes/notifications.js';
 import appRoutes from './routes/app.js';
+import chatRoutes from './routes/chat.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -55,6 +56,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(templateRoutes(db));
   api.use(notificationRoutes(db));
   api.use(appRoutes(db));
+  api.use(chatRoutes(db, { uploadDir }));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 

@@ -34,6 +34,7 @@ self.addEventListener('push', (e) => {
   e.waitUntil(self.registration.showNotification(msg.title || 'Notification', {
     body: msg.body || '',
     tag: msg.tag || undefined,
+    renotify: Boolean(msg.tag && msg.renotify),
     icon: '/app-icon/192.png',
     badge: '/icons/badge-96.png',
     actions: msg.actions || [],

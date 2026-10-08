@@ -8,7 +8,7 @@ import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
-export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'page', 'link', 'more'];
+export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'page', 'link', 'more'];
 export const BLOCK_TYPES = ['welcome', 'times', 'serving', 'buttons', 'watch', 'text'];
 const ICONS = ['home', 'calendar', 'user', 'play', 'heart', 'hand', 'info', 'link', 'menu', 'music', 'people', 'gift', 'book', 'chat', 'check'];
 
@@ -19,6 +19,7 @@ export const DEFAULT_APP = {
     { id: 'watch', type: 'watch', label: 'Watch', icon: 'play', on: true },
     { id: 'give', type: 'give', label: 'Give', icon: 'heart', on: true },
     { id: 'connect', type: 'connect', label: 'Connect', icon: 'hand', on: false },
+    { id: 'chat', type: 'chat', label: 'Chat', icon: 'chat', on: false },
     { id: 'more', type: 'more', label: 'More', icon: 'menu', on: true },
   ],
   home: [
@@ -86,7 +87,14 @@ function cleanConfig(b) {
   };
 }
 
-export const appConfig = (db) => ({ ...DEFAULT_APP, ...getSetting(db, 'app_config', {}) });
+// Saved configs from before a tab type existed get it too (switched off), just before More.
+export const appConfig = (db) => {
+  const cfg = { ...DEFAULT_APP, ...getSetting(db, 'app_config', {}) };
+  for (const t of DEFAULT_APP.tabs) {
+    if (!cfg.tabs.some((x) => x.type === t.type)) cfg.tabs = [...cfg.tabs.slice(0, -1), { ...t, on: false }, cfg.tabs.at(-1)];
+  }
+  return cfg;
+};
 
 // A tiny per-address limit so the public form can't be used to flood the inbox.
 const recent = new Map();

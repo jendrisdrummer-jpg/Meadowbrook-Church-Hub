@@ -6,7 +6,7 @@ import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['scheduled', 'reminder', 'declined', 'accepted', 'connect', 'email'];
+export const KINDS = ['scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'email'];
 // Notices that stay off until someone turns them on.
 export const OFF_BY_DEFAULT = new Set(['accepted']);
 
@@ -49,12 +49,24 @@ export function notify(db, userIds, msg) {
   return made;
 }
 
+// A push only, with no inbox item: chat messages have their own unread counts.
+export function pushOnly(db, userIds, msg) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return;
+  const users = db.prepare(`SELECT id, notify FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  for (const u of users) {
+    if (prefs(u)[msg.kind] === false) continue;
+    const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(u.id);
+    if (subs.length) pushAll(db, subs, msg);
+  }
+}
+
 function pushAll(db, subs, msg) {
   const keys = vapidKeys(db);
   for (const sub of subs) {
     // Taps open the app the device signed up from: the member app or the dashboard.
     const url = sub.ui === 'app' ? msg.app_url || '/app/' : msg.url || '/';
-    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url, tag: msg.tag, actions: msg.actions, data: msg.data || {} };
+    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url, tag: msg.tag, renotify: msg.renotify, actions: msg.actions, data: msg.data || {} };
     sendPush(sub, payload, keys, subject(), { urgency: msg.kind === 'reminder' ? 'high' : 'normal' })
       .then((status) => {
         // The person uninstalled the app or turned notifications off: forget that device.

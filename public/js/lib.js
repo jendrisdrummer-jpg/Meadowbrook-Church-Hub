@@ -104,6 +104,15 @@ const PATHS = {
   unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
   grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+  bellOff: '<path d="M8.7 3.7A6 6 0 0 1 18 8c0 2.6.4 4.6 1 6M17 17H3s3-2 3-9c0-.6.1-1.2.3-1.8"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0M3 3l18 18"/>',
+  back: '<path d="m15 18-6-6 6-6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  send: '<path d="M4 12 20 4l-4 16-4-7-8-1z"/><path d="m12 13 8-9"/>',
+  attach: '<path d="m20 11.5-8.3 8.3a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/>',
+  file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5v.5M15 9.5v.5"/>',
+  reply: '<path d="M10 8 5 12l5 4"/><path d="M5 12h9a5 5 0 0 1 5 5v1"/>',
 };
 export function icon(name, cls = 'ic') {
   return raw(`<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name] || ''}</svg>`);
@@ -296,7 +305,7 @@ export function chips(el, list, onChange, { placeholder = 'Add…', addLabel = '
 }
 
 // Search and tick several people at once. Resolves to the chosen people ([] if cancelled).
-export function pickPeople(title = 'Choose people', { exclude = new Set(), submit = 'Add', extra = '' } = {}) {
+export function pickPeople(title = 'Choose people', { exclude = new Set(), submit = 'Add', extra = '', already = 'Already on this team' } = {}) {
   const chosen = new Map();
   return dialog({
     title, wide: true, submit,
@@ -309,7 +318,7 @@ export function pickPeople(title = 'Choose people', { exclude = new Set(), submi
       const count = () => { d.querySelector('[data-count]').textContent = chosen.size ? `${chosen.size} selected: ${[...chosen.values()].map(displayName).join(', ')}` : 'No one selected'; };
       const draw = () => mount(list, rows.length ? rows.map((p, i) => html`<label class="pick ${exclude.has(p.id) ? 'already' : ''}">
           <input type="checkbox" data-i="${i}" ${chosen.has(p.id) ? 'checked' : ''} ${exclude.has(p.id) ? 'disabled' : ''}>${avatar(p)}
-          <span>${displayName(p)}<br><small class="muted">${exclude.has(p.id) ? 'Already on this team' : p.email || p.phone || p.household_name || ''}</small></span></label>`)
+          <span>${displayName(p)}<br><small class="muted">${exclude.has(p.id) ? already : p.email || p.phone || p.household_name || ''}</small></span></label>`)
         : html`<div class="muted small">No one found.</div>`);
       const run = debounce(async (q) => {
         if (q.trim().length < 2) return;

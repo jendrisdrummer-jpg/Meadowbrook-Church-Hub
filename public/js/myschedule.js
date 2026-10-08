@@ -97,7 +97,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
   const labels = {
     scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
     declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
-    connect: 'New connect cards from guests', email: 'Also send me emails',
+    connect: 'New connect cards from guests', chat: 'New chat messages', email: 'Also send me emails',
   };
   const atLeast = (r) => ROLES.indexOf(role) >= ROLES.indexOf(r);
   const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : k === 'connect' ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));

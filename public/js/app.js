@@ -7,7 +7,8 @@ const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 const NAV = [
   { group: '', items: [
     { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
-    { path: '/my', label: 'My Schedule', icon: 'user', min: 'volunteer', mobile: true },
+    { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
+    { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
   ] },
   { group: 'People', items: [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
@@ -25,7 +26,7 @@ const NAV = [
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
   ] },
   { group: 'Check-in', items: [
-    { path: '/checkin', label: 'Kids Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
+    { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
   ] },
   { group: 'Admin', items: [
     { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
@@ -47,6 +48,7 @@ export function applyTheme(theme, accent) {
 const ROUTES = [
   [/^\/$/, 'home'],
   [/^\/my$/, 'my'],
+  [/^\/chat(?:\/(\d+))?$/, 'chat'],
   [/^\/people$/, 'people'],
   [/^\/people\/(\d+)$/, 'person'],
   [/^\/teams$/, 'teams'],
@@ -99,8 +101,9 @@ async function boot() {
   window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } route(); });
   route();
   drawBell();
-  setInterval(() => { if (!document.hidden) drawBell(); }, 90e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) drawBell(); });
+  refreshChatBadge();
+  setInterval(() => { if (!document.hidden) { drawBell(); refreshChatBadge(); } }, 90e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawBell(); refreshChatBadge(); } });
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // A notification tapped while the app is open moves it to that page.
@@ -108,6 +111,13 @@ async function boot() {
       if (e.data?.type === 'navigate') location.href = e.data.url;
     });
   }
+}
+
+// Unread chat messages, on the Chat menu item.
+export async function refreshChatBadge() {
+  let total = 0;
+  try { total = (await get('/chats/unread')).total; } catch { return; }
+  document.querySelectorAll('[data-badge="chat"]').forEach((b) => { b.textContent = total > 99 ? '99+' : total; b.classList.toggle('hidden', !total); });
 }
 
 // ---------------------------------------------------------------- notifications bell
@@ -143,9 +153,9 @@ document.addEventListener('click', (e) => {
 
 function drawChrome() {
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min)) })).filter((g) => g.items.length);
-  const link = (n) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${n.label}</span></a>`;
-  mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map(link)}`));
-  mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map(link));
+  const link = (n, label = n.label) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${label}</span>${n.badge ? html`<span class="nav-badge hidden" data-badge="${n.badge}"></span>` : ''}</a>`;
+  mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map((n) => link(n))}`));
+  mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map((n) => link(n, n.short || n.label)));
   const camps = visibleCampuses();
   const sel = $('[data-campus]');
   mount(sel, html`${camps.length > 1 || !state.me.campusIds ? html`<option value="">All campuses</option>` : ''}${camps.map((c) => html`<option value="${c.id}">${c.name}</option>`)}`);
