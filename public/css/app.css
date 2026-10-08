@@ -820,3 +820,14 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .w-icons button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 .w-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
 .w-color { width: 44px; height: 32px; padding: 2px; border-radius: 8px; }
+/* Events */
+.ev-mini { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; flex: none; }
+.ev-mini-blank { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); }
+.ev-pic { width: 120px; height: 68px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+.event-form { align-items: start; }
+.event-form .field > span { display: block; font-weight: 600; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.q-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.q-row .q-opts { grid-column: 1 / -1; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--panel-2); }

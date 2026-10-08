@@ -646,6 +646,55 @@ const MIGRATIONS = [
        OR (f.label = 'Holy Ghost date' AND f.type = 'date');
   UPDATE profile_fields SET archived = 1 WHERE label = 'New birth' AND type = 'choice';
   `,
+  // 20: events (revivals, youth nights, potlucks…) on the app's calendar, with optional sign-ups:
+  // custom questions, a cap, and a price paid through Stripe.
+  `
+  CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    image TEXT NOT NULL DEFAULT '',                    -- /uploads/app/… (public, like the app)
+    location TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,   -- NULL = the whole church
+    starts_at TEXT NOT NULL,                           -- local time, YYYY-MM-DDTHH:MM
+    ends_at TEXT,
+    all_day INTEGER NOT NULL DEFAULT 0,
+    visibility TEXT NOT NULL DEFAULT 'public',         -- public | members (signed in)
+    published INTEGER NOT NULL DEFAULT 0,
+    signup INTEGER NOT NULL DEFAULT 0,
+    capacity INTEGER,                                  -- people; NULL = no limit
+    max_per INTEGER NOT NULL DEFAULT 10,               -- people on one sign-up
+    signup_closes TEXT,                                -- local time; NULL = when it starts
+    price_cents INTEGER NOT NULL DEFAULT 0,            -- per person
+    questions TEXT NOT NULL DEFAULT '[]',              -- [{id, label, type: text|choice|yesno, options, required}]
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    archived INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX events_start ON events (starts_at);
+  CREATE TABLE event_signups (
+    id INTEGER PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,                                 -- lets a guest see or cancel their own sign-up
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    count INTEGER NOT NULL DEFAULT 1,
+    answers TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'confirmed',          -- pending (paying) | confirmed | canceled | refunded
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    stripe_session TEXT,
+    stripe_pi TEXT,
+    added_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    canceled_at TEXT
+  );
+  CREATE INDEX event_signups_event ON event_signups (event_id, status);
+  CREATE INDEX event_signups_pi ON event_signups (stripe_pi);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

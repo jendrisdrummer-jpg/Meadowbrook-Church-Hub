@@ -5,6 +5,7 @@ import { WIDGETS, SIZES, STYLES, ICONS as WIDGET_ICONS } from '../app-widgets.js
 
 const TAB_INFO = {
   home: ['Home screen', 'The widgets you arrange below.'],
+  events: ['Events', 'Everything coming up, from Events in the hub, on a calendar with service times. People sign up and pay right in the app.'],
   serve: ['Serving', 'Sign in to see your schedule, accept or decline, and add dates away.'],
   watch: ['Watch', 'Your livestream. YouTube links play right in the app.'],
   give: ['Give', 'Opens your online giving page.'],
@@ -15,7 +16,7 @@ const TAB_INFO = {
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],
 };
-const WIDGET_ICON = { button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', text: 'edit' };
+const WIDGET_ICON = { events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', text: 'edit' };
 const ICONS = WIDGET_ICONS;
 const MAX_TABS = 5;
 

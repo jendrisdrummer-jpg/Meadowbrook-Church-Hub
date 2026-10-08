@@ -1237,6 +1237,114 @@ test('finance: cash and check batches, year-end statements (Finance only)', asyn
   assert.equal(db.prepare('SELECT COUNT(*) n FROM gifts WHERE batch_id = ?').get(b.data.id).n, 0);
 });
 
+test('events: calendar, sign-ups with questions and a cap, paid sign-ups through Stripe, refunds', async (t) => {
+  const calls = [];
+  const mock = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const form = Object.fromEntries(new URLSearchParams(body));
+      calls.push({ method: req.method, url: req.url, form });
+      const send = (o) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(o));
+      if (req.url === '/checkout/sessions') return send({ id: 'cs_event_1', client_secret: 'cs_event_secret' });
+      if (req.url.startsWith('/checkout/sessions/')) return send({ id: 'cs_event_1', payment_status: 'unpaid' });
+      send({ id: 're_1' });
+    });
+  }).listen(0);
+  await new Promise((r) => mock.once('listening', r));
+  t.after(() => { mock.closeAllConnections(); mock.close(); for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_API_URL']) delete process.env[k]; });
+  const crypto = await import('node:crypto');
+  const hook = (type, object) => {
+    const raw = JSON.stringify({ id: `evt_${Math.random()}`, type, data: { object } });
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHmac('sha256', 'whsec_test').update(`${ts}.${raw}`).digest('hex');
+    return fetch(`${base}/stripe/webhook`, { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': `t=${ts},v1=${sig}` }, body: raw });
+  };
+  const year = new Date().getFullYear() + 1;
+
+  // Staff make events; volunteers can't. Drafts stay off the calendar.
+  assert.equal((await api('vol', 'POST', '/admin/events', { title: 'Nope', starts_at: `${year}-03-01T18:00` })).status, 403);
+  assert.equal((await api('admin', 'POST', '/admin/events', { title: 'Bad', starts_at: `${year}-03-01T18:00`, ends_at: `${year}-02-01T18:00` })).status, 400);
+  const potluck = (await api('admin', 'POST', '/admin/events', {
+    title: 'Fall Potluck', starts_at: `${year}-03-01T18:00`, ends_at: `${year}-03-01T20:00`, location: 'Fellowship hall', signup: true, capacity: 5, max_per: 4,
+    questions: [{ id: 'dish', label: 'What are you bringing?', type: 'choice', options: ['Main', 'Side', 'Dessert'], required: true }, { id: 'kids', label: 'Bringing kids?', type: 'yesno' }],
+  })).data;
+  assert.equal(potluck.published, false);
+  assert.ok(!(await api(null, 'GET', '/events')).data.some((e) => e.id === potluck.id));
+  await api('admin', 'PATCH', `/admin/events/${potluck.id}`, { published: true });
+  const listed = (await api(null, 'GET', '/events')).data.find((e) => e.id === potluck.id);
+  assert.deepEqual([listed.sign_ups.open, listed.sign_ups.spots_left], [true, 5]);
+  const members = (await api('admin', 'POST', '/admin/events', { title: 'Leaders retreat', starts_at: `${year}-04-01T09:00`, visibility: 'members', published: true })).data;
+  assert.equal((await api(null, 'GET', `/events/${members.id}`)).status, 404); // members only
+  assert.equal((await api('vol', 'GET', `/events/${members.id}`)).status, 200);
+  assert.ok((await api(null, 'GET', `/events?from=${year}-03-01&to=${year}-03-31`)).data.some((e) => e.id === potluck.id));
+  assert.ok(!(await api(null, 'GET', `/events?from=${year}-05-01&to=${year}-05-31`)).data.some((e) => e.id === potluck.id));
+
+  // Guests sign up with a name and email; required questions and the cap are enforced.
+  const join = (who, body) => api(who, 'POST', `/events/${potluck.id}/signups`, body);
+  assert.equal((await join(null, { name: 'Gus', email: 'gus@x.org', count: 2, answers: {} })).status, 400);
+  assert.equal((await join(null, { name: 'Gus', email: 'gus@x.org', count: 2, answers: { dish: 'Pizza' } })).status, 400);
+  assert.equal((await join(null, { name: 'Gus', email: 'gus@x.org', count: 9, answers: { dish: 'Side' } })).status, 400); // more than 4 at once
+  const mailsBefore = outbox.length;
+  const gus = await join(null, { name: 'Gus Guest', email: 'Gus@X.org', count: 3, answers: { dish: 'Side', kids: 'yes' } });
+  assert.equal(gus.status, 201);
+  assert.equal(gus.data.status, 'confirmed');
+  assert.match(outbox.slice(mailsBefore).find((m) => m.to === 'gus@x.org').subject, /You're signed up: Fall Potluck/);
+  assert.equal((await join(null, { name: 'Late', email: 'late@x.org', count: 3, answers: { dish: 'Main' } })).data.error, 'Only 2 spots left.');
+  // Signed in: the account fills in who it is, and the event shows "mine".
+  const vol = await join('vol', { count: 2, answers: { dish: 'Dessert' } });
+  assert.equal(vol.status, 201);
+  assert.equal((await api('vol', 'GET', `/events/${potluck.id}`)).data.mine.id, vol.data.id);
+  assert.equal((await api(null, 'GET', `/events/${potluck.id}`)).data.sign_ups.closed, 'This event is full.');
+  // The key is needed to see someone else's sign-up; with it a guest can cancel a free one.
+  assert.equal((await api(null, 'GET', `/event-signups/${gus.data.id}?key=nope`)).status, 404);
+  assert.equal((await api(null, 'GET', `/event-signups/${gus.data.id}?key=${gus.data.key}`)).data.count, 3);
+  assert.equal((await api(null, 'POST', `/event-signups/${gus.data.id}/cancel?key=${gus.data.key}`, {})).status, 200);
+  assert.equal((await api(null, 'GET', `/events/${potluck.id}`)).data.sign_ups.spots_left, 3);
+
+  // The hub's list, CSV and adding someone by hand.
+  const list = (await api('admin', 'GET', `/admin/events/${potluck.id}/signups`)).data;
+  assert.equal(list.rows[0].status, 'confirmed'); // confirmed sign-ups first
+  assert.deepEqual(list.rows.map((r) => r.status).sort(), ['canceled', 'confirmed']);
+  assert.equal(list.rows.find((r) => r.status === 'canceled').name, 'Gus Guest');
+  assert.ok(!('key' in list.rows[0]));
+  await api('admin', 'POST', `/admin/events/${potluck.id}/signups`, { name: 'Phone Call Phil', count: 1, answers: { dish: 'Main' } });
+  const csv = await fetch(`${base}/api/admin/events/${potluck.id}/signups.csv`, { headers: { cookie: cookies.admin } }).then((r) => r.text());
+  assert.match(csv, /^Name,Email,Phone,People,What are you bringing\?,Bringing kids\?,Paid,Signed up/);
+  assert.match(csv, /Phone Call Phil,,,1,Main/);
+  assert.ok(!/Gus Guest/.test(csv));
+  assert.equal((await api('vol', 'GET', `/admin/events/${potluck.id}/signups`)).status, 403);
+
+  // Paid events: checkout by card, confirmed by the webhook, which doesn't count as a gift.
+  const camp = (await api('admin', 'POST', '/admin/events', { title: 'Youth Camp', starts_at: `${year}-06-10T09:00`, published: true, signup: true, price: '125.00' })).data;
+  assert.equal((await api(null, 'POST', `/events/${camp.id}/signups`, { name: 'Pam', email: 'pam@x.org', count: 2 })).status, 503); // Stripe not set up
+  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PUBLISHABLE_KEY: 'pk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_test', STRIPE_API_URL: `http://127.0.0.1:${mock.address().port}` });
+  const pam = (await api(null, 'POST', `/events/${camp.id}/signups`, { name: 'Pam', email: 'pam@x.org', count: 2 })).data;
+  assert.equal(pam.status, 'pending');
+  assert.equal(pam.client_secret, 'cs_event_secret');
+  const sent = calls.find((c) => c.url === '/checkout/sessions').form;
+  assert.deepEqual([sent['line_items[0][quantity]'], sent['line_items[0][price_data][unit_amount]'], sent['metadata[kind]'], sent['payment_method_types[0]']], ['2', '12500', 'event', 'card']);
+  assert.equal((await api(null, 'GET', `/event-signups/${pam.id}?key=${pam.key}`)).data.status, 'pending');
+  assert.equal((await api('admin', 'PATCH', `/admin/events/${camp.id}`, { price: '100' })).status, 400); // someone's paying at this price
+  const gifts = db.prepare('SELECT COUNT(*) n FROM gifts').get().n;
+  await hook('checkout.session.completed', { id: 'cs_event_1', mode: 'payment', payment_status: 'paid', payment_intent: 'pi_camp', metadata: { kind: 'event', event_id: String(camp.id), signup_id: String(pam.id) } });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM gifts').get().n, gifts);
+  const done = (await api(null, 'GET', `/event-signups/${pam.id}?key=${pam.key}`)).data;
+  assert.deepEqual([done.status, done.amount_cents], ['confirmed', 25000]);
+  assert.equal((await api(null, 'POST', `/event-signups/${pam.id}/cancel?key=${pam.key}`, {})).status, 400); // paid: refunds go through the church
+  const campList = (await api('admin', 'GET', '/admin/events')).data.find((e) => e.id === camp.id);
+  assert.deepEqual([campList.people, campList.paid], [2, 25000]);
+  // Refund from the hub.
+  await api('admin', 'POST', `/admin/event-signups/${pam.id}/cancel`, { refund: true });
+  assert.deepEqual([calls.at(-1).url, calls.at(-1).form.payment_intent], ['/refunds', 'pi_camp']);
+  assert.equal(db.prepare('SELECT status FROM event_signups WHERE id = ?').get(pam.id).status, 'refunded');
+  // Events with payments are hidden, not deleted.
+  await api('admin', 'DELETE', `/admin/events/${camp.id}`);
+  assert.equal(db.prepare('SELECT archived FROM events WHERE id = ?').get(camp.id).archived, 1);
+  await api('admin', 'DELETE', `/admin/events/${members.id}`);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM events WHERE id = ?').get(members.id).n, 0);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

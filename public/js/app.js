@@ -20,6 +20,7 @@ const NAV = [
     { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer', mobile: true },
     { path: '/schedule', label: 'Schedule', icon: 'teams', min: 'leader' },
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
+    { path: '/events', label: 'Events', icon: 'calendar', min: 'staff' },
     { path: '/templates', label: 'Templates', icon: 'copy', min: 'staff' },
   ] },
   { group: 'Finance', items: [
@@ -64,6 +65,8 @@ const ROUTES = [
   [/^\/services\/(\d+)$/, 'service'],
   [/^\/schedule$/, 'schedule'],
   [/^\/songs$/, 'songs'],
+  [/^\/events$/, 'events'],
+  [/^\/events\/(new|\d+)(?:\/(signups))?$/, 'event'],
   [/^\/templates$/, 'templates'],
   [/^\/templates\/(\d+)$/, 'template'],
   [/^\/attendance$/, 'attendance'],

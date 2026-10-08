@@ -18,6 +18,7 @@ import fieldRoutes from './routes/fields.js';
 import templateRoutes from './routes/templates.js';
 import notificationRoutes from './routes/notifications.js';
 import appRoutes from './routes/app.js';
+import eventRoutes from './routes/events.js';
 import chatRoutes from './routes/chat.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
 import callRoutes, { syncCalls } from './routes/calls.js';
@@ -64,6 +65,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(templateRoutes(db));
   api.use(notificationRoutes(db));
   api.use(appRoutes(db, { uploadDir }));
+  api.use(eventRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
@@ -143,6 +145,11 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.get('/give', page('give.html'));
   // Back from Stripe after giving in the app: on to the app's thank-you.
   app.get('/app/give-done', (req, res) => res.redirect(`/app/#/give?done=${encodeURIComponent(String(req.query.session_id || '').replace(/[^\w]/g, ''))}`));
+  // Back from paying for an event (when Stripe had to leave the page).
+  app.get('/app/event-done', (req, res) => {
+    const n = (v) => String(v || '').replace(/[^\w]/g, '');
+    res.redirect(`/app/#/events/${n(req.query.event)}?signup=${n(req.query.signup)}&key=${n(req.query.key)}`);
+  });
 
   app.use(errorHandler);
   return app;

@@ -9,6 +9,7 @@ import { taskList, taskPage } from '../tasks.js';
 import { giveForm, giveThanks, myGiving } from '../give.js';
 import { homeGrid } from './widgets.js';
 import { editHome } from './home-edit.js';
+import { eventsPage, eventPage } from './events.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -99,6 +100,11 @@ async function route() {
       drawTabs(t.on ? t.id : 'more');
       return await give(el, t, q);
     }
+    if (parts[0] === 'events' && parts[1]) {
+      const t = app.config.tabs.find((x) => x.type === 'events');
+      drawTabs(t?.on ? t.id : 'more');
+      return await eventPage(el, parts[1], q, { app, setTitle, signInHref });
+    }
     if (parts[0] === 'tasks') { drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
     if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
@@ -120,8 +126,9 @@ async function home(el, tab) {
   const has = (type) => widgets.some((w) => w.type === type);
   const mine = has('serving') && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
   const myTasks = has('tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
+  const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
   const draw = () => {
-    const ctx = { app, mine, tasks: myTasks, edit: editing, signInHref, videoEmbed };
+    const ctx = { app, mine, tasks: myTasks, events, edit: editing, signInHref, videoEmbed };
     mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
@@ -452,6 +459,6 @@ async function inbox(el) {
   if (d.unread) post('/notifications/read', {}).catch(() => {});
 }
 
-const PAGES = { home, serve, watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab), tasks: (el, tab, q) => tasks(el, tab, null, q) };
+const PAGES = { home, serve, events: (el, tab) => eventsPage(el, tab, { app, setTitle, signInHref }), watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab), tasks: (el, tab, q) => tasks(el, tab, null, q) };
 
 boot().catch((e) => { document.body.textContent = e.message; });
