@@ -543,12 +543,16 @@ test('sending requests: drafts, one notice per person, email reply links, remova
   const unsent = (await api('admin', 'GET', `/assignments/unsent?service_ids=${s1.id},${s2.id}`)).data;
   assert.equal(unsent.length, 3);
   assert.equal(unsent.find((a) => a.person_id === noEmail.id).reachable, false);
+  // Schedulers who put themselves on get their own request too.
+  const me = db.prepare("SELECT person_id FROM users WHERE email = 'admin@mb.org'").get();
+  if (!me.person_id) db.prepare("UPDATE users SET person_id = ? WHERE email = 'admin@mb.org'").run(noEmail.id);
   // Leaders of other teams can't send this team's requests.
   assert.equal((await api('north', 'POST', '/assignments/send', { service_ids: [s1.id, s2.id] })).data.sent, 0);
 
   const before = outbox.length;
   const sent = (await api('admin', 'POST', '/assignments/send', { service_ids: [s1.id, s2.id], team_id: team.data.id })).data;
   assert.deepEqual([sent.sent, sent.people], [3, 2]);
+  assert.ok((await api('admin', 'GET', '/notifications')).data.items.some((n) => /You’re scheduled: Aisle/.test(n.title)));
   const mails = outbox.slice(before).filter((m) => m.to === 'pat@example.com');
   assert.equal(mails.length, 1);
   assert.match(mails[0].subject, /scheduled 2 times/);

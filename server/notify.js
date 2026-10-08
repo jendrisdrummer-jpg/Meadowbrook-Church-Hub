@@ -113,13 +113,12 @@ function mail(db, to, subject, lines, { spots = [], footer = true } = {}) {
 
 // ---------------------------------------------------------------- scheduling notices
 // "You're scheduled": one message per person (app and email), however many spots they got.
-export function notifyScheduled(db, assignmentIds, { byUserId } = {}) {
+export function notifyScheduled(db, assignmentIds) {
   const rows = assignmentRows(db, assignmentIds).filter((a) => a.status !== 'declined');
   const byPerson = Map.groupBy(rows, (a) => a.person_id);
   const users = new Map(usersOf(db, [...byPerson.keys()]).map((u) => [u.person_id, u.id]));
   const emails = emailTargets(db, [...byPerson.keys()]);
   for (const [personId, list] of byPerson) {
-    if (users.get(personId) === byUserId) continue; // scheduling yourself needs no notice
     const one = list.length === 1 ? list[0] : null;
     const title = one ? `You’re scheduled: ${one.position}` : `You’re scheduled ${list.length} times`;
     if (users.get(personId)) {
