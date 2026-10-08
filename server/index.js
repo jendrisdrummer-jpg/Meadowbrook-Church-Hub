@@ -10,7 +10,9 @@ import setupRoutes from './routes/setup.js';
 import peopleRoutes from './routes/people.js';
 import teamRoutes from './routes/teams.js';
 import serviceRoutes from './routes/services.js';
+import seriesRoutes from './routes/series.js';
 import checkinRoutes from './routes/checkin.js';
+import attendanceRoutes from './routes/attendance.js';
 import dashboardRoutes from './routes/dashboard.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -40,7 +42,9 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(peopleRoutes(db, { uploadDir }));
   api.use(teamRoutes(db));
   api.use(serviceRoutes(db));
+  api.use(seriesRoutes(db));
   api.use(checkinRoutes(db));
+  api.use(attendanceRoutes(db));
   api.use(dashboardRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);

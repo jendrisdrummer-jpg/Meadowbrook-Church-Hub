@@ -1,27 +1,102 @@
-// Upcoming services across campuses, with how full each schedule is.
-import { get, post, html, mount, icon, dialog, formData, options, toast, fmtDate, fmtTime, today, addDays } from '../lib.js';
-import { state, can, setTitle, go, visibleCampuses, campusQuery } from '../app.js';
+// Services: a month calendar (or list) of every service across campuses, plus repeating services.
+import { get, html, mount, icon, fmtDate, fmtTime, today, addDays } from '../lib.js';
+import { can, setTitle, go, campusQuery } from '../app.js';
+import { newServiceDialog, repeatLabel } from '../service-forms.js';
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default async function services(el) {
-  setTitle('Services', can('staff') ? html`<button class="btn" data-generate>${icon('calendar')} Add upcoming weeks</button><button class="btn primary" data-add>${icon('plus')} One-off service</button>` : '');
-  let from = sessionStorage.getItem('mb.services.from') || today();
-  const draw = async () => {
+  const prefs = JSON.parse(sessionStorage.getItem('mb.services') || '{}');
+  let view = prefs.view || 'month';
+  let month = prefs.month || today().slice(0, 7);
+  let from = prefs.from || today();
+  const staff = can('staff');
+  const leader = can('leader');
+
+  setTitle('Services', html`${leader ? html`<div class="seg" role="tablist">
+      <button data-view="month" class="${view === 'month' ? 'on' : ''}">Month</button><button data-view="list" class="${view === 'list' ? 'on' : ''}">List</button></div>` : ''}
+    ${staff ? html`<button class="btn primary" data-new>${icon('plus')} New service</button>` : ''}`);
+  const top = document.querySelector('[data-actions]');
+  top.querySelector('[data-new]')?.addEventListener('click', () => create());
+  top.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    view = b.dataset.view;
+    top.querySelectorAll('[data-view]').forEach((x) => x.classList.toggle('on', x === b));
+    draw();
+  }));
+
+  async function create(date) {
+    const id = await newServiceDialog(date);
+    if (id) go(`/services/${id}`);
+    else draw();
+  }
+
+  const remember = () => sessionStorage.setItem('mb.services', JSON.stringify({ view, month, from }));
+
+  async function draw() {
+    remember();
+    if (view === 'month' && leader) await drawMonth();
+    else await drawList();
+  }
+
+  // ---------------------------------------------------------------- month
+  async function drawMonth() {
+    const first = `${month}-01`;
+    const gridStart = addDays(first, -new Date(`${first}T12:00:00Z`).getUTCDay());
+    const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+    const [list, series] = await Promise.all([
+      get(`/services?from=${days[0]}&to=${days[41]}${campusQuery('&')}`),
+      leader ? get('/series') : [],
+    ]);
+    const byDay = new Map();
+    for (const s of list) byDay.set(s.starts_at.slice(0, 10), [...(byDay.get(s.starts_at.slice(0, 10)) || []), s]);
+    const label = new Date(`${first}T12:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const shownSeries = series.filter((t) => !campusQuery() || campusQuery().endsWith(`=${t.campus_id}`));
+    const weeks = days.slice(35).every((d) => !d.startsWith(month)) ? 5 : 6;
+
+    mount(el, html`<div class="card">
+      <div class="row" style="margin-bottom:12px"><button class="btn small" data-shift="-1" aria-label="Previous month">←</button>
+        <button class="btn small" data-shift="0">Today</button><button class="btn small" data-shift="1" aria-label="Next month">→</button>
+        <h2 style="margin:0 0 0 6px">${label}</h2></div>
+      <div class="cal">${WEEKDAYS.map((w) => html`<div class="cal-dow">${w}</div>`)}
+        ${days.slice(0, weeks * 7).map((d) => html`<div class="cal-day ${d.startsWith(month) ? '' : 'out'} ${d === today() ? 'today' : ''} ${staff ? 'can-add' : ''}" data-day="${d}">
+          <div class="cal-num">${Number(d.slice(8))}</div>
+          ${(byDay.get(d) || []).map((s) => {
+            const open = Math.max(0, s.needed - s.filled);
+            return html`<a class="cal-svc" href="#/services/${s.id}" style="--c:${s.campus_color}" title="${s.title || s.type_name || ''}">
+              <span class="t">${fmtTime(s.starts_at)}</span> ${s.campus_short || s.campus_name}
+              ${s.needed ? (open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good">${icon('check')}</span>`) : ''}</a>`;
+          })}
+        </div>`)}</div>
+      ${staff ? html`<p class="muted small" style="margin:10px 0 0">Click an empty part of a day to add a service. Numbers show open volunteer spots.</p>` : ''}
+    </div>
+    ${leader ? html`<div class="card"><div class="card-head"><h2>Repeating services</h2>${staff ? html`<button class="btn small" data-new-series>${icon('plus')} Add repeating service</button>` : ''}</div>
+      ${shownSeries.length ? html`<table class="list"><tbody>${shownSeries.map((t) => html`<tr class="${t.next_at ? 'click' : ''}" data-next="${t.next_at ? t.next_at : ''}">
+        <td><span class="campus-tag"><span class="dot" style="background:${t.campus_color}"></span>${t.campus_short || t.campus_name}</span></td>
+        <td><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}</div></td>
+        <td class="small">${t.needs.length ? `${t.needs.reduce((a, n) => a + n.count, 0)} positions` : html`<span class="muted">No positions</span>`}</td>
+        <td class="muted small nowrap">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td></tr>`)}</tbody></table>`
+        : html`<div class="empty">No repeating services yet. Add your Sunday services once and they fill the calendar automatically.</div>`}
+    </div>` : ''}`);
+  }
+
+  // ---------------------------------------------------------------- list
+  async function drawList() {
     const to = addDays(from, 41);
     const list = await get(`/services?from=${from}&to=${to}${campusQuery('&')}`);
-    const byDay = Map.groupBy ? Map.groupBy(list, (s) => s.starts_at.slice(0, 10)) : groupBy(list);
+    const byDay = new Map();
+    for (const s of list) byDay.set(s.starts_at.slice(0, 10), [...(byDay.get(s.starts_at.slice(0, 10)) || []), s]);
     mount(el, html`<div class="row" style="margin-bottom:14px">
-        <button class="btn small" data-shift="-42">← Earlier</button><button class="btn small" data-shift="0">Today</button><button class="btn small" data-shift="42">Later →</button>
+        <button class="btn small" data-from="-42">← Earlier</button><button class="btn small" data-from="0">Today</button><button class="btn small" data-from="42">Later →</button>
         <span class="muted small">${fmtDate(from)} – ${fmtDate(to)}</span></div>
       ${list.length ? [...byDay].map(([day, rows]) => html`<div class="card">
         <h2>${fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
         <table class="list"><tbody>${rows.map((s) => html`<tr class="click" data-id="${s.id}">
           <td class="nowrap" style="width:110px"><b>${fmtTime(s.starts_at)}</b></td>
           <td><span class="campus-tag"><span class="dot" style="background:${s.campus_color}"></span>${s.campus_short || s.campus_name}</span>
-            ${s.type_name ? html`<span class="muted small"> · ${s.type_name}</span>` : ''}
             ${s.series || s.title ? html`<div class="small">${[s.series, s.title].filter(Boolean).join(' · ')}</div>` : ''}</td>
-          <td style="text-align:right" class="nowrap">${can('leader') ? fill(s) : ''}</td></tr>`)}</tbody></table></div>`)
-      : html`<div class="card empty">No services in these weeks.${can('staff') ? html` Use <b>Add upcoming weeks</b> to create them from your regular service times (set those up in <a href="#/settings/services">Settings → Service times</a>).` : ''}</div>`}`);
-  };
+          <td style="text-align:right" class="nowrap">${leader ? fill(s) : ''}</td></tr>`)}</tbody></table></div>`)
+      : html`<div class="card empty">No services in these weeks.${staff ? ' Use New service to add one, or a repeating Sunday service.' : ''}</div>`}`);
+  }
 
   function fill(s) {
     if (!s.needed) return html`<span class="muted small">${s.filled} scheduled</span>`;
@@ -33,52 +108,34 @@ export default async function services(el) {
   el.onclick = (e) => {
     const shift = e.target.closest('[data-shift]');
     if (shift) {
-      from = shift.dataset.shift === '0' ? today() : addDays(from, Number(shift.dataset.shift));
-      sessionStorage.setItem('mb.services.from', from);
+      const n = Number(shift.dataset.shift);
+      if (!n) month = today().slice(0, 7);
+      else {
+        const d = new Date(`${month}-15T12:00:00Z`);
+        d.setUTCMonth(d.getUTCMonth() + n);
+        month = d.toISOString().slice(0, 7);
+      }
       return draw();
     }
-    const tr = e.target.closest('tr[data-id]');
-    if (tr) go(`/services/${tr.dataset.id}`);
+    const fromBtn = e.target.closest('[data-from]');
+    if (fromBtn) {
+      from = fromBtn.dataset.from === '0' ? today() : addDays(from, Number(fromBtn.dataset.from));
+      return draw();
+    }
+    if (e.target.closest('[data-new-series]')) return create();
+    const next = e.target.closest('tr[data-next]');
+    if (next?.dataset.next) {
+      const day = next.dataset.next.slice(0, 10);
+      const svc = el.querySelector(`.cal-day[data-day="${day}"] .cal-svc`);
+      if (svc) { location.hash = svc.getAttribute('href'); return; }
+      month = day.slice(0, 7);
+      return draw();
+    }
+    const row = e.target.closest('tr[data-id]');
+    if (row) return go(`/services/${row.dataset.id}`);
+    const cell = e.target.closest('.cal-day.can-add');
+    if (cell && !e.target.closest('.cal-svc')) create(cell.dataset.day);
   };
 
-  const top = document.querySelector('[data-actions]');
-  top.querySelector('[data-generate]')?.addEventListener('click', async () => {
-    const types = (await get('/service-types')).filter((t) => t.day_of_week != null && (!state.campusId || t.campus_id === state.campusId));
-    if (!types.length) { toast('Set up your regular service times first in Settings → Service times.', 'bad'); return; }
-    const ok = await dialog({
-      title: 'Add upcoming weeks', submit: 'Create services',
-      body: html`<p class="muted small">Creates services for your regular times. Weeks that already have them are skipped.</p>
-        <div class="form"><label class="field">Starting<input type="date" name="from" value="${today()}"></label>
-        <label class="field">How many weeks<input type="number" name="weeks" value="8" min="1" max="52"></label></div>
-        <div class="stack" style="margin-top:12px">${types.map((t) => html`<label class="check"><input type="checkbox" name="t" value="${t.id}" checked> ${t.name} <span class="muted small">(${visibleCampuses().find((c) => c.id === t.campus_id)?.name || ''})</span></label>`)}</div>`,
-      onSubmit: async (f) => {
-        const r = await post('/services/generate', { from: f.from.value, weeks: Number(f.weeks.value), service_type_ids: [...f.querySelectorAll('[name=t]:checked')].map((c) => Number(c.value)) });
-        toast(r.created ? `Added ${r.created} services.` : 'Those weeks already had services.');
-      },
-    });
-    if (ok) draw();
-  });
-  top.querySelector('[data-add]')?.addEventListener('click', async () => {
-    let created;
-    await dialog({
-      title: 'One-off service or event',
-      body: html`<div class="form">
-        <label class="field">Campus<select name="campus_id" required>${options(visibleCampuses().map((c) => ({ value: c.id, label: c.name })), state.campusId)}</select></label>
-        <label class="field">Starts<input type="datetime-local" name="starts_at" required></label>
-        <label class="field">Length (minutes)<input type="number" name="duration_min" value="75"></label>
-        <label class="field">Title<input type="text" name="title" placeholder="Christmas Eve"></label></div>`,
-      onSubmit: async (f) => { created = await post('/services', formData(f)); },
-    });
-    if (created) go(`/services/${created.id}`);
-  });
   await draw();
-}
-
-function groupBy(list) {
-  const m = new Map();
-  for (const s of list) {
-    const k = s.starts_at.slice(0, 10);
-    m.set(k, [...(m.get(k) || []), s]);
-  }
-  return m;
 }

@@ -164,6 +164,8 @@ export default function peopleRoutes(db, { uploadDir }) {
         db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
       }
       db.prepare('UPDATE OR IGNORE team_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('UPDATE OR IGNORE attendance SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
       db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);

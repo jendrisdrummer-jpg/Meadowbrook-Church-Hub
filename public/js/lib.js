@@ -235,3 +235,81 @@ export function shrinkImage(file, max = 640) {
     img.src = URL.createObjectURL(file);
   });
 }
+
+// An editable list of chips: type and press Enter (or click Add) to add, × to remove,
+// drag to reorder. Calls onChange(list) after every change.
+export function chips(el, list, onChange, { placeholder = 'Add…', addLabel = 'Add' } = {}) {
+  let items = [...list];
+  let dragFrom = null;
+  const draw = () => {
+    mount(el, html`<div class="chips">${items.map((v, i) => html`<span class="chip" draggable="true" data-i="${i}">${v}<button type="button" class="chip-x" data-x="${i}" aria-label="Remove ${v}">${icon('x')}</button></span>`)}
+      <span class="chip-add"><input type="text" placeholder="${placeholder}" data-new><button type="button" class="btn small" data-add>${icon('plus')} ${addLabel}</button></span></div>`);
+    const input = el.querySelector('[data-new]');
+    const add = () => {
+      const v = input.value.trim();
+      if (!v || items.includes(v)) { input.value = ''; return; }
+      items.push(v);
+      onChange(items);
+      draw();
+      el.querySelector('[data-new]').focus();
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+    el.querySelector('[data-add]').onclick = add;
+  };
+  el.onclick = (e) => {
+    const x = e.target.closest('[data-x]');
+    if (!x) return;
+    items.splice(Number(x.dataset.x), 1);
+    onChange(items);
+    draw();
+  };
+  el.ondragstart = (e) => { dragFrom = Number(e.target.closest('.chip')?.dataset.i); };
+  el.ondragover = (e) => e.preventDefault();
+  el.ondrop = (e) => {
+    const to = Number(e.target.closest('.chip')?.dataset.i);
+    if (Number.isNaN(to) || dragFrom == null || to === dragFrom) return;
+    const [moved] = items.splice(dragFrom, 1);
+    items.splice(to, 0, moved);
+    dragFrom = null;
+    onChange(items);
+    draw();
+  };
+  draw();
+  return { get: () => items };
+}
+
+// Search and tick several people at once. Resolves to the chosen people ([] if cancelled).
+export function pickPeople(title = 'Choose people', { exclude = new Set(), submit = 'Add', extra = '' } = {}) {
+  const chosen = new Map();
+  return dialog({
+    title, wide: true, submit,
+    body: html`<input type="search" placeholder="Search by name, email or phone" data-q>
+      <div class="row small" style="margin-top:8px"><span class="muted" data-count>No one selected</span></div>
+      <div class="picker-list multi" data-list><div class="muted small">Start typing a name…</div></div>${extra}`,
+    onOpen: (d) => {
+      const list = d.querySelector('[data-list]');
+      let rows = [];
+      const count = () => { d.querySelector('[data-count]').textContent = chosen.size ? `${chosen.size} selected: ${[...chosen.values()].map(displayName).join(', ')}` : 'No one selected'; };
+      const draw = () => mount(list, rows.length ? rows.map((p, i) => html`<label class="pick ${exclude.has(p.id) ? 'already' : ''}">
+          <input type="checkbox" data-i="${i}" ${chosen.has(p.id) ? 'checked' : ''} ${exclude.has(p.id) ? 'disabled' : ''}>${avatar(p)}
+          <span>${displayName(p)}<br><small class="muted">${exclude.has(p.id) ? 'Already on this team' : p.email || p.phone || p.household_name || ''}</small></span></label>`)
+        : html`<div class="muted small">No one found.</div>`);
+      const run = debounce(async (q) => {
+        if (q.trim().length < 2) return;
+        rows = (await get(`/people?q=${encodeURIComponent(q)}&limit=30`)).rows;
+        draw();
+      });
+      d.querySelector('[data-q]').addEventListener('input', (e) => run(e.target.value));
+      list.addEventListener('change', (e) => {
+        const p = rows[e.target.dataset.i];
+        if (!p) return;
+        if (e.target.checked) chosen.set(p.id, p); else chosen.delete(p.id);
+        count();
+      });
+    },
+    onSubmit: (form) => {
+      if (!chosen.size) { toast('Tick at least one person.'); return false; }
+      return { people: [...chosen.values()], form };
+    },
+  }).then((r) => r || { people: [] });
+}

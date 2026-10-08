@@ -1,5 +1,5 @@
 // All ministry teams.
-import { get, post, html, mount, icon, dialog, formData, options, toast } from '../lib.js';
+import { get, post, html, mount, icon, dialog, formData, options, toast, chips } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 
 export default async function teams(el) {
@@ -14,17 +14,22 @@ export default async function teams(el) {
 
   document.querySelector('[data-add]')?.addEventListener('click', async () => {
     let created;
+    let positions = [];
     await dialog({
       title: 'New team',
       body: html`<div class="form">
         <label class="field wide">Team name<input type="text" name="name" required placeholder="Worship"></label>
         <label class="field">Campus<select name="campus_id">${options(visibleCampuses().map((c) => ({ value: c.id, label: c.name })), state.campusId, state.me.campusIds ? {} : { blank: 'All campuses (church-wide)' })}</select></label>
         <label class="field">Colour<input type="color" name="color" value="#4f6bed" style="height:38px;width:100%"></label>
-        <label class="field wide">Positions, one per line<textarea name="positions" placeholder="Worship Leader\nVocals\nAcoustic Guitar\nDrums\nKeys"></textarea></label>
+        <div class="field wide"><span>Positions</span><div data-chips></div>
+          <span class="muted small">For example Worship Leader, Vocals, Drums. You can add more later.</span></div>
       </div>`,
+      onOpen: (d) => chips(d.querySelector('[data-chips]'), [], (list) => { positions = list; }, { placeholder: 'Position name', addLabel: 'Add' }),
       onSubmit: async (f) => {
         const b = formData(f);
-        created = await post('/teams', { ...b, positions: b.positions.split('\n').map((s) => s.trim()).filter(Boolean) });
+        // Include a position typed but not yet added.
+        const pending = f.querySelector('[data-new]')?.value.trim();
+        created = await post('/teams', { ...b, positions: pending && !positions.includes(pending) ? [...positions, pending] : positions });
       },
     });
     if (created) { toast('Team created.'); go(`/teams/${created.id}`); }

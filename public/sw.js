@@ -1,7 +1,7 @@
 // Keeps the check-in screen loading when a tablet loses its internet connection.
 // Only the check-in page and its files are cached; everything else goes straight to the network.
-const CACHE = 'mb-checkin-v1';
-const FILES = ['/checkin', '/css/app.css', '/css/checkin.css', '/js/checkin.js', '/js/checkin-rules.js', '/js/lib.js'];
+const CACHE = 'mb-checkin-v2';
+const FILES = ['/checkin', '/css/app.css', '/css/checkin.css', '/js/checkin.js', '/js/checkin-rules.js', '/js/lib.js', '/js/theme.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

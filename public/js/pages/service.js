@@ -1,6 +1,8 @@
 // One service: order of service, who's serving, and attendance counts.
 import { get, post, patch, put, del, html, raw, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, confirm, fmtDate, fmtTime, fmtLength, parseLength, debounce, addDays, pickPerson } from '../lib.js';
 import { state, can, setTitle, go } from '../app.js';
+import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
+import { drawRollCall } from '../rollcall.js';
 
 export default async function service(el, id) {
   const s = await get(`/services/${id}`);
@@ -11,7 +13,7 @@ export default async function service(el, id) {
 
   mount(el, html`
     <div class="row muted" style="margin:-6px 0 12px"><span class="campus-tag"><span class="dot" style="background:${s.campus.color}"></span>${s.campus.name}</span>
-      ${s.type ? html`<span>· ${s.type.name}</span>` : ''}${s.series ? html`<span>· ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
+      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span>· ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <div class="tabs" role="tablist">
       <button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">Order of service</button>
@@ -29,26 +31,7 @@ export default async function service(el, id) {
   show(['plan', 'people', 'counts'].includes(tab) && (tab !== 'counts' || can('leader')) ? tab : 'plan');
 
   document.querySelector('[data-actions] [data-edit]')?.addEventListener('click', async () => {
-    const r = await dialog({
-      title: 'Service details', submit: 'Save',
-      body: html`<div class="form">
-        <label class="field">Starts<input type="datetime-local" name="starts_at" value="${s.starts_at}" required></label>
-        <label class="field">Length (minutes)<input type="number" name="duration_min" value="${s.duration_min}"></label>
-        <label class="field">Sermon series<input type="text" name="series" value="${s.series}"></label>
-        <label class="field">Title<input type="text" name="title" value="${s.title}"></label>
-        <label class="field wide">Notes for the team<textarea name="notes">${s.notes}</textarea></label>
-        <label class="check wide"><input type="checkbox" name="delete"> Delete this service</label></div>`,
-      onSubmit: async (f) => {
-        const b = formData(f);
-        if (b.delete) {
-          if (!(await confirm('Delete this service?', 'Its order of service and schedule will be removed.'))) return false;
-          await del(`/services/${s.id}`);
-          return 'deleted';
-        }
-        delete b.delete;
-        await patch(`/services/${s.id}`, b);
-      },
-    });
+    const r = await editServiceDialog(s);
     if (r === 'deleted') go('/services');
     else if (r) service(el, id);
   });
@@ -167,8 +150,9 @@ function drawPeople(panel, s) {
   const teams = [...new Set(s.positions.map((p) => p.team_name))];
   mount(panel, html`<div class="card">
     <div class="card-head"><h2>Who’s serving</h2>
-      ${anyScheduling && s.type ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
-      ${anyScheduling ? html`<button class="btn small" data-add-position>${icon('plus')} Position</button>` : ''}</div>
+      ${anyScheduling && s.positions.some((p) => p.needed) ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
+      ${can('staff') ? html`<button class="btn small" data-needs>${icon('edit')} Positions needed</button>` : ''}
+      ${anyScheduling ? html`<button class="btn small ghost" data-add-position title="Schedule someone in a position this service doesn't usually need">${icon('plus')} Extra position</button>` : ''}</div>
     ${s.positions.length ? teams.map((team) => html`<h3 style="margin-top:14px">${team}</h3><div class="grid three">
       ${s.positions.filter((p) => p.team_name === team).map((p) => {
         const live = p.assignments.filter((a) => a.status !== 'declined');
@@ -181,7 +165,7 @@ function drawPeople(panel, s) {
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
         </div>`;
       })}</div>`)
-      : html`<div class="empty">No positions for this service yet.${can('staff') ? ' Set which positions each service needs in Settings → Service times.' : ''}</div>`}
+      : html`<div class="empty">No positions for this service yet.${can('staff') ? ' Click Positions needed to choose who this service needs.' : ''}</div>`}
   </div>`);
 
   panel.onclick = async (e) => {
@@ -194,6 +178,9 @@ function drawPeople(panel, s) {
         const r = await post(`/services/${s.id}/autofill`);
         toast(r.added.length ? `Scheduled ${r.added.length}: ${r.added.map((a) => a.person).join(', ')}` : 'No one available to fill the open spots.');
         reload();
+      }
+      if (b.matches('[data-needs]')) {
+        if (await needsDialog(s)) reload();
       }
       if (b.matches('[data-add-position]')) {
         const teams = (await get('/teams')).filter((t) => t.positions.length);
@@ -249,19 +236,5 @@ async function assign(s, pos, reload) {
 
 // ---------------------------------------------------------------- attendance
 function drawCounts(panel, s) {
-  const areas = state.settings.headcount_areas || ['Auditorium'];
-  const value = (a) => s.headcounts.find((h) => h.area === a)?.count ?? '';
-  mount(panel, html`<div class="card" style="max-width:520px">
-    <h2>Headcount</h2>
-    <p class="muted small">Kids checked in are counted automatically from Kids Check-in.</p>
-    <form class="form" data-counts>${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>
-    <div class="row end" style="margin-top:12px"><span class="muted small" data-saved></span></div>
-  </div>`);
-  const form = panel.querySelector('[data-counts]');
-  form.addEventListener('input', debounce(async () => {
-    try {
-      s.headcounts = await put(`/services/${s.id}/headcounts`, { counts: formData(form) });
-      panel.querySelector('[data-saved]').textContent = 'Saved';
-    } catch (e) { fail(e); }
-  }, 600));
+  drawRollCall(panel, s).catch(fail);
 }

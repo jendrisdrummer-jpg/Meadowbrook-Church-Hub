@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
+import { ensureServices } from './series.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -37,6 +38,7 @@ export default function serviceRoutes(db) {
   r.get('/services', requireRole('volunteer'), (req, res) => {
     const from = isDate(req.query.from) ? req.query.from : new Date(Date.now() - 864e5).toISOString().slice(0, 10);
     const to = isDate(req.query.to) ? req.query.to : new Date(Date.now() + 56 * 864e5).toISOString().slice(0, 10);
+    ensureServices(db, to);
     const cf = campusFilter(req.user, 's.campus_id');
     const args = [from, `${to}T23:59`, ...cf.args];
     let extra = '';
@@ -44,7 +46,7 @@ export default function serviceRoutes(db) {
     // Volunteers only see the services they serve at.
     if (rank(req.user.role) < rank('leader')) { extra += ' AND s.id IN (SELECT service_id FROM assignments WHERE person_id = ?)'; args.push(req.user.personId ?? -1); }
     const rows = db.prepare(`SELECT s.*, st.name type_name, c.name campus_name, c.short_name campus_short, c.color campus_color,
-        (SELECT COALESCE(SUM(count), 0) FROM service_type_needs n WHERE n.service_type_id = s.service_type_id) needed,
+        (SELECT COALESCE(SUM(count), 0) FROM service_needs n WHERE n.service_id = s.id) needed, st.every_weeks,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status != 'declined') filled,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'accepted') accepted,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'declined') declined
@@ -53,42 +55,37 @@ export default function serviceRoutes(db) {
     res.json(rows);
   });
 
+  // A one-off service or event. Repeating services are created through /series.
   r.post('/services', requireRole('staff'), (req, res) => {
     const b = req.body || {};
-    let campusId = int(b.campus_id);
-    const type = b.service_type_id ? db.prepare('SELECT * FROM service_types WHERE id = ?').get(int(b.service_type_id)) : null;
-    if (b.service_type_id && !type) throw bad('Unknown service type.');
-    campusId ??= type?.campus_id;
-    if (!campusId) throw bad('Pick a campus.');
+    const campusId = int(b.campus_id);
+    if (!campusId || !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId)) throw bad('Pick a campus.');
     if (!canCampus(req.user, campusId)) throw forbidden();
     if (!isDateTime(b.starts_at)) throw bad('Pick a date and time.');
-    const info = db.prepare('INSERT INTO services (campus_id, service_type_id, title, series, starts_at, duration_min, notes) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(campusId, type?.id ?? null, str(b.title, 200), str(b.series, 200), b.starts_at, int(b.duration_min) ?? type?.duration_min ?? 75, str(b.notes));
-    res.status(201).json(getService(info.lastInsertRowid));
+    const id = tx(db, () => {
+      const info = db.prepare('INSERT INTO services (campus_id, title, series, starts_at, duration_min, notes) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(campusId, str(b.title, 200), str(b.series, 200), b.starts_at, int(b.duration_min) ?? 75, str(b.notes));
+      saveNeeds(info.lastInsertRowid, b.needs);
+      return info.lastInsertRowid;
+    });
+    res.status(201).json(getService(id));
   });
 
-  // Create the next N weeks of services from service types' regular day and time (skips dates that exist).
-  r.post('/services/generate', requireRole('staff'), (req, res) => {
-    const b = req.body || {};
-    const weeks = Math.min(Math.max(int(b.weeks) ?? 8, 1), 52);
-    const ids = (b.service_type_ids || []).map((x) => int(x));
-    const types = db.prepare('SELECT * FROM service_types WHERE archived = 0 AND day_of_week IS NOT NULL').all()
-      .filter((t) => (!ids.length || ids.includes(t.id)) && canCampus(req.user, t.campus_id));
-    const start = isDate(b.from) ? new Date(`${b.from}T12:00:00Z`) : new Date();
-    const exists = db.prepare('SELECT 1 FROM services WHERE service_type_id = ? AND starts_at = ?');
-    const ins = db.prepare('INSERT INTO services (campus_id, service_type_id, starts_at, duration_min) VALUES (?, ?, ?, ?)');
-    let created = 0;
-    tx(db, () => {
-      for (const t of types) {
-        const d = new Date(start);
-        d.setUTCDate(d.getUTCDate() + ((t.day_of_week - d.getUTCDay() + 7) % 7));
-        for (let w = 0; w < weeks; w++, d.setUTCDate(d.getUTCDate() + 7)) {
-          const at = `${d.toISOString().slice(0, 10)}T${t.start_time}`;
-          if (!exists.get(t.id, at)) { ins.run(t.campus_id, t.id, at, t.duration_min); created++; }
-        }
-      }
-    });
-    res.json({ created });
+  function saveNeeds(serviceId, needs) {
+    if (!Array.isArray(needs)) return;
+    db.prepare('DELETE FROM service_needs WHERE service_id = ?').run(serviceId);
+    const ins = db.prepare('INSERT INTO service_needs (service_id, position_id, count) VALUES (?, ?, ?)');
+    for (const n of needs) {
+      const count = Math.min(int(n.count) ?? 1, 50);
+      if (count > 0) ins.run(serviceId, int(n.position_id, 'Position'), count);
+    }
+  }
+
+  // Positions needed for just this service.
+  r.put('/services/:id/needs', requireRole('staff'), (req, res) => {
+    const s = service(req, req.params.id);
+    tx(db, () => saveNeeds(s.id, req.body?.needs || []));
+    res.json({ ok: true });
   });
 
   r.get('/services/:id', requireRole('volunteer'), (req, res) => {
@@ -98,8 +95,8 @@ export default function serviceRoutes(db) {
     const type = s.service_type_id ? db.prepare('SELECT * FROM service_types WHERE id = ?').get(s.service_type_id) : null;
     const assignments = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.nickname, p.photo, p.phone, p.email
       FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id = ? ORDER BY a.created_at`).all(s.id);
-    const needs = db.prepare(`SELECT n.position_id, n.count FROM service_type_needs n WHERE n.service_type_id = ?`).all(s.service_type_id ?? -1);
-    // Positions shown = the type's needs plus anything someone was scheduled into ad hoc.
+    const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
+    // Positions shown = this service's needs plus anything someone was scheduled into ad hoc.
     const posIds = new Set([...needs.map((n) => n.position_id), ...assignments.map((a) => a.position_id)]);
     const positions = posIds.size
       ? db.prepare(`SELECT ps.id, ps.name, ps.team_id, t.name team_name, t.color team_color FROM positions ps JOIN teams t ON t.id = ps.team_id
@@ -127,13 +124,23 @@ export default function serviceRoutes(db) {
     const b = { ...req.body };
     if (b.starts_at !== undefined && !isDateTime(b.starts_at)) throw bad('Pick a date and time.');
     for (const k of ['title', 'series', 'notes']) if (b[k] !== undefined) b[k] = str(b[k]);
-    updateFields(db, 'services', s.id, b, ['title', 'series', 'notes', 'starts_at', 'duration_min']);
+    tx(db, () => {
+      // Moving one service of a series to another day: skip its old day so it isn't recreated.
+      if (s.service_type_id && b.starts_at && b.starts_at.slice(0, 10) !== s.starts_at.slice(0, 10)) {
+        db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
+      }
+      updateFields(db, 'services', s.id, b, ['title', 'series', 'notes', 'starts_at', 'duration_min']);
+    });
     res.json(getService(s.id));
   });
 
   r.delete('/services/:id', requireRole('staff'), (req, res) => {
     const s = service(req, req.params.id);
-    db.prepare('DELETE FROM services WHERE id = ?').run(s.id);
+    tx(db, () => {
+      // Remember the skipped date so the series doesn't create this service again.
+      if (s.service_type_id) db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
+      db.prepare('DELETE FROM services WHERE id = ?').run(s.id);
+    });
     audit(db, req, 'service.delete', `${s.id} ${s.starts_at}`);
     res.json({ ok: true });
   });
@@ -304,7 +311,7 @@ export default function serviceRoutes(db) {
   // Fills open spots with the best available people (no blockouts or double-booking).
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    const needs = db.prepare('SELECT position_id, count FROM service_type_needs WHERE service_type_id = ?').all(s.service_type_id ?? -1);
+    const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
     const added = [];
     tx(db, () => {
       for (const n of needs) {

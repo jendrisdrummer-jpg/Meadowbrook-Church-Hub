@@ -78,6 +78,14 @@ export default function teamRoutes(db) {
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
+  r.put('/teams/:id/positions/order', requireRole('leader'), (req, res) => {
+    const t = team(req, req.params.id);
+    if (!canManage(req, t)) throw forbidden();
+    const upd = db.prepare('UPDATE positions SET sort = ? WHERE id = ? AND team_id = ?');
+    tx(db, () => (req.body?.ids || []).forEach((id, i) => upd.run(i, int(id), t.id)));
+    res.json({ ok: true });
+  });
+
   r.patch('/positions/:id', requireRole('leader'), (req, res) => {
     const pos = db.prepare('SELECT * FROM positions WHERE id = ?').get(req.params.id);
     if (!pos) throw notFound('Position');

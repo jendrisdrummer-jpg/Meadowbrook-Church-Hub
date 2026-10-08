@@ -148,7 +148,9 @@ export default function checkinRoutes(db) {
       FROM checkins ci WHERE ci.day >= ? AND ci.kind = 'kid' AND ${cf2.sql} GROUP BY 1, 2`).all(from, ...cf2.args);
     const volunteers = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, COUNT(DISTINCT a.person_id) total
       FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.status = 'accepted' AND s.starts_at >= ? AND s.starts_at <= datetime('now') AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
-    res.json({ from, adults, kids, volunteers });
+    const marked = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, COUNT(DISTINCT a.person_id) total
+      FROM attendance a JOIN services s ON s.id = a.service_id WHERE s.starts_at >= ? AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
+    res.json({ from, adults, kids, volunteers, marked });
   });
 
   return r;

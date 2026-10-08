@@ -1,20 +1,42 @@
 // App shell: sign-in check, navigation, campus switcher and a small hash router.
-import { get, html, mount, icon, avatar, $, fail } from './lib.js';
+import { get, patch, html, mount, icon, avatar, $, fail } from './lib.js';
 
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 
+// Sidebar sections. New areas (Discipleship, Media, Website, App…) slot in as their own groups.
 const NAV = [
-  { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
-  { path: '/my', label: 'My Schedule', icon: 'user', min: 'volunteer', mobile: true },
-  { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer', mobile: true },
-  { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
-  { path: '/teams', label: 'Teams', icon: 'teams', min: 'leader' },
-  { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
-  { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
-  { path: '/checkin', label: 'Kids Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
-  { sep: true, min: 'admin' },
-  { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
+  { group: '', items: [
+    { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
+    { path: '/my', label: 'My Schedule', icon: 'user', min: 'volunteer', mobile: true },
+  ] },
+  { group: 'People', items: [
+    { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
+    { path: '/teams', label: 'Teams', icon: 'teams', min: 'leader' },
+    { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
+  ] },
+  { group: 'Planning', items: [
+    { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer', mobile: true },
+    { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
+  ] },
+  { group: 'Check-in', items: [
+    { path: '/checkin', label: 'Kids Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
+  ] },
+  { group: 'Admin', items: [
+    { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
+  ] },
 ];
+
+const THEMES = [['light', 'Light'], ['dark', 'Dark'], ['device', 'Match my device']];
+
+export function applyTheme(theme, accent) {
+  const root = document.documentElement;
+  root.dataset.theme = theme || 'light';
+  if (/^#[0-9a-f]{6}$/i.test(accent || '')) root.style.setProperty('--accent', accent);
+  try {
+    localStorage.setItem('mb.theme', root.dataset.theme);
+    if (accent) localStorage.setItem('mb.accent', accent);
+  } catch { /* private window: the choice still applies to this page */ }
+}
 
 const ROUTES = [
   [/^\/$/, 'home'],
@@ -57,16 +79,18 @@ async function boot() {
   const saved = Number(localStorage.getItem('mb.campus')) || null;
   state.campusId = visibleCampuses().some((c) => c.id === saved) ? saved : (visibleCampuses().length === 1 ? visibleCampuses()[0].id : null);
   $('[data-church]').textContent = state.settings.church_name;
+  $('.brand-mark').textContent = (state.settings.church_name || 'C').trim()[0].toUpperCase();
+  applyTheme(state.me.theme, state.settings.brand_color);
   drawChrome();
   window.addEventListener('hashchange', route);
   route();
 }
 
 function drawChrome() {
-  const items = NAV.filter((n) => can(n.min));
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min)) })).filter((g) => g.items.length);
   const link = (n) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${n.label}</span></a>`;
-  mount($('[data-nav]'), items.map((n) => (n.sep ? html`<div class="nav-sep"></div>` : link(n))));
-  mount($('[data-bottomnav]'), items.filter((n) => n.mobile).map(link));
+  mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map(link)}`));
+  mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map(link));
   const camps = visibleCampuses();
   const sel = $('[data-campus]');
   mount(sel, html`${camps.length > 1 || !state.me.campusIds ? html`<option value="">All campuses</option>` : ''}${camps.map((c) => html`<option value="${c.id}">${c.name}</option>`)}`);
@@ -77,13 +101,39 @@ function drawChrome() {
     localStorage.setItem('mb.campus', state.campusId ?? '');
     route();
   };
-  mount($('[data-me]'), html`${avatar({ first_name: state.me.name, photo: state.me.photo })}<span class="small">${state.me.name}<br><span class="muted">${state.me.role}</span></span>
-    <button class="icon-btn" title="Sign out" data-logout style="margin-left:auto">${icon('logout')}</button>`);
-  $('[data-logout]').onclick = async () => {
-    await fetch('/auth/logout', { method: 'POST', headers: { 'x-mb': '1' } }).catch(() => {});
-    location.href = '/login';
+  drawMe();
+}
+
+// The signed-in person's menu: appearance and sign out.
+function drawMe(open = false) {
+  const box = $('[data-me]');
+  mount(box, html`${avatar({ first_name: state.me.name, photo: state.me.photo })}<span class="small">${state.me.name}<br><span class="muted">${state.me.role}</span></span>
+    ${open ? html`<div class="menu" role="menu">
+      <div class="menu-head">Appearance</div>
+      ${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" class="${state.me.theme === v ? 'on' : ''}">${state.me.theme === v ? icon('check') : html`<span style="width:17px"></span>`}${label}</button>`)}
+      <hr><button type="button" data-logout>${icon('logout')} Sign out</button>
+    </div>` : ''}`);
+  box.onclick = async (e) => {
+    // Keep the document listener below from closing the menu we're about to redraw.
+    e.stopPropagation();
+    const pick = e.target.closest('[data-theme-pick]');
+    if (pick) {
+      state.me.theme = pick.dataset.themePick;
+      applyTheme(state.me.theme, state.settings.brand_color);
+      patch('/me', { theme: state.me.theme }).catch(fail);
+      return drawMe(true);
+    }
+    if (e.target.closest('[data-logout]')) {
+      await fetch('/auth/logout', { method: 'POST', headers: { 'x-mb': '1' } }).catch(() => {});
+      location.href = '/login';
+      return;
+    }
+    if (!e.target.closest('.menu')) drawMe(!open);
   };
 }
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-me]') && document.querySelector('[data-me] .menu')) drawMe(false);
+});
 
 let renderSeq = 0;
 async function route() {
