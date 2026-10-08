@@ -6,7 +6,8 @@ import { get, post, patch, html, mount, icon, toast, fail, confirm, dialog, fmtD
 const money = (c) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[$,\s]/g, '')) * 100);
 const coverFee = (amount, fee) => Math.max(0, Math.ceil((amount + fee.fixed_cents) / (1 - fee.percent / 100)) - amount);
-const PRESETS = [25, 50, 100, 250, 500];
+const EVERY_LABEL = { once: 'One time', week: 'Weekly', '2week': 'Every 2 weeks', month: 'Monthly' };
+const everyLabel = (k, cfg) => EVERY_LABEL[k] || cfg.every[k] || k;
 
 let stripeJs;
 function loadStripe(key) {
@@ -43,42 +44,56 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     return { a, fee, all: a + fee };
   }
 
+  const coverText = () => {
+    const { a, fee } = total();
+    return a >= 100 ? `Adds ${money(fee)} so the church receives the full ${money(a)}` : 'So the church receives your full gift';
+  };
+  const goText = () => {
+    const { a, all } = total();
+    return a >= 100 ? `Give ${money(all)}${state.every !== 'once' ? ` ${cfg.every[state.every]}` : ''}` : 'Enter an amount';
+  };
+
+  // Fund and frequency are rows that open the phone's own picker, so the form stays calm.
   function draw() {
-    const { a, fee, all } = total();
+    const { a } = total();
+    const fundName = cfg.funds.find((f) => f.id === state.fund)?.name || '';
     mount(el, html`<form class="card give-form" autocomplete="on" novalidate>
       <label class="give-amount"><span>$</span><input type="text" inputmode="decimal" name="amount" placeholder="0" value="${state.amount}" aria-label="Amount"></label>
-      <div class="give-presets">${PRESETS.map((p) => html`<button type="button" class="chip ${cents(state.amount) === p * 100 ? 'on' : ''}" data-preset="${p}">$${p}</button>`)}</div>
-      <label class="field">Fund<select name="fund">${sections.map((sec) => html`<optgroup label="${sec || 'Funds'}">${cfg.funds.filter((f) => f.section === sec).map((f) => html`<option value="${f.id}" ${f.id === state.fund ? 'selected' : ''}>${f.name}</option>`)}</optgroup>`)}</select></label>
-      <div class="field"><span>How often</span><div class="seg give-every">${[['once', 'One time'], ...Object.entries(cfg.every)].map(([k, label]) => html`<button type="button" class="${state.every === k ? 'on' : ''}" data-every="${k}">${label.replace(/^every /, 'Every ').replace(/^Every week$/, 'Weekly').replace(/^Every month$/, 'Monthly')}</button>`)}</div></div>
-      <label class="check give-cover"><input type="checkbox" name="cover" ${state.cover ? 'checked' : ''}> <span>Add ${a >= 100 ? money(fee) : 'a little'} to cover processing fees, so the church receives the full ${a >= 100 ? money(a) : 'gift'}</span></label>
-      ${cfg.me ? html`<p class="muted small" style="margin:0">Giving as <b>${cfg.me.name}</b> · receipt to ${cfg.me.email}</p>`
+      <div class="give-list">
+        <label class="give-pick"><span>Fund</span><b data-show="fund">${fundName}</b>${icon('down')}
+          <select name="fund" aria-label="Fund">${sections.map((sec) => html`<optgroup label="${sec || 'Funds'}">${cfg.funds.filter((f) => f.section === sec).map((f) => html`<option value="${f.id}" ${f.id === state.fund ? 'selected' : ''}>${f.name}</option>`)}</optgroup>`)}</select></label>
+        <label class="give-pick"><span>Frequency</span><b data-show="every">${everyLabel(state.every, cfg)}</b>${icon('down')}
+          <select name="every" aria-label="Frequency">${['once', ...Object.keys(cfg.every)].map((k) => html`<option value="${k}" ${state.every === k ? 'selected' : ''}>${everyLabel(k, cfg)}</option>`)}</select></label>
+        <label class="give-pick give-cover"><span>Cover processing fees<small class="muted" data-cover>${coverText()}</small></span>
+          <input type="checkbox" class="switch" name="cover" ${state.cover ? 'checked' : ''}></label>
+      </div>
+      ${cfg.me ? html`<p class="muted small give-as">Giving as <b>${cfg.me.name}</b> · receipt to ${cfg.me.email}</p>`
         : html`<div class="form"><label class="field">Your name<input type="text" name="name" autocomplete="name" required></label>
           <label class="field">Email for your receipt<input type="email" name="email" autocomplete="email" required></label></div>`}
-      <button class="btn primary give-go" ${a >= 100 ? '' : 'disabled'}>${a >= 100 ? `Give ${money(all)}${state.every !== 'once' ? ` ${cfg.every[state.every]}` : ''}` : 'Enter an amount'}</button>
+      <button class="btn primary give-go" ${a >= 100 ? '' : 'disabled'}>${goText()}</button>
       <p class="muted small give-secure">${icon('lock', 'ic small-ic')} Secure payment by Stripe: card, bank account, Apple Pay or Google Pay.${mineHref ? html` <a href="${mineHref}">My giving</a>` : ''}</p>
     </form><div data-checkout></div>`);
     const input = el.querySelector('[name=amount]');
-    input.oninput = () => { state.amount = input.value.replace(/[^\d.,]/g, ''); refresh(); };
+    // The box grows with the number so the $ stays right beside it.
+    const fit = () => { input.style.width = `${Math.max(1, input.value.length) + 0.4}ch`; };
+    input.oninput = () => { state.amount = input.value.replace(/[^\d.,]/g, ''); fit(); refresh(); };
+    fit();
   }
   // Update the totals without redrawing (keeps the keyboard up while typing).
   function refresh() {
-    const { a, fee, all } = total();
     const go = el.querySelector('.give-go');
-    go.disabled = a < 100;
-    go.textContent = a >= 100 ? `Give ${money(all)}${state.every !== 'once' ? ` ${cfg.every[state.every]}` : ''}` : 'Enter an amount';
-    el.querySelector('.give-cover span').textContent = `Add ${a >= 100 ? money(fee) : 'a little'} to cover processing fees, so the church receives the full ${a >= 100 ? money(a) : 'gift'}`;
-    el.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', a === Number(b.dataset.preset) * 100));
+    go.disabled = total().a < 100;
+    go.textContent = goText();
+    el.querySelector('[data-cover]').textContent = coverText();
+    el.querySelector('[data-show=fund]').textContent = cfg.funds.find((f) => f.id === state.fund)?.name || '';
+    el.querySelector('[data-show=every]').textContent = everyLabel(state.every, cfg);
   }
 
-  el.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b || b.type === 'submit' || b.matches('.give-go')) return;
-    if (b.dataset.preset) { state.amount = b.dataset.preset; draw(); }
-    if (b.dataset.every) { state.every = b.dataset.every; draw(); }
-  });
   el.addEventListener('change', (e) => {
     if (e.target.name === 'fund') state.fund = Number(e.target.value);
-    if (e.target.name === 'cover') { state.cover = e.target.checked; refresh(); }
+    if (e.target.name === 'every') state.every = e.target.value;
+    if (e.target.name === 'cover') state.cover = e.target.checked;
+    if (['fund', 'every', 'cover'].includes(e.target.name)) refresh();
   });
   el.addEventListener('submit', async (e) => {
     e.preventDefault();

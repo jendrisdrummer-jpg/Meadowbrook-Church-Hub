@@ -3,7 +3,7 @@
 import { get, post, patch, put, del, html, mount, icon, toast, fail, pickPerson, fmtDate, dialog, displayName, confirm } from '../lib.js';
 import { setTitle, go, state } from '../app.js';
 
-const TABS = [['overview', 'Overview'], ['gifts', 'Gifts'], ['record', 'Cash & checks'], ['donors', 'Donors'], ['recurring', 'Recurring'], ['statements', 'Statements'], ['funds', 'Funds']];
+const TABS = [['overview', 'Overview'], ['week', 'Weekly'], ['gifts', 'Gifts'], ['record', 'Cash & checks'], ['donors', 'Donors'], ['recurring', 'Recurring'], ['statements', 'Statements'], ['funds', 'Funds']];
 const money = (c) => `$${((c || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const METHOD = { card: 'Card', bank: 'Bank', cash: 'Cash', check: 'Check', other: 'Other' };
 const STATUS = { pending: html`<span class="pill warn">Processing</span>`, failed: html`<span class="pill bad">Failed</span>`, refunded: html`<span class="pill">Refunded</span>` };
@@ -12,7 +12,11 @@ function ranges() {
   const d = new Date();
   const iso = (x) => x.toLocaleDateString('en-CA');
   const y = d.getFullYear();
+  const sun = new Date(y, d.getMonth(), d.getDate() - d.getDay());
+  const plus = (x, n) => new Date(x.getFullYear(), x.getMonth(), x.getDate() + n);
   return [
+    ['week', 'This week', iso(sun), iso(d)],
+    ['last-week', 'Last week', iso(plus(sun, -7)), iso(plus(sun, -1))],
     ['month', 'This month', iso(new Date(y, d.getMonth(), 1)), iso(d)],
     ['last-month', 'Last month', iso(new Date(y, d.getMonth() - 1, 1)), iso(new Date(y, d.getMonth(), 0))],
     ['year', 'This year', `${y}-01-01`, iso(d)],
@@ -23,9 +27,9 @@ function ranges() {
 export default async function giving(el, tab = 'overview') {
   setTitle('Giving');
   const remembered = (() => { try { return JSON.parse(sessionStorage.getItem('mb.giving.range')); } catch { return null; } })();
-  let [from, to] = remembered || ranges()[2].slice(2);
+  let [from, to] = remembered || ranges()[4].slice(2);
   mount(el, html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div>
-    ${['funds', 'recurring', 'record', 'statements'].includes(tab) ? '' : html`<div class="row giving-range">${ranges().map(([k, label, a, b]) => html`<button class="chip link ${a === from && b === to ? 'on' : ''}" data-range="${a}|${b}">${label}</button>`)}
+    ${['funds', 'recurring', 'record', 'statements', 'week'].includes(tab) ? '' : html`<div class="row giving-range">${ranges().map(([k, label, a, b]) => html`<button class="chip link ${a === from && b === to ? 'on' : ''}" data-range="${a}|${b}">${label}</button>`)}
       <label class="small">From <input type="date" data-from value="${from}"></label><label class="small">to <input type="date" data-to value="${to}"></label></div>`}
     <div data-panel></div>`);
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/giving/${b.dataset.tab}`); };
@@ -38,7 +42,7 @@ export default async function giving(el, tab = 'overview') {
   el.querySelector('.giving-range')?.addEventListener('click', (e) => { const b = e.target.closest('[data-range]'); if (b) setRange(...b.dataset.range.split('|')); });
   el.querySelector('.giving-range')?.addEventListener('change', () => setRange(el.querySelector('[data-from]').value, el.querySelector('[data-to]').value));
   const q = `from=${from}&to=${to}`;
-  await ({ overview, gifts, donors, recurring, funds, record, statements }[tab] || overview)(panel, q);
+  await ({ overview, week, gifts, donors, recurring, funds, record, statements }[tab] || overview)(panel, q);
 }
 
 // ---------------------------------------------------------------- overview
@@ -61,8 +65,65 @@ async function overview(panel, q) {
         <div class="card"><h2>How people gave</h2>${s.by_method.length ? s.by_method.map((m) => html`<div class="give-row"><span class="grow">${METHOD[m.method] || m.method}</span><span class="muted small">${m.gifts} gifts</span><b>${money(m.total)}</b></div>`) : html`<p class="muted small">No gifts in this range.</p>`}
           ${s.fees ? html`<p class="muted small" style="margin:8px 0 0">Givers added ${money(s.fees)} to cover processing fees.</p>` : ''}</div>
         ${s.by_campus.length > 1 ? html`<div class="card"><h2>By campus</h2>${s.by_campus.map((c) => html`<div class="give-row"><span class="grow">${c.campus}</span><b>${money(c.total)}</b></div>`)}</div>` : ''}
-        <div class="card"><h2>By week</h2>${s.by_week.length ? s.by_week.slice(-10).reverse().map((w) => html`<div class="give-row"><span class="grow">Week of ${fmtDate(w.week)}</span><b>${money(w.total)}</b></div>`) : html`<p class="muted small">No gifts in this range.</p>`}</div>
+        <div class="card"><div class="card-head"><h2>By week</h2><a class="btn small ghost" href="#/giving/week">Weekly breakdown</a></div>${s.by_week.length ? s.by_week.slice(-10).reverse().map((w) => html`<a class="give-row link-row" href="#/giving/week" data-week="${w.week}"><span class="grow">Week of ${fmtDate(w.week)}</span><b>${money(w.total)}</b></a>`) : html`<p class="muted small">No gifts in this range.</p>`}</div>
       </div></div>`);
+  panel.onclick = (e) => { const a = e.target.closest('[data-week]'); if (a) weekStart = a.dataset.week; };
+}
+
+// ---------------------------------------------------------------- weekly (Sunday through Saturday)
+let weekStart = null;
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const addDays = (d, n) => { const x = new Date(`${d}T12:00:00`); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
+
+async function week(panel) {
+  const w = await get(`/finance/week${weekStart ? `?start=${weekStart}` : ''}`);
+  weekStart = w.start;
+  const current = w.today >= w.start && w.today <= w.end;
+  const change = (now, then) => {
+    if (!then) return '';
+    const pct = Math.round((100 * (now - then)) / then);
+    return html`<em class="${pct >= 0 ? 'up' : 'down'}">${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}%</em>`;
+  };
+  const online = (m) => (m.card || 0) + (m.bank || 0);
+  const funds = w.by_fund.filter((f) => f.total);
+  const sections = [...new Set(funds.map((f) => f.section))];
+  const col = (k) => funds.reduce((n, f) => n + (k === 'online' ? online(f.methods) : f.methods[k] || 0), 0);
+  const cell = (c) => html`<td class="num ${c ? '' : 'muted'}">${c ? money(c) : '—'}</td>`;
+  const day = (i) => w.by_day.find((d) => d.day === addDays(w.start, i));
+  const dayMax = Math.max(1, ...w.by_day.map((d) => d.total));
+  mount(panel, html`<div class="week-head">
+      <button class="btn small ghost" data-go="-7" title="Week before">${icon('back')}</button>
+      <h2>${fmtDate(w.start, { weekday: 'short', month: 'short', day: 'numeric' })} – ${fmtDate(w.end, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</h2>
+      <button class="btn small ghost" data-go="7" title="Week after" ${current ? 'disabled' : ''}>${icon('forward')}</button>
+      ${current ? html`<span class="pill info">This week</span>` : html`<button class="btn small" data-this>This week</button>`}
+      <span class="grow"></span>
+      <a class="btn small" href="/api/finance/gifts.csv?from=${w.start}&to=${w.end}">${icon('download')} Export CSV</a>
+      <button class="btn small" data-print>${icon('printer')} Print</button></div>
+    <div class="stats">
+      <div class="stat"><b>${money(w.total)}</b><span>Given ${change(w.total, w.previous.total)}</span></div>
+      <div class="stat"><b>${money(w.previous.total)}</b><span>Week before</span></div>
+      <div class="stat"><b>${money(w.average)}</b><span>4-week average</span></div>
+      <div class="stat"><b>${w.gifts}</b><span>${w.gifts === 1 ? 'Gift' : 'Gifts'} from ${w.givers} ${w.givers === 1 ? 'giver' : 'givers'}</span></div>
+    </div>
+    <div class="card"><h2>By fund</h2>
+      ${funds.length ? html`<div class="table-scroll"><table class="list week-table"><thead><tr><th>Fund</th><th class="num">Cash</th><th class="num">Check</th><th class="num">Online</th><th class="num">Total</th></tr></thead><tbody>
+        ${sections.map((sec) => html`<tr class="sec"><td colspan="5">${sec}</td></tr>
+          ${funds.filter((f) => f.section === sec).map((f) => html`<tr><td>${f.name}</td>${cell(f.methods.cash)}${cell(f.methods.check)}${cell(online(f.methods))}<td class="num"><b>${money(f.total)}</b></td></tr>`)}`)}
+        </tbody><tfoot><tr><td>Total</td>${cell(col('cash'))}${cell(col('check'))}${cell(col('online'))}<td class="num"><b>${money(w.total)}</b></td></tr></tfoot></table></div>
+        ${w.fees ? html`<p class="muted small" style="margin:8px 0 0">Givers added ${money(w.fees)} to cover processing fees.</p>` : ''}`
+        : html`<p class="muted small">No gifts this week yet.</p>`}</div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card"><h2>By day</h2>${DAYS.map((d, i) => html`<div class="giving-bar"><span class="grow">${d} <span class="muted small">${fmtDate(addDays(w.start, i), { month: 'short', day: 'numeric' })}</span></span><b>${day(i) ? money(day(i).total) : html`<span class="muted">—</span>`}</b>
+        <span class="meter"><span style="width:${(100 * (day(i)?.total || 0)) / dayMax}%"></span></span></div>`)}</div>
+      <div class="card"><h2>Recent weeks</h2>${w.weeks.length ? w.weeks.map((x) => html`<button class="give-row link-row ${x.week === w.start ? 'on' : ''}" data-week="${x.week}"><span class="grow">Week of ${fmtDate(x.week)}</span><span class="muted small">${x.gifts} gifts</span><b>${money(x.total)}</b></button>`) : html`<p class="muted small">No gifts in the last 12 weeks.</p>`}</div>
+    </div>`);
+  panel.onclick = (e) => {
+    const b = e.target.closest('[data-go], [data-this], [data-week], [data-print]');
+    if (!b) return;
+    if (b.dataset.print !== undefined) return window.print();
+    weekStart = b.dataset.go ? addDays(w.start, Number(b.dataset.go)) : b.dataset.week || null;
+    week(panel).catch(fail);
+  };
 }
 
 // ---------------------------------------------------------------- gifts

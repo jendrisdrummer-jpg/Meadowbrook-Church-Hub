@@ -237,19 +237,22 @@ test('order-of-service details, one start row, locking and edit permissions', as
 test('profile fields: milestones, validation, filtering, visibility and import', async () => {
   const fields = (await api('admin', 'GET', '/profile-fields')).data;
   const by = (label) => fields.find((f) => f.label === label);
-  assert.ok(by('Baptism date') && by('Holy Ghost date') && by('New birth') && by('Classes completed'));
+  assert.ok(by('Baptism date') && by('Holy Ghost date') && by("Baptized in Jesus' name") && by('Filled with the Holy Ghost') && by('Classes completed'));
+  assert.ok(!by('New birth'), 'the New birth steps are replaced by check marks');
   const sarah = (await api('admin', 'GET', '/people?q=sarah')).data.rows[0];
   const put = (values, role = 'admin') => api(role, 'PUT', `/people/${sarah.id}/profile`, { values });
   assert.equal((await put({ [by('Baptism date').id]: 'last spring' })).status, 400);
-  assert.equal((await put({ [by('New birth').id]: 'Maybe' })).status, 400);
-  assert.equal((await put({ [by('Baptism date').id]: '2025-04-20', [by('New birth').id]: 'Baptized', [by('Classes completed').id]: ['Foundations'] })).status, 200);
+  assert.equal((await put({ [by('Leadership track').id]: 'Maybe' })).status, 400);
+  assert.equal((await put({ [by('Baptism date').id]: '2025-04-20', [by("Baptized in Jesus' name").id]: true, [by('Filled with the Holy Ghost').id]: false, [by('Classes completed').id]: ['Foundations'] })).status, 200);
   const prof = (await api('admin', 'GET', `/people/${sarah.id}/profile`)).data;
   assert.equal(prof.values[by('Baptism date').id], '2025-04-20');
   assert.deepEqual(prof.values[by('Classes completed').id], ['Foundations']);
 
   // Filter the directory by a milestone.
   const q = (f, v) => api('admin', 'GET', `/people?field_id=${by(f).id}&field_value=${encodeURIComponent(v)}`).then((r) => r.data.rows.map((p) => p.id));
-  assert.deepEqual(await q('New birth', 'Baptized'), [sarah.id]);
+  assert.deepEqual(await q("Baptized in Jesus' name", 'yes'), [sarah.id]);
+  assert.deepEqual(await q('Filled with the Holy Ghost', 'no'), [sarah.id]);
+  assert.deepEqual(await q('Filled with the Holy Ghost', 'yes'), []);
   assert.deepEqual(await q('Classes completed', 'Foundations'), [sarah.id]);
   assert.ok(!(await q('Baptism date', 'unset')).includes(sarah.id));
   assert.ok((await q('Baptism date', 'set')).includes(sarah.id));
@@ -269,14 +272,14 @@ test('profile fields: milestones, validation, filtering, visibility and import',
   assert.equal((await api('admin', 'PATCH', `/profile-fields/${by('Baptism date').id}`, { type: 'text' })).status, 400);
 
   // CSV columns named like a field import into it.
-  const csv = 'First Name,Last Name,Email,Baptism Date,New Birth\nGina,Holt,gina@x.com,5/4/2024,received the holy ghost\n';
+  const csv = "First Name,Last Name,Email,Baptism Date,Filled with the Holy Ghost\nGina,Holt,gina@x.com,5/4/2024,yes\n";
   const pv = await fetch(base + '/api/import/preview', { method: 'POST', headers: { cookie: cookies.admin, 'x-mb': '1', 'content-type': 'text/csv' }, body: csv }).then((r) => r.json());
   assert.equal(pv.mapping[`field:${by('Baptism date').id}`], 'Baptism Date');
   await api('admin', 'POST', '/import/people', { csv, mapping: pv.mapping });
   const gina = (await api('admin', 'GET', '/people?q=gina')).data.rows[0];
   const gp = (await api('admin', 'GET', `/people/${gina.id}/profile`)).data.values;
   assert.equal(gp[by('Baptism date').id], '2024-05-04');
-  assert.equal(gp[by('New birth').id], 'Received the Holy Ghost');
+  assert.equal(gp[by('Filled with the Holy Ghost').id], true);
 });
 
 test('service templates: fill-in slots, apply, save-as, and repeating services', async () => {
@@ -1157,6 +1160,17 @@ test('finance: cash and check batches, year-end statements (Finance only)', asyn
   await api('admin', 'PUT', `/finance/batches/${b.data.id}`, { ...one, gifts: one.gifts.map((g) => ({ ...g, amount: g.check_number === '1042' ? 160 : g.amount_cents / 100 })) });
   batches = (await api('admin', 'GET', '/finance/batches')).data;
   assert.equal(batches[0].total, 49750);
+
+  // The weekly breakdown runs Sunday through Saturday, with cash, checks and online per fund.
+  const wk = (await api('admin', 'GET', `/finance/week?start=${year}-03-01`)).data;
+  assert.equal(new Date(`${wk.start}T12:00:00Z`).getUTCDay(), 0);
+  assert.ok(wk.start <= `${year}-03-01` && wk.end >= `${year}-03-01`);
+  assert.equal(new Date(`${wk.end}T12:00:00Z`).getUTCDay(), 6);
+  assert.equal(wk.total, 49750);
+  assert.deepEqual(wk.by_fund.find((f) => f.id === tithe).methods, { cash: 31250, check: 16000 });
+  assert.equal(wk.previous.total, 0);
+  assert.equal(wk.by_day.length, 1);
+  assert.equal((await api('north', 'GET', '/finance/week')).status, 403);
 
   // Statements: the year's givers, a printable statement, emailing everyone once.
   const st = (await api('admin', 'GET', `/finance/statements?year=${year}`)).data;
