@@ -25,7 +25,7 @@ async function save(changes) {
 }
 
 async function church(panel) {
-  const s = await get('/settings');
+  const [s, video] = await Promise.all([get('/settings'), get('/calls/usage').catch(() => null)]);
   mount(panel, html`<form class="card stack" style="max-width:640px">
     <label class="field">Church name<input type="text" name="church_name" value="${s.church_name}" required></label>
     <div class="field"><span>Brand colour</span>
@@ -48,7 +48,24 @@ async function church(panel) {
     <label class="field">Remind volunteers before they serve<select name="reminder_hours">${options([{ value: 0, label: 'Don’t send reminders' }, { value: 24, label: 'A day before' }, { value: 48, label: 'Two days before' }, { value: 72, label: 'Three days before' }, { value: 168, label: 'A week before' }], s.reminder_hours)}</select>
       <span class="muted small">People who haven’t replied are asked to accept or decline.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
+  </form>
+  <form class="card stack" style="max-width:640px" data-video>
+    <h2 style="margin:0">Video calls</h2>
+    ${video?.configured
+      ? html`<p class="small" style="margin:0"><span class="pill good">${icon('check')} Connected to Daily</span></p>
+        <div><div class="row small"><b>${video.minutes.toLocaleString()} of ${video.limit.toLocaleString()} minutes</b> used this month<span class="spacer"></span><span class="muted">${video.left.toLocaleString()} left</span></div>
+          <div class="meter"><span style="width:${Math.min(100, video.limit ? (100 * video.minutes) / video.limit : 100)}%" class="${video.left <= 0 ? 'bad' : video.minutes / (video.limit || 1) > 0.8 ? 'warn' : ''}"></span></div>
+          <span class="muted small">A minute is one person on a call for one minute (a 10-person, 1-hour meeting is 600). Counts reset on the 1st.</span></div>`
+      : html`<p class="small" style="margin:0"><span class="pill warn">Not set up</span> Calls in chats use Daily (daily.co). Add your Daily API key in Render as <code>MB_DAILY_API_KEY</code>; the README walks through it.</p>`}
+    <label class="field">Monthly limit (minutes)<input type="number" name="video_minutes_limit" min="0" step="100" value="${s.video_minutes_limit}">
+      <span class="muted small">Daily’s free plan includes 10,000 minutes a month. Keeping this at 9,000 or less keeps calls free: once it’s reached, new calls can’t start and calls going on end, until the 1st. 0 turns video calls off.</span></label>
+    <div class="row end"><button class="btn primary">Save</button></div>
   </form>`);
+  const vform = panel.querySelector('[data-video]');
+  vform.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await save({ video_minutes_limit: Math.max(0, Math.round(Number(vform.video_minutes_limit.value) || 0)) }); church(panel); } catch (err) { fail(err); }
+  };
   const app = panel.querySelector('[data-app]');
   app.onsubmit = async (e) => {
     e.preventDefault();

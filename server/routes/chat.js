@@ -11,6 +11,7 @@ import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { pushOnly } from '../notify.js';
 import { streams, send, hooks } from '../live.js';
+import { dailyConfigured } from '../daily.js';
 
 export const REACTIONS = ['👍', '❤️', '😂', '🙏', '🎉', '😮', '😢', '🔥'];
 // Shown in the browser; everything else downloads.
@@ -122,6 +123,10 @@ export default function chatRoutes(db, { uploadDir }) {
         assignee: t.assignee_id ? { first_name: t.first_name, last_name: t.last_name, nickname: t.nickname, photo: t.photo } : null,
         done_by: t.done_at ? t.done_nick || t.done_first || '' : '', items: t.items, items_done: t.items_done, comments: t.comments,
       }]) : []);
+    // Call cards: the call or meeting as it is now.
+    const callIds = [...new Set(rows.map((m) => m.call_id).filter(Boolean))];
+    const calls = new Map(callIds.length ? db.prepare(`SELECT id, title, starts_at, ended_at, room_created_at, started_by FROM calls
+      WHERE id IN (${callIds.map(() => '?').join(',')})`).all(...callIds).map((c) => [c.id, c]) : []);
     return rows.map((m) => {
       const gone = Boolean(m.deleted_at);
       const reply = m.reply_to && replies.get(m.reply_to);
@@ -131,6 +136,7 @@ export default function chatRoutes(db, { uploadDir }) {
         chat_id: m.chat_id,
         kind: m.kind,
         task: m.kind === 'task' ? tasks.get(m.task_id) || null : undefined,
+        call: m.kind === 'call' ? calls.get(m.call_id) || null : undefined,
         user_id: m.user_id,
         person_id: m.person_id,
         name: personName(m),
@@ -166,7 +172,8 @@ export default function chatRoutes(db, { uploadDir }) {
       manage: a.manage,
       muted: Boolean(read.muted),
       unread: a.member ? unread(c.id, req.user.id, read.last_read_id) : 0,
-      last: last ? { name: personName(last), body: last.kind === 'task' ? `New task: ${db.prepare('SELECT title FROM tasks WHERE id = ?').get(last.task_id)?.title || '(deleted)'}` : last.body.slice(0, 120), files: db.prepare('SELECT COUNT(*) n FROM message_files WHERE message_id = ?').get(last.id).n, at: last.created_at, mine: last.user_id === req.user.id } : null,
+      last: last ? { name: personName(last), body: last.kind === 'task' ? `New task: ${db.prepare('SELECT title FROM tasks WHERE id = ?').get(last.task_id)?.title || '(deleted)'}`
+        : last.kind === 'call' ? (db.prepare('SELECT starts_at, title FROM calls WHERE id = ?').get(last.call_id)?.starts_at ? `Scheduled a meeting` : 'Started a call') : last.body.slice(0, 120), files: db.prepare('SELECT COUNT(*) n FROM message_files WHERE message_id = ?').get(last.id).n, at: last.created_at, mine: last.user_id === req.user.id } : null,
     };
   }
 
@@ -181,7 +188,7 @@ export default function chatRoutes(db, { uploadDir }) {
     const list = myChats(req).map(([c, a]) => summary(req, c, a));
     const at = (x) => x.last?.at || '';
     list.sort((x, y) => Number(y.member) - Number(x.member) || at(y).localeCompare(at(x)) || x.name.localeCompare(y.name));
-    res.json({ me: req.user.id, person_id: req.user.personId ?? null, can_create: rank(req.user.role) >= rank('leader'), reactions: REACTIONS, chats: list });
+    res.json({ me: req.user.id, person_id: req.user.personId ?? null, can_create: rank(req.user.role) >= rank('leader'), reactions: REACTIONS, video: dailyConfigured(), chats: list });
   });
 
   // For the unread badge in the menu.
@@ -198,7 +205,10 @@ export default function chatRoutes(db, { uploadDir }) {
   // ---------------------------------------------------------------- one chat
   r.get('/chats/:id', requireRole('volunteer'), (req, res) => {
     const { c, a } = chat(req, req.params.id);
-    res.json({ ...summary(req, c, a), campus_id: c.campus_id ?? null, members: members(c), open_tasks: openTasks(c), last_read_id: readRow(c.id, req.user.id).last_read_id });
+    // A call going on now (or a meeting that opens within 15 minutes), for the Join button up top.
+    const call = db.prepare(`SELECT id, title, starts_at, started_by FROM calls WHERE chat_id = ? AND ended_at IS NULL
+      AND (starts_at IS NULL OR starts_at <= ?) ORDER BY id DESC LIMIT 1`).get(c.id, new Date(Date.now() + 15 * 60e3).toISOString());
+    res.json({ ...summary(req, c, a), campus_id: c.campus_id ?? null, members: members(c), open_tasks: openTasks(c), live_call: call || null, last_read_id: readRow(c.id, req.user.id).last_read_id });
   });
 
   // Newest PAGE messages, or older (?before=id) / newer (?after=id) than one.
@@ -386,6 +396,27 @@ export default function chatRoutes(db, { uploadDir }) {
     notifyMembers(c, msg, members(c), new Set(assignee ? [assignee] : []));
   };
   // Ticked off, reassigned, renamed…: every card for it, and its chat's Tasks tab, update.
+  // ---------------------------------------------------------------- calls in chats
+  hooks.chatUsers = (chatId) => { const c = getChat(chatId); return c ? memberUserIds(c) : []; };
+  hooks.chatName = (chatId) => { const c = getChat(chatId); return c ? (c.kind === 'team' ? c.team_name : c.name) : ''; };
+  // Posts a call or meeting card in its chat.
+  hooks.callPosted = (callId, chatId, userId) => {
+    const c = getChat(chatId);
+    const id = Number(db.prepare("INSERT INTO messages (chat_id, user_id, kind, call_id) VALUES (?, ?, 'call', ?)").run(c.id, userId, callId).lastInsertRowid);
+    db.prepare("UPDATE chats SET last_message_at = datetime('now') WHERE id = ?").run(c.id);
+    markRead(c.id, userId, id);
+    announce(c, message(id));
+    return viewers(c.id);
+  };
+  // A call started, ended or changed: its cards update everywhere.
+  hooks.callChanged = (callId) => {
+    for (const { id } of db.prepare('SELECT id FROM messages WHERE call_id = ?').all(callId)) {
+      const msg = message(id);
+      const c = msg && getChat(msg.chat_id);
+      if (c) { announce(c, msg); send(memberUserIds(c), c.id, { type: 'call', chat_id: c.id, call_id: callId }); }
+    }
+  };
+
   // `was` is the task's team/chat when it has just been deleted.
   hooks.taskChanged = (taskId, messageIds = null, was = null) => {
     const ids = messageIds || db.prepare('SELECT id FROM messages WHERE task_id = ?').all(taskId).map((x) => x.id);

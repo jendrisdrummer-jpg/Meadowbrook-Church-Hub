@@ -10,6 +10,7 @@ import { startSession } from '../server/auth.js';
 import http from 'node:http';
 import { sendReminders } from '../server/notify.js';
 import { sendTaskReminders, nextDue } from '../server/routes/tasks.js';
+import { syncCalls } from '../server/routes/calls.js';
 import { outbox } from '../server/mail.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
@@ -887,6 +888,99 @@ test('tasks in chats: cards that stay current, the Tasks tab, group tasks', asyn
   // Moving it to a team takes it out of the group, and the person if they aren't on the team.
   const moved = (await api('dee', 'PATCH', `/tasks/${cones.id}`, { team_id: team.id, chat_id: null })).data;
   assert.deepEqual([moved.team_id, moved.chat_id, moved.assignee_id], [team.id, null, null]);
+});
+
+test('video calls: start, join with a private room, meetings, and the monthly limit', async (t) => {
+  // A stand-in for Daily's API.
+  const daily = { requests: [], usedSeconds: 0, present: 1 };
+  const mock = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const json = body ? JSON.parse(body) : null;
+      daily.requests.push({ method: req.method, url: req.url, body: json, auth: req.headers.authorization });
+      const send = (o) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(o));
+      if (req.method === 'POST' && req.url === '/rooms') return send({ name: json.name, url: `https://church.daily.co/${json.name}` });
+      if (req.url === '/meeting-tokens') return send({ token: `tok-${json.properties.user_id}-${json.properties.is_owner}` });
+      if (req.url.startsWith('/meetings')) return send({ data: [{ id: 'm1', ongoing: false, participants: [{ duration: daily.usedSeconds }] }] });
+      if (req.url.endsWith('/presence')) return send({ total_count: daily.present, data: [] });
+      if (req.method === 'DELETE') return send({ deleted: true });
+      res.writeHead(404).end('{}');
+    });
+  }).listen(0);
+  await new Promise((r) => mock.once('listening', r));
+  t.after(() => { mock.closeAllConnections(); mock.close(); delete process.env.MB_DAILY_API_KEY; delete process.env.MB_DAILY_API_URL; });
+
+  const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Call', campus_id: 1, email: `${first.toLowerCase()}@call.org` })).data;
+  const account = (key, p) => {
+    const id = db.prepare("INSERT INTO users (email, role, person_id) VALUES (?, 'volunteer', ?)").run(p.email, p.id).lastInsertRowid;
+    startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+    return Number(id);
+  };
+  const [gus, hal, ivy] = [await person('Gus'), await person('Hal'), await person('Ivy')];
+  const gusId = account('gus', gus); const halId = account('hal', hal); account('ivy', ivy);
+  const team = (await api('admin', 'POST', '/teams', { name: 'Tech', campus_id: 1, positions: ['Sound'] })).data;
+  for (const p of [gus, hal]) await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [] });
+  const chat = (await api('gus', 'GET', '/chats')).data.chats.find((c) => c.team_id === team.id);
+
+  // Not set up yet: a clear message.
+  assert.equal((await api('gus', 'POST', `/chats/${chat.id}/calls`, {})).status, 503);
+  process.env.MB_DAILY_API_KEY = 'test-key';
+  process.env.MB_DAILY_API_URL = `http://127.0.0.1:${mock.address().port}`;
+  assert.equal((await api('gus', 'GET', '/calls/usage')).data.configured, true);
+
+  // Start: a card in the chat and a notice for the team.
+  const call = await api('gus', 'POST', `/chats/${chat.id}/calls`, {});
+  assert.equal(call.status, 201);
+  const card = (await api('hal', 'GET', `/chats/${chat.id}/messages`)).data.messages.find((m) => m.kind === 'call');
+  assert.equal(card.call.id, call.data.id);
+  assert.match((await api('hal', 'GET', '/notifications')).data.items[0].title, /Gus Call started a call in Tech/);
+  assert.equal((await api('hal', 'POST', `/chats/${chat.id}/calls`, {})).data.id, call.data.id); // one at a time
+
+  // Join: a private room that closes itself, and a pass per person (the starter runs it).
+  const joined = (await api('gus', 'POST', `/calls/${call.data.id}/join`)).data;
+  assert.match(joined.url, /^https:\/\/church\.daily\.co\/mb-/);
+  assert.equal(joined.token, `tok-${gusId}-true`);
+  const room = daily.requests.find((r) => r.method === 'POST' && r.url === '/rooms');
+  assert.equal(room.body.privacy, 'private');
+  assert.ok(room.body.properties.exp > Date.now() / 1000);
+  assert.equal(room.auth, 'Bearer test-key');
+  assert.equal((await api('hal', 'POST', `/calls/${call.data.id}/join`)).data.token, `tok-${halId}-false`);
+  assert.equal(daily.requests.filter((r) => r.url === '/rooms').length, 1); // same room
+  assert.equal((await api('ivy', 'POST', `/calls/${call.data.id}/join`)).status, 404);
+  assert.equal((await api('hal', 'POST', `/calls/${call.data.id}/end`)).status, 403);
+
+  // Empty for 5 minutes: closed.
+  daily.present = 0;
+  await syncCalls(db);
+  db.prepare("UPDATE calls SET empty_since = datetime('now', '-6 minutes') WHERE id = ?").run(call.data.id);
+  await syncCalls(db);
+  assert.ok(db.prepare('SELECT ended_at FROM calls WHERE id = ?').get(call.data.id).ended_at);
+  assert.ok(daily.requests.some((r) => r.method === 'DELETE'));
+  assert.ok((await api('hal', 'GET', `/chats/${chat.id}/messages`)).data.messages.find((m) => m.kind === 'call').call.ended_at);
+
+  // Meetings: scheduled, opens 15 minutes early, with a reminder.
+  const at = new Date(Date.now() + 3 * 3600e3).toISOString();
+  const meeting = (await api('gus', 'POST', `/chats/${chat.id}/calls`, { title: 'Tech huddle', starts_at: at })).data;
+  assert.equal(meeting.title, 'Tech huddle');
+  assert.equal((await api('hal', 'POST', `/calls/${meeting.id}/join`)).status, 400);
+  db.prepare('UPDATE calls SET starts_at = ? WHERE id = ?').run(new Date(Date.now() + 10 * 60e3).toISOString(), meeting.id);
+  await syncCalls(db);
+  assert.match((await api('hal', 'GET', '/notifications')).data.items[0].title, /Starting soon: Tech huddle/);
+
+  // The monthly limit: once Daily's records show it's used up, nothing starts and live calls end.
+  daily.present = 1;
+  assert.equal((await api('hal', 'POST', `/calls/${meeting.id}/join`)).status, 200);
+  await api('admin', 'PATCH', '/settings', { video_minutes_limit: 30 });
+  daily.usedSeconds = 45 * 60;
+  db.prepare("UPDATE settings SET value = json_set(value, '$.synced_at', 0) WHERE key = 'video_usage'").run();
+  const u = (await api('admin', 'GET', '/calls/usage')).data;
+  assert.deepEqual([u.minutes, u.limit, u.left], [45, 30, 0]);
+  assert.equal((await api('gus', 'POST', `/chats/${chat.id}/calls`, {})).status, 403);
+  assert.equal((await api('hal', 'POST', `/calls/${meeting.id}/join`)).status, 403);
+  await syncCalls(db);
+  assert.ok(db.prepare('SELECT ended_at FROM calls WHERE id = ?').get(meeting.id).ended_at);
+  assert.equal((await api('admin', 'PATCH', '/settings', { video_minutes_limit: -1 })).status, 400);
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

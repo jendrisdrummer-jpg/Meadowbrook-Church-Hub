@@ -193,6 +193,18 @@ and who's serving (only requests that were sent, without contact details).
   Tasks tab (App Builder).
 - The person who gave a task, team leaders and staff can delete it.
 
+**Video calls** (in every chat, in the dashboard and the church app; uses Daily):
+- The 📹 button in a chat starts a call now (everyone in the chat gets a notification to join), or
+  schedules a meeting: a card goes in the chat and everyone is reminded 15 minutes before. Join
+  opens the call full screen inside the app or hub (camera, mic, screen share); **Open in browser**
+  is there if a phone won't start the camera inside the app.
+- Calls end on their own 5 minutes after everyone leaves. Whoever started a call (or the team's
+  leaders) can end it for everyone or cancel a meeting.
+- **Monthly limit** (Settings → Church → Video calls, 9,000 minutes to start): Daily's free plan is
+  10,000 participant-minutes a month. The hub checks Daily's own usage every few minutes; once
+  the limit is reached, new calls can't start and calls going on end, until the 1st. Setup: see
+  "Video calls (Daily)" under Going live.
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
@@ -273,6 +285,25 @@ To send those emails from the church's Google Workspace (free, about 2,000 a day
 
 If your Workspace admin has turned off app passwords, allow them for that account in the Google
 Admin console (Security → Authentication → 2-Step Verification).
+
+### Video calls (Daily)
+
+Calls in chats run on [Daily](https://www.daily.co). The free plan includes 10,000 participant-minutes
+a month (one person on a call for one minute), and the hub stops calls at its own limit
+(9,000 to start) so you stay on the free plan.
+
+1. Sign up at **dashboard.daily.co** with the church's account (for example web@ your domain).
+   Choose a team/subdomain name when asked, e.g. `mbclife`. You don't need a credit card for
+   the free plan.
+2. In the Daily dashboard, open **Developers** and copy the **API key**.
+3. In Render, open the service → **Environment** → **Add Environment Variable**:
+   `MB_DAILY_API_KEY` = the key. Save; Render redeploys.
+4. In the hub, **Settings → Church → Video calls** should now say **Connected to Daily** and show
+   minutes used this month. Change the monthly limit there if you like (0 turns calls off).
+5. Try it: open a team chat, tap 📹 → **Start a call now**.
+
+Keep the API key secret: only in Render's Environment, never in chat or in the code. If it's ever
+exposed, delete it in Daily's dashboard and make a new one.
 
 ### 3. Run it
 
