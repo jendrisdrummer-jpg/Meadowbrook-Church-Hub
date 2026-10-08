@@ -42,7 +42,7 @@ const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_
 
 // Asks permission (must follow a tap) and registers this device. Resolves to a status:
 // 'on' | 'denied' | 'unsupported'.
-export async function enablePush() {
+export async function enablePush(ui = 'hub') {
   if (!pushSupported()) return 'unsupported';
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') return 'denied';
@@ -55,7 +55,7 @@ export async function enablePush() {
     sub = null;
   }
   sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
-  await post('/push/subscriptions', { ...sub.toJSON(), device: deviceName() });
+  await post('/push/subscriptions', { ...sub.toJSON(), device: deviceName(), ui });
   return 'on';
 }
 

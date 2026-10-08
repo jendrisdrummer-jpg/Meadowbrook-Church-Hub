@@ -123,6 +123,21 @@ set the app's icon and short name in **Settings → Church**. Notifications need
 outside service: the server makes its own keys the first time. On iPhone, notifications work once
 the app is added to the home screen (iOS 16.4 or later).
 
+**The church app** (`app.yourchurch.org`, or `/app/` on any address): the app you share with
+your congregation, like a Subsplash app. Anyone can use it without an account: the home screen,
+service times and addresses, the livestream, giving, and a **connect card** for guests. Signing in
+adds the person's serving schedule (accept/decline, dates away, the order of service for anything
+they're on) and notifications.
+- **App Builder** (Church app → App Builder, staff): choose the tabs along the bottom (up to 5,
+  including More), their names and icons, and arrange the home screen from ready-made blocks
+  (welcome banner, my next times serving, buttons, service times, livestream player, text). Add
+  your own **pages** (beliefs, next steps…) and **links** (events, sermons, sign-ups). A live phone
+  preview shows every change before you save. Set the livestream (YouTube links play in the app)
+  and giving links here.
+- **Connect cards** (Church app → Connect cards): what guests send, with first-time visits,
+  interests and prayer requests. Staff get a notification for each one. Add the guest to People
+  (it checks for duplicates), link them to someone already there, and mark them followed up.
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
@@ -159,6 +174,8 @@ Do this once, signed in as a Google Workspace admin:
    application**.
    - Authorized redirect URI: `https://YOUR-ADDRESS/auth/google/callback`
      (for example `https://hub.meadowbrook.church/auth/google/callback`)
+   - If the church app has its own address, add its callback too:
+     `https://app.meadowbrook.church/auth/google/callback`
 4. Copy the **Client ID** and **Client secret** into the settings below.
 
 ### 2. Settings
@@ -167,13 +184,16 @@ Copy `.env.example` to `.env` (or enter these in your host's dashboard):
 
 ```
 PUBLIC_URL=https://hub.meadowbrook.church
+MB_APP_URL=https://app.meadowbrook.church
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_WORKSPACE_DOMAIN=meadowbrook.church
 MB_ADMIN_EMAILS=you@meadowbrook.church
 ```
 
-Never set `MB_DEV_LOGIN` on the live server.
+`PUBLIC_URL` is the staff dashboard's address and `MB_APP_URL` the church app's (optional; without
+it the app is at `PUBLIC_URL/app/`). Point both names at the same server: the address someone
+visits decides what they see. Never set `MB_DEV_LOGIN` on the live server.
 
 ### 3. Run it
 

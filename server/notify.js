@@ -4,7 +4,10 @@
 import { getSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
 
-export const KINDS = ['scheduled', 'reminder', 'declined'];
+export const KINDS = ['scheduled', 'reminder', 'declined', 'connect'];
+
+// Staff pages opened from the member app go to the dashboard's own address.
+const hub = (path) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}${path}`;
 
 const name = (p) => `${p.nickname || p.first_name} ${p.last_name}`.trim();
 const when = (starts) => {
@@ -33,7 +36,7 @@ export function notify(db, userIds, msg) {
   const ins = db.prepare('INSERT INTO notifications (user_id, kind, title, body, url, data) VALUES (?, ?, ?, ?, ?, ?)');
   const made = [];
   for (const u of users) {
-    const id = Number(ins.run(u.id, msg.kind, msg.title, msg.body || '', msg.url || '', JSON.stringify(msg.data || {})).lastInsertRowid);
+    const id = Number(ins.run(u.id, msg.kind, msg.title, msg.body || '', msg.url || '', JSON.stringify({ ...msg.data, app_url: msg.app_url })).lastInsertRowid);
     made.push(id);
     if (prefs(u)[msg.kind] === false) continue;
     const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(u.id);
@@ -44,8 +47,10 @@ export function notify(db, userIds, msg) {
 
 function pushAll(db, subs, msg) {
   const keys = vapidKeys(db);
-  const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url: msg.url || '/', tag: msg.tag, actions: msg.actions, data: msg.data || {} };
   for (const sub of subs) {
+    // Taps open the app the device signed up from: the member app or the dashboard.
+    const url = sub.ui === 'app' ? msg.app_url || '/app/' : msg.url || '/';
+    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url, tag: msg.tag, actions: msg.actions, data: msg.data || {} };
     sendPush(sub, payload, keys, subject(), { urgency: msg.kind === 'reminder' ? 'high' : 'normal' })
       .then((status) => {
         // The person uninstalled the app or turned notifications off: forget that device.
@@ -80,6 +85,7 @@ export function notifyScheduled(db, assignmentIds, { byUserId } = {}) {
       body: one ? `${when(one.starts_at)} · ${one.campus_short || one.campus}. Can you make it?`
         : `${list.map((a) => `${when(a.starts_at).split(' at ')[0]} (${a.position})`).join(', ')}. Please accept or decline each one.`,
       url: '/#/my',
+      app_url: '/app/#/serve',
       tag: one ? `assignment-${one.id}` : undefined,
       actions: one ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
       data: { assignment_ids: list.map((a) => a.id) },
@@ -97,6 +103,7 @@ export function notifyDeclined(db, assignmentId) {
     title: `${name(a)} can’t make it`,
     body: `${a.position} · ${when(a.starts_at)}${a.decline_reason ? ` — “${a.decline_reason}”` : ''}`,
     url: `/#/services/${a.service_id}`,
+    app_url: hub(`/#/services/${a.service_id}`),
     tag: `declined-${a.id}`,
   });
 }
@@ -136,6 +143,7 @@ export function sendReminders(db) {
         title: pending ? `Can you serve ${when(a.starts_at).split(' at ')[0]}?` : `You’re serving ${when(a.starts_at).split(' at ')[0]}`,
         body: `${a.position} at ${when(a.starts_at).split(' at ')[1]} · ${a.campus_short || a.campus}.${pending ? ' Please accept or decline.' : ' Thank you!'}`,
         url: pending ? '/#/my' : `/#/services/${a.service_id}`,
+        app_url: pending ? '/app/#/serve' : `/app/#/plan/${a.service_id}`,
         tag: `assignment-${a.id}`,
         actions: pending ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
         data: { assignment_ids: [a.id] },

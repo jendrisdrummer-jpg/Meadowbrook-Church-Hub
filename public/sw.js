@@ -63,18 +63,19 @@ self.addEventListener('notificationclick', (e) => {
   const n = e.notification;
   const { url, id, assignment_ids: ids = [] } = n.data || {};
   n.close();
+  const home = String(url || '').startsWith('/app/') ? '/app/#/serve' : '/#/my';
   e.waitUntil((async () => {
     if (id) api('POST', '/api/notifications/read', { ids: [id] }).catch(() => {});
     if (e.action === 'accept' && ids.length === 1) {
       const res = await api('PATCH', `/api/assignments/${ids[0]}`, { status: 'accepted' }).catch(() => null);
       if (res?.ok) {
-        await self.registration.showNotification('Thanks for serving!', { body: 'You’re confirmed. It’s on your schedule.', tag: n.tag, icon: '/app-icon/192.png', data: { url: '/#/my' } });
+        await self.registration.showNotification('Thanks for serving!', { body: 'You’re confirmed. It’s on your schedule.', tag: n.tag, icon: '/app-icon/192.png', data: { url: home } });
         return;
       }
-      return openApp('/#/my');
+      return openApp(home);
     }
     // Declining asks for a reason, so it opens the app.
-    if (e.action === 'decline' && ids.length === 1) return openApp(`/#/my?decline=${ids[0]}`);
+    if (e.action === 'decline' && ids.length === 1) return openApp(String(url).startsWith('/app/') ? `/app/#/serve?decline=${ids[0]}` : `/#/my?decline=${ids[0]}`);
     return openApp(url || '/');
   })());
 });

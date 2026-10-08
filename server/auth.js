@@ -70,6 +70,16 @@ function toUser(row) {
   };
 }
 
+// The public address of this request's site: PUBLIC_URL (dashboard) or MB_APP_URL (member
+// app) when the request came in on that host, otherwise the request's own origin.
+export function siteOrigin(req) {
+  const clean = (v) => (v || '').trim().replace(/\/+$/, '');
+  const known = [clean(process.env.PUBLIC_URL), clean(process.env.MB_APP_URL)].filter(Boolean);
+  const host = req.get('host');
+  const match = known.find((u) => { try { return new URL(u).host === host; } catch { return false; } });
+  return match || known[0] || `${req.protocol}://${host}`;
+}
+
 export function requireRole(min) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
@@ -144,7 +154,11 @@ export function authRoutes(app, db) {
     // Only lock Google's account picker to the church domain when nobody else may sign in.
     domainOnly: getSetting(db, 'sign_in_policy', 'anyone') === 'domain',
   });
-  const callbackUrl = (req) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
+  // Sign-in returns to the address it started from: the dashboard (PUBLIC_URL) or the member
+  // app (MB_APP_URL). Both callback URLs must be listed in the Google Cloud client.
+  const callbackUrl = (req) => `${siteOrigin(req)}/auth/google/callback`;
+  // Where to go after signing in: a path on this site only.
+  const safeNext = (v) => (typeof v === 'string' && /^\/(?!\/)/.test(v) && !v.includes('\\') ? v.slice(0, 300) : '/');
 
   app.get('/auth/options', (_req, res) => {
     res.json({
@@ -159,7 +173,10 @@ export function authRoutes(app, db) {
     const g = google();
     if (!g.id) return res.status(500).send('Google sign-in is not set up yet. See README → Google sign-in.');
     const state = crypto.randomBytes(16).toString('base64url');
-    res.setHeader('Set-Cookie', `mb_oauth=${state}; Max-Age=600; ${cookieFlags(req)}`);
+    res.setHeader('Set-Cookie', [
+      `mb_oauth=${state}; Max-Age=600; ${cookieFlags(req)}`,
+      `mb_next=${encodeURIComponent(safeNext(req.query.next))}; Max-Age=600; ${cookieFlags(req)}`,
+    ]);
     const params = new URLSearchParams({
       client_id: g.id,
       redirect_uri: callbackUrl(req),
@@ -205,7 +222,7 @@ export function authRoutes(app, db) {
           : 'Your account isn’t set up yet. Ask a church admin to add you.');
       }
       startSession(db, req, res, user.id);
-      res.redirect('/');
+      res.redirect(safeNext(parseCookies(req).mb_next));
     } catch (e) {
       console.error('Google sign-in error', e);
       fail('Google sign-in failed.');

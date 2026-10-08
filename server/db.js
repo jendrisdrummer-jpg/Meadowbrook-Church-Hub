@@ -371,6 +371,26 @@ const MIGRATIONS = [
   ALTER TABLE users ADD COLUMN notify TEXT NOT NULL DEFAULT '{}';
   ALTER TABLE assignments ADD COLUMN reminded_at TEXT;
   `,
+  // 9: the member app. Connect cards guests fill in, and which app a push device belongs to
+  // (the member app or the staff dashboard), so notification taps open the right one.
+  `
+  CREATE TABLE connect_cards (
+    id INTEGER PRIMARY KEY,
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    first_time INTEGER NOT NULL DEFAULT 0,
+    interests TEXT NOT NULL DEFAULT '[]',              -- JSON array of what they ticked
+    message TEXT NOT NULL DEFAULT '',                  -- prayer request or question
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    done_at TEXT,
+    done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE push_subscriptions ADD COLUMN ui TEXT NOT NULL DEFAULT 'hub';
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

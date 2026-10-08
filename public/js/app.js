@@ -20,6 +20,10 @@ const NAV = [
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
     { path: '/templates', label: 'Templates', icon: 'copy', min: 'staff' },
   ] },
+  { group: 'Church app', items: [
+    { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader' },
+    { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
+  ] },
   { group: 'Check-in', items: [
     { path: '/checkin', label: 'Kids Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
   ] },
@@ -54,6 +58,8 @@ const ROUTES = [
   [/^\/templates$/, 'templates'],
   [/^\/templates\/(\d+)$/, 'template'],
   [/^\/attendance$/, 'attendance'],
+  [/^\/connect$/, 'connect'],
+  [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],
 ];
 

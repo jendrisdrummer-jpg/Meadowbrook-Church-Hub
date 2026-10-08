@@ -407,6 +407,64 @@ test('notifications: scheduled, declined to leaders, reminders, push and prefere
   pushServer.close();
 });
 
+test('member app: public config, App Builder rules, connect cards', async () => {
+  // Guests (no sign-in) can load the app and send a connect card.
+  const cfg = await api(null, 'GET', '/app/config');
+  assert.equal(cfg.status, 200);
+  assert.equal(cfg.data.user, null);
+  assert.ok(cfg.data.config.tabs.some((t) => t.type === 'more'));
+  assert.equal((await api(null, 'GET', '/connect-cards')).status, 401);
+
+  // Only staff edit the app, and the bottom bar holds 5 tabs.
+  const next = structuredClone(cfg.data.config);
+  next.give_url = 'https://give.example.org';
+  next.tabs.splice(1, 0, { id: 'about', type: 'page', label: 'About', icon: 'info', on: false, title: 'Who we are', body: 'Hi' });
+  assert.equal((await api('vol', 'PUT', '/app/config', next)).status, 403);
+  assert.equal((await api('admin', 'PUT', '/app/config', { ...next, tabs: next.tabs.map((t) => ({ ...t, on: true })) })).status, 400);
+  assert.equal((await api('admin', 'PUT', '/app/config', { ...next, give_url: 'javascript:alert(1)' })).status, 400);
+  const saved = await api('admin', 'PUT', '/app/config', next);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.tabs.at(-1).type, 'more');
+  assert.equal((await api(null, 'GET', '/app/config')).data.config.give_url, 'https://give.example.org');
+
+  await api('admin', 'POST', '/notifications/read', {});
+  assert.equal((await api(null, 'POST', '/public/connect', { first_name: 'Gus' })).status, 400);
+  const sent = await api(null, 'POST', '/public/connect', { first_name: 'Gus', last_name: 'Guest', email: 'gus@example.com', campus_id: 1, first_time: true, interests: ['Baptism', 'Not a real choice'], message: 'Pray for my mom' });
+  assert.equal(sent.status, 201);
+  const cards = (await api('admin', 'GET', '/connect-cards')).data;
+  const card = cards.find((c) => c.id === sent.data.id);
+  assert.deepEqual(card.interests, ['Baptism']);
+  assert.equal(card.first_time, 1);
+  assert.match((await api('admin', 'GET', '/notifications')).data.items[0].title, /New connect card: Gus Guest/);
+  // South-only staff don't see North cards.
+  assert.ok(!(await api('north', 'GET', '/connect-cards')).data.some((c) => c.campus_id === 2));
+  await api('admin', 'PATCH', `/connect-cards/${card.id}`, { done: true });
+  assert.ok(!(await api('admin', 'GET', '/connect-cards')).data.some((c) => c.id === card.id));
+  assert.ok((await api('admin', 'GET', '/connect-cards?status=done')).data.some((c) => c.id === card.id));
+
+  // Signed in, the app knows who you are.
+  assert.equal((await api('vol', 'GET', '/app/config')).data.user.role, 'volunteer');
+});
+
+test('sign-in returns to where it started, on this site only', async () => {
+  const go = async (next) => {
+    const res = await fetch(`${base}/auth/google?next=${encodeURIComponent(next)}`, { redirect: 'manual' });
+    return res.headers.getSetCookie().find((c) => c.startsWith('mb_next='));
+  };
+  process.env.GOOGLE_CLIENT_ID = 'test-client';
+  try {
+    assert.match(await go('/app/#/serve'), /mb_next=%2Fapp%2F%23%2Fserve/);
+    assert.match(await go('//evil.example.com'), /mb_next=%2F;/);
+    assert.match(await go('https://evil.example.com'), /mb_next=%2F;/);
+    assert.match(await go('/\\evil.example.com'), /mb_next=%2F;/);
+  } finally { delete process.env.GOOGLE_CLIENT_ID; }
+  const app = await fetch(`${base}/app`, { redirect: 'manual' });
+  assert.equal(app.headers.get('location'), '/app/');
+  assert.equal((await fetch(`${base}/app/`)).status, 200);
+  const man = await (await fetch(`${base}/app/manifest.webmanifest`)).json();
+  assert.equal(man.scope, '/app/');
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });
