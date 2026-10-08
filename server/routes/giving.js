@@ -80,13 +80,16 @@ export default function givingRoutes(db) {
     if (!req.user && (!giver || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) throw bad('Please enter your name and email for your receipt.');
     const meta = { fund_id: f.id, amount_cents: amount, fee_cents: fee, every: every || 'once', person_id: p?.id || '', name: giver };
     const origin = siteOrigin(req);
-    const back = b.return_to === 'web' ? `${origin}/give?done={CHECKOUT_SESSION_ID}` : `${origin}/app/#/give?done={CHECKOUT_SESSION_ID}`;
+    // Stripe only fills in {CHECKOUT_SESSION_ID} outside a #, so the app comes back through /app/give-done.
+    const back = b.return_to === 'web' ? `${origin}/give?done={CHECKOUT_SESSION_ID}` : `${origin}/app/give-done?session_id={CHECKOUT_SESSION_ID}`;
     const customer = p ? await customerFor(p) : undefined;
     const description = `${f.name}${every ? ` (${EVERY[every].label})` : ''}`;
     const session = await stripe('POST', '/checkout/sessions', {
       ui_mode: 'embedded',
       mode: every ? 'subscription' : 'payment',
       return_url: back,
+      // Most payments finish inside the page (the thank-you shows there); a few bank flows redirect.
+      redirect_on_completion: 'if_required',
       payment_method_types: ['card', 'us_bank_account'],
       customer,
       customer_email: customer ? undefined : email || undefined,
@@ -236,7 +239,7 @@ export default function givingRoutes(db) {
 
   r.get('/finance/donors', requireFinance, (req, res) => {
     const { from, to } = range(req.query);
-    res.json(db.prepare(`SELECT g.person_id, MAX(COALESCE(p.nickname, p.first_name) || ' ' || p.last_name) person, MAX(g.name) name, lower(g.email) email,
+    res.json(db.prepare(`SELECT g.person_id, MAX(COALESCE(NULLIF(p.nickname, ''), p.first_name) || ' ' || p.last_name) person, MAX(g.name) name, lower(g.email) email,
         SUM(g.amount_cents) total, COUNT(*) gifts, MAX(g.given_on) last_gift
       FROM gifts g LEFT JOIN people p ON p.id = g.person_id WHERE g.status = 'succeeded' AND g.given_on BETWEEN ? AND ?
       GROUP BY COALESCE(CAST(g.person_id AS TEXT), lower(g.email)) ORDER BY total DESC`).all(from, to)

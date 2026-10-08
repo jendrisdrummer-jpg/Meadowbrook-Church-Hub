@@ -139,6 +139,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.get('/app/', page('app/index.html'));
   app.get('/r/:id/:sig', page('respond.html'));
   app.get('/give', page('give.html'));
+  // Back from Stripe after giving in the app: on to the app's thank-you.
+  app.get('/app/give-done', (req, res) => res.redirect(`/app/#/give?done=${encodeURIComponent(String(req.query.session_id || '').replace(/[^\w]/g, ''))}`));
 
   app.use(errorHandler);
   return app;

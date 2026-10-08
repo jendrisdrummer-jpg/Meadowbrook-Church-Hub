@@ -96,7 +96,15 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
       const box = el.querySelector('[data-checkout]');
       f.classList.add('hidden');
       mount(box, html`<button type="button" class="btn ghost small" data-back>${icon('back')} Change amount</button><div class="give-checkout" data-mount></div>`);
-      const checkout = await stripe.initEmbeddedCheckout({ fetchClientSecret: async () => s.client_secret });
+      // When payment finishes inside the page, the thank-you replaces it right there.
+      const checkout = await stripe.initEmbeddedCheckout({
+        fetchClientSecret: async () => s.client_secret,
+        onComplete: () => {
+          checkout.destroy();
+          giveThanks(el, s.session_id, { again: returnTo === 'web' ? '/give' : '#/give', mine: mineHref }).catch(() => {});
+          window.scrollTo(0, 0);
+        },
+      });
       checkout.mount(box.querySelector('[data-mount]'));
       box.querySelector('[data-back]').onclick = () => { checkout.destroy(); box.replaceChildren(); f.classList.remove('hidden'); refresh(); };
       box.scrollIntoView({ behavior: 'smooth', block: 'start' });
