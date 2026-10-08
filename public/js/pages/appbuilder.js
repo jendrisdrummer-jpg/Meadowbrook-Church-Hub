@@ -9,6 +9,7 @@ const TAB_INFO = {
   give: ['Give', 'Opens your online giving page.'],
   connect: ['Connect card', 'Guests tell you they were here. Cards arrive under Connect cards.'],
   chat: ['Chat', 'Team chats and groups, for signed-in volunteers. Always reachable from the chat button at the top too.'],
+  tasks: ['Tasks', 'Tasks people are given (and their own), with due dates and checklists. Also under More.'],
   page: ['Page', 'Your own text: beliefs, next steps, staff, anything.'],
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],
@@ -16,6 +17,7 @@ const TAB_INFO = {
 const BLOCKS = {
   welcome: 'Welcome banner',
   serving: 'My next times serving',
+  tasks: 'My tasks due soon',
   buttons: 'Buttons',
   times: 'Service times',
   watch: 'Livestream player',
@@ -68,6 +70,7 @@ export default async function appBuilder(el) {
             ${['welcome', 'text', 'times', 'watch'].includes(b.type) ? html`<input type="text" data-k="home.${i}.title" value="${b.title || ''}" placeholder="Heading">` : ''}
             ${['welcome', 'text'].includes(b.type) ? html`<textarea data-k="home.${i}.text" rows="3" placeholder="Text">${b.text || ''}</textarea>` : ''}
             ${b.type === 'serving' ? html`<span class="muted small">Signed-in volunteers see their next few times serving, with Accept. Others see a “Serve on a team?” sign-in link.</span>` : ''}
+            ${b.type === 'tasks' ? html`<span class="muted small">Signed-in people see their next few open tasks, and can tick them off. Hidden when they have none.</span>` : ''}
             ${b.type === 'times' ? html`<span class="muted small">Filled in from your repeating services, with each campus’s address.</span>` : ''}
             ${b.type === 'watch' ? html`<span class="muted small">Uses the livestream link below.</span>` : ''}
             ${b.type === 'buttons' ? html`${(b.items || []).map((x, j) => html`<div class="row b-button">

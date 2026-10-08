@@ -477,6 +477,44 @@ const MIGRATIONS = [
     PRIMARY KEY (message_id, user_id, emoji)
   );
   `,
+  // 14: tasks. A team task can be given to anyone on that team; a personal one is just for you.
+  // Due dates bring reminders, a repeating task makes its next one when it's done.
+  `
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,     -- NULL = personal
+    assignee_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    due_date TEXT,                                     -- YYYY-MM-DD
+    due_time TEXT,                                     -- HH:MM, optional
+    service_id INTEGER REFERENCES services(id) ON DELETE SET NULL,
+    repeat TEXT NOT NULL DEFAULT '',                   -- '' | daily | weekly | biweekly | monthly
+    next_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,  -- the next one, once this repeating task is done
+    done_at TEXT,
+    done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reminded INTEGER NOT NULL DEFAULT 0,               -- 1 = "due tomorrow" sent, 2 = "due today" sent
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX tasks_assignee ON tasks (assignee_id, done_at);
+  CREATE INDEX tasks_team ON tasks (team_id, done_at);
+  CREATE TABLE task_items (                            -- the checklist
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    sort INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE task_comments (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

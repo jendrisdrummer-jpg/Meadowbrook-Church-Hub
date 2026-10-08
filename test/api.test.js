@@ -9,6 +9,7 @@ import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
 import http from 'node:http';
 import { sendReminders } from '../server/notify.js';
+import { sendTaskReminders, nextDue } from '../server/routes/tasks.js';
 import { outbox } from '../server/mail.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
@@ -748,6 +749,85 @@ test('chat: team chats follow the roster, messages, files, reactions, groups and
   assert.equal((await api('gina', 'GET', '/chats')).data.chats.find((c) => c.id === g.id).muted, true);
   assert.equal((await api('gina', 'DELETE', `/chats/${g.id}`)).status, 403);
   assert.equal((await api('lena', 'DELETE', `/chats/${g.id}`)).status, 200);
+});
+
+test('tasks: team tasks, personal tasks, checklists, comments, repeating and reminders', async () => {
+  const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Task', campus_id: 1, email: `${first.toLowerCase()}@task.org` })).data;
+  const account = (key, p) => {
+    const id = db.prepare("INSERT INTO users (email, role, person_id) VALUES (?, 'volunteer', ?)").run(p.email, p.id).lastInsertRowid;
+    startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+    return Number(id);
+  };
+  const [ava, ben, cal] = [await person('Ava'), await person('Ben'), await person('Cal')];
+  const avaId = account('ava', ava); const benId = account('ben', ben); account('cal', cal);
+  const team = (await api('admin', 'POST', '/teams', { name: 'Hospitality', campus_id: 1, positions: ['Coffee'] })).data;
+  for (const p of [ava, ben]) await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [] });
+  const inbox = async (key) => (await api(key, 'GET', '/notifications')).data.items.filter((n) => n.kind === 'task');
+
+  // Anyone on the team can give a task to anyone on it; not to (or by) someone outside.
+  assert.ok((await api('ben', 'GET', '/tasks/teams')).data.some((t) => t.id === team.id && t.members.length === 2));
+  assert.equal((await api('ben', 'POST', '/tasks', { title: 'x', team_id: team.id, assignee_id: cal.id })).status, 400);
+  assert.equal((await api('cal', 'POST', '/tasks', { title: 'x', team_id: team.id })).status, 400);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${nextSunday(7)}T09:00` })).data;
+  const made = await api('ben', 'POST', '/tasks', { title: 'Buy coffee', team_id: team.id, assignee_id: ava.id, due_date: nextSunday(7), service_id: svc.id, repeat: 'weekly', checklist: ['Beans', 'Cups'] });
+  assert.equal(made.status, 201);
+  const id = made.data.id;
+  assert.equal(made.data.checklist.length, 2);
+  assert.equal(made.data.service.starts_at, `${nextSunday(7)}T09:00`);
+  assert.match((await inbox('ava'))[0].title, /gave you a task/);
+  assert.equal((await api('cal', 'GET', `/tasks/${id}`)).status, 404);
+  assert.deepEqual((await api('ava', 'GET', '/tasks?view=mine')).data.map((t) => t.id), [id]);
+  assert.deepEqual((await api('ben', 'GET', '/tasks?view=given')).data.map((t) => t.id), [id]);
+  assert.ok((await api('ben', 'GET', `/tasks?view=team&team_id=${team.id}`)).data.some((t) => t.id === id));
+  assert.equal((await api('cal', 'GET', `/tasks?view=team&team_id=${team.id}`)).status, 404);
+  assert.equal((await api('north', 'GET', `/tasks/${id}`)).status, 200); // campus staff can see team tasks
+
+  // Personal tasks: just for you.
+  const own = await api('cal', 'POST', '/tasks', { title: 'Call the plumber' });
+  assert.equal(own.data.assignee_id, cal.id);
+  assert.equal((await api('ben', 'GET', `/tasks/${own.data.id}`)).status, 404);
+  assert.equal((await api('cal', 'POST', '/tasks', { title: 'x', assignee_id: ava.id })).status, 400);
+
+  // Checklist and comments; the giver hears about comments.
+  let t = (await api('ava', 'PATCH', `/task-items/${made.data.checklist[0].id}`, { done: true })).data;
+  assert.equal(t.items_done, 1);
+  t = (await api('ava', 'POST', `/tasks/${id}/checklist`, { text: 'Creamer' })).data;
+  assert.equal(t.checklist.length, 3);
+  t = (await api('ava', 'POST', `/tasks/${id}/comments`, { body: 'Oat milk too?' })).data;
+  assert.equal(t.thread[0].name, 'Ava Task');
+  assert.match((await inbox('ben'))[0].title, /commented/);
+  assert.equal((await api('ben', 'DELETE', `/task-comments/${t.thread[0].id}`)).status, 403);
+
+  // Done: Ben hears, and the next week's task appears with the checklist unticked.
+  const done = (await api('ava', 'PATCH', `/tasks/${id}`, { done: true })).data;
+  assert.ok(done.done_at && done.next_id);
+  assert.match((await inbox('ben'))[0].title, /finished a task/);
+  const next = (await api('ava', 'GET', `/tasks/${done.next_id}`)).data;
+  assert.equal(next.due_date, nextDue(nextSunday(7), 'weekly'));
+  assert.deepEqual(next.checklist.map((i) => i.done), [0, 0, 0]);
+  // Undo takes back the untouched next one; finishing again makes it again, just once.
+  await api('ava', 'PATCH', `/tasks/${id}`, { done: false });
+  assert.equal((await api('ava', 'GET', `/tasks/${done.next_id}`)).status, 404);
+  const again = (await api('ava', 'PATCH', `/tasks/${id}`, { done: true })).data;
+  await api('ava', 'PATCH', `/tasks/${id}`, { done: true });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM tasks WHERE title = ?').get('Buy coffee').n, 2);
+  done.next_id = again.next_id;
+  assert.equal(nextDue('2027-01-31', 'monthly'), '2027-02-28');
+
+  // Only the giver, a team leader or staff delete; reassigning outside the team fails.
+  assert.equal((await api('ava', 'DELETE', `/tasks/${done.next_id}`)).status, 403);
+  assert.equal((await api('ava', 'PATCH', `/tasks/${done.next_id}`, { assignee_id: cal.id })).status, 400);
+
+  // Reminders: overdue tasks get one notice; brand-new ones are skipped.
+  const late = (await api('ben', 'POST', '/tasks', { title: 'Restock napkins', team_id: team.id, assignee_id: ava.id, due_date: '2020-01-01' })).data;
+  sendTaskReminders(db);
+  assert.ok(!(await inbox('ava')).some((n) => /Overdue/.test(n.title))); // made just now
+  db.prepare("UPDATE tasks SET created_at = datetime('now', '-2 days'), reminded = 0 WHERE id = ?").run(late.id);
+  sendTaskReminders(db);
+  sendTaskReminders(db);
+  assert.equal((await inbox('ava')).filter((n) => /Overdue: Restock/.test(n.title)).length, 1);
+  assert.equal((await api('ava', 'GET', '/tasks/summary')).data.due >= 1, true);
+  assert.ok(avaId && benId);
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

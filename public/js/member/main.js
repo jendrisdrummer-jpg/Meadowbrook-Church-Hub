@@ -5,6 +5,7 @@ import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription } from '../push.js';
 import { openChat } from '../chat.js';
+import { taskList, taskPage, taskRow } from '../tasks.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -50,17 +51,18 @@ async function boot() {
 }
 
 function drawTabs(current) {
-  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}">${icon(t.icon)}<span>${t.label}</span>${t.type === 'chat' ? html`<span class="nav-badge hidden" data-badge="chat"></span>` : ''}</a>`));
+  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}">${icon(t.icon)}<span>${t.label}</span>${['chat', 'tasks'].includes(t.type) ? html`<span class="nav-badge hidden" data-badge="${t.type}"></span>` : ''}</a>`));
 }
 
-// Unread chat messages, on the chat button and the Chat tab.
+// Counts: unread chat messages (chat button, Chat tab) and my tasks due today or late.
 async function refreshChatBadge() {
   if (!app.user || preview) return;
-  let total = 0;
-  try { total = (await get('/chats/unread')).total; } catch { return; }
-  document.querySelectorAll('[data-badge="chat"]').forEach((b) => { b.textContent = total > 99 ? '99+' : total; b.classList.toggle('hidden', !total); });
+  const set = (kind, n) => document.querySelectorAll(`[data-badge="${kind}"]`).forEach((b) => { b.textContent = n > 99 ? '99+' : n; b.classList.toggle('hidden', !n); });
+  get('/chats/unread').then((d) => set('chat', d.total)).catch(() => {});
+  get('/tasks/summary').then((d) => set('tasks', d.due)).catch(() => {});
 }
 const chatTab = () => app.config.tabs.find((t) => t.type === 'chat');
+const tasksTab = () => app.config.tabs.find((t) => t.type === 'tasks');
 
 let seq = 0;
 async function route() {
@@ -74,6 +76,7 @@ async function route() {
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
+    if (parts[0] === 'tasks') { drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
     if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
     const tab = app.config.tabs.find((t) => t.id === parts[0] && t.type !== 'link') || tabs()[0];
@@ -92,11 +95,13 @@ async function home(el, tab) {
   const blocks = app.config.home;
   const needServing = blocks.some((b) => b.type === 'serving') && app.user?.linked;
   const mine = needServing ? await get('/my/schedule').catch(() => null) : null;
-  mount(el, html`${installBanner()}${blocks.map((b) => block(b, mine)).filter(Boolean).map((x) => html`<div class="m-block">${x}</div>`)}`);
+  const myTasks = blocks.some((b) => b.type === 'tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
+  mount(el, html`${installBanner()}${blocks.map((b) => block(b, mine, myTasks)).filter(Boolean).map((x) => html`<div class="m-block">${x}</div>`)}`);
   el.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     try {
+      if (b.dataset.done) { await patch(`/tasks/${b.dataset.done}`, { done: true }); toast('Done!'); refreshChatBadge(); return home(el, tab); }
       if (b.dataset.accept) { await patch(`/assignments/${b.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); home(el, tab); }
       if (b.matches('[data-install-now]')) { await promptInstall(); home(el, tab); }
       if (b.matches('[data-hide-banner]')) { localStorage.setItem('mb.app.banner', '1'); home(el, tab); }
@@ -104,7 +109,12 @@ async function home(el, tab) {
   };
 }
 
-function block(b, mine) {
+function block(b, mine, myTasks = []) {
+  if (b.type === 'tasks') {
+    if (!myTasks.length) return null;
+    return html`<div class="card"><div class="card-head"><h2>My tasks</h2><a class="btn small ghost" href="#/tasks">All</a></div>
+      <div class="task-list">${myTasks.slice(0, 4).map((t) => taskRow(t, { showWho: false }))}</div></div>`;
+  }
   if (b.type === 'welcome') {
     return html`<div class="m-hero"><small>${app.church_name}</small><h2>${b.title || 'Welcome'}</h2>${b.text ? html`<p>${b.text}</p>` : ''}</div>`;
   }
@@ -384,6 +394,7 @@ async function more(el, tab, q) {
     <div class="card m-list">
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
+      ${app.user && !tasksTab()?.on ? html`<a href="#/tasks">${icon('check')}<span class="grow">Tasks</span><span class="nav-badge hidden" data-badge="tasks"></span></a>` : ''}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}
@@ -407,6 +418,19 @@ async function more(el, tab, q) {
       more(el, tab, q);
     }
   };
+}
+
+// ---------------------------------------------------------------- tasks
+async function tasks(el, tab, id, q) {
+  if (!app.user) {
+    setTitle(tab.label);
+    mount(el, html`<div class="card m-big-action">${icon('check')}<h2 style="margin:0">Your tasks</h2>
+      <p class="muted" style="margin:0">Sign in to see tasks your team gives you, and keep your own.</p>
+      <a class="btn primary" href="${signInHref('/tasks')}">Sign in</a></div>`);
+    return;
+  }
+  if (id) return taskPage(el, id, { setTitle, q, me: app.user.person_id, onChange: refreshChatBadge });
+  return taskList(el, { setTitle, q, onChange: refreshChatBadge });
 }
 
 // ---------------------------------------------------------------- chat
@@ -434,6 +458,6 @@ async function inbox(el) {
   if (d.unread) post('/notifications/read', {}).catch(() => {});
 }
 
-const PAGES = { home, serve, watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab) };
+const PAGES = { home, serve, watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab), tasks: (el, tab, q) => tasks(el, tab, null, q) };
 
 boot().catch((e) => { document.body.textContent = e.message; });
