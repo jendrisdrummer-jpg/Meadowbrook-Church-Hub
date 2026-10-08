@@ -4,6 +4,9 @@ import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
 import { drawRollCall } from '../rollcall.js';
 import { drawPlan } from '../plan.js';
+import { assignDialog } from '../scheduling.js';
+
+const taken = (s, positionId) => new Set(s.positions.find((p) => p.id === positionId)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
 
 export default async function service(el, id) {
   const s = await get(`/services/${id}`);
@@ -106,7 +109,7 @@ function drawPeople(panel, s) {
       return drawPeople(panel, s);
     }
     try {
-      if (b.dataset.assign) await assign(s, s.positions.find((p) => p.id === Number(b.dataset.assign)) , reload);
+      if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
       if (b.matches('[data-autofill]')) {
         const r = await post(`/services/${s.id}/autofill`);
@@ -123,56 +126,11 @@ function drawPeople(panel, s) {
         await dialog({ title: 'Schedule an extra position', submit: 'Next', body: html`<label class="field">Position<select name="p">${options(all)}</select></label>`, onSubmit: (f) => { pid = Number(f.p.value); } });
         if (pid) {
           const t = all.find((x) => x.value === pid);
-          await assign(s, { id: pid, name: t.label }, reload);
+          await assignDialog(s.id, { id: pid, name: t.label }, taken(s, pid), reload);
         }
       }
     } catch (err) { fail(err); }
   };
-}
-
-async function assign(s, pos, reload) {
-  const list = await get(`/services/${s.id}/candidates?position_id=${pos.id}`);
-  const taken = new Set(s.positions.find((p) => p.id === pos.id)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
-  const available = list.filter((c) => !taken.has(c.id));
-  let showAll = false;
-  let picked;
-  const why = (c) => html`${c.conflicts.map((x) => html`<span class="pill ${x.level === 'block' ? 'bad' : 'warn'}">${x.text}</span> `)}
-    ${!c.plays_position ? html`<span class="pill">Not usually ${pos.name}</span> ` : ''}
-    <div class="muted small">${c.last_served ? `Last served ${fmtDate(c.last_served)}` : 'Hasn’t served yet'}${c.recent_count ? ` · serving ${c.recent_count} other ${c.recent_count === 1 ? 'day' : 'days'} within 4 weeks` : ''}</div>`;
-  // Only people assigned to this position, unless the scheduler asks for the whole team.
-  const rows = () => (showAll ? available : available.filter((c) => c.plays_position));
-  const others = available.filter((c) => !c.plays_position).length;
-  const listHtml = () => (rows().length ? html`<div class="picker-list">${rows().map((c, i) => html`<button type="button" data-i="${i}">${avatar(c)}<span>${displayName(c)}</span><span class="why">${why(c)}</span></button>`)}</div>`
-    : html`<p class="muted">No one is assigned to ${pos.name} yet. Tick people for it in the team’s roster.</p>`);
-  await dialog({
-    title: `Schedule ${pos.name}`, submit: null,
-    body: html`<p class="muted small">People assigned to ${pos.name}, best choices first: not away or booked elsewhere, and haven’t served recently.</p>
-      <div data-rows>${listHtml()}</div>
-      <div class="row" style="margin-top:10px">${others ? html`<button type="button" class="btn small ghost" data-all>Show everyone on the team (${others} more)</button>` : ''}
-        <button type="button" class="btn small ghost" data-anyone>Someone not on the team…</button></div>`,
-    onOpen: (d, close) => {
-      d.querySelector('[data-rows]').addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) { picked = rows()[b.dataset.i]; close(); } });
-      d.querySelector('[data-all]')?.addEventListener('click', (e) => { showAll = true; e.target.remove(); mount(d.querySelector('[data-rows]'), listHtml()); });
-      d.querySelector('[data-anyone]').onclick = async () => {
-        close();
-        const p = await pickPerson(`Schedule ${pos.name}`);
-        if (p) await save(p);
-      };
-    },
-  });
-  if (picked) await save(picked);
-
-  async function save(person) {
-    try {
-      await post(`/services/${s.id}/assignments`, { position_id: pos.id, person_id: person.id });
-      toast(`${displayName(person)} scheduled. They’ll see it in My Schedule.`);
-    } catch (e) {
-      if (e.status !== 409) throw e;
-      if (!(await confirm('Schedule anyway?', `${displayName(person)}: ${e.message}`, 'Schedule anyway'))) return;
-      await post(`/services/${s.id}/assignments`, { position_id: pos.id, person_id: person.id, force: true });
-    }
-    reload();
-  }
 }
 
 // ---------------------------------------------------------------- attendance

@@ -295,6 +295,41 @@ test('service templates: fill-in slots, apply, save-as, and repeating services',
   assert.equal(first.positions.find((p) => p.id === pos.id).needed, 2);
 });
 
+test('month schedule: grid, members and filling the month for one team', async () => {
+  const team = await api('admin', 'POST', '/teams', { name: 'Greeters', campus_id: 2, positions: ['Door'] });
+  const door = (await api('admin', 'GET', `/teams/${team.data.id}`)).data.positions[0];
+  const people = [];
+  for (const name of ['Ann', 'Bo', 'Cy']) {
+    const p = (await api('admin', 'POST', '/people', { first_name: name, last_name: 'Greeter', campus_id: 2 })).data;
+    await api('admin', 'PUT', `/teams/${team.data.id}/members/${p.id}`, { position_ids: [door.id] });
+    people.push(p);
+  }
+  // Wednesdays for four weeks, one greeter each.
+  const first = addDays(nextSunday(35), 3);
+  const st = await api('admin', 'POST', '/series', { campus_id: 2, starts_on: first, start_time: '19:00', ends_on: addDays(first, 21), needs: [{ position_id: door.id, count: 1 }] });
+  db.prepare("INSERT INTO blockouts (person_id, start_date, end_date, reason) VALUES (?, ?, ?, 'Trip')").run(people[0].id, first, first);
+  const month = first.slice(0, 7);
+
+  assert.equal((await api('vol', 'GET', `/schedule?month=${month}`)).status, 403);
+  const grid = (await api('admin', 'GET', `/schedule?month=${month}&series_id=${st.data.id}&team_id=${team.data.id}`)).data;
+  assert.ok(grid.services.length >= 1 && grid.services.every((x) => x.service_type_id === st.data.id && x.starts_at.startsWith(month)));
+  assert.deepEqual(grid.positions.map((p) => p.name), ['Door']);
+  assert.equal(grid.cells[`${grid.services[0].id}:${door.id}`].needed, 1);
+  assert.equal(grid.members.length, 3);
+  assert.equal(grid.members.find((m) => m.id === people[0].id).away[0].reason, 'Trip');
+
+  const fill = await api('admin', 'POST', '/schedule/autofill', { service_ids: grid.services.map((x) => x.id), team_id: team.data.id });
+  assert.equal(fill.data.added.length, grid.services.length);
+  const after = (await api('admin', 'GET', `/schedule?month=${month}&series_id=${st.data.id}&team_id=${team.data.id}`)).data;
+  // Shared fairly, and nobody scheduled while away.
+  const counts = after.members.map((m) => m.month_count);
+  assert.ok(Math.max(...counts) - Math.min(...counts) <= 1);
+  const firstCell = after.cells[`${after.services[0].id}:${door.id}`];
+  if (after.services[0].starts_at.startsWith(first)) assert.notEqual(firstCell.assignments[0].person_id, people[0].id);
+  // North-only staff can't schedule South services.
+  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id] })).status, 403);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

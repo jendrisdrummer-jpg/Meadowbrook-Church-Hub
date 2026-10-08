@@ -100,6 +100,14 @@ choose **just this one** or **this and all following**. Each service has:
   too. The Attendance page lists who **hasn't been here in 3+ weeks** and **first-time guests**,
   and each person's profile shows their attendance history.
 
+**Schedule** (Planning → Schedule): schedule a team a month at a time. Pick a repeating service
+(e.g. North · Sunday 9:00 AM) and a team to see every position down the side and that month's
+services across the top. Pick someone from the team list (it shows how often each person serves
+that month and when they're away), then click open spots to place them, or drag them onto a
+spot. **Fill the month** fills every open spot for that team, avoiding people who are away or
+already serving then and giving people weeks off where it can. Click a name to see their reply
+or remove them.
+
 **My Schedule**: volunteers accept or decline (with a reason), mark dates they'll be away, and
 open the order of service for anything they're on.
 

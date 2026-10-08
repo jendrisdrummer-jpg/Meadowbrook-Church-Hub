@@ -329,14 +329,18 @@ export default function serviceRoutes(db) {
         MAX(tm.position_id = ?) plays_position,
         (SELECT MAX(s2.starts_at) FROM assignments a JOIN services s2 ON s2.id = a.service_id WHERE a.person_id = p.id AND a.status != 'declined' AND s2.starts_at < ?) last_served,
         (SELECT COUNT(DISTINCT substr(s2.starts_at, 1, 10)) FROM assignments a JOIN services s2 ON s2.id = a.service_id
-          WHERE a.person_id = p.id AND a.status != 'declined' AND s2.id != ? AND s2.starts_at >= date(?, '-28 days') AND s2.starts_at < date(?, '+28 days')) recent_count
+          WHERE a.person_id = p.id AND a.status != 'declined' AND s2.id != ? AND s2.starts_at >= date(?, '-28 days') AND s2.starts_at < date(?, '+28 days')) recent_count,
+        (SELECT COUNT(*) FROM assignments a JOIN services s2 ON s2.id = a.service_id
+          WHERE a.person_id = p.id AND a.status != 'declined' AND a.position_id = ? AND s2.id != ?
+            AND s2.starts_at >= date(?, '-8 days') AND s2.starts_at < date(?, '+9 days')) nearby
       FROM team_members tm JOIN people p ON p.id = tm.person_id
-      WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id`).all(pos.id, s.starts_at, s.id, s.starts_at, s.starts_at, pos.team_id);
+      WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id`).all(pos.id, s.starts_at, s.id, s.starts_at, s.starts_at, pos.id, s.id, s.starts_at, s.starts_at, pos.team_id);
     return rows
       .map((p) => ({ ...p, plays_position: Boolean(p.plays_position), conflicts: conflictsFor(p.id, s, pos.id) }))
       .sort((a, b) => (a.conflicts.some((c) => c.level === 'block') - b.conflicts.some((c) => c.level === 'block'))
         || (b.plays_position - a.plays_position)
-        || (a.recent_count - b.recent_count)
+        // Doing the same job the week before or after counts extra, so people get weeks off.
+        || ((a.recent_count + 2 * a.nearby) - (b.recent_count + 2 * b.nearby))
         || String(a.last_served || '').localeCompare(String(b.last_served || '')));
   }
 
@@ -356,25 +360,107 @@ export default function serviceRoutes(db) {
     res.status(201).json({ ok: true, conflicts });
   });
 
-  // Fills open spots with the best available people (no blockouts or double-booking).
+  // Fills open spots with the best available people (no blockouts or double-booking),
+  // optionally only one team's positions.
+  function autofill(req, s, teamId = null) {
+    const needs = db.prepare(`SELECT n.position_id, n.count FROM service_needs n JOIN positions ps ON ps.id = n.position_id
+      WHERE n.service_id = ? AND (? IS NULL OR ps.team_id = ?)`).all(s.id, teamId, teamId);
+    const added = [];
+    for (const n of needs) {
+      try { requireSchedule(req, s, n.position_id); } catch { continue; }
+      const pos = db.prepare('SELECT * FROM positions WHERE id = ?').get(n.position_id);
+      let filled = db.prepare("SELECT COUNT(*) n FROM assignments WHERE service_id = ? AND position_id = ? AND status != 'declined'").get(s.id, pos.id).n;
+      for (const c of candidates(s, pos)) {
+        if (filled >= n.count) break;
+        if (!c.plays_position || c.conflicts.length) continue;
+        db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
+        added.push({ service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
+        filled++;
+      }
+    }
+    return added;
+  }
+
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
-    const added = [];
-    tx(db, () => {
-      for (const n of needs) {
-        try { requireSchedule(req, s, n.position_id); } catch { continue; }
-        const pos = db.prepare('SELECT * FROM positions WHERE id = ?').get(n.position_id);
-        let filled = db.prepare("SELECT COUNT(*) n FROM assignments WHERE service_id = ? AND position_id = ? AND status != 'declined'").get(s.id, pos.id).n;
-        for (const c of candidates(s, pos)) {
-          if (filled >= n.count) break;
-          if (!c.plays_position || c.conflicts.length) continue;
-          db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
-          added.push({ position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
-          filled++;
-        }
+    res.json({ added: tx(db, () => autofill(req, s)) });
+  });
+
+  // ---------------------------------------------------------------- month schedule
+  // A month of services side by side (one repeating service, or every service at the visible
+  // campuses), with each position's people, so a team can be scheduled a month at a time.
+  r.get('/schedule', requireRole('leader'), (req, res) => {
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+    const seriesId = int(req.query.series_id);
+    const campusId = int(req.query.campus_id);
+    const teamId = int(req.query.team_id);
+    ensureServices(db);
+    const cf = campusFilter(req.user, 's.campus_id');
+    const services = db.prepare(`SELECT s.id, s.campus_id, s.service_type_id, s.title, s.starts_at, s.duration_min, s.locked,
+        c.name campus_name, c.short_name campus_short, c.color campus_color, t.name series_name
+      FROM services s JOIN campuses c ON c.id = s.campus_id LEFT JOIN service_types t ON t.id = s.service_type_id
+      WHERE substr(s.starts_at, 1, 7) = ? AND (? IS NULL OR s.service_type_id = ?) AND (? IS NULL OR s.campus_id = ?) AND ${cf.sql}
+      ORDER BY s.starts_at`).all(month, seriesId, seriesId, campusId, campusId, ...cf.args);
+    const ids = services.map((x) => x.id);
+    const inIds = `(${[...ids, -1].map(() => '?').join(',')})`;
+    const needs = db.prepare(`SELECT service_id, position_id, count FROM service_needs WHERE service_id IN ${inIds}`).all(...ids, -1);
+    const assignments = db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, a.status, p.first_name, p.last_name, p.nickname, p.photo
+      FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id IN ${inIds} ORDER BY a.created_at`).all(...ids, -1);
+    // Positions of teams at these campuses (or church-wide). Without a team picked, only
+    // positions something is needed or scheduled for.
+    const campuses = [...new Set(services.map((x) => x.campus_id))];
+    const used = new Set([...needs.map((n) => n.position_id), ...assignments.map((a) => a.position_id)]);
+    const positions = db.prepare(`SELECT ps.id, ps.name, ps.team_id, t.name team_name, t.color team_color, t.campus_id team_campus
+      FROM positions ps JOIN teams t ON t.id = ps.team_id
+      WHERE t.archived = 0 AND (t.campus_id IS NULL OR t.campus_id IN (${[...campuses, -1].map(() => '?').join(',')}))
+      ORDER BY t.name COLLATE NOCASE, t.id, ps.sort, ps.id`).all(...campuses, -1)
+      .filter((p) => (teamId ? p.team_id === teamId : used.has(p.id)));
+
+    const cells = {};
+    for (const s of services) {
+      for (const p of positions) {
+        const list = assignments.filter((a) => a.service_id === s.id && a.position_id === p.id);
+        const needed = needs.find((n) => n.service_id === s.id && n.position_id === p.id)?.count ?? 0;
+        if (!list.length && !needed) continue;
+        cells[`${s.id}:${p.id}`] = { needed, assignments: list };
       }
+    }
+
+    // The team's people: what they play, how often they serve this month (anywhere), and when they're away.
+    let members = [];
+    if (teamId) {
+      const first = `${month}-01`;
+      const last = `${month}-31`;
+      members = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo, MAX(tm.is_leader) is_leader,
+          GROUP_CONCAT(tm.position_id) position_ids,
+          (SELECT COUNT(DISTINCT substr(s2.starts_at, 1, 10)) FROM assignments a JOIN services s2 ON s2.id = a.service_id
+            WHERE a.person_id = p.id AND a.status != 'declined' AND substr(s2.starts_at, 1, 7) = ?) month_count
+        FROM team_members tm JOIN people p ON p.id = tm.person_id
+        WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(month, teamId)
+        .map((m) => ({
+          ...m,
+          is_leader: Boolean(m.is_leader),
+          position_ids: String(m.position_ids || '').split(',').filter(Boolean).map(Number),
+          away: db.prepare('SELECT start_date, end_date, reason FROM blockouts WHERE person_id = ? AND end_date >= ? AND start_date <= ? ORDER BY start_date').all(m.id, first, last),
+        }));
+    }
+
+    const canTeam = (s, tid) => canSchedule(req, s, tid);
+    res.json({
+      month,
+      services: services.map((s) => ({ ...s, can_schedule: Object.fromEntries([...new Set(positions.map((p) => p.team_id))].map((tid) => [tid, canTeam(s, tid)])) })),
+      positions,
+      cells,
+      members,
     });
+  });
+
+  // Fills open spots across several services at once, in date order, so the load spreads over the month.
+  r.post('/schedule/autofill', requireRole('leader'), (req, res) => {
+    const ids = Array.isArray(req.body?.service_ids) ? req.body.service_ids.map((x) => int(x, 'Service')).slice(0, 200) : [];
+    const teamId = int(req.body?.team_id);
+    const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    const added = tx(db, () => list.flatMap((s) => autofill(req, s, teamId)));
     res.json({ added });
   });
 
