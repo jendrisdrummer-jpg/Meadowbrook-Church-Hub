@@ -83,6 +83,8 @@ const PATHS = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
   logout: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/>',
   alert: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/>',
   printer: '<path d="M7 9V3h10v6M7 17H4v-7h16v7h-3"/><rect x="7" y="14" width="10" height="7"/>',

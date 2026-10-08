@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { openDb } from './db.js';
+import { openDb, getSetting } from './db.js';
 import { authRoutes, loadUser, requireAppHeader, requireRole } from './auth.js';
 import { errorHandler } from './http.js';
 import setupRoutes from './routes/setup.js';
@@ -16,6 +16,8 @@ import attendanceRoutes from './routes/attendance.js';
 import dashboardRoutes from './routes/dashboard.js';
 import fieldRoutes from './routes/fields.js';
 import templateRoutes from './routes/templates.js';
+import notificationRoutes from './routes/notifications.js';
+import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -40,7 +42,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   authRoutes(app, db);
 
   const api = express.Router();
-  api.use(setupRoutes(db));
+  api.use(setupRoutes(db, { uploadDir }));
   api.use(peopleRoutes(db, { uploadDir }));
   api.use(teamRoutes(db));
   api.use(serviceRoutes(db));
@@ -50,11 +52,39 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(dashboardRoutes(db));
   api.use(fieldRoutes(db));
   api.use(templateRoutes(db));
+  api.use(notificationRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 
   // Photos include children, so they are only served to signed-in users.
   app.use('/uploads', requireRole('volunteer'), express.static(uploadDir, { maxAge: '7d', fallthrough: false }));
+
+  // The installable app: its name, colours and icon come from Settings → Church.
+  app.get('/manifest.webmanifest', (_req, res) => {
+    const name = getSetting(db, 'church_name', 'Church Hub');
+    const v = getSetting(db, 'app_icon_version', 0);
+    res.type('application/manifest+json').json({
+      name,
+      short_name: getSetting(db, 'app_short_name', '') || name.split(' ')[0],
+      start_url: '/#/',
+      scope: '/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: getSetting(db, 'brand_color', '#135fd1'),
+      icons: [
+        { src: `/app-icon/192.png?v=${v}`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: `/app-icon/512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: `/app-icon/512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    });
+  });
+  // An uploaded icon if there is one, otherwise the default.
+  app.get('/app-icon/:size.png', (req, res) => {
+    const size = ['180', '192', '512'].includes(req.params.size) ? req.params.size : '512';
+    const custom = path.join(uploadDir, 'app-icon', `${size}.png`);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.sendFile(fs.existsSync(custom) ? custom : path.join(root, 'public', 'icons', `icon-${size}.png`));
+  });
 
   const pub = path.join(root, 'public');
   app.use(express.static(pub, { extensions: ['html'], index: false }));
@@ -83,4 +113,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   }
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
   createApp({ db }).listen(port, () => console.log(`Meadowbrook Church Hub on http://localhost:${port}`));
+  // Serving reminders go out a day or two ahead (Settings: reminder_hours).
+  const remind = () => { try { sendReminders(db); } catch (e) { console.error('Reminders failed:', e.message); } };
+  setTimeout(remind, 60e3).unref();
+  setInterval(remind, 15 * 60e3).unref();
 }

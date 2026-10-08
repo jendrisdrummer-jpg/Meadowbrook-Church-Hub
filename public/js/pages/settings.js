@@ -1,5 +1,5 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { get, post, patch, put, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
+import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 
@@ -33,7 +33,39 @@ async function church(panel) {
         <button type="button" class="btn small ghost" data-reset>Reset</button></div>
       <span class="muted small">Used for buttons, links and highlights everywhere, including check-in and the sign-in page.</span></div>
     <div class="row end"><button class="btn primary">Save</button></div>
+  </form>
+  <form class="card stack" style="max-width:640px" data-app>
+    <h2 style="margin:0">App</h2>
+    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My Schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
+    <div class="row" style="align-items:center;gap:14px">
+      <img src="/app-icon/192.png?v=${s.app_icon_version}" alt="App icon" width="72" height="72" style="border-radius:16px;border:1px solid var(--line)">
+      <div class="stack" style="gap:6px"><label class="btn small">${icon('upload')} Upload icon<input type="file" accept="image/*" data-icon hidden></label>
+        ${s.custom_app_icon ? html`<button type="button" class="btn small ghost" data-icon-reset>Use the default</button>` : ''}
+        <span class="muted small">A square image, at least 512 × 512.</span></div>
+    </div>
+    <label class="field">Name under the icon<input type="text" name="app_short_name" value="${s.app_short_name}" maxlength="14" placeholder="${(s.church_name || '').split(' ')[0]}">
+      <span class="muted small">Keep it short, about 12 letters.</span></label>
+    <label class="field">Remind volunteers before they serve<select name="reminder_hours">${options([{ value: 0, label: 'Don’t send reminders' }, { value: 24, label: 'A day before' }, { value: 48, label: 'Two days before' }, { value: 72, label: 'Three days before' }, { value: 168, label: 'A week before' }], s.reminder_hours)}</select>
+      <span class="muted small">People who haven’t replied are asked to accept or decline.</span></label>
+    <div class="row end"><button class="btn primary">Save</button></div>
   </form>`);
+  const app = panel.querySelector('[data-app]');
+  app.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await save({ app_short_name: app.app_short_name.value.trim(), reminder_hours: Number(app.reminder_hours.value) }); } catch (err) { fail(err); }
+  };
+  app.querySelector('[data-icon]').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      for (const size of [512, 192, 180]) await api('POST', `/app-icon/${size}`, await squarePng(file, size));
+      toast('App icon updated. Installed apps pick it up the next time they update.');
+      church(panel);
+    } catch (err) { fail(err); }
+  };
+  app.querySelector('[data-icon-reset]')?.addEventListener('click', async () => {
+    try { await del('/app-icon'); church(panel); } catch (err) { fail(err); }
+  });
   const form = panel.querySelector('form');
   const preview = () => {
     panel.querySelector('[data-hex]').textContent = form.brand_color.value;
@@ -48,6 +80,26 @@ async function church(panel) {
       document.querySelector('[data-church]').textContent = state.settings.church_name;
     } catch (err) { fail(err); }
   };
+}
+
+// Center-crops an image to a square PNG on white (home screens don't show transparency well).
+function squarePng(file, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, size, size);
+      g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not read that image.'))), 'image/png');
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = () => reject(new Error('Could not read that image.'));
+    img.src = URL.createObjectURL(file);
+  });
 }
 
 // ---------------------------------------------------------------- check-in & attendance
