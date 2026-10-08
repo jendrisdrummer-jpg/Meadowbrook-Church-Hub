@@ -147,7 +147,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   r.get('/users', requireRole('admin'), (req, res) => {
     const q = str(req.query.q, 100).toLowerCase();
     const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at,
-        u.password_hash IS NOT NULL has_password, p.first_name, p.last_name
+        u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name
       FROM users u LEFT JOIN people p ON p.id = u.person_id
       WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
@@ -194,6 +194,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (admins <= 1) throw bad('This is the only admin. Make someone else an admin first.');
     }
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active']);
+    // Access chosen by hand is never changed automatically by team leadership.
+    if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     audit(db, req, 'user.update', { id: u.id, ...req.body });
     res.json({ ok: true });

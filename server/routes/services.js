@@ -5,7 +5,7 @@ import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
-import { notifyScheduled, notifyDeclined } from '../notify.js';
+import { notifyScheduled, notifyDeclined, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -355,13 +355,14 @@ export default function serviceRoutes(db) {
     if (conflicts.some((c) => c.level === 'block') && !req.body?.force) {
       return res.status(409).json({ error: conflicts.filter((c) => c.level === 'block').map((c) => c.text).join('; '), conflicts });
     }
-    const before = db.prepare('SELECT status FROM assignments WHERE service_id = ? AND position_id = ? AND person_id = ?').get(s.id, positionId, personId);
-    db.prepare(`INSERT INTO assignments (service_id, position_id, person_id, status) VALUES (?, ?, ?, ?)
-      ON CONFLICT(service_id, position_id, person_id) DO UPDATE SET status = excluded.status, responded_at = NULL, decline_reason = '', reminded_at = NULL`)
-      .run(s.id, positionId, personId, req.body?.status === 'accepted' ? 'accepted' : 'pending');
+    // A new (or re-asked) spot is a draft until the scheduler sends requests.
+    // Someone already confirmed in person ("accepted") doesn't need a request.
+    const accepted = req.body?.status === 'accepted';
+    db.prepare(`INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, ?, ${accepted ? "datetime('now')" : 'NULL'})
+      ON CONFLICT(service_id, position_id, person_id) DO UPDATE SET status = excluded.status, responded_at = NULL, decline_reason = '', reminded_at = NULL,
+        sent_at = CASE WHEN excluded.sent_at IS NOT NULL THEN excluded.sent_at WHEN assignments.status = 'declined' THEN NULL ELSE assignments.sent_at END`)
+      .run(s.id, positionId, personId, accepted ? 'accepted' : 'pending');
     const a = db.prepare('SELECT id FROM assignments WHERE service_id = ? AND position_id = ? AND person_id = ?').get(s.id, positionId, personId);
-    // Tell them, unless they were already on it (and hadn't declined).
-    if (!before || before.status === 'declined') notifyScheduled(db, [a.id], { byUserId: req.user.id });
     res.status(201).json({ ok: true, id: a.id, conflicts });
   });
 
@@ -389,9 +390,7 @@ export default function serviceRoutes(db) {
 
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    const added = tx(db, () => autofill(req, s));
-    notifyScheduled(db, added.map((a) => a.id), { byUserId: req.user.id });
-    res.json({ added });
+    res.json({ added: tx(db, () => autofill(req, s)) });
   });
 
   // ---------------------------------------------------------------- month schedule
@@ -412,7 +411,7 @@ export default function serviceRoutes(db) {
     const ids = services.map((x) => x.id);
     const inIds = `(${[...ids, -1].map(() => '?').join(',')})`;
     const needs = db.prepare(`SELECT service_id, position_id, count FROM service_needs WHERE service_id IN ${inIds}`).all(...ids, -1);
-    const assignments = db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, a.status, p.first_name, p.last_name, p.nickname, p.photo
+    const assignments = db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, a.status, a.sent_at, p.first_name, p.last_name, p.nickname, p.photo
       FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id IN ${inIds} ORDER BY a.created_at`).all(...ids, -1);
     // Positions of teams at these campuses (or church-wide). Without a team picked, only
     // positions something is needed or scheduled for.
@@ -468,9 +467,36 @@ export default function serviceRoutes(db) {
     const ids = Array.isArray(req.body?.service_ids) ? req.body.service_ids.map((x) => int(x, 'Service')).slice(0, 200) : [];
     const teamId = int(req.body?.team_id);
     const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    const added = tx(db, () => list.flatMap((s) => autofill(req, s, teamId)));
-    notifyScheduled(db, added.map((a) => a.id), { byUserId: req.user.id });
-    res.json({ added });
+    res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId))) });
+  });
+
+  // ---------------------------------------------------------------- sending requests
+  // Drafts (scheduled but not yet told) in some services, optionally one team's, that this
+  // person may schedule.
+  function drafts(req, serviceIds, teamId) {
+    const ids = serviceIds.slice(0, 300);
+    if (!ids.length) return [];
+    return db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, ps.team_id, ps.name position, s.starts_at, s.campus_id, s.locked,
+        p.first_name, p.last_name, p.nickname, p.email, (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
+      FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id JOIN people p ON p.id = a.person_id
+      WHERE a.sent_at IS NULL AND a.status != 'declined' AND a.service_id IN (${ids.map(() => '?').join(',')}) AND (? IS NULL OR ps.team_id = ?)
+      ORDER BY p.last_name, p.first_name, s.starts_at`).all(...ids, teamId, teamId)
+      .filter((a) => canSchedule(req, a, a.team_id));
+  }
+  const idList = (v) => String(v || '').split(',').map(Number).filter(Number.isInteger).slice(0, 300);
+
+  r.get('/assignments/unsent', requireRole('leader'), (req, res) => {
+    res.json(drafts(req, idList(req.query.service_ids), int(req.query.team_id)).map(({ email, has_account, ...a }) => ({ ...a, reachable: Boolean(email || has_account) })));
+  });
+
+  // Body: { service_ids: [..], team_id? } — marks the drafts sent and tells each person once.
+  r.post('/assignments/send', requireRole('leader'), (req, res) => {
+    const list = drafts(req, (req.body?.service_ids || []).map(Number), int(req.body?.team_id));
+    if (!list.length) return res.json({ sent: 0, people: 0 });
+    db.prepare(`UPDATE assignments SET sent_at = datetime('now') WHERE id IN (${list.map(() => '?').join(',')})`).run(...list.map((a) => a.id));
+    notifyScheduled(db, list.map((a) => a.id), { byUserId: req.user.id });
+    audit(db, req, 'schedule.send', `${list.length} requests`);
+    res.json({ sent: list.length, people: new Set(list.map((a) => a.person_id)).size });
   });
 
   r.patch('/assignments/:id', requireRole('volunteer'), (req, res) => {
@@ -490,7 +516,10 @@ export default function serviceRoutes(db) {
     const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(req.params.id);
     if (!a) throw notFound('Assignment');
     requireSchedule(req, service(req, a.service_id), a.position_id);
+    const told = assignmentRow(db, a.id);
     db.prepare('DELETE FROM assignments WHERE id = ?').run(a.id);
+    // Someone who was already asked hears they're no longer needed.
+    if (told?.sent_at && told.person_id !== req.user.personId) notifyUnscheduled(db, told);
     res.json({ ok: true });
   });
 
@@ -504,7 +533,7 @@ export default function serviceRoutes(db) {
           ps.name position, t.name team, t.color team_color, c.name campus, c.short_name campus_short, c.address
         FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id
         JOIN teams t ON t.id = ps.team_id JOIN campuses c ON c.id = s.campus_id
-        WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at`).all(pid),
+        WHERE a.person_id = ? AND a.sent_at IS NOT NULL AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at`).all(pid),
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(pid),
       teams: db.prepare(`SELECT t.name, t.color, tm.is_leader, ps.name position FROM team_members tm JOIN teams t ON t.id = tm.team_id
         LEFT JOIN positions ps ON ps.id = tm.position_id WHERE tm.person_id = ? ORDER BY t.name`).all(pid),

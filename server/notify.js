@@ -1,10 +1,12 @@
 // Notifications: an in-app inbox for every account, plus a push to each phone or browser that
 // allowed it. Volunteers hear when they're scheduled and before they serve; team leaders hear
 // when someone can't make it.
-import { getSetting } from './db.js';
+import crypto from 'node:crypto';
+import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
+import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['scheduled', 'reminder', 'declined', 'connect'];
+export const KINDS = ['scheduled', 'reminder', 'declined', 'connect', 'email'];
 
 // Staff pages opened from the member app go to the dashboard's own address.
 const hub = (path) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}${path}`;
@@ -65,33 +67,93 @@ const usersOf = (db, personIds) => (personIds.length
   ? db.prepare(`SELECT id, person_id FROM users WHERE active = 1 AND person_id IN (${personIds.map(() => '?').join(',')})`).all(...personIds)
   : []);
 
-const assignmentRows = (db, ids) => (ids.length ? db.prepare(`SELECT a.id, a.person_id, a.status, a.decline_reason, a.service_id, s.starts_at,
+const assignmentRows = (db, ids) => (ids.length ? db.prepare(`SELECT a.id, a.person_id, a.status, a.decline_reason, a.sent_at, a.service_id, s.starts_at,
     ps.name position, ps.team_id, t.name team, c.short_name campus_short, c.name campus, p.first_name, p.last_name, p.nickname
   FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id JOIN teams t ON t.id = ps.team_id
   JOIN campuses c ON c.id = s.campus_id JOIN people p ON p.id = a.person_id
   WHERE a.id IN (${ids.map(() => '?').join(',')}) ORDER BY s.starts_at`).all(...ids) : []);
 
-// "You're scheduled": one message per person, however many spots they were given at once.
+// ---------------------------------------------------------------- email
+// Accept/decline links in emails work without signing in: each is signed for one assignment.
+function linkSecret(db) {
+  let secret = getSetting(db, 'link_secret', '');
+  if (!secret) { secret = crypto.randomBytes(32).toString('base64url'); setSetting(db, 'link_secret', secret); }
+  return secret;
+}
+export const assignmentSig = (db, assignmentId, personId) => crypto.createHmac('sha256', linkSecret(db)).update(`${assignmentId}:${personId}`).digest('base64url').slice(0, 24);
+const siteUrl = () => ((process.env.MB_APP_URL || process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''));
+const appUrl = () => (process.env.MB_APP_URL ? siteUrl() : `${siteUrl()}/app`) + '/';
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+// Who gets an email: the person's address (or their account's), unless they turned emails off.
+function emailTargets(db, personIds) {
+  if (!personIds.length || !(mailConfigured() || canSendMail())) return new Map();
+  const rows = db.prepare(`SELECT p.id, p.email, u.email user_email, u.notify FROM people p LEFT JOIN users u ON u.person_id = p.id AND u.active = 1
+    WHERE p.id IN (${personIds.map(() => '?').join(',')})`).all(...personIds);
+  return new Map(rows.filter((r) => prefs(r).email !== false && (r.email || r.user_email)).map((r) => [r.id, r.email || r.user_email]));
+}
+
+function mail(db, to, subject, lines, { spots = [], footer = true } = {}) {
+  const church = getSetting(db, 'church_name', 'Church');
+  const color = getSetting(db, 'brand_color', '#135fd1');
+  const respond = (a) => `${siteUrl()}/r/${a.id}/${assignmentSig(db, a.id, a.person_id)}`;
+  const text = [...lines, '', ...spots.map((a) => `${when(a.starts_at)} · ${a.position} (${a.team}) · ${a.campus}\n  Reply: ${respond(a)}`),
+    '', footer ? `See your schedule in the ${church} app: ${appUrl()}` : ''].join('\n').trim();
+  const btn = (href, label, primary) => `<a href="${esc(href)}" style="display:inline-block;padding:9px 14px;border-radius:9px;text-decoration:none;font-weight:600;${primary ? `background:${color};color:#fff` : 'border:1px solid #ccc;color:#111'}">${label}</a>`;
+  const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:520px;color:#111">
+    <p style="font-weight:700;color:${color};margin:0 0 12px">${esc(church)}</p>
+    ${lines.map((l) => `<p style="margin:0 0 10px">${esc(l)}</p>`).join('')}
+    ${spots.map((a) => `<div style="border:1px solid #e2e5ea;border-radius:12px;padding:12px 14px;margin:12px 0">
+      <div style="font-weight:700">${esc(when(a.starts_at))}</div>
+      <div style="color:#4a5160;margin:2px 0 10px">${esc(a.position)} · ${esc(a.team)} · ${esc(a.campus)}</div>
+      ${btn(`${respond(a)}?do=accept`, 'Accept', true)} &nbsp; ${btn(`${respond(a)}?do=decline`, 'Can’t make it')}</div>`).join('')}
+    ${footer ? `<p style="color:#7b8494;font-size:13px;margin-top:18px">See everything you’re on in the <a href="${esc(appUrl())}">${esc(church)} app</a>.</p>` : ''}</div>`;
+  sendMail({ to, subject, text, html }).catch((e) => console.error(`Email to ${to} failed:`, e.message));
+}
+
+// ---------------------------------------------------------------- scheduling notices
+// "You're scheduled": one message per person (app and email), however many spots they got.
 export function notifyScheduled(db, assignmentIds, { byUserId } = {}) {
   const rows = assignmentRows(db, assignmentIds).filter((a) => a.status !== 'declined');
   const byPerson = Map.groupBy(rows, (a) => a.person_id);
-  for (const u of usersOf(db, [...byPerson.keys()])) {
-    if (u.id === byUserId) continue; // scheduling yourself needs no notice
-    const list = byPerson.get(u.person_id);
+  const users = new Map(usersOf(db, [...byPerson.keys()]).map((u) => [u.person_id, u.id]));
+  const emails = emailTargets(db, [...byPerson.keys()]);
+  for (const [personId, list] of byPerson) {
+    if (users.get(personId) === byUserId) continue; // scheduling yourself needs no notice
     const one = list.length === 1 ? list[0] : null;
-    notify(db, [u.id], {
-      kind: 'scheduled',
-      title: one ? `You’re scheduled: ${one.position}` : `You’re scheduled ${list.length} times`,
-      body: one ? `${when(one.starts_at)} · ${one.campus_short || one.campus}. Can you make it?`
-        : `${list.map((a) => `${when(a.starts_at).split(' at ')[0]} (${a.position})`).join(', ')}. Please accept or decline each one.`,
-      url: '/#/my',
-      app_url: '/app/#/serve',
-      tag: one ? `assignment-${one.id}` : undefined,
-      actions: one ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
-      data: { assignment_ids: list.map((a) => a.id) },
-    });
+    const title = one ? `You’re scheduled: ${one.position}` : `You’re scheduled ${list.length} times`;
+    if (users.get(personId)) {
+      notify(db, [users.get(personId)], {
+        kind: 'scheduled',
+        title,
+        body: one ? `${when(one.starts_at)} · ${one.campus_short || one.campus}. Can you make it?`
+          : `${list.map((a) => `${when(a.starts_at).split(' at ')[0]} (${a.position})`).join(', ')}. Please accept or decline each one.`,
+        url: '/#/my',
+        app_url: '/app/#/serve',
+        tag: one ? `assignment-${one.id}` : undefined,
+        actions: one ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
+        data: { assignment_ids: list.map((a) => a.id) },
+      });
+    }
+    if (emails.has(personId)) {
+      mail(db, emails.get(personId), one ? `${title} on ${when(one.starts_at).split(' at ')[0]}` : title,
+        [`Hi ${list[0].nickname || list[0].first_name},`, one ? 'You’ve been scheduled to serve. Can you make it?' : `You’ve been scheduled to serve ${list.length} times. Please let us know about each one.`],
+        { spots: list });
+    }
   }
 }
+
+// "You're no longer needed": for someone taken off a spot after they were told about it.
+export function notifyUnscheduled(db, a) {
+  if (!a?.sent_at || a.status === 'declined') return;
+  const [u] = usersOf(db, [a.person_id]);
+  const day = when(a.starts_at).split(' at ')[0];
+  if (u) notify(db, [u.id], { kind: 'scheduled', title: `No longer needed ${day}`, body: `You’ve been taken off ${a.position} at ${when(a.starts_at).split(' at ')[1]}. Thank you!`, url: '/#/my', app_url: '/app/#/serve' });
+  const emails = emailTargets(db, [a.person_id]);
+  if (emails.has(a.person_id)) mail(db, emails.get(a.person_id), `Schedule change: ${day}`, [`Hi ${a.nickname || a.first_name},`, `You’re no longer needed for ${a.position} on ${when(a.starts_at)} at ${a.campus}. Thank you for being willing to serve!`]);
+}
+
+export const assignmentRow = (db, id) => assignmentRows(db, [id])[0];
 
 // "Can't make it": tells the team's leaders (not the person who declined).
 export function notifyDeclined(db, assignmentId) {
@@ -125,19 +187,25 @@ export function sendReminders(db) {
   if (!hours) return 0;
   let sent = 0;
   for (const c of db.prepare('SELECT id, timezone FROM campuses').all()) {
-    const due = db.prepare(`SELECT a.id, a.created_at FROM assignments a JOIN services s ON s.id = a.service_id
-      WHERE s.campus_id = ? AND a.status != 'declined' AND a.reminded_at IS NULL AND s.starts_at > ? AND s.starts_at <= ?`)
+    const due = db.prepare(`SELECT a.id, a.sent_at FROM assignments a JOIN services s ON s.id = a.service_id
+      WHERE s.campus_id = ? AND a.status != 'declined' AND a.sent_at IS NOT NULL AND a.reminded_at IS NULL AND s.starts_at > ? AND s.starts_at <= ?`)
       .all(c.id, localNow(c.timezone), localNow(c.timezone, hours));
     if (!due.length) continue;
     db.prepare(`UPDATE assignments SET reminded_at = datetime('now') WHERE id IN (${due.map(() => '?').join(',')})`).run(...due.map((a) => a.id));
     // Someone scheduled in the last few hours just got "you're scheduled"; skip the reminder.
-    const fresh = new Set(due.filter((a) => Date.parse(`${a.created_at.replace(' ', 'T')}Z`) > Date.now() - 6 * 3600e3).map((a) => a.id));
+    const fresh = new Set(due.filter((a) => Date.parse(`${a.sent_at.replace(' ', 'T')}Z`) > Date.now() - 6 * 3600e3).map((a) => a.id));
     const rows = assignmentRows(db, due.map((a) => a.id).filter((id) => !fresh.has(id)));
     const users = new Map(usersOf(db, [...new Set(rows.map((a) => a.person_id))]).map((u) => [u.person_id, u.id]));
+    const emails = emailTargets(db, [...new Set(rows.map((a) => a.person_id))]);
     for (const a of rows) {
       const uid = users.get(a.person_id);
-      if (!uid) continue;
       const pending = a.status === 'pending';
+      if (emails.has(a.person_id)) {
+        mail(db, emails.get(a.person_id), pending ? `Can you serve ${when(a.starts_at).split(' at ')[0]}?` : `Reminder: you’re serving ${when(a.starts_at).split(' at ')[0]}`,
+          [`Hi ${a.nickname || a.first_name},`, pending ? 'We haven’t heard back yet. Can you make it?' : `Thanks for serving! ${a.position} at ${when(a.starts_at)}, ${a.campus}.`], { spots: pending ? [a] : [] });
+      }
+      if (emails.has(a.person_id) || uid) sent++;
+      if (!uid) continue;
       notify(db, [uid], {
         kind: 'reminder',
         title: pending ? `Can you serve ${when(a.starts_at).split(' at ')[0]}?` : `You’re serving ${when(a.starts_at).split(' at ')[0]}`,
@@ -148,7 +216,6 @@ export function sendReminders(db) {
         actions: pending ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
         data: { assignment_ids: [a.id] },
       });
-      sent++;
     }
   }
   return sent;

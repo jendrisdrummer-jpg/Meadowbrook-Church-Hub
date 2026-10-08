@@ -110,6 +110,19 @@ spot. **Fill the month** fills every open spot for that team, avoiding people wh
 already serving then and giving people weeks off where it can. Click a name to see their reply
 or remove them.
 
+**Sending requests**: placing someone (by hand, Fill open spots or Fill the month) saves a
+**draft**, marked *Not sent*, so you can move people around freely. When the schedule looks right,
+**Send requests** (on the Schedule page or a service's Who's serving tab) shows who will be asked
+for what, then sends each person **one** email and app notification listing all their spots,
+with Accept and Can't-make-it buttons that work without signing in. Taking someone off after
+they were asked sends them a short "no longer needed" note. Reminders only go to requests that
+were sent.
+
+**Access**: everyone starts as a volunteer. Ticking **Leader** for someone on a team gives them
+leader access (to schedule their team); it goes back to volunteer when they no longer lead any
+team, unless an admin chose their access by hand. Admins can change anyone's access from their
+profile in People (**Change access**) or in Settings → Sign-in & accounts.
+
 **My Schedule**: volunteers accept or decline (with a reason), mark dates they'll be away, and
 open the order of service for anything they're on.
 

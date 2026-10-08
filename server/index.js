@@ -123,6 +123,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.get('/checkin', page('checkin.html'));
   app.get('/', page('app.html'));
   app.get('/app/', page('app/index.html'));
+  app.get('/r/:id/:sig', page('respond.html'));
 
   app.use(errorHandler);
   return app;

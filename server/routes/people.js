@@ -118,14 +118,15 @@ export default function peopleRoutes(db, { uploadDir }) {
       teams: db.prepare(`SELECT t.id, t.name, t.color, tm.is_leader, ps.name position FROM team_members tm
         JOIN teams t ON t.id = tm.team_id LEFT JOIN positions ps ON ps.id = tm.position_id
         WHERE tm.person_id = ? AND t.archived = 0 ORDER BY t.name`).all(p.id),
-      upcoming: db.prepare(`SELECT a.id, a.status, s.id service_id, s.starts_at, s.title, ps.name position, c.short_name campus
+      upcoming: db.prepare(`SELECT a.id, a.status, a.sent_at, s.id service_id, s.starts_at, s.title, ps.name position, c.short_name campus
         FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id
         JOIN campuses c ON c.id = s.campus_id
         WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at LIMIT 20`).all(p.id),
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
         WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
-      account: db.prepare('SELECT id, role, email FROM users WHERE person_id = ?').get(p.id) || null,
+      account: db.prepare(`SELECT id, role, email, active, last_login, campus_ids, role_auto, password_hash IS NOT NULL has_password
+        FROM users WHERE person_id = ?`).get(p.id) || null,
     });
   });
 

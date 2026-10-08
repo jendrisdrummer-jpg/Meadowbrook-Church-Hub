@@ -4,7 +4,8 @@ import { Router } from 'express';
 import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
-import { notify } from '../notify.js';
+import { notify, notifyDeclined, assignmentSig } from '../notify.js';
+import crypto from 'node:crypto';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
 export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'page', 'link', 'more'];
@@ -124,6 +125,32 @@ export default function appRoutes(db) {
     setSetting(db, 'app_config', config);
     audit(db, req, 'app.config');
     res.json(config);
+  });
+
+  // ---------------------------------------------------------------- email reply links
+  // Accept or decline from the link in a "you're scheduled" email, without signing in.
+  const signed = (req) => {
+    const a = db.prepare(`SELECT a.*, s.starts_at, s.title, ps.name position, t.name team, c.name campus, c.address, p.first_name, p.nickname
+      FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id JOIN teams t ON t.id = ps.team_id
+      JOIN campuses c ON c.id = s.campus_id JOIN people p ON p.id = a.person_id WHERE a.id = ?`).get(int(req.params.id));
+    const want = a ? assignmentSig(db, a.id, a.person_id) : 'x'.repeat(24);
+    const got = String(req.params.sig || '').padEnd(24).slice(0, 24);
+    if (!a || !a.sent_at || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(got))) throw notFound('That request');
+    return a;
+  };
+  const view = (a) => ({ church_name: getSetting(db, 'church_name', 'Church'), brand_color: getSetting(db, 'brand_color', '#135fd1'), first_name: a.nickname || a.first_name,
+    position: a.position, team: a.team, campus: a.campus, address: a.address, starts_at: a.starts_at, title: a.title, status: a.status, past: a.starts_at < new Date().toISOString().slice(0, 16) });
+
+  r.get('/public/assignments/:id/:sig', (req, res) => res.json(view(signed(req))));
+  r.post('/public/assignments/:id/:sig', (req, res) => {
+    const a = signed(req);
+    const status = req.body?.status === 'declined' ? 'declined' : req.body?.status === 'accepted' ? 'accepted' : null;
+    if (!status) throw bad('Choose accept or decline.');
+    if (view(a).past) throw bad('This date has already passed.');
+    db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
+      .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
+    if (status === 'declined' && a.status !== 'declined') notifyDeclined(db, a.id);
+    res.json(view({ ...a, status }));
   });
 
   // ---------------------------------------------------------------- connect cards

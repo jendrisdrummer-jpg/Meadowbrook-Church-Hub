@@ -408,6 +408,15 @@ const MIGRATIONS = [
   ALTER TABLE people ADD COLUMN signed_up_at TEXT;        -- made their own account in the app
   ALTER TABLE people ADD COLUMN welcomed_at TEXT;         -- staff followed up on that
   `,
+  // 11: scheduling requests are drafts until the scheduler sends them; leader access that came
+  // from leading a team (so it can be taken back when they stop).
+  `
+  ALTER TABLE assignments ADD COLUMN sent_at TEXT;
+  UPDATE assignments SET sent_at = created_at;
+  ALTER TABLE users ADD COLUMN role_auto INTEGER NOT NULL DEFAULT 0;
+  UPDATE users SET role = 'leader', role_auto = 1
+    WHERE role = 'volunteer' AND person_id IN (SELECT person_id FROM team_members WHERE is_leader = 1);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

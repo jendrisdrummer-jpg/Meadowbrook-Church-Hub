@@ -488,3 +488,13 @@ table.sched { border-collapse: separate; border-spacing: 0; width: 100%; }
   .builder { grid-template-columns: minmax(0, 1fr); }
   .builder-phone { position: static; }
 }
+.alert.good { background: var(--good-soft); }
+
+/* ---------- drafts (scheduled, not yet sent) */
+.pill.draft { background: transparent; border: 1px dashed var(--muted); color: var(--text-2); }
+.slot.draft .avatar { opacity: .6; }
+.sch-chip.st-draft { border-style: dashed; color: var(--text-2); }
+.sch-chip.st-draft .sch-dot { background: transparent; border: 1.5px solid var(--muted); }
+.send-list { max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.send-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 9px 12px; }
+.send-row + .send-row { border-top: 1px solid var(--line); }

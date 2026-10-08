@@ -4,7 +4,7 @@ import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
 import { drawRollCall } from '../rollcall.js';
 import { drawPlan } from '../plan.js';
-import { assignDialog } from '../scheduling.js';
+import { assignDialog, sendRequests } from '../scheduling.js';
 
 const taken = (s, positionId) => new Set(s.positions.find((p) => p.id === positionId)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
 
@@ -55,7 +55,9 @@ export default async function service(el, id) {
 function drawPeople(panel, s) {
   const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
-  const badge = (a) => ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status];
+  // Drafts haven't been sent yet; the volunteer doesn't know about them.
+  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
+  const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;
   // A team is "in" this service when it needs someone or has someone scheduled; the rest can be shown on demand.
   const active = (teamId) => s.positions.some((p) => p.team_id === teamId && (p.needed || p.assignments.length));
   const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color, active: active(p.team_id) }])).values()]
@@ -75,6 +77,7 @@ function drawPeople(panel, s) {
         ${teamStats(t) ? html`<span class="cal-flag warn">${teamStats(t)}</span>` : ''}</button>`)}
     </div>` : ''}
     <div class="card-head"><h2>Who’s serving</h2>
+      ${drafts ? html`<button class="btn small primary" data-send title="Let everyone you've scheduled know, all at once">${icon('bell')} Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}</button>` : ''}
       ${anyScheduling && s.positions.some((p) => p.needed) ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
       ${can('staff') && (!s.locked || can('admin')) ? html`<button class="btn small" data-needs>${icon('edit')} Positions needed</button>` : ''}
       ${anyScheduling ? html`<button class="btn small ghost" data-add-position title="Schedule someone in a position this service doesn't usually need">${icon('plus')} Extra position</button>` : ''}</div>
@@ -86,7 +89,7 @@ function drawPeople(panel, s) {
         const open = Math.max(0, p.needed - live.length);
         return html`<div class="position">
           <div class="position-head"><b>${p.name}</b>${p.needed ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
-          ${p.assignments.map((a) => html`<div class="slot">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
+          ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
             ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
@@ -111,9 +114,10 @@ function drawPeople(panel, s) {
     try {
       if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
+      if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();
       if (b.matches('[data-autofill]')) {
         const r = await post(`/services/${s.id}/autofill`);
-        toast(r.added.length ? `Scheduled ${r.added.length}: ${r.added.map((a) => a.person).join(', ')}` : 'No one available to fill the open spots.');
+        toast(r.added.length ? `Added ${r.added.length}: ${r.added.map((a) => a.person).join(', ')}. Send requests when you’re ready.` : 'No one available to fill the open spots.');
         reload();
       }
       if (b.matches('[data-needs]')) {

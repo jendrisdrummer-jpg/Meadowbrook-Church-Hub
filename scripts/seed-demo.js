@@ -163,7 +163,7 @@ tx(db, () => {
             .get(person, addMinutes(starts, 75), addMinutes(starts, -75));
           if (clash) continue;
           const status = w < 0 ? 'accepted' : rand() < 0.6 ? 'accepted' : rand() < 0.85 ? 'pending' : 'declined';
-          db.prepare('INSERT OR IGNORE INTO assignments (service_id, position_id, person_id, status, decline_reason) VALUES (?, ?, ?, ?, ?)')
+          db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id, status, decline_reason, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-3 days'))")
             .run(sid, pos.id, person, status, status === 'declined' ? 'Out of town' : '');
         }
       }

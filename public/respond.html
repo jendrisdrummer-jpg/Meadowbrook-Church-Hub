@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Can you serve?</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+    .box { width: min(420px, 100%); }
+    .box h1 { margin: 6px 0 4px; }
+    .when { font-size: 18px; font-weight: 700; margin-top: 14px; }
+    .actions { display: grid; gap: 10px; margin-top: 18px; }
+    .actions .btn { min-height: 48px; justify-content: center; font-size: 16px; }
+    .church { color: var(--accent-text); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <!-- Opened from a "you're scheduled" email. Nothing changes until a button is pressed,
+       so email security scanners that open links can't accept or decline by accident. -->
+  <div class="card box" id="box"><p class="muted">Loading…</p></div>
+  <script type="module">
+    const box = document.getElementById('box');
+    const [, , id, sig] = location.pathname.split('/');
+    const want = new URLSearchParams(location.search).get('do');
+    const api = `/api/public/assignments/${encodeURIComponent(id)}/${encodeURIComponent(sig)}`;
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const fmt = (s) => {
+      const d = new Date(`${s}:00`);
+      return `${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} at ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    };
+
+    let a;
+    function draw(mode = want) {
+      const head = `<div class="church">${esc(a.church_name)}</div>
+        <div class="when">${esc(fmt(a.starts_at))}</div>
+        <div>${esc(a.position)} · ${esc(a.team)}</div><div class="muted">${esc(a.campus)}${a.title ? ` · ${esc(a.title)}` : ''}</div>`;
+      if (a.past) { box.innerHTML = `${head}<p class="muted" style="margin-top:16px">This date has passed.</p>`; return; }
+      if (mode === 'done') {
+        box.innerHTML = `${head}<div class="alert ${a.status === 'accepted' ? 'good' : 'info'}" style="margin-top:16px">${a.status === 'accepted'
+          ? `Thank you, ${esc(a.first_name)}! You’re confirmed.` : 'Thanks for letting us know. Your team leader has been told.'}</div>
+          <p class="small" style="margin-top:12px"><a href="/app/#/serve">Open the app</a> to see everything you’re on.</p>`;
+        return;
+      }
+      const status = a.status === 'accepted' ? '<p class="small">You’ve <b>accepted</b> this.</p>' : a.status === 'declined' ? '<p class="small">You said you <b>can’t make it</b>.</p>' : '';
+      box.innerHTML = `${head}${status}
+        ${mode === 'decline' ? `<label class="field" style="margin-top:16px">Reason (optional)<input type="text" id="reason" placeholder="Out of town"></label>
+          <div class="actions"><button class="btn primary" data-do="declined">Let my leader know I can’t make it</button><button class="btn ghost" data-mode="ask">Back</button></div>`
+        : `<h1 style="font-size:20px;margin-top:16px">Hi ${esc(a.first_name)}, can you serve?</h1>
+          <div class="actions"><button class="btn primary" data-do="accepted">Yes, I’ll be there</button><button class="btn" data-mode="decline">I can’t make it</button></div>`}`;
+    }
+
+    box.addEventListener('click', async (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.mode) return draw(b.dataset.mode);
+      b.disabled = true;
+      const res = await fetch(api, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify({ status: b.dataset.do, reason: document.getElementById('reason')?.value || '' }) });
+      const data = await res.json();
+      if (!res.ok) { b.disabled = false; alert(data.error || 'Something went wrong.'); return; }
+      a = data;
+      draw('done');
+    });
+
+    const res = await fetch(api);
+    if (!res.ok) { box.innerHTML = '<p>This link isn’t valid any more. The spot may have been changed. Open the church app to see your schedule.</p>'; }
+    else {
+      a = await res.json();
+      document.documentElement.style.setProperty('--accent', a.brand_color);
+      document.title = `Can you serve? · ${a.church_name}`;
+      draw();
+    }
+  </script>
+</body>
+</html>
