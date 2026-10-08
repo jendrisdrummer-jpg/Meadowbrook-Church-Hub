@@ -76,6 +76,8 @@ export default function setupRoutes(db) {
     brand_color: '#135fd1',
     workspace_domain: '',
     sign_in_policy: 'anyone',
+    plan_edit_role: 'leader',
+    schedule_role: 'team_leaders',
     label_size: 'brother-62x29',
     checkin_print_parent_tag: true,
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
@@ -91,6 +93,8 @@ export default function setupRoutes(db) {
       if (typeof v !== typeof SETTINGS[k] || Array.isArray(v) !== Array.isArray(SETTINGS[k])) throw bad(`Invalid value for ${k}.`);
       if (k === 'sign_in_policy' && !SIGN_IN_POLICIES.includes(v)) throw bad('Unknown sign-in option.');
       if (k === 'brand_color' && !/^#[0-9a-f]{6}$/i.test(v)) throw bad('Colours look like #135fd1.');
+      if (k === 'plan_edit_role' && !['leader', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
+      if (k === 'schedule_role' && !['team_leaders', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
     audit(db, req, 'settings.update', Object.keys(req.body || {}).join(','));

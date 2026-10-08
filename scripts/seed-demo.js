@@ -132,15 +132,24 @@ tx(db, () => {
       const sid = ins('services', { campus_id: t.campus, service_type_id: t.id, starts_at: starts, duration_min: 75, series: series[w + 6] || '', title: w === 0 ? 'Part 3' : '' });
       for (const [p, n] of needs[t.campus]) ins('service_needs', { service_id: sid, position_id: p.id, count: n });
       if (w <= 2) {
-        const plan = [['header', 'Pre-service', 0], ['item', 'Countdown & walk-in music', 300], ['header', 'Worship', 0],
-          ['song', null, 300], ['song', null, 270], ['song', null, 330], ['item', 'Welcome & announcements', 240],
-          ['header', 'Message', 0], ['item', 'Sermon', 2100], ['song', null, 300], ['item', 'Benediction', 60]];
-        let used = new Set();
-        plan.forEach(([kind, title, len], i) => {
+        // [kind, category, title, seconds, leader, details]; rows above "Service Start" count down to it.
+        const plan = [
+          ['item', 'Announcement', 'Service Huddle', 2100, '', 'Prayer and run-through in the green room.'],
+          ['item', 'Announcement', 'Countdown / Live Music', 600, '', 'Musicians play until 10 min are up. Singers walk out and we go into song 1 at 0:00.'],
+          ['header', '', 'Service Start', 0, '', ''],
+          ['song', 'Song', null, 300, '', ''], ['song', 'Song', null, 270, '', ''], ['song', 'Song', null, 330, '', ''],
+          ['item', 'Offering', 'Welcome, Announcements & Offering', 300, 'Pastor Dallas', 'Announcements:\n- Connect groups start next week\n- Baptism Sunday on the 18th'],
+          ['header', '', 'Message', 0, '', ''],
+          ['item', 'Message', 'Sermon', 2100, 'Pastor Dallas', ''],
+          ['song', 'Song', null, 300, '', ''],
+          ['item', 'Prayer', 'Altar call & benediction', 600, '', ''],
+        ];
+        const used = new Set();
+        plan.forEach(([kind, category, title, len, info, notes], i) => {
           let songId = null;
           if (kind === 'song') { do { songId = pick(songs); } while (used.has(songId)); used.add(songId); }
           const s = songId ? db.prepare('SELECT title, default_key FROM songs WHERE id = ?').get(songId) : null;
-          ins('plan_items', { service_id: sid, sort: i, kind, title: s?.title ?? title, song_id: songId, song_key: s?.default_key ?? '', length_sec: len });
+          ins('plan_items', { service_id: sid, sort: i, kind, category, title: s?.title ?? title, song_id: songId, song_key: s?.default_key ?? '', length_sec: len, info, notes, is_start: title === 'Service Start' ? 1 : 0 });
         });
       }
       // Schedule people, leaving some gaps in future weeks so there's work to do.
@@ -177,6 +186,19 @@ tx(db, () => {
       }
     }
   }
+  // Milestones for some adults.
+  const field = (label) => db.prepare('SELECT * FROM profile_fields WHERE label = ?').get(label);
+  const [birth, baptism, ghost, classes, lead] = ['New birth', 'Baptism date', 'Holy Ghost date', 'Classes completed', 'Leadership track'].map(field);
+  for (const p of people.filter((x) => x.adult)) {
+    const step = Math.floor(rand() * 4);
+    const put = (f, v) => ins('profile_values', { person_id: p.id, field_id: f.id, value: JSON.stringify(v) });
+    put(birth, JSON.parse(birth.options)[step]);
+    if (step >= 2) put(baptism, iso(daysFrom(-Math.floor(rand() * 2000) - 30)));
+    if (step >= 3) put(ghost, iso(daysFrom(-Math.floor(rand() * 2000) - 30)));
+    if (rand() > 0.4) put(classes, JSON.parse(classes.options).filter(() => rand() > 0.5));
+    if (rand() > 0.3) put(lead, pick(JSON.parse(lead.options)));
+  }
+
   // A few away dates.
   for (const p of adults.slice(0, 5)) ins('blockouts', { person_id: p.id, start_date: iso(daysFrom(2)), end_date: iso(daysFrom(9)), reason: pick(['Vacation', 'Work trip', 'Family visit']) });
 });

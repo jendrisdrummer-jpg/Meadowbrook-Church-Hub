@@ -9,6 +9,7 @@ export default async function people(el) {
   setTitle('People', html`${can('staff') ? html`<a class="btn" href="/api/people/export.csv">${icon('download')} Export</a>
     <button class="btn primary" data-add>${icon('plus')} Add person</button>` : ''}`);
   const saved = JSON.parse(sessionStorage.getItem('mb.people') || '{}');
+  const fields = await get('/profile-fields').catch(() => []);
   mount(el, html`<div class="card">
     <div class="row" style="margin-bottom:12px">
       <input type="search" data-q placeholder="Search name, email or phone" value="${saved.q || ''}" style="max-width:340px">
@@ -16,6 +17,8 @@ export default async function people(el) {
         <option value="">Everyone</option><option value="member">Members</option><option value="regular">Regular attenders</option>
         <option value="guest">Guests</option><option value="inactive">Inactive</option></select>
       <select data-role style="max-width:150px"><option value="">Adults & kids</option><option value="adult">Adults</option><option value="child">Kids</option></select>
+      ${fields.length ? html`<select data-field style="max-width:190px" aria-label="Filter by profile field"><option value="">Any profile</option>${fields.map((f) => html`<option value="${f.id}">${f.label}</option>`)}</select>
+        <select data-fval style="max-width:200px" class="hidden" aria-label="Value"></select>` : ''}
       <span class="spacer"></span><span class="muted small" data-count></span>
     </div>
     <div class="table-wrap" data-list></div>
@@ -26,12 +29,28 @@ export default async function people(el) {
   const roleSel = el.querySelector('[data-role]');
   statusSel.value = saved.status || '';
   roleSel.value = saved.role || '';
+  const fieldSel = el.querySelector('[data-field]');
+  const fvalSel = el.querySelector('[data-fval]');
+  // Value choices depend on the field: its options, yes/no, or just "has an answer" / "empty".
+  const fillValues = (keep) => {
+    const f = fields.find((x) => x.id === Number(fieldSel?.value));
+    if (!fvalSel) return;
+    fvalSel.classList.toggle('hidden', !f);
+    if (!f) { fvalSel.innerHTML = ''; return; }
+    const opts = [{ value: 'set', label: 'Has an answer' }, { value: 'unset', label: 'No answer yet' },
+      ...(f.type === 'yesno' ? [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] : []),
+      ...(['choice', 'multi'].includes(f.type) ? f.options.map((o) => ({ value: o, label: o })) : [])];
+    mount(fvalSel, opts.map((o) => html`<option value="${o.value}">${o.label}</option>`));
+    if (keep && opts.some((o) => o.value === keep)) fvalSel.value = keep;
+  };
+  if (fieldSel && saved.field) { fieldSel.value = saved.field; fillValues(saved.fval); }
   let rows = [];
 
   async function load(append = false) {
     const params = new URLSearchParams({ q: q.value, status: statusSel.value, role: roleSel.value, limit: 100, offset: append ? rows.length : 0 });
+    if (fieldSel?.value) { params.set('field_id', fieldSel.value); params.set('field_value', fvalSel.value); }
     if (state.campusId) params.set('campus_id', state.campusId);
-    sessionStorage.setItem('mb.people', JSON.stringify({ q: q.value, status: statusSel.value, role: roleSel.value }));
+    sessionStorage.setItem('mb.people', JSON.stringify({ q: q.value, status: statusSel.value, role: roleSel.value, field: fieldSel?.value || '', fval: fvalSel?.value || '' }));
     try {
       const d = await get(`/people?${params}`);
       rows = append ? rows.concat(d.rows) : d.rows;
@@ -53,6 +72,10 @@ export default async function people(el) {
   q.addEventListener('input', debounce(() => load()));
   statusSel.onchange = () => load();
   roleSel.onchange = () => load();
+  if (fieldSel) {
+    fieldSel.onchange = () => { fillValues(); load(); };
+    fvalSel.onchange = () => load();
+  }
   el.querySelector('[data-more]').onclick = () => load(true);
   el.onclick = (e) => {
     const tr = e.target.closest('tr[data-id]');

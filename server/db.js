@@ -270,6 +270,42 @@ const MIGRATIONS = [
   );
   CREATE INDEX attendance_person ON attendance(person_id);
   `,
+  // 5: order-of-service details (type, who's leading as free text, where the service starts)
+  // and a per-service lock.
+  `
+  ALTER TABLE plan_items ADD COLUMN category TEXT NOT NULL DEFAULT '';
+  ALTER TABLE plan_items ADD COLUMN info TEXT NOT NULL DEFAULT '';
+  ALTER TABLE plan_items ADD COLUMN is_start INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE services ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+  UPDATE plan_items SET category = 'Song' WHERE kind = 'song';
+  `,
+  // 6: custom profile fields (milestones, classes, leadership track…) grouped into sections.
+  `
+  CREATE TABLE profile_fields (
+    id INTEGER PRIMARY KEY,
+    section TEXT NOT NULL DEFAULT 'Other',
+    label TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'text',                -- text | longtext | date | yesno | choice | multi | number
+    options TEXT NOT NULL DEFAULT '[]',               -- JSON list, for choice and multi
+    visibility TEXT NOT NULL DEFAULT 'leader',        -- leader | staff: lowest role that can see it
+    sort INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE profile_values (
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    field_id INTEGER NOT NULL REFERENCES profile_fields(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,                              -- JSON
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (person_id, field_id)
+  );
+  CREATE INDEX profile_values_field ON profile_values(field_id);
+  INSERT INTO profile_fields (section, label, type, options, sort) VALUES
+    ('Spiritual journey', 'New birth', 'choice', '["Not started","Repented","Baptized","Received the Holy Ghost"]', 0),
+    ('Spiritual journey', 'Baptism date', 'date', '[]', 1),
+    ('Spiritual journey', 'Holy Ghost date', 'date', '[]', 2),
+    ('Discipleship', 'Classes completed', 'multi', '["New Believers","Foundations","Membership"]', 3),
+    ('Leadership', 'Leadership track', 'choice', '["Not started","Serving","In training","Leader","Leader of leaders"]', 4);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

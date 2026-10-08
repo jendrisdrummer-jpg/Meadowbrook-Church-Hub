@@ -1,9 +1,9 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { get, post, patch, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
+import { get, post, patch, put, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 
-const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people']];
+const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people']];
 
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
@@ -11,7 +11,7 @@ export default async function settings(el, tab = 'church') {
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
   // Old links (#/settings/rooms) land on the section that now holds them.
-  const pages = { church, campuses, checkin, rooms: checkin, accounts, import: importPeople };
+  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople };
   await (pages[tab] || church)(panel);
 }
 
@@ -151,6 +151,77 @@ async function rooms(panel) {
   };
 }
 
+// ---------------------------------------------------------------- profile fields
+const TYPE_LABELS = { text: 'Short text', longtext: 'Paragraph', date: 'Date', yesno: 'Yes / no', choice: 'One choice (steps)', multi: 'Several choices', number: 'Number' };
+
+async function profileFields(panel) {
+  const fields = await get('/profile-fields?all=1');
+  const sections = [...new Set(fields.map((f) => f.section))];
+  mount(panel, html`<div class="card" style="max-width:900px">
+    <div class="card-head"><h2>Profile fields</h2><button class="btn primary" data-add>${icon('plus')} Add field</button></div>
+    <p class="muted small">Things you track for each person: milestones, classes, leadership steps and anything else.
+      They show on each profile, grouped by section, and you can filter People by them. Drag to reorder.</p>
+    ${sections.map((sec) => html`<h3 style="margin-top:16px">${sec}</h3>
+      <div data-sortable>${fields.filter((f) => f.section === sec).map((f) => html`<div class="field-row ${f.archived ? 'archived' : ''}" draggable="true" data-id="${f.id}">
+        <span class="grip">${icon('grip')}</span>
+        <span><b>${f.label}</b> <span class="muted small">${TYPE_LABELS[f.type]}${f.visibility === 'staff' ? ' · staff only' : ''}${f.archived ? ' · hidden' : ''}</span>
+          ${f.options.length ? html`<div class="small muted">${f.options.join(' · ')}</div>` : ''}</span>
+        <button class="btn small" data-edit="${f.id}">${icon('edit')} Edit</button></div>`)}</div>`)}
+    ${!fields.length ? html`<div class="empty">No fields yet.</div>` : ''}
+  </div>`);
+
+  const edit = async (f = { type: 'text', section: sections[0] || 'Spiritual journey', options: [], visibility: 'leader' }) => {
+    let opts = [...f.options];
+    const ok = await dialog({
+      title: f.id ? `Edit “${f.label}”` : 'New profile field', wide: true,
+      body: html`<div class="form">
+        <label class="field">Name<input type="text" name="label" value="${f.label || ''}" required placeholder="Date of baptism"></label>
+        <label class="field">Section<input type="text" name="section" value="${f.section}" list="sections" required>
+          <datalist id="sections">${sections.map((x) => html`<option value="${x}">`)}</datalist></label>
+        <label class="field">Kind of answer<select name="type">${options(Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })), f.type)}</select></label>
+        <label class="field">Who can see it<select name="visibility">${options([{ value: 'leader', label: 'Leaders and staff' }, { value: 'staff', label: 'Staff only' }], f.visibility)}</select></label>
+        <div class="field wide" data-opts-wrap><span>Choices <span class="muted small">(in order: for steps, list them first to last)</span></span><div data-opts></div></div>
+        ${f.id ? html`<label class="check wide"><input type="checkbox" name="archived" ${f.archived ? 'checked' : ''}> Hide this field (answers are kept)</label>` : ''}
+      </div>`,
+      onOpen: (d) => {
+        const sel = d.querySelector('[name=type]');
+        const wrap = d.querySelector('[data-opts-wrap]');
+        const sync = () => wrap.classList.toggle('hidden', !['choice', 'multi'].includes(sel.value));
+        sel.onchange = sync;
+        sync();
+        chips(d.querySelector('[data-opts]'), opts, (list) => { opts = list; }, { placeholder: 'Add a choice', addLabel: 'Add' });
+      },
+      onSubmit: (form) => {
+        const b = formData(form);
+        const pending = form.querySelector('[data-new]')?.value.trim();
+        if (pending && !opts.includes(pending)) opts.push(pending);
+        const body = { ...b, options: ['choice', 'multi'].includes(b.type) ? opts : [] };
+        return f.id ? patch(`/profile-fields/${f.id}`, body) : post('/profile-fields', body);
+      },
+    });
+    if (ok) profileFields(panel);
+  };
+
+  let dragging = null;
+  panel.ondragstart = (e) => { dragging = e.target.closest('.field-row'); };
+  panel.ondragover = (e) => {
+    e.preventDefault();
+    const over = e.target.closest('.field-row');
+    if (!dragging || !over || over === dragging || over.parentElement !== dragging.parentElement) return;
+    over[e.clientY > over.getBoundingClientRect().top + over.offsetHeight / 2 ? 'after' : 'before'](dragging);
+  };
+  panel.ondragend = async () => {
+    if (!dragging) return;
+    dragging = null;
+    try { await put('/profile-fields/order', { ids: [...panel.querySelectorAll('.field-row')].map((r) => Number(r.dataset.id)) }); } catch (e) { fail(e); }
+  };
+  panel.onclick = (e) => {
+    if (e.target.closest('[data-add]')) return edit();
+    const b = e.target.closest('[data-edit]');
+    if (b) edit(fields.find((f) => f.id === Number(b.dataset.edit)));
+  };
+}
+
 // ---------------------------------------------------------------- accounts
 async function accounts(panel) {
   const [users, s] = await Promise.all([get('/users'), get('/settings')]);
@@ -171,6 +242,18 @@ async function accounts(panel) {
       <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access below.</span></label>
     <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="mbclife.church">
       <span class="muted small">Used by the “church accounts” options.</span></label>
+    <h2 style="margin-top:8px">Who can make changes</h2>
+    <label class="field">Edit orders of service<select name="plan_edit_role">${options([
+      { value: 'leader', label: 'Leaders, staff and admins' },
+      { value: 'staff', label: 'Staff and admins' },
+      { value: 'admin', label: 'Admins only' },
+    ], s.plan_edit_role)}</select></label>
+    <label class="field">Schedule volunteers<select name="schedule_role">${options([
+      { value: 'team_leaders', label: 'Team leaders (their own teams), staff and admins' },
+      { value: 'staff', label: 'Staff and admins' },
+      { value: 'admin', label: 'Admins only' },
+    ], s.schedule_role)}</select>
+      <span class="muted small">Staff can also <b>Lock</b> a single service so only admins can change it.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
   <div class="card" style="margin-top:14px">
@@ -255,7 +338,7 @@ async function importPeople(panel) {
 
 function drawMapping(box, csv, pv) {
   mount(box, html`<h3 style="margin-top:18px">${pv.count} rows found. Match the columns:</h3>
-    <form class="form" data-map>${pv.fields.map((f) => html`<label class="field">${FIELD_LABELS[f] || f}<select name="${f}">${options(pv.headers.map((h) => ({ value: h, label: h })), pv.mapping[f], { blank: '— skip —' })}</select></label>`)}
+    <form class="form" data-map>${pv.fields.map((f) => html`<label class="field">${FIELD_LABELS[f] || pv.labels?.[f] || f}<select name="${f}">${options(pv.headers.map((h) => ({ value: h, label: h })), pv.mapping[f], { blank: '— skip —' })}</select></label>`)}
       ${state.campuses.length ? html`<label class="field">Campus for anyone without one<select name="__campus">${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), state.campusId, { blank: '—' })}</select></label>` : ''}</form>
     <h3 style="margin-top:14px">First few rows</h3>
     <div class="table-wrap"><table class="list small"><thead><tr>${pv.headers.map((h) => html`<th>${h}</th>`)}</tr></thead>

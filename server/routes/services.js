@@ -1,7 +1,7 @@
 // Services, their order of service (plan items), the song library and volunteer scheduling.
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
-import { updateFields, tx } from '../db.js';
+import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
 
@@ -22,16 +22,29 @@ export default function serviceRoutes(db) {
   const leadsTeam = (req, teamId) => Boolean(req.user.personId
     && db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND person_id = ? AND is_leader = 1').get(teamId, req.user.personId));
 
+  // Who may edit plans and schedules is set in Settings; a locked service is admins-only.
+  const isAdmin = (req) => rank(req.user.role) >= rank('admin');
+  function canEditPlan(req, s) {
+    if (!canCampus(req.user, s.campus_id)) return false;
+    if (s.locked) return isAdmin(req);
+    return rank(req.user.role) >= rank(getSetting(db, 'plan_edit_role', 'leader'));
+  }
+  function canSchedule(req, s, teamId) {
+    if (!canCampus(req.user, s.campus_id)) return false;
+    if (s.locked) return isAdmin(req);
+    const who = getSetting(db, 'schedule_role', 'team_leaders');
+    if (who === 'admin') return isAdmin(req);
+    if (isStaff(req)) return true;
+    return who === 'team_leaders' && leadsTeam(req, teamId);
+  }
+
   function requireEditPlan(req, s) {
-    if (rank(req.user.role) < rank('leader')) throw forbidden();
-    if (!canCampus(req.user, s.campus_id)) throw forbidden();
+    if (!canEditPlan(req, s)) throw s.locked ? bad('This service is locked. An admin can unlock it.') : forbidden();
   }
 
   function requireSchedule(req, s, positionId) {
-    if (!canCampus(req.user, s.campus_id)) throw forbidden();
-    if (isStaff(req)) return;
     const pos = db.prepare('SELECT team_id FROM positions WHERE id = ?').get(positionId);
-    if (!pos || !leadsTeam(req, pos.team_id)) throw forbidden();
+    if (!canSchedule(req, s, pos?.team_id)) throw s.locked ? bad('This service is locked. An admin can unlock it.') : forbidden();
   }
 
   // ---------------------------------------------------------------- services
@@ -106,13 +119,13 @@ export default function serviceRoutes(db) {
       ...s,
       campus,
       type,
-      can_edit_plan: rank(req.user.role) >= rank('leader'),
-      can_schedule: isStaff(req) ? 'all' : rank(req.user.role) >= rank('leader') ? 'own-teams' : 'none',
+      can_edit_plan: canEditPlan(req, s),
+      can_lock: isStaff(req) && canCampus(req.user, s.campus_id),
       items: planItems(s.id),
       positions: positions.map((p) => ({
         ...p,
         needed: needs.find((n) => n.position_id === p.id)?.count ?? 0,
-        can_schedule: isStaff(req) || leadsTeam(req, p.team_id),
+        can_schedule: canSchedule(req, s, p.team_id),
         assignments: assignments.filter((a) => a.position_id === p.id),
       })),
       headcounts: db.prepare('SELECT area, count FROM headcounts WHERE service_id = ?').all(s.id),
@@ -122,6 +135,12 @@ export default function serviceRoutes(db) {
   r.patch('/services/:id', requireRole('staff'), (req, res) => {
     const s = service(req, req.params.id);
     const b = { ...req.body };
+    const onlyLock = Object.keys(b).every((k) => k === 'locked');
+    if (s.locked && !onlyLock && !isAdmin(req)) throw bad('This service is locked. Unlock it first.');
+    if (b.locked !== undefined) {
+      b.locked = b.locked ? 1 : 0;
+      audit(db, req, b.locked ? 'service.lock' : 'service.unlock', String(s.id));
+    }
     if (b.starts_at !== undefined && !isDateTime(b.starts_at)) throw bad('Pick a date and time.');
     for (const k of ['title', 'series', 'notes']) if (b[k] !== undefined) b[k] = str(b[k]);
     tx(db, () => {
@@ -129,7 +148,7 @@ export default function serviceRoutes(db) {
       if (s.service_type_id && b.starts_at && b.starts_at.slice(0, 10) !== s.starts_at.slice(0, 10)) {
         db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
       }
-      updateFields(db, 'services', s.id, b, ['title', 'series', 'notes', 'starts_at', 'duration_min']);
+      updateFields(db, 'services', s.id, b, ['title', 'series', 'notes', 'starts_at', 'duration_min', 'locked']);
     });
     res.json(getService(s.id));
   });
@@ -152,10 +171,17 @@ export default function serviceRoutes(db) {
       WHERE i.service_id = ? ORDER BY i.sort, i.id`).all(serviceId);
   }
 
+  // Only one row can mark where the service starts.
+  function onlyStart(serviceId, itemId) {
+    db.prepare('UPDATE plan_items SET is_start = 0 WHERE service_id = ? AND id != ?').run(serviceId, itemId);
+  }
+
   function itemFields(b) {
     const out = {};
     if (b.kind !== undefined) out.kind = oneOf(b.kind, ['header', 'song', 'item'], 'item');
-    for (const k of ['title', 'song_key', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
+    for (const k of ['title', 'song_key', 'notes', 'info']) if (b[k] !== undefined) out[k] = str(b[k]);
+    if (b.category !== undefined) out.category = str(b.category, 40);
+    if (b.is_start !== undefined) out.is_start = b.is_start ? 1 : 0;
     if (b.song_id !== undefined) out.song_id = int(b.song_id);
     if (b.person_id !== undefined) out.person_id = int(b.person_id);
     if (b.length_sec !== undefined) out.length_sec = Math.max(0, int(b.length_sec) ?? 0);
@@ -170,7 +196,8 @@ export default function serviceRoutes(db) {
     if (f.song_id && !f.song_key) f.song_key = db.prepare('SELECT default_key FROM songs WHERE id = ?').get(f.song_id)?.default_key ?? '';
     f.sort = (db.prepare('SELECT COALESCE(MAX(sort), -1) m FROM plan_items WHERE service_id = ?').get(s.id).m) + 1;
     const keys = Object.keys(f);
-    db.prepare(`INSERT INTO plan_items (service_id, ${keys.join(', ')}) VALUES (?, ${keys.map(() => '?').join(', ')})`).run(s.id, ...Object.values(f));
+    const id = db.prepare(`INSERT INTO plan_items (service_id, ${keys.join(', ')}) VALUES (?, ${keys.map(() => '?').join(', ')})`).run(s.id, ...Object.values(f)).lastInsertRowid;
+    if (f.is_start) onlyStart(s.id, id);
     res.status(201).json(planItems(s.id));
   });
 
@@ -180,6 +207,7 @@ export default function serviceRoutes(db) {
     requireEditPlan(req, service(req, item.service_id));
     const f = itemFields(req.body || {});
     updateFields(db, 'plan_items', item.id, f, Object.keys(f));
+    if (f.is_start) onlyStart(item.service_id, item.id);
     res.json(planItems(item.service_id));
   });
 
@@ -207,8 +235,10 @@ export default function serviceRoutes(db) {
     tx(db, () => {
       if (req.body?.replace) db.prepare('DELETE FROM plan_items WHERE service_id = ?').run(s.id);
       const base = db.prepare('SELECT COALESCE(MAX(sort), -1) m FROM plan_items WHERE service_id = ?').get(s.id).m + 1;
-      db.prepare(`INSERT INTO plan_items (service_id, sort, kind, title, song_id, song_key, length_sec, person_id, notes)
-        SELECT ?, sort + ?, kind, title, song_id, song_key, length_sec, person_id, notes FROM plan_items WHERE service_id = ? ORDER BY sort`).run(s.id, base, from.id);
+      // The copied plan's "service starts here" row wins over this one's.
+      if (!req.body?.replace) db.prepare('UPDATE plan_items SET is_start = 0 WHERE service_id = ?').run(s.id);
+      db.prepare(`INSERT INTO plan_items (service_id, sort, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start)
+        SELECT ?, sort + ?, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start FROM plan_items WHERE service_id = ? ORDER BY sort`).run(s.id, base, from.id);
     });
     res.json(planItems(s.id));
   });

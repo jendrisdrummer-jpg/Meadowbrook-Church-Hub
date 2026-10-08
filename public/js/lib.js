@@ -87,6 +87,10 @@ const PATHS = {
   alert: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/>',
   printer: '<path d="M7 9V3h10v6M7 17H4v-7h16v7h-3"/><rect x="7" y="14" width="10" height="7"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+  grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+  filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
 };
 export function icon(name, cls = 'ic') {
   return raw(`<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name] || ''}</svg>`);
@@ -312,4 +316,20 @@ export function pickPeople(title = 'Choose people', { exclude = new Set(), submi
       return { people: [...chosen.values()], form };
     },
   }).then((r) => r || { people: [] });
+}
+
+// A toast with one action button (e.g. Undo). The action runs at most once.
+export function toastAction(msg, label, action, ms = 6000) {
+  let box = $('.toasts');
+  if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.append(box); }
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg + ' ';
+  const b = document.createElement('button');
+  b.className = 'toast-btn';
+  b.textContent = label;
+  b.onclick = () => { t.remove(); action(); };
+  t.append(b);
+  box.append(t);
+  setTimeout(() => t.remove(), ms);
 }

@@ -56,6 +56,14 @@ family, the teams they serve on, their schedule, and kids' check-in history. Inc
 and medical notes, authorized pickup people, photos, duplicate detection and merging, and CSV
 export.
 
+**Profile fields**: track milestones and growth on each person's profile: **New birth**
+(Repented → Baptized → Received the Holy Ghost), **Baptism date**, **Holy Ghost date**,
+**Classes completed** and **Leadership track** to start with. Add your own fields in
+**Settings → Profile fields**: dates, yes/no, steps, several choices, text or numbers, grouped into
+sections, with optional staff-only visibility. Filter **People** by any field (for example
+"New birth: Baptized" or "Baptism date: no answer yet"). Imports fill them too: a CSV column
+named like a field ("Baptism Date") maps to it automatically.
+
 **Campuses**: every person, team, service time, kids' room and check-in belongs to a campus.
 Staff can be limited to their own campus. The campus picker in the sidebar filters every page.
 Adding a new campus is just **Settings → Campuses → Add campus**.
@@ -68,11 +76,19 @@ either per campus or church-wide. Team leaders can schedule their own team.
 creates a one-off service or a **repeating** one (every week, every 2 weeks…) with the positions
 it needs, and the calendar fills itself in. When you change or delete a repeating service you
 choose **just this one** or **this and all following**. Each service has:
-- an **order of service**: sections, songs with keys, and items with lengths and running times.
-  Drag to reorder, or copy from another service (9:00 → 11:00, or from last week).
-- **Who's serving**: tap *Schedule someone* to see the best choices first. That's people who
-  play that position, aren't away, aren't already serving at the same time **at any campus**,
-  and haven't served much lately. **Fill open spots** does this for the whole service at once.
+- an **order of service**, laid out like Faith Teams: minutes, start–end time, type
+  (Announcement, Song, Offering, Prayer, Message…), name with details, and who's leading. Add rows
+  from the bar at the bottom; songs are found by typing a few letters, and new songs can be
+  created there. Edit and delete buttons appear on the right of each row (deleting can be undone).
+  Drag to reorder, copy from another service, or print. Mark a section **"the service starts
+  here"** and the rows above it (huddle, countdown) count down to the start time.
+- **Who's serving**: filter to one or more teams. *Schedule someone* lists only the people
+  assigned to that position, best choices first: not away, not already serving at the same time
+  **at any campus**, and not overused lately. **Fill open spots** does this for the whole service
+  at once.
+- **Lock**: staff can lock a service once it's final, so only admins can change its order of
+  service and schedule. **Settings → Sign-in & accounts** also sets who can edit orders of service
+  and who can schedule.
 - **Attendance**: a **roll call** for the attendance team. Tap people (or **Mark family**) as you
   see them, on a phone or computer, and add new guests on the spot. Room headcounts are there
   too. The Attendance page lists who **hasn't been here in 3+ weeks** and **first-time guests**,
