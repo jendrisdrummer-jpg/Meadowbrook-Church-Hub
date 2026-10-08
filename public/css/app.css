@@ -369,3 +369,16 @@ details.card[open] > summary::before { content: '▾ '; }
 .team-filter { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .team-filter .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-weight: 600; background: var(--panel); }
 .team-filter .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+
+/* profile facts and milestone steps */
+.facts { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 8px 16px; margin: 0; }
+.facts dt { color: var(--text-2); font-size: 14px; }
+.facts dd { margin: 0; }
+.steps { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.step { font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.step.done { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+.step.now { background: var(--accent); color: var(--accent-ink); }
+@media (max-width: 520px) { .facts { grid-template-columns: 1fr; gap: 2px; } .facts dd { margin-bottom: 8px; } }
+.field-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; padding: 9px 6px; border-bottom: 1px solid var(--line); }
+.field-row .grip { color: var(--muted); cursor: grab; }
+.field-row.archived { opacity: .55; }

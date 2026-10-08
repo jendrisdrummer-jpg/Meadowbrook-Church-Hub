@@ -56,6 +56,14 @@ family, the teams they serve on, their schedule, and kids' check-in history. Inc
 and medical notes, authorized pickup people, photos, duplicate detection and merging, and CSV
 export.
 
+**Profile fields**: track milestones and growth on each person's profile: **New birth**
+(Repented → Baptized → Received the Holy Ghost), **Baptism date**, **Holy Ghost date**,
+**Classes completed** and **Leadership track** to start with. Add your own fields in
+**Settings → Profile fields**: dates, yes/no, steps, several choices, text or numbers, grouped into
+sections, with optional staff-only visibility. Filter **People** by any field (for example
+"New birth: Baptized" or "Baptism date: no answer yet"). Imports fill them too: a CSV column
+named like a field ("Baptism Date") maps to it automatically.
+
 **Campuses**: every person, team, service time, kids' room and check-in belongs to a campus.
 Staff can be limited to their own campus. The campus picker in the sidebar filters every page.
 Adding a new campus is just **Settings → Campuses → Add campus**.

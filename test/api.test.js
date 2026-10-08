@@ -207,6 +207,51 @@ test('order-of-service details, one start row, locking and edit permissions', as
   assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'everyone' })).status, 400);
 });
 
+test('profile fields: milestones, validation, filtering, visibility and import', async () => {
+  const fields = (await api('admin', 'GET', '/profile-fields')).data;
+  const by = (label) => fields.find((f) => f.label === label);
+  assert.ok(by('Baptism date') && by('Holy Ghost date') && by('New birth') && by('Classes completed'));
+  const sarah = (await api('admin', 'GET', '/people?q=sarah')).data.rows[0];
+  const put = (values, role = 'admin') => api(role, 'PUT', `/people/${sarah.id}/profile`, { values });
+  assert.equal((await put({ [by('Baptism date').id]: 'last spring' })).status, 400);
+  assert.equal((await put({ [by('New birth').id]: 'Maybe' })).status, 400);
+  assert.equal((await put({ [by('Baptism date').id]: '2025-04-20', [by('New birth').id]: 'Baptized', [by('Classes completed').id]: ['Foundations'] })).status, 200);
+  const prof = (await api('admin', 'GET', `/people/${sarah.id}/profile`)).data;
+  assert.equal(prof.values[by('Baptism date').id], '2025-04-20');
+  assert.deepEqual(prof.values[by('Classes completed').id], ['Foundations']);
+
+  // Filter the directory by a milestone.
+  const q = (f, v) => api('admin', 'GET', `/people?field_id=${by(f).id}&field_value=${encodeURIComponent(v)}`).then((r) => r.data.rows.map((p) => p.id));
+  assert.deepEqual(await q('New birth', 'Baptized'), [sarah.id]);
+  assert.deepEqual(await q('Classes completed', 'Foundations'), [sarah.id]);
+  assert.ok(!(await q('Baptism date', 'unset')).includes(sarah.id));
+  assert.ok((await q('Baptism date', 'set')).includes(sarah.id));
+
+  // A staff-only field is hidden from leaders; a volunteer can't read profiles at all.
+  const secret = (await api('admin', 'POST', '/profile-fields', { label: 'Pastoral notes', type: 'longtext', section: 'Care', visibility: 'staff' })).data;
+  db.prepare("INSERT INTO users (email, role) VALUES ('leader@mb.org', 'leader')").run();
+  const lid = db.prepare("SELECT id FROM users WHERE email = 'leader@mb.org'").get().id;
+  const res = { setHeader: (_k, v) => { cookies.leader = v.split(';')[0]; } };
+  (await import('../server/auth.js')).startSession(db, { secure: false }, res, lid);
+  assert.ok(!(await api('leader', 'GET', '/profile-fields')).data.some((f) => f.id === secret.id));
+  assert.equal((await api('vol', 'GET', `/people/${sarah.id}/profile`)).status, 403);
+  assert.equal((await put({ [by('Baptism date').id]: '2025-01-01' }, 'leader')).status, 403);
+
+  // Options are required for choice fields; types can't change once answered.
+  assert.equal((await api('admin', 'POST', '/profile-fields', { label: 'Empty', type: 'choice' })).status, 400);
+  assert.equal((await api('admin', 'PATCH', `/profile-fields/${by('Baptism date').id}`, { type: 'text' })).status, 400);
+
+  // CSV columns named like a field import into it.
+  const csv = 'First Name,Last Name,Email,Baptism Date,New Birth\nGina,Holt,gina@x.com,5/4/2024,received the holy ghost\n';
+  const pv = await fetch(base + '/api/import/preview', { method: 'POST', headers: { cookie: cookies.admin, 'x-mb': '1', 'content-type': 'text/csv' }, body: csv }).then((r) => r.json());
+  assert.equal(pv.mapping[`field:${by('Baptism date').id}`], 'Baptism Date');
+  await api('admin', 'POST', '/import/people', { csv, mapping: pv.mapping });
+  const gina = (await api('admin', 'GET', '/people?q=gina')).data.rows[0];
+  const gp = (await api('admin', 'GET', `/people/${gina.id}/profile`)).data.values;
+  assert.equal(gp[by('Baptism date').id], '2024-05-04');
+  assert.equal(gp[by('New birth').id], 'Received the Holy Ghost');
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

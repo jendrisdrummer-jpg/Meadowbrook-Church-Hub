@@ -8,6 +8,7 @@ import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
+import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
 const PERSON_FIELDS = ['first_name', 'last_name', 'nickname', 'email', 'phone', 'birthdate', 'gender', 'grade', 'campus_id',
@@ -58,6 +59,23 @@ export default function peopleRoutes(db, { uploadDir }) {
     if (req.query.campus_id) { where.push('p.campus_id = ?'); args.push(int(req.query.campus_id)); }
     if (STATUSES.includes(req.query.status)) { where.push('p.status = ?'); args.push(req.query.status); }
     if (['adult', 'child'].includes(req.query.role)) { where.push('p.household_role = ?'); args.push(req.query.role); }
+    // Profile field filter: ?field_id=3&field_value=Baptized, or field_value=set / unset.
+    if (req.query.field_id) {
+      const field = visibleFields(db, req.user).find((f) => f.id === int(req.query.field_id));
+      if (!field) throw bad('Unknown field.');
+      const v = str(req.query.field_value, 100);
+      if (v === 'unset') {
+        where.push('NOT EXISTS (SELECT 1 FROM profile_values pv WHERE pv.person_id = p.id AND pv.field_id = ?)'); args.push(field.id);
+      } else if (!v || v === 'set') {
+        where.push('EXISTS (SELECT 1 FROM profile_values pv WHERE pv.person_id = p.id AND pv.field_id = ?)'); args.push(field.id);
+      } else if (field.type === 'multi') {
+        where.push("EXISTS (SELECT 1 FROM profile_values pv, json_each(pv.value) j WHERE pv.person_id = p.id AND pv.field_id = ? AND j.value = ?)"); args.push(field.id, v);
+      } else if (field.type === 'yesno') {
+        where.push('EXISTS (SELECT 1 FROM profile_values pv WHERE pv.person_id = p.id AND pv.field_id = ? AND pv.value = ?)'); args.push(field.id, v === 'yes' ? 'true' : 'false');
+      } else {
+        where.push('EXISTS (SELECT 1 FROM profile_values pv WHERE pv.person_id = p.id AND pv.field_id = ? AND pv.value = ?)'); args.push(field.id, JSON.stringify(v));
+      }
+    }
     const q = str(req.query.q, 100);
     if (q) {
       const d = digits(q);
@@ -166,6 +184,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('UPDATE OR IGNORE team_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('UPDATE OR IGNORE attendance SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
+      db.prepare('UPDATE OR IGNORE profile_values SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
       db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
@@ -299,7 +318,18 @@ export default function peopleRoutes(db, { uploadDir }) {
   r.post('/import/preview', requireRole('admin'), express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
     const { headers, records } = csvRecords(req.body);
     if (!headers.length) throw bad('That file looks empty.');
-    res.json({ headers, mapping: guessMapping(headers), count: records.length, sample: records.slice(0, 5), fields: Object.keys(IMPORT_FIELDS) });
+    const custom = visibleFields(db, req.user);
+    const mapping = guessMapping(headers);
+    // Columns named like a custom field ("Baptism Date") map to it automatically.
+    for (const f of custom) {
+      const hit = headers.find((h) => h.toLowerCase().replace(/[_.]/g, ' ').trim() === f.label.toLowerCase());
+      if (hit) mapping[`field:${f.id}`] = hit;
+    }
+    res.json({
+      headers, mapping, count: records.length, sample: records.slice(0, 5),
+      fields: [...Object.keys(IMPORT_FIELDS), ...custom.map((f) => `field:${f.id}`)],
+      labels: Object.fromEntries(custom.map((f) => [`field:${f.id}`, f.label])),
+    });
   });
 
   r.post('/import/people', requireRole('admin'), express.json({ limit: '25mb' }), (req, res) => {
@@ -313,6 +343,15 @@ export default function peopleRoutes(db, { uploadDir }) {
       return campuses.find((c) => c.name.toLowerCase() === s || c.short_name.toLowerCase() === s)?.id ?? (int(defaultCampus) || null);
     };
     const val = (rec, field) => (mapping[field] ? rec[mapping[field]] ?? '' : '');
+    const custom = visibleFields(db, req.user).filter((f) => mapping[`field:${f.id}`]);
+    const saveCustom = (personId, rec) => {
+      const values = {};
+      for (const f of custom) {
+        const v = valueFromText(f, val(rec, `field:${f.id}`), parseDate);
+        if (v !== null) values[f.id] = v;
+      }
+      setValues(db, personId, custom, values);
+    };
 
     const summary = { created: 0, updated: 0, households: 0, skipped: [], total: records.length };
     const run = () => {
@@ -352,10 +391,12 @@ export default function peopleRoutes(db, { uploadDir }) {
         if (existing) {
           const changes = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v !== '' && v != null && k !== 'household_id'));
           updateFields(db, 'people', existing.id, changes, Object.keys(changes));
+          saveCustom(existing.id, rec);
           summary.updated++;
         } else {
           const keys = Object.keys(fields);
-          db.prepare(`INSERT INTO people (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...Object.values(fields));
+          const id = db.prepare(`INSERT INTO people (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...Object.values(fields)).lastInsertRowid;
+          saveCustom(Number(id), rec);
           summary.created++;
         }
       });

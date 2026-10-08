@@ -2,6 +2,7 @@
 import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
+import { drawProfile } from '../profile.js';
 
 const GRADES = [{ value: -1, label: 'Pre-K' }, { value: 0, label: 'Kindergarten' }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: gradeLabel(i + 1) }))];
 
@@ -35,6 +36,8 @@ export default async function person(el, id) {
           ${p.notes ? html`<p class="muted small" style="white-space:pre-wrap">${p.notes}</p>` : ''}
           ${p.account ? html`<p class="muted small">Signs in as ${p.account.email} (${p.account.role})</p>` : ''}
         </div>
+
+        <div class="stack" data-profile></div>
 
         <div class="card">
           <div class="card-head"><h2>${h ? h.name : 'Household'}</h2>
@@ -83,6 +86,8 @@ export default async function person(el, id) {
     if (!(await confirm('Merge records?', `${displayName(dup)}’s history, teams and schedule will move to ${displayName(p)}, and the duplicate will be archived.`, 'Merge'))) return;
     try { await post(`/people/${p.id}/merge`, { duplicate_id: dup.id }); toast('Merged.'); reload(); } catch (e) { fail(e); }
   });
+
+  drawProfile(el.querySelector('[data-profile]'), p.id).catch(fail);
 
   el.querySelector('[data-photo]')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];

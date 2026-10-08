@@ -186,6 +186,19 @@ tx(db, () => {
       }
     }
   }
+  // Milestones for some adults.
+  const field = (label) => db.prepare('SELECT * FROM profile_fields WHERE label = ?').get(label);
+  const [birth, baptism, ghost, classes, lead] = ['New birth', 'Baptism date', 'Holy Ghost date', 'Classes completed', 'Leadership track'].map(field);
+  for (const p of people.filter((x) => x.adult)) {
+    const step = Math.floor(rand() * 4);
+    const put = (f, v) => ins('profile_values', { person_id: p.id, field_id: f.id, value: JSON.stringify(v) });
+    put(birth, JSON.parse(birth.options)[step]);
+    if (step >= 2) put(baptism, iso(daysFrom(-Math.floor(rand() * 2000) - 30)));
+    if (step >= 3) put(ghost, iso(daysFrom(-Math.floor(rand() * 2000) - 30)));
+    if (rand() > 0.4) put(classes, JSON.parse(classes.options).filter(() => rand() > 0.5));
+    if (rand() > 0.3) put(lead, pick(JSON.parse(lead.options)));
+  }
+
   // A few away dates.
   for (const p of adults.slice(0, 5)) ins('blockouts', { person_id: p.id, start_date: iso(daysFrom(2)), end_date: iso(daysFrom(9)), reason: pick(['Vacation', 'Work trip', 'Family visit']) });
 });
