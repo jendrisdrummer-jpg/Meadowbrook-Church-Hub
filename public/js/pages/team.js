@@ -42,7 +42,7 @@ export default async function team(el, id, opts = {}) {
       ${manage ? html`<div class="add-member" data-add-member><span class="add-member-icon">${icon('plus')}</span>
         <input type="search" placeholder="Add someone to ${t.name}: type a name" data-member-q autocomplete="off" aria-label="Add someone to the team">
         <div class="suggest hidden" data-member-list></div></div>` : ''}
-      ${roster.length ? html`<div class="table-wrap"><table class="roster">
+      ${roster.length ? html`<div class="table-wrap roster-wrap"><table class="roster">
         <thead><tr><th>Person</th>${t.positions.map((p) => html`<th>${p.name}</th>`)}${staff ? html`<th>Leader</th>` : ''}${manage ? html`<th></th>` : ''}</tr></thead>
         <tbody>${roster.map((m) => html`<tr data-person="${m.person_id}" class="${m.person_id === opts.added ? 'just-added' : ''}">
           <td><a class="person-cell" href="#/people/${m.person_id}" style="color:inherit">${avatar(m)}<span><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}</span></a></td>
