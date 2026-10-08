@@ -1041,6 +1041,10 @@ test('giving: Stripe checkout, webhooks, recurring gifts, my giving, and finance
   assert.deepEqual([sent['payment_method_types[0]'], sent['payment_method_types[1]']], ['card', 'us_bank_account']);
   assert.equal(sent.customer_email, 'guest@give.org');
   assert.equal(sent.ui_mode, 'embedded');
+  assert.equal(sent.redirect_on_completion, 'if_required');
+  assert.match(sent.return_url, /\/app\/give-done\?session_id=\{CHECKOUT_SESSION_ID\}$/);
+  const back = await fetch(`${base}/app/give-done?session_id=cs_test_9`, { redirect: 'manual' });
+  assert.equal(back.headers.get('location'), '/app/#/give?done=cs_test_9');
 
   // A member giving monthly: their own Stripe customer, a subscription.
   const rita = (await api('admin', 'POST', '/people', { first_name: 'Rita', last_name: 'Give', email: 'rita@give.org', campus_id: 1 })).data;
@@ -1105,6 +1109,7 @@ test('giving: Stripe checkout, webhooks, recurring gifts, my giving, and finance
   assert.ok(sum.by_method.some((m) => m.method === 'bank'));
   const donors = (await api('admin', 'GET', '/finance/donors')).data;
   assert.equal(donors[0].giver, 'Gail Guest');
+  assert.ok(donors.some((d) => d.giver === 'Rita Give')); // first and last name, even with no nickname
   // Link the guest's gifts to her People record.
   const gail = (await api('admin', 'POST', '/people', { first_name: 'Gail', last_name: 'Guest', campus_id: 1 })).data;
   await api('admin', 'PATCH', `/finance/gifts/${g1[0].id}`, { person_id: gail.id });
