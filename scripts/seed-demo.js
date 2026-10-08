@@ -163,6 +163,11 @@ tx(db, () => {
         const base = t.campus === north ? (t.time === '09:00' ? 140 : 170) : 95;
         ins('headcounts', { service_id: sid, area: 'Auditorium', count: base + Math.floor(rand() * 30) - 10 });
         ins('headcounts', { service_id: sid, area: 'Online', count: 30 + Math.floor(rand() * 25) });
+        // Roll call: most regulars, some of the time; one family stopped coming three weeks ago.
+        for (const p of people.filter((x) => x.adult && x.campus === t.campus)) {
+          const fadedAway = p.last === 'Brooks' && w > -4;
+          if (!fadedAway && rand() < 0.55) ins('attendance', { service_id: sid, person_id: p.id });
+        }
         const kids = people.filter((p) => !p.adult && p.campus === t.campus && rand() < 0.45);
         for (const k of kids) {
           const room = roomFor(k, rooms[t.campus], date);

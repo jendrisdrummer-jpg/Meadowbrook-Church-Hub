@@ -2,6 +2,7 @@
 import { get, post, patch, put, del, html, raw, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, confirm, fmtDate, fmtTime, fmtLength, parseLength, debounce, addDays, pickPerson } from '../lib.js';
 import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
+import { drawRollCall } from '../rollcall.js';
 
 export default async function service(el, id) {
   const s = await get(`/services/${id}`);
@@ -235,19 +236,5 @@ async function assign(s, pos, reload) {
 
 // ---------------------------------------------------------------- attendance
 function drawCounts(panel, s) {
-  const areas = state.settings.headcount_areas || ['Auditorium'];
-  const value = (a) => s.headcounts.find((h) => h.area === a)?.count ?? '';
-  mount(panel, html`<div class="card" style="max-width:520px">
-    <h2>Headcount</h2>
-    <p class="muted small">Kids checked in are counted automatically from Kids Check-in.</p>
-    <form class="form" data-counts>${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>
-    <div class="row end" style="margin-top:12px"><span class="muted small" data-saved></span></div>
-  </div>`);
-  const form = panel.querySelector('[data-counts]');
-  form.addEventListener('input', debounce(async () => {
-    try {
-      s.headcounts = await put(`/services/${s.id}/headcounts`, { counts: formData(form) });
-      panel.querySelector('[data-saved]').textContent = 'Saved';
-    } catch (e) { fail(e); }
-  }, 600));
+  drawRollCall(panel, s).catch(fail);
 }

@@ -160,6 +160,24 @@ test('repeating services: skip one, change the future, stop the series', async (
   assert.equal((await list()).length, 1);
 });
 
+test('roll call marks people and families, and feeds follow-up lists', async () => {
+  const day = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T10:00` })).data;
+  const roll = (await api('admin', 'GET', `/services/${svc.id}/roll`)).data;
+  const sarah = roll.people.find((p) => p.first_name === 'Sarah');
+  const family = roll.people.filter((p) => p.household_id === sarah.household_id).map((p) => p.id);
+  assert.ok(family.length >= 2);
+  let r = await api('admin', 'POST', `/services/${svc.id}/roll`, { person_ids: family, present: true });
+  assert.equal(r.data.present, family.length);
+  r = await api('admin', 'POST', `/services/${svc.id}/roll`, { person_ids: [sarah.id], present: false });
+  assert.equal(r.data.present, family.length - 1);
+  assert.equal((await api('vol', 'GET', `/services/${svc.id}/roll`)).status, 403);
+  const follow = (await api('admin', 'GET', '/attendance/people')).data;
+  assert.ok(follow.first_time.some((p) => family.includes(p.id) && p.id !== sarah.id));
+  const hist = (await api('admin', 'GET', `/people/${family.find((id) => id !== sarah.id)}/attendance`)).data;
+  assert.equal(hist.recent.length, 1);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

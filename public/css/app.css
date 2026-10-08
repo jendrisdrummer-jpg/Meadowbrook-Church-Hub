@@ -21,7 +21,7 @@
   --bad-soft: #fbe7e4;
   --info: var(--accent-text);
   --info-soft: var(--accent-soft);
-  --kids: var(--kids);
+  --kids: #d39b3a;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 2px 8px rgba(16, 24, 40, .04);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -292,3 +292,39 @@ dialog::backdrop { background: rgba(20, 22, 18, .45); }
 .stepper b { min-width: 24px; text-align: center; font-variant-numeric: tabular-nums; }
 .stepper button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 16px; line-height: 1; }
 .stepper button:disabled { opacity: .35; cursor: default; }
+
+/* multi-select people picker */
+.picker-list.multi .pick { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
+.picker-list.multi .pick:hover { background: var(--panel-2); }
+.picker-list.multi .pick.already { opacity: .5; cursor: default; }
+.picker-list.multi input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* team roster grid */
+.roster { width: 100%; border-collapse: collapse; }
+.roster th { font-size: 12px; font-weight: 700; color: var(--text-2); padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+.roster th:first-child { text-align: left; }
+.roster td { padding: 6px; border-bottom: 1px solid var(--line); text-align: center; }
+.roster td:first-child { text-align: left; }
+.roster tr:hover td { background: var(--panel-2); }
+.tick { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; display: inline-grid; place-items: center; color: transparent; }
+.tick:hover { border-color: var(--accent); }
+.tick.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tick .ic { width: 16px; height: 16px; }
+.tick:disabled { cursor: default; }
+
+/* roll call */
+.roll { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+.roll-family { border: 1px solid var(--line); border-radius: 12px; padding: 6px; display: grid; gap: 4px; }
+.roll-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px; font-weight: 700; font-size: 13px; color: var(--text-2); }
+.roll-person { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 9px; background: none; cursor: pointer; text-align: left; min-height: 52px; }
+.roll-person:hover { background: var(--panel-2); }
+.roll-person:disabled { cursor: default; }
+.roll-check { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: transparent; flex: none; }
+.roll-check .ic { width: 16px; height: 16px; }
+.roll-person.here { background: var(--good-soft); }
+.roll-person.here .roll-check { background: var(--good); border-color: var(--good); color: #fff; }
+.roll-name { flex: 1; min-width: 0; }
+details.card > summary { cursor: pointer; list-style: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before { content: '▸ '; color: var(--muted); }
+details.card[open] > summary::before { content: '▾ '; }

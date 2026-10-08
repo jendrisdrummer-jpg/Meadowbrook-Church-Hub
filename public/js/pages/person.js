@@ -6,7 +6,7 @@ import { gradeLabel, ageLabel } from '../checkin-rules.js';
 const GRADES = [{ value: -1, label: 'Pre-K' }, { value: 0, label: 'Kindergarten' }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: gradeLabel(i + 1) }))];
 
 export default async function person(el, id) {
-  const p = await get(`/people/${id}`);
+  const [p, att] = await Promise.all([get(`/people/${id}`), get(`/people/${id}/attendance`)]);
   const staff = can('staff');
   setTitle(displayName(p), html`${staff ? html`<button class="btn" data-edit>${icon('edit')} Edit</button>` : ''}
     ${can('admin') ? html`<button class="btn" data-merge title="Merge a duplicate record into this one">${icon('copy')} Merge duplicate</button>` : ''}`);
@@ -64,8 +64,11 @@ export default async function person(el, id) {
             : html`<p class="muted">Nothing upcoming.</p>`}
           ${p.blockouts.length ? html`<h3 style="margin-top:12px">Away</h3>${p.blockouts.map((b) => html`<div class="small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''} <span class="muted">${b.reason}</span></div>`)}` : ''}
         </div>
-        <div class="card"><h2>Recent check-ins</h2>
-          ${p.checkins.length ? p.checkins.map((c) => html`<div class="small">${new Date(c.checked_in_at).toLocaleDateString()} · ${c.room || c.kind}</div>`) : html`<p class="muted">None yet.</p>`}
+        <div class="card"><div class="card-head"><h2>Attendance</h2><span class="muted small">${att.weeks_attended_of_12} of the last 12 weeks</span></div>
+          ${att.recent.length ? html`<table class="list"><tbody>${att.recent.slice(0, 8).map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
+            <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>`
+            : html`<p class="muted">No attendance marked yet.</p>`}
+          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${new Date(c.checked_in_at).toLocaleDateString()} · ${c.room || c.kind}</div>`)}` : ''}
         </div>
         ${staff && !p.archived ? html`<button class="btn danger" data-archive>${icon('trash')} Archive this person</button>` : ''}
       </div>

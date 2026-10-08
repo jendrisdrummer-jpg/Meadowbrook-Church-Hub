@@ -60,19 +60,23 @@ export.
 Staff can be limited to their own campus. The campus picker in the sidebar filters every page.
 Adding a new campus is just **Settings → Campuses → Add campus**.
 
-**Teams**: teams (Worship, Kids, Hospitality, Production…) with positions, and which positions
-each member can serve in. Teams are either per campus or church-wide. Team leaders can schedule
-their own team.
+**Teams**: teams (Worship, Kids, Hospitality, Production…) with positions, and a roster grid of
+who serves in which position: tick a box to change it. Add several people at once. Teams are
+either per campus or church-wide. Team leaders can schedule their own team.
 
-**Services**: set up your regular service times once (**Settings → Service times**), including
-how many of each position every service needs. Then **Add upcoming weeks** creates the
-services. Each service has:
+**Services**: a month calendar (or list) of every service at every campus. **New service**
+creates a one-off service or a **repeating** one (every week, every 2 weeks…) with the positions
+it needs, and the calendar fills itself in. When you change or delete a repeating service you
+choose **just this one** or **this and all following**. Each service has:
 - an **order of service**: sections, songs with keys, and items with lengths and running times.
   Drag to reorder, or copy from another service (9:00 → 11:00, or from last week).
 - **Who's serving**: tap *Schedule someone* to see the best choices first. That's people who
   play that position, aren't away, aren't already serving at the same time **at any campus**,
   and haven't served much lately. **Fill open spots** does this for the whole service at once.
-- **Attendance**: headcounts for each area (auditorium, overflow, online…).
+- **Attendance**: a **roll call** for the attendance team. Tap people (or **Mark family**) as you
+  see them, on a phone or computer, and add new guests on the spot. Room headcounts are there
+  too. The Attendance page lists who **hasn't been here in 3+ weeks** and **first-time guests**,
+  and each person's profile shows their attendance history.
 
 **My Schedule**: volunteers accept or decline (with a reason), mark dates they'll be away, and
 open the order of service for anything they're on.
@@ -156,18 +160,20 @@ server, such as a Google Drive folder or your host's snapshot feature.
 ### 5. First-time setup
 
 1. Sign in with an admin email.
-2. **Settings → Church**: confirm the name and Google domain, and pick your label printer.
+2. **Settings → Church**: confirm the name and pick your brand colour.
 3. **Settings → Campuses**: add each campus.
 4. **Settings → Import people**: export your people from Faith Teams as CSV and import it. Run a
    **test import** first. Re-importing updates people rather than duplicating them, so you can
    keep Faith Teams running alongside until you switch over.
 5. **Teams**: create teams and positions, and add members.
-6. **Settings → Service times**: add your regular services and the positions each one needs.
-7. **Settings → Kids' rooms**: add rooms with their age or grade ranges.
-8. **Settings → Accounts**: give staff and team leaders the right access. By default anyone with
-   a Google account can sign in and starts as a volunteer, who sees only their own schedule.
-   **Settings → Church → Who can sign in** can limit this to people in the directory, church
-   accounts, or invited accounts only.
+6. **Services → New service**: add your regular services as repeating services, with the
+   positions each one needs.
+7. **Settings → Check-in & attendance**: pick your label printer and add kids' rooms with their
+   age or grade ranges.
+8. **Settings → Sign-in & accounts**: give staff and team leaders the right access. By default
+   anyone with a Google account can sign in and starts as a volunteer, who sees only their own
+   schedule. **Who can sign in** can limit this to people in the directory, church accounts, or
+   invited accounts only.
 
 ### Check-in tablets and printers
 

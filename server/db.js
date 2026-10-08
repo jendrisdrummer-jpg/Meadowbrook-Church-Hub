@@ -259,6 +259,17 @@ const MIGRATIONS = [
   INSERT INTO service_needs (service_id, position_id, count)
     SELECT s.id, n.position_id, n.count FROM services s JOIN service_type_needs n ON n.service_type_id = s.service_type_id;
   `,
+  // 4: who was at each service, marked by the attendance team (roll call).
+  `
+  CREATE TABLE attendance (
+    service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    marked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    marked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (service_id, person_id)
+  );
+  CREATE INDEX attendance_person ON attendance(person_id);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
