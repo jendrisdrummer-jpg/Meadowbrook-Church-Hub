@@ -19,7 +19,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   const app = express();
   app.disable('x-powered-by');
   // Behind a cloud load balancer / tunnel, trust its X-Forwarded-Proto so cookies are marked Secure.
-  app.set('trust proxy', process.env.MB_TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
+  app.set('trust proxy', trustProxy(process.env.MB_TRUST_PROXY));
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -57,6 +57,14 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 
   app.use(errorHandler);
   return app;
+}
+
+// MB_TRUST_PROXY: a number of proxy hops ("1" on Render, Railway or Fly), "true", or a list of addresses.
+function trustProxy(v) {
+  if (!v) return 'loopback, linklocal, uniquelocal';
+  if (/^\d+$/.test(v)) return Number(v);
+  if (v === 'true' || v === 'false') return v === 'true';
+  return v;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

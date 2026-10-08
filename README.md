@@ -140,8 +140,9 @@ The repo includes a `Dockerfile`. Any host that runs Docker with a **persistent 
 
 Without Docker: `npm ci --omit=dev && npm start`.
 
-If HTTPS is handled by a proxy that isn't on the same machine or private network, set
-`MB_TRUST_PROXY` to its address so sign-in cookies are marked secure.
+On Render, Railway or Fly.io, set `MB_TRUST_PROXY=1` so the app knows it is behind their HTTPS
+proxy. Elsewhere, set it to the proxy's address if the proxy isn't on the same machine or
+private network.
 
 ### 4. Backups
 
