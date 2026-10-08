@@ -148,10 +148,10 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   // People gets a volunteer account by signing in, so those don't need listing.
   r.get('/users', requireRole('admin'), (req, res) => {
     const q = str(req.query.q, 100).toLowerCase();
-    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance,
+    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce,
         u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name
       FROM users u LEFT JOIN people p ON p.id = u.person_id
-      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1)"}
+      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
@@ -177,8 +177,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
     const person = int(b.person_id) ?? db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
-    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance) VALUES (?, ?, ?, ?, ?)')
-      .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0);
+    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
     audit(db, req, 'user.create', `${email} as ${b.role}`);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
@@ -197,7 +197,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     // Finance (who gave what) is its own permission, separate from staff/admin.
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
-    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance']);
+    if (b.announce !== undefined) b.announce = Boolean(b.announce);
+    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);

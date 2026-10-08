@@ -20,6 +20,7 @@ import templateRoutes from './routes/templates.js';
 import notificationRoutes from './routes/notifications.js';
 import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
+import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
 import callRoutes, { syncCalls } from './routes/calls.js';
@@ -68,6 +69,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(notificationRoutes(db));
   api.use(appRoutes(db, { uploadDir }));
   api.use(eventRoutes(db));
+  api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
@@ -183,4 +185,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   setInterval(remind, 15 * 60e3).unref();
   // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
   setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
+  setInterval(() => sendDueAnnouncements(db), 60e3).unref();
 }

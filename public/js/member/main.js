@@ -3,7 +3,7 @@
 import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
-import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription } from '../push.js';
+import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
 import { openChat } from '../chat.js';
 import { taskList, taskPage } from '../tasks.js';
 import { giveForm, giveThanks, myGiving } from '../give.js';
@@ -381,6 +381,28 @@ function connect(el, tab) {
 }
 
 // ---------------------------------------------------------------- more
+// Guests can get the church's announcements without an account.
+async function guestPushCard(box) {
+  const sub = await currentSubscription().catch(() => null);
+  const on = Boolean(sub) && 'Notification' in window && Notification.permission === 'granted';
+  const draw = (state) => mount(box, html`<h2>Announcements</h2>
+    ${!pushSupported() ? html`<p class="small" style="margin:0">${isIOS && !isInstalled() ? 'Add this app to your home screen (Share, then Add to Home Screen), then open it from there to get announcements.' : 'This browser can’t show notifications.'}</p>`
+      : state === 'denied' ? html`<p class="small" style="margin:0">Notifications are blocked for this app. Allow them in your phone’s settings, then come back.</p>`
+      : state === 'on' ? html`<div class="row"><span class="pill good">${icon('check')} On for this phone</span><span class="spacer"></span><button class="btn small ghost" data-guest-off>Turn off</button></div>`
+      : html`<p class="small" style="margin:0 0 10px">Hear from ${app.church_name}: service changes, events and news. No account needed.</p>
+        ${app.campuses.length > 1 ? html`<label class="field" style="margin-bottom:12px">Your campus<select data-guest-campus><option value="">All campuses</option>${app.campuses.map((c) => html`<option value="${c.id}">${c.name}</option>`)}</select></label>` : ''}
+        <button class="btn primary" data-guest-on>${icon('bell')} Turn on announcements</button>`}`);
+  draw(on ? 'on' : 'off');
+  box.onclick = async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    try {
+      if (b.matches('[data-guest-on]')) draw(await enableGuestPush(Number(box.querySelector('[data-guest-campus]')?.value) || null));
+      if (b.matches('[data-guest-off]')) { await disableGuestPush(); draw('off'); }
+    } catch (err) { fail(err); }
+  };
+}
+
 async function more(el, tab, q) {
   setTitle(tab.label);
   const extra = app.config.tabs.filter((t) => !t.on && t.type !== 'more' && ['page', 'link', 'watch', 'give', 'connect'].includes(t.type));
@@ -393,7 +415,7 @@ async function more(el, tab, q) {
       ? html`<ol class="steps-inline small"><li>Open this page in <b>Safari</b>.</li><li>Tap the Share button ${share}.</li><li>Choose <b>Add to Home Screen</b>.</li></ol>`
       : canPromptInstall() ? html`<button class="btn primary" data-install>${icon('phone')} Add to home screen</button>`
         : html`<p class="small" style="margin:0">Open your browser’s menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>`}</div>` : ''}
-    ${app.user ? html`<div class="card app-card" data-notify></div>` : ''}
+    ${app.user ? html`<div class="card app-card" data-notify></div>` : html`<div class="card" data-guest-push></div>`}
     <div class="card m-list">
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
@@ -405,6 +427,7 @@ async function more(el, tab, q) {
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
   if (app.user) drawNotifyCard(el.querySelector('[data-notify]'), { ui: 'app', role: app.user.role }).catch(() => {});
+  else guestPushCard(el.querySelector('[data-guest-push]')).catch(() => {});
   el.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;

@@ -59,6 +59,30 @@ export async function enablePush(ui = 'hub') {
   return 'on';
 }
 
+// Announcements on a phone without an account (from the app's More tab).
+export async function enableGuestPush(campusId = null) {
+  if (!pushSupported()) return 'unsupported';
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') return 'denied';
+  const { public_key: key } = await get('/push/key');
+  const reg = await registration();
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && sub.options?.applicationServerKey && btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') !== key) {
+    await sub.unsubscribe();
+    sub = null;
+  }
+  sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+  await post('/push/guest', { ...sub.toJSON(), device: deviceName(), campus_id: campusId });
+  return 'on';
+}
+
+export async function disableGuestPush() {
+  const sub = await currentSubscription();
+  if (!sub) return;
+  await del('/push/guest', { endpoint: sub.endpoint }).catch(() => {});
+  await sub.unsubscribe();
+}
+
 export async function disablePush() {
   const sub = await currentSubscription();
   if (!sub) return;
