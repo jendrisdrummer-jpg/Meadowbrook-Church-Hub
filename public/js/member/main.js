@@ -26,10 +26,12 @@ function applyTheme() {
   } catch { /* private window */ }
 }
 
+// Every screen's title bar ends with the bell and, to its right, the chat button.
 function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
   document.title = `${title} · ${app.church_name}`;
-  mount($('[data-actions]'), actions);
+  mount($('[data-actions]'), html`${actions}${headerButtons()}`);
+  refreshChatBadge();
 }
 
 async function boot() {
@@ -81,14 +83,12 @@ async function route() {
     if (mine !== seq) return;
     setTitle('Something went wrong');
     mount(el, html`<div class="alert bad">${e.message}</div>`);
-  } finally {
-    if (mine === seq) refreshChatBadge();
   }
 }
 
 // ---------------------------------------------------------------- home
 async function home(el, tab) {
-  setTitle(tab.label === 'Home' ? app.church_name : tab.label, bellButton());
+  setTitle(tab.label === 'Home' ? app.church_name : tab.label);
   const blocks = app.config.home;
   const needServing = blocks.some((b) => b.type === 'serving') && app.user?.linked;
   const mine = needServing ? await get('/my/schedule').catch(() => null) : null;
@@ -172,7 +172,7 @@ function videoEmbed(url) {
 
 // ---------------------------------------------------------------- serve (sign-in)
 async function serve(el, tab, q) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   if (!app.user) {
     mount(el, html`<div class="card m-big-action">${icon('calendar')}<h2 style="margin:0">See when you’re serving</h2>
       <p class="muted" style="margin:0">Sign in to accept or decline, add dates you’ll be away, and see the order of service.</p>
@@ -301,7 +301,7 @@ async function plan(el, id, q) {
 
 // ---------------------------------------------------------------- watch, give, page, link
 function watch(el, tab) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   const url = app.config.watch_url;
   const embed = videoEmbed(url);
   mount(el, url
@@ -312,7 +312,7 @@ function watch(el, tab) {
 }
 
 function give(el, tab) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   const url = app.config.give_url;
   mount(el, url
     ? html`<div class="card m-big-action">${icon('heart')}<h2 style="margin:0">Thank you for your generosity</h2>
@@ -322,18 +322,18 @@ function give(el, tab) {
 }
 
 function page(el, tab) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   mount(el, html`<div class="card m-text">${tab.title ? html`<h2 style="margin:0">${tab.title}</h2>` : ''}<p>${tab.body || ''}</p></div>`);
 }
 
 function link(el, tab) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   mount(el, html`<div class="card m-big-action">${icon(tab.icon)}<a class="btn primary" href="${tab.url}" target="_blank" rel="noopener">Open ${tab.label} ${icon('external')}</a></div>`);
 }
 
 // ---------------------------------------------------------------- connect card
 function connect(el, tab) {
-  setTitle(tab.label, bellButton());
+  setTitle(tab.label);
   const c = app.config.connect;
   const camps = app.campuses;
   mount(el, html`<form class="card m-form" autocomplete="on">
@@ -412,7 +412,7 @@ async function more(el, tab, q) {
 // ---------------------------------------------------------------- chat
 async function chat(el, tab, id) {
   if (!app.user) {
-    setTitle(tab.label, bellButton());
+    setTitle(tab.label);
     mount(el, html`<div class="card m-big-action">${icon('chat')}<h2 style="margin:0">Chat with your team</h2>
       <p class="muted" style="margin:0">Sign in to message the teams you serve on.</p>
       <a class="btn primary" href="${signInHref('/chat')}">Sign in</a></div>`);
@@ -422,8 +422,8 @@ async function chat(el, tab, id) {
 }
 
 // ---------------------------------------------------------------- notifications
-function bellButton() {
-  return app.user && !preview ? html`<a class="icon-btn m-chat-btn" href="#/chat" aria-label="Chat">${icon('chat')}<span class="nav-badge hidden" data-badge="chat"></span></a><a class="icon-btn bell" href="#/inbox" aria-label="Notifications">${icon('bell')}</a>` : '';
+function headerButtons() {
+  return app.user && !preview ? html`<a class="icon-btn bell" href="#/inbox" aria-label="Notifications">${icon('bell')}</a><a class="icon-btn m-chat-btn" href="#/chat" aria-label="Chat">${icon('chat')}<span class="nav-badge hidden" data-badge="chat"></span></a>` : '';
 }
 
 async function inbox(el) {
