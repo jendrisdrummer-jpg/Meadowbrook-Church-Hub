@@ -261,6 +261,11 @@ song's name in a plan (or open it on the Songs page) to listen.
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
 
 **Kids Check-in** (`/checkin`, for tablets at the welcome desk):
+- **Stations without anyone signed in** (Check-in → Check-in stations, staff): open `/checkin` on
+  an iPad and it shows a 6-letter code; type it into **Add a station** with a name and campus.
+  The iPad then checks kids in at that campus (and adds new guest families) and can't open
+  anything else in the hub. Rename it, move it, turn name tags on or off, or remove it from the
+  hub; a removed iPad shows a new code. Leaders can still sign in on a tablet instead.
 - Find a family by the last 4 digits of a parent's phone or by last name, tick the kids, and
   check in. Each child goes to the right room by grade or age, and you can override it.
 - Prints a **name tag** for each child (name, room, allergy warning, pickup code) and a

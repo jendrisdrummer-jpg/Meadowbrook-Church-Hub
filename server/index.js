@@ -13,6 +13,7 @@ import serviceRoutes from './routes/services.js';
 import songFileRoutes from './routes/songfiles.js';
 import seriesRoutes from './routes/series.js';
 import checkinRoutes from './routes/checkin.js';
+import stationRoutes, { stationAuth } from './routes/stations.js';
 import attendanceRoutes from './routes/attendance.js';
 import dashboardRoutes from './routes/dashboard.js';
 import fieldRoutes from './routes/fields.js';
@@ -55,12 +56,15 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   authRoutes(app, db);
 
   const api = express.Router();
+  // Paired iPads (no one signed in) may use check-in, and nothing else.
+  api.use(stationAuth(db));
   api.use(setupRoutes(db, { uploadDir }));
   api.use(peopleRoutes(db, { uploadDir }));
   api.use(teamRoutes(db));
   api.use(serviceRoutes(db));
   api.use(songFileRoutes(db, { uploadDir }));
   api.use(seriesRoutes(db));
+  api.use(stationRoutes(db));
   api.use(checkinRoutes(db));
   api.use(attendanceRoutes(db));
   api.use(dashboardRoutes(db));

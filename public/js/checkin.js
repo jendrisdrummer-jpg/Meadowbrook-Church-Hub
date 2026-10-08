@@ -6,6 +6,7 @@ import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly } from './check
 
 const KEY = {
   station: 'mb.checkin.station',
+  token: 'mb.checkin.token', // a paired iPad's sign-in (from the hub's Check-in → Stations)
   roster: (campusId) => `mb.checkin.roster.${campusId}`,
   queue: 'mb.checkin.queue',
   today: (campusId, day) => `mb.checkin.today.${campusId}.${day}`,
@@ -24,13 +25,17 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { toast('This device is out of storage space.', 'bad'); } },
 };
 
-const state = { station: store.get(KEY.station, null), roster: null, mode: 'in', online: navigator.onLine, authed: true, campuses: [] };
+const state = { station: store.get(KEY.station, null), token: store.get(KEY.token, null), roster: null, mode: 'in', online: navigator.onLine, authed: true, campuses: [] };
 const $main = document.querySelector('[data-main]');
 
 async function call(method, url, body) {
-  const res = await fetch('/api' + url, { method, headers: { 'x-mb': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 401) { state.authed = false; drawStatus(); throw Object.assign(new Error('Signed out. Sign in again to sync.'), { status: 401 }); }
+  const headers = { 'x-mb': '1', 'content-type': 'application/json' };
+  if (state.token) headers['x-station'] = state.token;
+  const res = await fetch('/api' + url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
+  // Removed in the hub: forget the pairing and show a new code.
+  if (res.status === 401 && data.station_removed) { forgetPairing(); location.reload(); throw new Error(data.error); }
+  if (res.status === 401) { state.authed = false; drawStatus(); throw Object.assign(new Error('Signed out. Sign in again to sync.'), { status: 401 }); }
   if (!res.ok) throw Object.assign(new Error(data.error || `Error ${res.status}`), { status: res.status });
   return data;
 }
@@ -42,10 +47,20 @@ async function boot() {
   window.addEventListener('offline', () => { state.online = false; drawStatus(); });
   document.querySelector('[data-modes]').onclick = (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); };
   document.querySelector('[data-setup]').onclick = setup;
+  // A paired iPad takes its name, campus and labels from the hub.
+  if (state.token) {
+    try {
+      const s = await call('GET', '/checkin/station');
+      state.station = { campusId: s.campusId, name: s.name, print: s.print, paired: true };
+      store.set(KEY.station, state.station);
+    } catch (e) {
+      if (!state.station) { mount($main, html`<div class="alert bad">Can’t reach the church right now. Connect to the internet and reload.</div>`); return; }
+    }
+  }
   try {
     state.campuses = await call('GET', '/campuses');
   } catch (e) {
-    if (e.status === 401 && !state.station) { location.href = '/login'; return; }
+    if (e.status === 401 && !state.station) { await pairScreen(); return; }
   }
   if (!state.station) { await setup(); return; }
   state.roster = store.get(KEY.roster(state.station.campusId), null);
@@ -76,7 +91,70 @@ async function refreshRoster() {
   }
 }
 
+function forgetPairing() {
+  try { localStorage.removeItem(KEY.token); localStorage.removeItem(KEY.station); } catch { /* ignore */ }
+  state.token = null;
+  state.station = null;
+}
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad'; // iPads can say "Macintosh"
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+  return /Windows/.test(ua) ? 'Windows computer' : /Mac/.test(ua) ? 'Mac' : 'Browser';
+}
+
+// Not signed in and not paired: show a code for staff to enter in the hub, and wait for it.
+async function pairScreen() {
+  for (const sel of ['[data-modes]', '[data-setup]', '[data-status]']) document.querySelector(sel).style.display = 'none';
+  let pairing;
+  let timer;
+  const start = async () => {
+    try {
+      pairing = await call('POST', '/checkin/pair', { device: deviceName() });
+    } catch (err) {
+      mount($main, html`<div class="alert bad">${err.message}</div>`);
+      return;
+    }
+    const code = `${pairing.code.slice(0, 3)}-${pairing.code.slice(3)}`;
+    mount($main, html`<div class="k-pair">
+      <h1>Set up this ${deviceName() === 'iPad' ? 'iPad' : 'device'} for check-in</h1>
+      <p>On a computer or phone, open the hub and go to <b>Check-in → Stations</b>, then choose <b>Add a station</b> and type this code:</p>
+      <div class="k-pair-code" aria-label="${pairing.code.split('').join(' ')}">${code}</div>
+      <p class="muted small" data-pair-note>Waiting… The code changes every 15 minutes.</p>
+      <p class="small"><a href="/login?next=%2Fcheckin">Or sign in as a leader instead</a></p></div>`);
+    clearInterval(timer);
+    const born = Date.now();
+    timer = setInterval(async () => {
+      if (Date.now() - born > (pairing.expires_in - 20) * 1000) { clearInterval(timer); return start(); }
+      try {
+        const r = await call('GET', `/checkin/pair/${pairing.secret}`);
+        if (!r.paired) return;
+        clearInterval(timer);
+        state.token = r.token;
+        store.set(KEY.token, r.token);
+        store.set(KEY.station, { campusId: r.station.campusId, name: r.station.name, print: r.station.print, paired: true });
+        mount($main, html`<div class="k-pair"><h1>All set!</h1><p>This is now <b>${r.station.name}</b> at ${r.station.campusName}.</p></div>`);
+        setTimeout(() => location.reload(), 1200);
+      } catch (err) {
+        if (err.message.includes('expired')) { clearInterval(timer); start(); }
+      }
+    }, 3000);
+  };
+  await start();
+}
+
 async function setup() {
+  // A paired station is set up from the hub.
+  if (state.station?.paired) {
+    await dialog({
+      title: 'This check-in station', submit: false, cancel: 'Close',
+      body: html`<p style="margin:0">This ${deviceName()} is <b>${state.station.name}</b>${state.roster?.campus ? html` at <b>${state.roster.campus.name}</b>` : ''}.</p>
+        <p class="muted small">To rename it, move it to another campus, turn labels on or off, or remove it, go to <b>Check-in → Stations</b> in the hub.</p>`,
+    });
+    return;
+  }
   const camps = state.campuses.filter((c) => c.active);
   if (!camps.length) { mount($main, html`<div class="alert bad">Sign in, and make sure at least one campus is set up in Settings.</div>`); return; }
   const cur = state.station || {};
@@ -111,7 +189,7 @@ function drawStatus() {
   mount(document.querySelector('[data-status]'), html`
     ${state.online ? html`<span class="k-online">● Online</span>` : html`<span class="k-offline">● Offline: still checking in</span>`}
     ${q ? html`<span class="k-pending">${q} waiting to sync</span>` : ''}
-    ${!state.authed ? html`<a class="btn small" href="/login">Sign in to sync</a>` : ''}`);
+    ${!state.authed ? html`<a class="btn small" href="/login?next=%2Fcheckin">Sign in to sync</a>` : ''}`);
 }
 
 function setMode(mode) {
