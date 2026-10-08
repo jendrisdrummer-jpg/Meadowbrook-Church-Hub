@@ -6,6 +6,7 @@ import { get, post, patch, html, mount, icon, toast, fail, confirm, dialog, fmtD
 const money = (c) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[$,\s]/g, '')) * 100);
 const coverFee = (amount, fee) => Math.max(0, Math.ceil((amount + fee.fixed_cents) / (1 - fee.percent / 100)) - amount);
+const PRESETS = [25, 50, 100, 250];
 const EVERY_LABEL = { once: 'One time', week: 'Weekly', '2week': 'Every 2 weeks', month: 'Monthly' };
 const everyLabel = (k, cfg) => EVERY_LABEL[k] || cfg.every[k] || k;
 
@@ -59,6 +60,7 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     const fundName = cfg.funds.find((f) => f.id === state.fund)?.name || '';
     mount(el, html`<form class="card give-form" autocomplete="on" novalidate>
       <label class="give-amount"><span>$</span><input type="text" inputmode="decimal" name="amount" placeholder="0" value="${state.amount}" aria-label="Amount"></label>
+      <div class="give-quick" role="group" aria-label="Quick amounts">${PRESETS.map((n) => html`<button type="button" data-preset="${n}" class="${cents(state.amount) === n * 100 ? 'on' : ''}">$${n}</button>`)}</div>
       <div class="give-list">
         <label class="give-pick"><span>Fund</span><b data-show="fund">${fundName}</b>${icon('down')}
           <select name="fund" aria-label="Fund">${sections.map((sec) => html`<optgroup label="${sec || 'Funds'}">${cfg.funds.filter((f) => f.section === sec).map((f) => html`<option value="${f.id}" ${f.id === state.fund ? 'selected' : ''}>${f.name}</option>`)}</optgroup>`)}</select></label>
@@ -77,6 +79,13 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     // The box grows with the number so the $ stays right beside it.
     const fit = () => { input.style.width = `${Math.max(1, input.value.length) + 0.4}ch`; };
     input.oninput = () => { state.amount = input.value.replace(/[^\d.,]/g, ''); fit(); refresh(); };
+    el.querySelector('.give-quick').onclick = (e) => {
+      const b = e.target.closest('[data-preset]');
+      if (!b) return;
+      input.value = state.amount = b.dataset.preset;
+      fit();
+      refresh();
+    };
     fit();
   }
   // Update the totals without redrawing (keeps the keyboard up while typing).
@@ -84,6 +93,7 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     const go = el.querySelector('.give-go');
     go.disabled = total().a < 100;
     go.textContent = goText();
+    el.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', total().a === Number(b.dataset.preset) * 100));
     el.querySelector('[data-cover]').textContent = coverText();
     el.querySelector('[data-show=fund]').textContent = cfg.funds.find((f) => f.id === state.fund)?.name || '';
     el.querySelector('[data-show=every]').textContent = everyLabel(state.every, cfg);

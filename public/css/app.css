@@ -738,6 +738,10 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .give-amount span { color: var(--muted); }
 .give-amount input { width: 1.4ch; min-width: 1.4ch; max-width: 10ch; font: inherit; font-variant-numeric: tabular-nums; border: 0; border-bottom: 2px solid var(--line); border-radius: 0; background: none; text-align: center; padding: 0; }
 .give-amount input:focus { outline: none; border-bottom-color: var(--accent); }
+.give-quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: -4px; }
+.give-quick button { border: 1px solid var(--line); background: none; color: var(--text-2); font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; padding: 8px 0; border-radius: 999px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.give-quick button:hover { border-color: var(--accent); color: var(--accent-text); }
+.give-quick button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 .give-list { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .give-pick { position: relative; display: flex; align-items: center; gap: 8px; padding: 14px 16px; min-height: 54px; cursor: pointer; margin: 0; }
 .give-pick + .give-pick { border-top: 1px solid var(--line); }
