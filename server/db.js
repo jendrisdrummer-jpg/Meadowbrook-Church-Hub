@@ -391,6 +391,23 @@ const MIGRATIONS = [
   );
   ALTER TABLE push_subscriptions ADD COLUMN ui TEXT NOT NULL DEFAULT 'hub';
   `,
+  // 10: email sign-in. Passwords (scrypt), the one-time codes emailed to prove an address, and
+  // people who created their own account in the app (for staff to welcome).
+  `
+  ALTER TABLE users ADD COLUMN password_hash TEXT;
+  CREATE TABLE login_codes (
+    id INTEGER PRIMARY KEY,
+    email TEXT NOT NULL COLLATE NOCASE,
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX login_codes_email ON login_codes (email, created_at);
+  ALTER TABLE people ADD COLUMN signed_up_at TEXT;        -- made their own account in the app
+  ALTER TABLE people ADD COLUMN welcomed_at TEXT;         -- staff followed up on that
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

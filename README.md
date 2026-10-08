@@ -195,6 +195,30 @@ MB_ADMIN_EMAILS=you@meadowbrook.church
 it the app is at `PUBLIC_URL/app/`). Point both names at the same server: the address someone
 visits decides what they see. Never set `MB_DEV_LOGIN` on the live server.
 
+### Email (sign-in codes and passwords)
+
+People who aren't using Google sign in with their email: the first time (or after forgetting
+their password) the hub emails them a 6-digit code, then they choose a password. Everyone in
+People with an email can do this and gets a volunteer account automatically; with **Who can
+sign in → Anyone**, people new to the church can create an account in the app and are added to
+People (listed under **Connect cards → App sign-ups** for staff to welcome).
+
+To send those emails from the church's Google Workspace (free, about 2,000 a day):
+1. Sign in to Google as the sending account (for example `web@mbclife.church`) and turn on
+   **2-Step Verification** (Google Account → Security).
+2. Still under Security, open **App passwords**, create one named "Church Hub", and copy the
+   16-letter password.
+3. Add these settings on the server, then redeploy:
+   ```
+   MB_SMTP_USER=web@mbclife.church
+   MB_SMTP_PASS=the 16-letter app password
+   MB_MAIL_FROM=Meadowbrook Church
+   ```
+   (Other email providers work too: also set `MB_SMTP_HOST` and `MB_SMTP_PORT`, using port 465.)
+
+If your Workspace admin has turned off app passwords, allow them for that account in the Google
+Admin console (Security → Authentication → 2-Step Verification).
+
 ### 3. Run it
 
 The repo includes a `Dockerfile`. Any host that runs Docker with a **persistent disk** mounted at

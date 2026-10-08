@@ -9,6 +9,7 @@ import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
 import http from 'node:http';
 import { sendReminders } from '../server/notify.js';
+import { outbox } from '../server/mail.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
 
@@ -463,6 +464,62 @@ test('sign-in returns to where it started, on this site only', async () => {
   assert.equal((await fetch(`${base}/app/`)).status, 200);
   const man = await (await fetch(`${base}/app/manifest.webmanifest`)).json();
   assert.equal(man.scope, '/app/');
+});
+
+test('email sign-in: codes, passwords, new people from the app, and deleting accounts', async () => {
+  const auth = async (path, body, cookie) => {
+    const res = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+    return { status: res.status, data: await res.json(), cookie: res.headers.getSetCookie().find((c) => c.startsWith('mb_session='))?.split(';')[0] };
+  };
+  const lastCode = (to) => outbox.filter((m) => m.to === to).at(-1).subject.match(/^(\d{6})/)[1];
+
+  // Someone new to the church creates an account from the app.
+  assert.equal((await auth('/auth/code', { email: 'not-an-email' })).status, 400);
+  assert.equal((await auth('/auth/code', { email: 'newbie@example.com' })).status, 200);
+  const code = lastCode('newbie@example.com');
+  assert.equal((await auth('/auth/code/verify', { email: 'newbie@example.com', code: '000000' })).status, 400);
+  let r = await auth('/auth/code/verify', { email: 'newbie@example.com', code });
+  assert.equal(r.data.need_name, true);
+  r = await auth('/auth/code/verify', { email: 'newbie@example.com', code, first_name: 'Nora', last_name: 'Newbie' });
+  assert.equal(r.data.need_password, true);
+  r = await auth('/auth/code/verify', { email: 'newbie@example.com', code, first_name: 'Nora', last_name: 'Newbie', password: 'short' });
+  assert.equal(r.status, 400);
+  r = await auth('/auth/code/verify', { email: 'newbie@example.com', code, first_name: 'Nora', last_name: 'Newbie', password: 'correct horse 1' });
+  assert.equal(r.status, 200);
+  assert.ok(r.cookie);
+  // The code can't be used twice.
+  assert.equal((await auth('/auth/code/verify', { email: 'newbie@example.com', code, password: 'another pass 1' })).status, 400);
+  const me = await fetch(base + '/api/me', { headers: { cookie: r.cookie } }).then((x) => x.json());
+  assert.equal(me.role, 'volunteer');
+  const nora = db.prepare("SELECT * FROM people WHERE email = 'newbie@example.com'").get();
+  assert.ok(nora.signed_up_at);
+  assert.ok((await api('admin', 'GET', '/signups')).data.some((p) => p.id === nora.id));
+  await api('admin', 'PATCH', `/signups/${nora.id}`, { welcomed: true });
+  assert.ok(!(await api('admin', 'GET', '/signups')).data.some((p) => p.id === nora.id));
+
+  // Next time: email and password.
+  assert.equal((await auth('/auth/password', { email: 'newbie@example.com', password: 'wrong password' })).status, 401);
+  assert.equal((await auth('/auth/password', { email: 'NEWBIE@example.com', password: 'correct horse 1' })).status, 200);
+
+  // Someone already in People gets linked, not duplicated.
+  const before = db.prepare('SELECT COUNT(*) n FROM people').get().n;
+  await auth('/auth/code', { email: 'sarah@example.com' });
+  r = await auth('/auth/code/verify', { email: 'sarah@example.com', code: lastCode('sarah@example.com'), password: 'sarahs password' });
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM people').get().n, before);
+  const sarahUser = db.prepare("SELECT * FROM users WHERE email = 'sarah@example.com'").get();
+  assert.equal(sarahUser.person_id, db.prepare("SELECT id FROM people WHERE email = 'sarah@example.com'").get().id);
+
+  // The accounts list shows extra access only (search finds anyone); admins can delete accounts.
+  const list = (await api('admin', 'GET', '/users')).data;
+  assert.ok(list.users.every((u) => u.role !== 'volunteer' || !u.active));
+  assert.ok((await api('admin', 'GET', '/users?q=newbie')).data.users.some((u) => u.email === 'newbie@example.com'));
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  assert.equal((await api('admin', 'DELETE', `/users/${adminId}`)).status, 400);
+  assert.equal((await api('vol', 'DELETE', `/users/${sarahUser.id}`)).status, 403);
+  assert.equal((await api('admin', 'DELETE', `/users/${sarahUser.id}`)).status, 200);
+  assert.ok(!db.prepare('SELECT 1 FROM users WHERE id = ?').get(sarahUser.id));
+  assert.ok(db.prepare("SELECT 1 FROM people WHERE email = 'sarah@example.com'").get());
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

@@ -8,6 +8,8 @@
 // A user's campus_ids limits them to some campuses; NULL means every campus.
 import crypto from 'node:crypto';
 import { getSetting } from './db.js';
+import { notify } from './notify.js';
+import { sendMail, canSendMail } from './mail.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -109,8 +111,11 @@ export function requireAppHeader(req, res, next) {
   res.status(403).json({ error: 'Missing app header.' });
 }
 
-// Finds the user for a verified email, creating one when the church allows it.
-export function userForEmail(db, email) {
+// Finds the account for a verified email, creating one when the church allows it:
+// - anyone in People with that email gets a volunteer account the first time they sign in;
+// - someone not in People yet (when sign-ups are open) is added to People, flagged as new from
+//   the app, if we know their name (Google tells us; the email sign-up form asks).
+export function userForEmail(db, email, profile = {}) {
   email = String(email).trim().toLowerCase();
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (existing) return existing.active ? existing : null;
@@ -119,7 +124,7 @@ export function userForEmail(db, email) {
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
   const domain = getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || '');
   const policy = getSetting(db, 'sign_in_policy', 'anyone');
-  const person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
+  let person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
@@ -130,8 +135,53 @@ export function userForEmail(db, email) {
   else if (canJoin(policy, { inDomain, inDirectory: Boolean(person) })) role = 'volunteer';
   if (!role) return null;
 
+  const first = String(profile.first_name || '').trim().slice(0, 60);
+  if (!person && role === 'volunteer' && !first) return { needsName: true };
+  if (!person && first) {
+    const info = db.prepare("INSERT INTO people (first_name, last_name, email, status, signed_up_at) VALUES (?, ?, ?, 'guest', datetime('now'))")
+      .run(first, String(profile.last_name || '').trim().slice(0, 60), email);
+    person = { id: Number(info.lastInsertRowid) };
+    const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('staff', 'admin')").all().map((u) => u.id);
+    notify(db, staff, {
+      kind: 'connect',
+      title: `New app sign-up: ${first} ${String(profile.last_name || '').trim()}`.trim(),
+      body: `${email} created an account and was added to People. Say hello!`,
+      url: '/#/connect?tab=signups',
+      app_url: `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}/#/connect?tab=signups`,
+    });
+  }
+
   const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, person?.id ?? null);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+}
+
+// ---------------------------------------------------------------- passwords and email codes
+export function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(pw), salt, 32, { N: 16384, r: 8, p: 1 });
+  return `scrypt$16384$8$1$${salt.toString('base64url')}$${hash.toString('base64url')}`;
+}
+
+export function checkPassword(pw, stored) {
+  const [kind, N, r, p, salt, hash] = String(stored || '').split('$');
+  if (kind !== 'scrypt') return false;
+  const want = Buffer.from(hash, 'base64url');
+  const got = crypto.scryptSync(String(pw), Buffer.from(salt, 'base64url'), want.length, { N: Number(N), r: Number(r), p: Number(p) });
+  return crypto.timingSafeEqual(want, got);
+}
+
+const codeHash = (email, code) => crypto.createHash('sha256').update(`${email.toLowerCase()}:${code}`).digest('hex');
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
+
+// In-memory limits per address/IP; enough to stop guessing and email flooding on one server.
+const hits = new Map();
+function limited(key, max, windowMs) {
+  const now = Date.now();
+  const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  list.push(now);
+  hits.set(key, list);
+  if (hits.size > 10000) hits.clear();
+  return list.length > max;
 }
 
 // Who may create their own (volunteer) account just by signing in. Everyone else needs an admin
@@ -163,6 +213,8 @@ export function authRoutes(app, db) {
   app.get('/auth/options', (_req, res) => {
     res.json({
       google: Boolean(google().id && google().secret),
+      email: canSendMail(),
+      signups: getSetting(db, 'sign_in_policy', 'anyone') === 'anyone',
       dev: devLogin,
       churchName: getSetting(db, 'church_name', 'Meadowbrook Church'),
       brandColor: getSetting(db, 'brand_color', '#135fd1'),
@@ -215,8 +267,8 @@ export function authRoutes(app, db) {
       // without checking the signature (Google's OpenID Connect guidance).
       const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());
       if (claims.aud !== g.id || !claims.email_verified) return fail('Google could not verify that email address.');
-      const user = userForEmail(db, claims.email);
-      if (!user) {
+      const user = userForEmail(db, claims.email, { first_name: claims.given_name || claims.name || claims.email.split('@')[0], last_name: claims.family_name || '' });
+      if (!user || user.needsName) {
         return fail(g.domain && g.domainOnly
           ? `Please sign in with your @${g.domain} account.`
           : 'Your account isn’t set up yet. Ask a church admin to add you.');
@@ -232,12 +284,82 @@ export function authRoutes(app, db) {
   // Local development and demos only: sign in as any email without Google.
   if (devLogin) {
     app.post('/auth/dev', (req, res) => {
-      const user = userForEmail(db, req.body?.email || '');
-      if (!user) return res.status(403).json({ error: 'No account for that email.' });
+      const email = String(req.body?.email || '');
+      const user = userForEmail(db, email, { first_name: email.split('@')[0] });
+      if (!user || user.needsName) return res.status(403).json({ error: 'No account for that email.' });
       startSession(db, req, res, user.id);
       res.json({ ok: true });
     });
   }
+
+  // ---------------------------------------------------------------- email sign-in
+  // Sign in with email and password.
+  app.post('/auth/password', (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (limited(`pw:${email}`, 8, 15 * 60e3) || limited(`pwip:${req.ip}`, 40, 15 * 60e3)) {
+      return res.status(429).json({ error: 'Too many tries. Wait a few minutes, or use “Email me a code”.' });
+    }
+    const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
+    if (!user?.password_hash || !checkPassword(req.body?.password || '', user.password_hash)) {
+      return res.status(401).json({ error: 'That email and password don’t match. First time here? Use “Email me a code”.' });
+    }
+    startSession(db, req, res, user.id);
+    res.json({ ok: true });
+  });
+
+  // Emails a 6-digit code to prove the address belongs to them: for signing in the first time,
+  // a forgotten password, or creating an account.
+  app.post('/auth/code', async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!validEmail(email)) return res.status(400).json({ error: 'Enter your email address.' });
+    if (!canSendMail()) return res.status(503).json({ error: 'Email sign-in isn’t set up yet. Use Google, or ask the church office.' });
+    if (limited(`code:${email}`, 5, 60 * 60e3) || limited(`codeip:${req.ip}`, 20, 60 * 60e3)) {
+      return res.status(429).json({ error: 'We’ve sent several codes already. Check your inbox (and spam), or try again in an hour.' });
+    }
+    const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+    db.prepare('UPDATE login_codes SET used_at = datetime(\'now\') WHERE email = ? AND used_at IS NULL').run(email);
+    db.prepare("INSERT INTO login_codes (email, code_hash, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))").run(email, codeHash(email, code));
+    const church = getSetting(db, 'church_name', 'Church');
+    try {
+      await sendMail({
+        to: email,
+        subject: `${code} is your ${church} sign-in code`,
+        text: `Your code is ${code}\n\nEnter it to sign in or create your ${church} account. It works for 15 minutes.\n\nDidn’t ask for this? You can ignore this email.`,
+        html: `<div style="font-family:system-ui,sans-serif;max-width:420px"><p>Your ${church} sign-in code:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:12px 0">${code}</p><p>Enter it to sign in or create your account. It works for 15 minutes.</p><p style="color:#777;font-size:13px">Didn’t ask for this? You can ignore this email.</p></div>`,
+      });
+    } catch (e) {
+      console.error('Sending the sign-in code failed:', e.message);
+      return res.status(502).json({ error: 'We couldn’t send the email right now. Please try again in a minute.' });
+    }
+    res.json({ ok: true });
+  });
+
+  // Checks the code, then signs them in. Asks for a name (new to the church) or a password (first
+  // time) when it still needs one; the code stays valid until it succeeds.
+  app.post('/auth/code/verify', (req, res) => {
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const row = db.prepare("SELECT * FROM login_codes WHERE email = ? AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(email);
+    if (!row || row.attempts >= 5) return res.status(400).json({ error: 'That code has expired. Send a new one.' });
+    const given = String(b.code || '').replace(/\D/g, '');
+    const ok = given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
+    if (!ok) {
+      db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+      return res.status(400).json({ error: row.attempts >= 4 ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right. Check the email and try again.' });
+    }
+    const user = userForEmail(db, email, { first_name: b.first_name, last_name: b.last_name });
+    if (user?.needsName) return res.status(400).json({ need_name: true, error: 'Welcome! Tell us your name to create your account.' });
+    if (!user) return res.status(403).json({ error: 'This email can’t create an account here. Ask the church office to add you.' });
+    const password = String(b.password || '');
+    if (password && password.length < 8) return res.status(400).json({ need_password: true, error: 'Use at least 8 characters for your password.' });
+    if (!password && !user.password_hash) return res.status(400).json({ need_password: true, error: 'Choose a password for next time.' });
+    if (password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), user.id);
+    db.prepare("UPDATE login_codes SET used_at = datetime('now') WHERE id = ?").run(row.id);
+    // A new password signs out everywhere else.
+    if (password) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+    startSession(db, req, res, user.id);
+    res.json({ ok: true });
+  });
 
   app.post('/auth/logout', (req, res) => {
     endSession(db, req, res);
