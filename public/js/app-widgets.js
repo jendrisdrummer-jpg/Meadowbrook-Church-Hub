@@ -19,6 +19,7 @@ export const WIDGETS = {
   button: { label: 'Button', hint: 'A tile that opens a tab, page or website.', sizes: ['S', 'M', 'T', 'W'], size: 'M', style: 'soft', fields: ['label', 'icon', 'link'], image: true },
   image: { label: 'Picture', hint: 'A photo or graphic, for an event or series. Can open a link.', sizes: ['M', 'T', 'W', 'L'], size: 'L', style: 'card', fields: ['title', 'link'], image: true },
   welcome: { label: 'Welcome banner', hint: 'A big greeting at the top.', sizes: ['W', 'L', 'F'], size: 'F', style: 'accent', fields: ['title', 'text'], image: true },
+  countdown: { label: 'Next service countdown', hint: 'Counts down to the next service from your repeating services, then says “We’re live” and opens Watch while it’s on.', sizes: ['T', 'W', 'F'], size: 'W', style: 'accent', fields: ['title', 'campus'] },
   events: { label: 'Upcoming events', hint: 'The next events from Events in the hub. Square shows the next one with its picture.', sizes: ['T', 'W', 'L', 'F'], size: 'F', style: 'card', fields: ['title'] },
   serving: { label: 'My serving', hint: 'Signed-in volunteers see when they serve next, with Accept.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },
   tasks: { label: 'My tasks', hint: 'Open tasks for whoever is signed in. Hidden for guests.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },

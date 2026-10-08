@@ -7,7 +7,7 @@ import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentS
 import { openChat } from '../chat.js';
 import { taskList, taskPage } from '../tasks.js';
 import { giveForm, giveThanks, myGiving } from '../give.js';
-import { homeGrid } from './widgets.js';
+import { homeGrid, tickCountdowns } from './widgets.js';
 import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
@@ -133,6 +133,7 @@ async function home(el, tab) {
     mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
+  tickCountdowns(el);
   draw();
   homeShown = () => (el.isConnected ? draw() : route());
   el.onclick = async (e) => {

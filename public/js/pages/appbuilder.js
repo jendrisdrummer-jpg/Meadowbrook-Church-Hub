@@ -16,7 +16,7 @@ const TAB_INFO = {
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],
 };
-const WIDGET_ICON = { events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', text: 'edit' };
+const WIDGET_ICON = { countdown: 'clock', events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', text: 'edit' };
 const ICONS = WIDGET_ICONS;
 const MAX_TABS = 5;
 
@@ -38,7 +38,8 @@ function widgetRow(w, i, tabTargets) {
         <label class="btn small">${icon('upload')} ${w.image ? 'Replace' : 'Upload'}<input type="file" accept="image/*" data-image="${i}" hidden></label></div></div>` : ''}
       ${d.fields.includes('label') ? html`<label class="field">Button text<input type="text" data-k="${k('label')}" value="${w.label || ''}" maxlength="30"></label>` : ''}
       ${d.fields.includes('icon') ? html`<div class="field"><span>Icon</span><div class="w-icons">${ICONS.map((x) => html`<button type="button" class="${w.icon === x ? 'on' : ''}" data-icon="${i}:${x}" title="${x}">${icon(x)}</button>`)}</div></div>` : ''}
-      ${d.fields.includes('title') ? html`<label class="field">${w.type === 'image' ? 'Caption (optional)' : 'Heading'}<input type="text" data-k="${k('title')}" value="${w.title || ''}" maxlength="120"></label>` : ''}
+      ${d.fields.includes('campus') && CAMPUSES.length > 1 ? html`<label class="field">Campus<select data-campus="${i}">${options([{ value: '', label: 'Any campus (the soonest)' }, ...CAMPUSES.map((c) => ({ value: c.id, label: c.name }))], w.campus_id ?? '')}</select></label>` : ''}
+      ${d.fields.includes('title') ? html`<label class="field">${w.type === 'image' ? 'Caption (optional)' : w.type === 'countdown' ? 'Heading (optional)' : 'Heading'}<input type="text" data-k="${k('title')}" value="${w.title || ''}" maxlength="120"></label>` : ''}
       ${d.fields.includes('text') ? html`<label class="field">Text<textarea data-k="${k('text')}" rows="3">${w.text || ''}</textarea></label>` : ''}
       ${d.fields.includes('link') ? html`<label class="field">Opens<select data-link="${i}">${options([...(w.type === 'image' ? [{ value: '', label: 'Nothing (just a picture)' }] : []), ...tabTargets, { value: 'giving', label: 'My giving' }, { value: '__url', label: 'A website…' }], linkValue)}</select></label>
         ${w.url !== undefined ? html`<input type="url" data-k="${k('url')}" value="${w.url}" placeholder="https://…" aria-label="Website">` : ''}` : ''}
@@ -48,6 +49,7 @@ function widgetRow(w, i, tabTargets) {
     </div>` : ''}</div>`;
 }
 const SELECTED = { id: null, count: 0 };
+let CAMPUSES = [];
 
 // A tiny drawing of a size on the four-wide grid.
 function sizeIcon(sz) {
@@ -66,7 +68,8 @@ function pickFile() {
 }
 
 export default async function appBuilder(el) {
-  const [{ config }, settings] = await Promise.all([get('/app/config'), get('/settings')]);
+  const [{ config, campuses }, settings] = await Promise.all([get('/app/config'), get('/settings')]);
+  CAMPUSES = campuses || [];
   let cfg = structuredClone(config);
   let dirty = false;
   let selected = null; // the home screen widget being edited
@@ -151,6 +154,10 @@ export default async function appBuilder(el) {
     if (t.dataset.k && t.type === 'checkbox') {
       if (t.checked && cfg.tabs.filter((x) => x.on).length >= MAX_TABS) { t.checked = false; return toast(`Only ${MAX_TABS} tabs fit along the bottom of a phone. Turn one off first.`, 'bad'); }
       setPath(t.dataset.k, t.checked);
+      return changed(true);
+    }
+    if (t.dataset.campus !== undefined) {
+      cfg.home[Number(t.dataset.campus)].campus_id = t.value ? Number(t.value) : null;
       return changed(true);
     }
     if (t.dataset.link !== undefined) {

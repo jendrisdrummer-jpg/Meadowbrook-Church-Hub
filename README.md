@@ -145,7 +145,8 @@ campus buttons, where anyone signed in can open any upcoming service to see its 
 and who's serving (only requests that were sent, without contact details).
 - **App Builder** (Church app → App Builder, staff): choose the tabs along the bottom (up to 5,
   including More), their names and icons, and build the home screen from **widgets** on a grid
-  four squares wide: buttons, pictures (upload a graphic for an event or series), welcome banner,
+  four squares wide: buttons, pictures (upload a graphic for an event or series), a next-service countdown (it says
+  “Live now” and opens Watch during the service), welcome banner,
   my serving, my tasks, service times, livestream and text. Right on the phone preview, drag a
   widget to move it and drag its corner to resize it (Small, Medium, Square, Wide, Large or Full,
   depending on the widget); tap one to change its words, icon, link, picture and look (white,
