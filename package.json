@@ -1,0 +1,21 @@
+{
+  "name": "meadowbrook-church-hub",
+  "version": "0.1.0",
+  "description": "Meadowbrook Church's all-in-one ministry system: people, campuses, service planning, volunteers, check-in and more.",
+  "private": true,
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "MB_DEV_LOGIN=1 node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "demo": "MB_DEV_LOGIN=1 MB_DB=data/demo.db node --disable-warning=ExperimentalWarning scripts/seed-demo.js && MB_DEV_LOGIN=1 MB_DB=data/demo.db node --disable-warning=ExperimentalWarning server/index.js",
+    "backup": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/backup.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
