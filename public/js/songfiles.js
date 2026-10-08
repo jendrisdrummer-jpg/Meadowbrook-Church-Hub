@@ -1,13 +1,15 @@
 // Song files in the dashboard and the app: little chips on each song in a plan (charts and lyrics
 // open; audio plays right there), and the list where leaders add and organise them.
-import { api, patch, del, html, mount, icon, options, toast, fail, confirm } from './lib.js';
+import { api, patch, del, html, mount, icon, options, toast, fail, confirm, dialog } from './lib.js';
 
 export const KIND = { chart: 'Chords', lyrics: 'Lyrics', sheet: 'Sheet music', audio: 'Audio', other: 'File' };
 const KIND_ICON = { chart: 'music', lyrics: 'file', sheet: 'book', audio: 'play', other: 'file' };
 const sizeLabel = (n) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 
-// Files for the key being played come first; files for other keys say which key they're in.
+// Charts, lyrics and sheet music for the key being played first; files for other keys say which
+// key they're in. Audio stays on the song itself (see songSheet), not in the plan.
 export function fileChips(files = [], key = '') {
+  files = files.filter((f) => f.kind !== 'audio');
   if (!files.length) return '';
   const k = String(key || '').trim().toLowerCase();
   const rank = (f) => (!f.song_key ? 1 : f.song_key.toLowerCase() === k ? 0 : 2);
@@ -20,38 +22,55 @@ export function fileChips(files = [], key = '') {
   })}</span>`;
 }
 
-// Audio chips open a player under their row; tapping again (or another) closes it.
-export function wirePlayers(root) {
+// A song's name in a plan opens the song: its key, author and every file, with audio to listen to.
+export function songTitle(item) {
+  const name = item.title || item.song_title || 'Song';
+  return item.files?.length ? html`<button type="button" class="song-link" data-song-sheet="${item.id}" title="Open this song">${name}</button>` : html`<b>${name}</b>`;
+}
+
+export function songSheet(item) {
+  const files = item.files || [];
+  const key = String(item.song_key || '').toLowerCase();
+  const rank = (f) => (f.kind === 'audio' ? 3 : !f.song_key ? 1 : f.song_key.toLowerCase() === key ? 0 : 2);
+  return dialog({
+    title: item.song_title || item.title || 'Song',
+    submit: false, cancel: 'Close',
+    body: html`<p class="muted" style="margin:0 0 12px">${[item.song_author, item.song_key ? `Key of ${item.song_key}` : ''].filter(Boolean).join(' · ')}</p>
+      <div class="sf-sheet">${[...files].sort((a, b) => rank(a) - rank(b)).map((f) => (f.kind === 'audio'
+        ? html`<div class="sf-sheet-row audio"><span class="sf-ic">${icon('play')}</span><span class="grow"><b>${f.name}</b><audio controls preload="none" src="/api/song-files/${f.id}"></audio></span></div>`
+        : html`<a class="sf-sheet-row" href="/api/song-files/${f.id}" target="_blank" rel="noopener"><span class="sf-ic">${icon(KIND_ICON[f.kind] || 'file')}</span>
+            <span class="grow"><b>${f.name}</b><br><span class="muted small">${KIND[f.kind] || 'File'}${f.song_key ? ` · ${f.song_key}` : ''}</span></span>${icon('external', 'ic small-ic')}</a>`))}</div>`,
+  });
+}
+
+// Opens the song when its name is tapped. items() returns the plan's current rows.
+export function wireSongSheets(root, items) {
   if (root.dataset.sfWired) return;
   root.dataset.sfWired = '1';
   root.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-play]');
+    const b = e.target.closest('[data-song-sheet]');
     if (!b) return;
     e.preventDefault();
     e.stopPropagation();
-    const row = b.closest('[data-item], .m-plan-row, li, tr') || b.parentElement;
-    const open = root.querySelector('.sf-player');
-    const same = open?.dataset.id === b.dataset.play;
-    open?.remove();
-    root.querySelectorAll('[data-play].on').forEach((x) => x.classList.remove('on'));
-    if (same) return;
-    b.classList.add('on');
-    row.insertAdjacentHTML('afterend', `<div class="sf-player" data-id="${Number(b.dataset.play)}"><span class="sf-name"></span><audio controls autoplay preload="auto" src="/api/song-files/${Number(b.dataset.play)}"></audio></div>`);
-    row.nextElementSibling.querySelector('.sf-name').textContent = b.dataset.name;
-  });
+    const item = items().find((i) => String(i.id) === b.dataset.songSheet);
+    if (item) songSheet(item);
+  }, true);
 }
 
 // ---------------------------------------------------------------- managing a song's files
 export async function songFilesEditor(el, song, files, onChange = () => {}) {
+  let listening = null;
   const draw = () => mount(el, html`<div class="sf-list">
       ${files.map((f) => html`<div class="sf-row" data-f="${f.id}">
         <span class="sf-ic">${icon(KIND_ICON[f.kind] || 'file')}</span>
         <input type="text" value="${f.name}" data-fk="name" aria-label="Name">
         <select data-fk="kind" aria-label="What it is">${options(Object.entries(KIND).map(([value, label]) => ({ value, label })), f.kind)}</select>
         <input type="text" value="${f.song_key}" data-fk="song_key" placeholder="Any key" aria-label="Key" class="sf-keyin">
-        <a class="btn small ghost" href="/api/song-files/${f.id}" target="_blank" rel="noopener" title="Open">${icon('external')}</a>
+        ${f.kind === 'audio' ? html`<button type="button" class="btn small ghost" data-listen="${f.id}" title="Listen">${icon('play')}</button>`
+          : html`<a class="btn small ghost" href="/api/song-files/${f.id}" target="_blank" rel="noopener" title="Open">${icon('external')}</a>`}
         <button type="button" class="icon-btn danger" data-fdel="${f.id}" title="Remove">${icon('trash')}</button>
-        <span class="muted small sf-size">${sizeLabel(f.size)}</span></div>`)}
+        <span class="muted small sf-size">${sizeLabel(f.size)}</span>
+        ${f.kind === 'audio' && listening === f.id ? html`<audio class="sf-audio" controls autoplay src="/api/song-files/${f.id}"></audio>` : ''}</div>`)}
       ${files.length ? '' : html`<p class="muted small" style="margin:0">No files yet. Add chord charts, lyrics or sheet music (PDF, picture or text) and audio (MP3, M4A, WAV).</p>`}
     </div>
     <label class="sf-drop" data-drop>${icon('upload')} <span><b>Add files</b> or drop them here</span>
@@ -87,6 +106,8 @@ export async function songFilesEditor(el, song, files, onChange = () => {}) {
     }
   };
   el.onclick = async (e) => {
+    const l = e.target.closest('[data-listen]');
+    if (l) { e.preventDefault(); listening = listening === Number(l.dataset.listen) ? null : Number(l.dataset.listen); return draw(); }
     const b = e.target.closest('[data-fdel]');
     if (!b) return;
     e.preventDefault();

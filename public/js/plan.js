@@ -2,7 +2,7 @@
 // who's leading). Rows drag to reorder; edit and delete appear on the right of each row; a row at
 // the bottom adds items inline, with a searchable song picker.
 import { get, post, patch, put, del, html, raw, mount, icon, displayName, dialog, formData, options, toast, toastAction, fail, fmtDate, fmtTime, fmtLength, parseLength, addDays } from './lib.js';
-import { fileChips, wirePlayers } from './songfiles.js';
+import { fileChips, songTitle, wireSongSheets } from './songfiles.js';
 
 export const TYPES = ['Announcement', 'Song', 'Offering', 'Prayer', 'Message', 'Video', 'Other'];
 
@@ -65,7 +65,7 @@ export function drawPlan(panel, s, opts = {}) {
             <span class="num">${i.length_sec ? minutesLabel(i.length_sec) : ''}</span>
             <span class="num nowrap muted">${i.length_sec ? `${clock(times[n].from)} – ${clock(times[n].to)}` : clock(times[n].from)}</span>
             <span class="type">${i.category || (i.kind === 'song' ? 'Song' : '')}</span>
-            <span class="name"><b>${i.title || 'Item'}</b>${i.placeholder ? html` <span class="pill warn">${mode === 'template' ? 'Fill in each week' : 'Needs filling'}</span>` : ''}${i.kind === 'song' && i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
+            <span class="name">${i.kind === 'song' ? songTitle(i) : html`<b>${i.title || 'Item'}</b>`}${i.placeholder ? html` <span class="pill warn">${mode === 'template' ? 'Fill in each week' : 'Needs filling'}</span>` : ''}${i.kind === 'song' && i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
               ${i.kind === 'song' && i.song_author ? html`<span class="muted small"> · ${i.song_author}</span>` : ''}
               ${i.files?.length ? html`<div>${fileChips(i.files, i.song_key)}</div>` : ''}
               ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</span>
@@ -88,7 +88,7 @@ export function drawPlan(panel, s, opts = {}) {
   }
 
   const save = (list) => { s.items = list; drawPlan(panel, s, opts); };
-  wirePlayers(panel);
+  wireSongSheets(panel, () => s.items);
 
   panel.onclick = async (e) => {
     const b = e.target.closest('button');

@@ -248,9 +248,9 @@ and who's serving (only requests that were sent, without contact details).
 
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used. Add
 **chord charts, lyrics and sheet music** (PDF, picture or text) and **audio** (MP3, M4A, WAV) to a
-song; they show as chips on that song in every service plan, in the hub and the app. Charts and
-lyrics open, and audio plays right in the plan. Name a file for its key ("Way Maker - G.pdf") and
-it's marked for G; files for the key being played come first.
+song. Charts and lyrics show as chips on that song in every service plan, in the hub and the app. Name a file for its key ("Way Maker - G.pdf") and
+it's marked for G; files for the key being played come first. Audio stays with the song: tap a
+song's name in a plan (or open it on the Songs page) to listen.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
 
