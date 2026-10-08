@@ -7,6 +7,7 @@ import { getSetting, setSetting, tx } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, isDate, audit, localNow } from '../http.js';
 import { stripe, stripeConfigured, publishableKey, verifyWebhook, coverFee } from '../stripe.js';
 import { sendMail, canSendMail } from '../mail.js';
+import { hooks as eventHooks } from './events.js';
 
 export const EVERY = { week: { interval: 'week', interval_count: 1, label: 'every week' }, '2week': { interval: 'week', interval_count: 2, label: 'every 2 weeks' }, month: { interval: 'month', interval_count: 1, label: 'every month' } };
 const money = (c) => `$${(c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
@@ -398,6 +399,11 @@ export function stripeWebhook(db) {
   const handlers = {
     async 'checkout.session.completed'(s) {
       const m = s.metadata || {};
+      // Paying for an event isn't a gift: it goes to the event's sign-ups.
+      if (m.kind === 'event') {
+        if (s.payment_status === 'paid') await eventHooks.paid(Number(m.signup_id), s.payment_intent);
+        return;
+      }
       if (s.mode === 'subscription' && s.subscription) {
         const who = giver(m, s.customer_details?.email, s.customer_details?.name);
         db.prepare(`INSERT INTO recurring_gifts (person_id, name, email, fund_id, amount_cents, fee_cents, every, subscription_id, customer_id, status)
@@ -445,6 +451,7 @@ export function stripeWebhook(db) {
     },
     async 'charge.refunded'(ch) {
       if (!ch.refunded) return; // partly refunded: leave it for finance to adjust
+      if (ch.payment_intent) eventHooks.refunded(ch.payment_intent);
       db.prepare("UPDATE gifts SET status = 'refunded' WHERE stripe_ref IN (?, ?) OR stripe_pi = ?").run(ch.payment_intent || '-', ch.invoice || '-', ch.payment_intent || '-');
     },
   };

@@ -13,13 +13,14 @@ import { stripeConfigured } from '../stripe.js';
 import { WIDGETS, STYLES, ICONS, isHex, isAppImage, upgradeHome } from '../../public/js/app-widgets.js';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
-export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
+export const TAB_TYPES = ['home', 'serve', 'events', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
 export const BLOCK_TYPES = Object.keys(WIDGETS);
 
 export const DEFAULT_APP = {
   tabs: [
     { id: 'home', type: 'home', label: 'Home', icon: 'home', on: true },
     { id: 'serve', type: 'serve', label: 'Serve', icon: 'calendar', on: true },
+    { id: 'events', type: 'events', label: 'Events', icon: 'calendar', on: false },
     { id: 'watch', type: 'watch', label: 'Watch', icon: 'play', on: true },
     { id: 'give', type: 'give', label: 'Give', icon: 'heart', on: true },
     { id: 'connect', type: 'connect', label: 'Connect', icon: 'hand', on: false },

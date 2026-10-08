@@ -153,6 +153,14 @@ and who's serving (only requests that were sent, without contact details).
   your own **pages** (beliefs, next steps…) and **links** (events, sermons, sign-ups). A live phone
   preview shows every change before you save. Set the livestream (YouTube links play in the app)
   and giving links here.
+- **Events** (Planning → Events, staff): revivals, youth nights, potlucks… with a picture, place,
+  campus and description. Published events show on the app's **Events** calendar (a tab you turn on
+  in the App Builder, which also shows service times) and in an **Upcoming events** widget. Turn on
+  **sign-ups** to collect RSVPs: how many are coming, your own questions (short answer, pick one,
+  yes/no), a cap and a closing date. Set a **price per person** and people pay by card through your
+  Stripe account (event payments are kept apart from giving). Everyone gets a confirmation email;
+  the Sign-ups tab lists who's coming, exports a CSV, adds people who signed up by phone, and cancels
+  or refunds.
 - **Connect cards** (Church app → Connect cards): what guests send, with first-time visits,
   interests and prayer requests. Staff get a notification for each one. Add the guest to People
   (it checks for duplicates), link them to someone already there, and mark them followed up.

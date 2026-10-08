@@ -3,6 +3,7 @@
 import { html, raw, icon, fmtDate, fmtTime, DAYS } from '../lib.js';
 import { taskRow } from '../tasks.js';
 import { WIDGETS, SIZES, isHex } from '../app-widgets.js';
+import { whenText, badge } from './events.js';
 
 const clock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -42,6 +43,20 @@ export function widget(w, ctx) {
       return box(w, html`<small>${app.church_name}</small><h2>${w.title || 'Welcome'}</h2>${w.text && w.size !== 'W' ? html`<p>${w.text}</p>` : ''}`, { link: '' });
     case 'text':
       return box(w, html`${w.title ? html`<h2>${w.title}</h2>` : ''}${w.text ? html`<p>${w.text}</p>` : ''}`, { link: '' });
+    case 'events': {
+      const list = ctx.events || [];
+      const tab = `#/${tabFor('events')}`;
+      if (!list.length) return ctx.edit ? placeholder(w, 'Shows your next events once you add some') : null;
+      if (w.size !== 'F') {
+        const e = list[0];
+        const pic = e.image && !w.image ? { ...w, image: e.image } : w;
+        return box(pic, html`${!pic.image ? html`<span class="w-ic">${icon('calendar')}</span>` : ''}<span class="w-sub">${w.title || 'Coming up'}</span>
+          <b class="w-label">${e.title}</b><span class="w-sub">${whenText(e)}</span>`, { link: `#/events/${e.id}` });
+      }
+      return box(w, html`<div class="card-head"><h2>${w.title || 'Coming up'}</h2><a class="btn small ghost" href="${tab}">All</a></div>
+        <div class="ev-list">${list.slice(0, 3).map((e) => html`<a class="ev-row" href="#/events/${e.id}">${e.image ? html`<img src="${e.image}" alt="" class="ev-thumb">` : html`<span class="ev-date"><small>${fmtDate(e.starts_at.slice(0, 10), { month: 'short' })}</small><b>${Number(e.starts_at.slice(8, 10))}</b></span>`}
+          <span class="grow"><b>${e.title}</b><br><span class="w-sub">${whenText(e)}</span></span>${badge(e)}</a>`)}</div>`, { link: '' });
+    }
     case 'tasks': {
       if (!app.user) return ctx.edit ? placeholder(w, 'Shows to signed-in people') : null;
       const list = ctx.tasks || [];

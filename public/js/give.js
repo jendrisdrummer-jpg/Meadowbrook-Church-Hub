@@ -11,7 +11,7 @@ const EVERY_LABEL = { once: 'One time', week: 'Weekly', '2week': 'Every 2 weeks'
 const everyLabel = (k, cfg) => EVERY_LABEL[k] || cfg.every[k] || k;
 
 let stripeJs;
-function loadStripe(key) {
+export function loadStripe(key) {
   stripeJs ||= new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = 'https://js.stripe.com/v3/';
