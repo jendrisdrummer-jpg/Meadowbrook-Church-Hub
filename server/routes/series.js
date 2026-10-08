@@ -182,7 +182,12 @@ export default function seriesRoutes(db) {
     const from = isDate(req.query.from) ? req.query.from : today();
     const removed = tx(db, () => {
       db.prepare('UPDATE service_types SET ends_on = ? WHERE id = ?').run(addDays(from, -1), t.id);
-      return Number(db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').run(t.id, from).changes);
+      const n = Number(db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').run(t.id, from).changes);
+      // With nothing upcoming left, it leaves the list of repeating services. Past services stay.
+      if (!db.prepare('SELECT 1 FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').get(t.id, today())) {
+        db.prepare('UPDATE service_types SET archived = 1 WHERE id = ?').run(t.id);
+      }
+      return n;
     });
     audit(db, req, 'series.stop', `${t.name} from ${from}`);
     res.json({ removed });

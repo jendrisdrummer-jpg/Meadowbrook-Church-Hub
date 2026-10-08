@@ -188,3 +188,65 @@ export async function needsDialog(s) {
   });
   return ok;
 }
+
+// Edit or delete a whole repeating service from today on. Resolves to true when something changed.
+export async function seriesDialog(t) {
+  const templates = await get('/templates').catch(() => []);
+  const today = new Date().toLocaleDateString('en-CA');
+  let picker;
+  let outcome;
+  await dialog({
+    title: 'Edit repeating service', wide: true, submit: 'Save',
+    body: html`<div class="alert info small">${icon('calendar')} ${repeatLabel(t)}. Changes apply to upcoming services; past ones stay as they were.</div>
+    <div class="form">
+      <label class="field">Name<input type="text" name="name" value="${t.name}" required></label>
+      <label class="field">Title on each service (optional)<input type="text" name="title" value="${t.default_title}" placeholder="Sunday Morning"></label>
+      <label class="field">Starts<input type="time" name="start_time" value="${t.start_time}" required></label>
+      <label class="field">Length (minutes)<input type="number" name="duration_min" value="${t.duration_min}" min="5"></label>
+      <label class="field">Ends<input type="date" name="ends_on" value="${t.ends_on || ''}" min="${today}"><span class="muted small">Leave empty to keep going.</span></label>
+      <label class="field">Template<select name="template_id">${options(templates.map((x) => ({ value: x.id, label: x.name })), t.template_id, { blank: 'None' })}</select>
+        <span class="muted small">Upcoming services without a plan yet get it too.</span></label>
+    </div>
+    <p class="muted small">It always repeats on ${DAYS[t.day_of_week]}. To move it to another day, delete it and add a new repeating service.</p>
+    <h3 style="margin-top:16px">Positions needed</h3>
+    <p class="muted small">Saving a change here resets the positions on every upcoming service in this series.</p>
+    <div data-needs></div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete repeating service</button></div>`,
+    onOpen: async (d, close) => {
+      picker = await needsPicker(d.querySelector('[data-needs]'), t.campus_id, t.needs);
+      d.querySelector('[data-delete]').onclick = async () => {
+        if (await deleteSeries(t)) { outcome = true; close(); }
+      };
+    },
+    onSubmit: async (f) => {
+      const b = formData(f);
+      const body = { from_date: today, name: b.name, title: b.title, start_time: b.start_time, duration_min: b.duration_min, ends_on: b.ends_on || null, template_id: b.template_id || null };
+      const needs = picker.get();
+      const key = (list) => JSON.stringify([...list].map((n) => [n.position_id, n.count]).sort((x, y) => x[0] - y[0]));
+      if (key(needs) !== key(t.needs)) body.needs = needs;
+      if (b.ends_on && b.ends_on !== t.ends_on && !(await confirm('End this repeating service?', `Services after ${new Date(`${b.ends_on}T12:00`).toLocaleDateString()} will be removed, with their plans and schedules.`, 'End it'))) return false;
+      await patch(`/series/${t.id}`, body);
+      toast('Repeating service updated.');
+      outcome = true;
+    },
+  });
+  return outcome;
+}
+
+// Deletes a repeating service's upcoming services (past ones, with their attendance, stay).
+export async function deleteSeries(t) {
+  const today = new Date().toLocaleDateString('en-CA');
+  let ok = false;
+  await dialog({
+    title: 'Delete repeating service?', submit: 'Delete', danger: true,
+    body: html`<p><b>${t.default_title || t.name}</b> · ${repeatLabel(t)}</p>
+      <label class="field">Remove services from<input type="date" name="from" value="${today}" min="${today}" required></label>
+      <p class="muted small">Services from that date on are deleted, with their orders of service and schedules. Past services and their attendance stay.</p>`,
+    onSubmit: async (f) => {
+      const r = await del(`/series/${t.id}?from=${f.from.value}`);
+      toast(`Deleted ${r.removed} upcoming ${r.removed === 1 ? 'service' : 'services'}.`);
+      ok = true;
+    },
+  });
+  return ok;
+}

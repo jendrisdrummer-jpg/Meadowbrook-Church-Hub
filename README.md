@@ -75,7 +75,9 @@ either per campus or church-wide. Team leaders can schedule their own team.
 **Services**: a month calendar (or list) of every service at every campus. **New service**
 creates a one-off service or a **repeating** one (every week, every 2 weeks…) with the positions
 it needs, and the calendar fills itself in. When you change or delete a repeating service you
-choose **just this one** or **this and all following**. Each service has:
+choose **just this one** or **this and all following**. The pencil and trash buttons in the
+**Repeating services** list edit a whole series (time, length, title, end date, template, positions)
+or delete it from a date on; past services and their attendance stay. Each service has:
 - an **order of service**, laid out like Faith Teams: minutes, start–end time, type
   (Announcement, Song, Offering, Prayer, Message…), name with details, and who's leading. Add rows
   from the bar at the bottom; songs are found by typing a few letters, and new songs can be

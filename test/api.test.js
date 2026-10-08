@@ -158,6 +158,14 @@ test('repeating services: skip one, change the future, stop the series', async (
   const stop = await api('admin', 'DELETE', `/series/${created.data.id}?from=${addDays(start, 28)}`);
   assert.equal(stop.data.removed, 2);
   assert.equal((await list()).length, 1);
+  assert.ok((await api('admin', 'GET', '/series')).data.some((t) => t.id === created.data.id));
+
+  // Deleting it from today on removes every upcoming service and takes it off the list; past ones stay.
+  db.prepare("INSERT INTO services (campus_id, service_type_id, starts_at, duration_min) VALUES (1, ?, '2020-01-05T18:00', 60)").run(created.data.id);
+  await api('admin', 'DELETE', `/series/${created.data.id}?from=${new Date().toISOString().slice(0, 10)}`);
+  assert.equal((await list()).length, 0);
+  assert.ok(!(await api('admin', 'GET', '/series')).data.some((t) => t.id === created.data.id));
+  assert.ok(db.prepare("SELECT 1 FROM services WHERE service_type_id = ? AND starts_at = '2020-01-05T18:00'").get(created.data.id));
 });
 
 test('roll call marks people and families, and feeds follow-up lists', async () => {
