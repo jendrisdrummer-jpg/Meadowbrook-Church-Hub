@@ -498,3 +498,21 @@ table.sched { border-collapse: separate; border-spacing: 0; width: 100%; }
 .send-list { max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
 .send-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 9px 12px; }
 .send-row + .send-row { border-top: 1px solid var(--line); }
+
+/* ---------- team page: new position chip and add-someone box */
+.chip.new-pos { border-style: dashed; color: var(--accent-text); background: transparent; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.chip.new-pos .ic { width: 14px; height: 14px; }
+.chip.new-pos.editing { border-style: solid; border-color: var(--accent); background: var(--panel); padding: 2px 4px 2px 10px; cursor: text; }
+.chip.new-pos.editing input { border: 0; outline: 0; background: none; min-width: 190px; padding: 4px 0; min-height: 0; }
+.chip-ok { border: 0; background: var(--accent); color: #fff; border-radius: 999px; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; }
+.chip-ok .ic { width: 14px; height: 14px; }
+.new-pos-hint { align-self: center; }
+.add-member { position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.add-member-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.add-member-icon .ic { width: 16px; height: 16px; }
+.add-member input { padding-left: 34px; }
+.add-member .suggest { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgba(16, 24, 40, .14); padding: 4px; }
+.add-member .suggest button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 7px 8px; border-radius: 8px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.add-member .suggest button.on, .add-member .suggest button:hover { background: var(--accent-soft); }
+.add-member .suggest button:disabled { opacity: .5; cursor: default; }
+tr.just-added td { background: var(--accent-soft); transition: background 2s; }

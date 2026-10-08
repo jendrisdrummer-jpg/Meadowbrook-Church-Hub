@@ -84,6 +84,8 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   const team = await api('admin', 'POST', '/teams', { name: 'Worship', positions: ['Vocals', 'Drums'] });
   const t = (await api('admin', 'GET', `/teams/${team.data.id}`)).data;
   const [vocals, drums] = t.positions;
+  assert.equal((await api('admin', 'POST', `/teams/${team.data.id}/positions`, { name: 'drums' })).status, 400); // no duplicates
+  assert.equal((await api('admin', 'PATCH', `/positions/${vocals.id}`, { name: 'Drums' })).status, 400);
   const drummer = (await api('admin', 'POST', '/people', { first_name: 'Dan', last_name: 'Drums', campus_id: 1, email: 'vol@mb.org' })).data;
   db.prepare('UPDATE users SET person_id = ? WHERE email = ?').run(drummer.id, 'vol@mb.org');
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${drummer.id}`, { position_ids: [drums.id] });

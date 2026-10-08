@@ -73,8 +73,10 @@ export default function teamRoutes(db) {
   r.post('/teams/:id/positions', requireRole('leader'), (req, res) => {
     const t = team(req, req.params.id);
     if (!canManage(req, t)) throw forbidden();
+    const name = required(req.body?.name, 'Position name');
+    if (db.prepare('SELECT 1 FROM positions WHERE team_id = ? AND lower(name) = lower(?)').get(t.id, name)) throw bad(`${t.name} already has a “${name}” position.`);
     const max = db.prepare('SELECT COALESCE(MAX(sort), -1) m FROM positions WHERE team_id = ?').get(t.id).m;
-    const info = db.prepare('INSERT INTO positions (team_id, name, sort) VALUES (?, ?, ?)').run(t.id, required(req.body?.name, 'Position name'), max + 1);
+    const info = db.prepare('INSERT INTO positions (team_id, name, sort) VALUES (?, ?, ?)').run(t.id, name, max + 1);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -90,6 +92,9 @@ export default function teamRoutes(db) {
     const pos = db.prepare('SELECT * FROM positions WHERE id = ?').get(req.params.id);
     if (!pos) throw notFound('Position');
     if (!canManage(req, team(req, pos.team_id))) throw forbidden();
+    if (req.body?.name !== undefined && db.prepare('SELECT 1 FROM positions WHERE team_id = ? AND id != ? AND lower(name) = lower(?)').get(pos.team_id, pos.id, String(req.body.name).trim())) {
+      throw bad(`There’s already a “${String(req.body.name).trim()}” position on this team.`);
+    }
     updateFields(db, 'positions', pos.id, { name: req.body?.name !== undefined ? required(req.body.name, 'Position name') : undefined, sort: req.body?.sort }, ['name', 'sort']);
     res.json({ ok: true });
   });
