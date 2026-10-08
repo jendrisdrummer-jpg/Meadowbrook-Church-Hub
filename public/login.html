@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Church Hub</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+    .login { width: min(400px, 100%); text-align: center; }
+    .login .brand-mark { width: 56px; height: 56px; font-size: 24px; margin: 0 auto 14px; border-radius: 16px; }
+    .login h1 { margin-bottom: 4px; }
+    .login .stack { margin-top: 22px; text-align: left; }
+    .google { width: 100%; min-height: 46px; }
+  </style>
+</head>
+<body>
+  <div class="card login">
+    <div class="brand-mark">M</div>
+    <h1 id="name">Meadowbrook Church</h1>
+    <p class="muted">Church Hub</p>
+    <div id="error" class="alert bad hidden"></div>
+    <div class="stack">
+      <a id="google" class="btn primary google hidden" href="/auth/google">Sign in with Google</a>
+      <form id="dev" class="stack hidden">
+        <label class="field">Email (test sign-in, no password)<input type="email" name="email" required placeholder="you@meadowbrook.church"></label>
+        <button class="btn">Sign in</button>
+        <p class="muted small">Test sign-in is on because the server was started with MB_DEV_LOGIN=1. Turn it off before going live.</p>
+      </form>
+      <p id="none" class="muted small hidden">Sign-in isn’t set up yet. See “Google sign-in” in the README.</p>
+    </div>
+  </div>
+  <script type="module">
+    const err = new URLSearchParams(location.search).get('error');
+    const box = document.getElementById('error');
+    if (err) { box.textContent = err; box.classList.remove('hidden'); }
+    const opts = await fetch('/auth/options').then((r) => r.json());
+    document.getElementById('name').textContent = opts.churchName;
+    document.getElementById('google').classList.toggle('hidden', !opts.google);
+    document.getElementById('dev').classList.toggle('hidden', !opts.dev);
+    document.getElementById('none').classList.toggle('hidden', opts.google || opts.dev);
+    document.getElementById('dev').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const res = await fetch('/auth/dev', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' },
+        body: JSON.stringify({ email: e.target.email.value }),
+      });
+      if (res.ok) location.href = '/';
+      else { box.textContent = (await res.json()).error; box.classList.remove('hidden'); }
+    });
+  </script>
+</body>
+</html>
