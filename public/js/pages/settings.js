@@ -20,9 +20,15 @@ async function church(panel) {
   const s = await get('/settings');
   mount(panel, html`<form class="card stack" style="max-width:640px">
     <label class="field">Church name<input type="text" name="church_name" value="${s.church_name}"></label>
-    <label class="field">Google Workspace domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="meadowbrook.church">
-      <span class="muted small">Only accounts on this domain can sign in with Google (plus any admin emails listed on the server).</span></label>
-    <label class="check"><input type="checkbox" name="auto_join_volunteers" ${s.auto_join_volunteers ? 'checked' : ''}> Anyone with a church Google account can sign in as a volunteer</label>
+    <label class="field">Who can sign in on their own<select name="sign_in_policy">${options([
+      { value: 'anyone', label: 'Anyone with a Google account' },
+      { value: 'directory', label: 'People whose email is in the directory, and church accounts' },
+      { value: 'domain', label: 'Church Google accounts only' },
+      { value: 'invited', label: 'Only accounts an admin adds' },
+    ], s.sign_in_policy)}</select>
+      <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access in Accounts.</span></label>
+    <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="meadowbrook.church">
+      <span class="muted small">Used by the “church accounts” options above.</span></label>
     <label class="field">Headcount areas, one per line<textarea name="headcount_areas">${s.headcount_areas.join('\n')}</textarea></label>
     <label class="field">Name tag labels<select name="label_size">${options([
       { value: 'brother-62x29', label: 'Brother QL — 62 × 29 mm (DK-1209)' },
@@ -172,7 +178,12 @@ async function accounts(panel) {
   };
   mount(panel, html`<div class="card">
     <div class="card-head"><h2>Accounts</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
-    <p class="muted small">People sign in with their church Google account. ${state.settings.auto_join_volunteers && state.settings.workspace_domain ? `Anyone @${state.settings.workspace_domain} can sign in as a volunteer; add them here to give more access.` : ''}</p>
+    <p class="muted small">People sign in with Google. ${({
+      anyone: 'Anyone can sign in and starts as a volunteer.',
+      directory: 'People in the directory (and church accounts) can sign in and start as volunteers.',
+      domain: 'Church Google accounts can sign in and start as volunteers.',
+      invited: 'Only the accounts listed here can sign in.',
+    })[state.settings.sign_in_policy] || ''} Add someone here to give them more access before they sign in.</p>
     <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>

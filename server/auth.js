@@ -107,30 +107,43 @@ export function userForEmail(db, email) {
   const adminEmails = (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
   const domain = getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || '');
-  const autoJoin = getSetting(db, 'auto_join_volunteers', true);
+  const policy = getSetting(db, 'sign_in_policy', 'anyone');
+  const person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
-  const inDomain = domain && email.endsWith('@' + domain.toLowerCase());
+  const inDomain = Boolean(domain) && email.endsWith('@' + domain.toLowerCase());
   const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
-  else if (inDomain && autoJoin) role = 'volunteer';
+  else if (canJoin(policy, { inDomain, inDirectory: Boolean(person) })) role = 'volunteer';
   if (!role) return null;
 
-  const person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
   const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, person?.id ?? null);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+}
+
+// Who may create their own (volunteer) account just by signing in. Everyone else needs an admin
+// to add them in Settings → Accounts. New accounts only see their own schedule until given more.
+export const SIGN_IN_POLICIES = ['anyone', 'directory', 'domain', 'invited'];
+function canJoin(policy, { inDomain, inDirectory }) {
+  if (policy === 'anyone') return true;
+  if (policy === 'directory') return inDomain || inDirectory;
+  if (policy === 'domain') return inDomain;
+  return false;
 }
 
 export function authRoutes(app, db) {
   const devLogin = process.env.MB_DEV_LOGIN === '1';
   const google = () => ({
-    id: process.env.GOOGLE_CLIENT_ID,
-    secret: process.env.GOOGLE_CLIENT_SECRET,
+    // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
+    id: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+    secret: (process.env.GOOGLE_CLIENT_SECRET || '').trim(),
     domain: getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || ''),
+    // Only lock Google's account picker to the church domain when nobody else may sign in.
+    domainOnly: getSetting(db, 'sign_in_policy', 'anyone') === 'domain',
   });
-  const callbackUrl = (req) => `${process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
+  const callbackUrl = (req) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
 
   app.get('/auth/options', (_req, res) => {
     res.json({ google: Boolean(google().id && google().secret), dev: devLogin, churchName: getSetting(db, 'church_name', 'Meadowbrook Church') });
@@ -149,7 +162,7 @@ export function authRoutes(app, db) {
       state,
       prompt: 'select_account',
     });
-    if (g.domain) params.set('hd', g.domain);
+    if (g.domain && g.domainOnly) params.set('hd', g.domain);
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
@@ -170,16 +183,21 @@ export function authRoutes(app, db) {
         }),
       });
       const tokens = await r.json();
-      if (!r.ok || !tokens.id_token) return fail('Google sign-in failed.');
+      if (!r.ok || !tokens.id_token) {
+        // Google's error code (e.g. invalid_client, redirect_uri_mismatch) says what to fix; it holds no secrets.
+        console.error('Google token exchange failed:', r.status, tokens.error, tokens.error_description, 'redirect_uri =', callbackUrl(req));
+        return fail(`Google sign-in failed (${tokens.error || r.status}). ${SIGN_IN_HINTS[tokens.error] || ''}`.trim());
+      }
       // The ID token came straight from Google over TLS, so its claims can be trusted
       // without checking the signature (Google's OpenID Connect guidance).
       const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());
       if (claims.aud !== g.id || !claims.email_verified) return fail('Google could not verify that email address.');
-      if (g.domain && claims.hd !== g.domain && !isListedAdmin(claims.email)) {
-        return fail(`Please sign in with your @${g.domain} account.`);
-      }
       const user = userForEmail(db, claims.email);
-      if (!user) return fail('Your account isn’t set up yet. Ask a church admin to add you.');
+      if (!user) {
+        return fail(g.domain && g.domainOnly
+          ? `Please sign in with your @${g.domain} account.`
+          : 'Your account isn’t set up yet. Ask a church admin to add you.');
+      }
       startSession(db, req, res, user.id);
       res.redirect('/');
     } catch (e) {
@@ -204,6 +222,9 @@ export function authRoutes(app, db) {
   });
 }
 
-function isListedAdmin(email) {
-  return (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).includes(String(email).toLowerCase());
-}
+const SIGN_IN_HINTS = {
+  invalid_client: 'Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server match the Google Cloud client.',
+  unauthorized_client: 'Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server match the Google Cloud client.',
+  redirect_uri_mismatch: 'PUBLIC_URL + /auth/google/callback must exactly match the redirect URI in Google Cloud.',
+  invalid_grant: 'The sign-in link expired or was already used. Please try again.',
+};
