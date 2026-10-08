@@ -10,6 +10,7 @@ import setupRoutes from './routes/setup.js';
 import peopleRoutes from './routes/people.js';
 import teamRoutes from './routes/teams.js';
 import serviceRoutes from './routes/services.js';
+import songFileRoutes from './routes/songfiles.js';
 import seriesRoutes from './routes/series.js';
 import checkinRoutes from './routes/checkin.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -57,6 +58,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(peopleRoutes(db, { uploadDir }));
   api.use(teamRoutes(db));
   api.use(serviceRoutes(db));
+  api.use(songFileRoutes(db, { uploadDir }));
   api.use(seriesRoutes(db));
   api.use(checkinRoutes(db));
   api.use(attendanceRoutes(db));

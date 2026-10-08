@@ -2,6 +2,7 @@
 // who's leading). Rows drag to reorder; edit and delete appear on the right of each row; a row at
 // the bottom adds items inline, with a searchable song picker.
 import { get, post, patch, put, del, html, raw, mount, icon, displayName, dialog, formData, options, toast, toastAction, fail, fmtDate, fmtTime, fmtLength, parseLength, addDays } from './lib.js';
+import { fileChips, wirePlayers } from './songfiles.js';
 
 export const TYPES = ['Announcement', 'Song', 'Offering', 'Prayer', 'Message', 'Video', 'Other'];
 
@@ -66,6 +67,7 @@ export function drawPlan(panel, s, opts = {}) {
             <span class="type">${i.category || (i.kind === 'song' ? 'Song' : '')}</span>
             <span class="name"><b>${i.title || 'Item'}</b>${i.placeholder ? html` <span class="pill warn">${mode === 'template' ? 'Fill in each week' : 'Needs filling'}</span>` : ''}${i.kind === 'song' && i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
               ${i.kind === 'song' && i.song_author ? html`<span class="muted small"> · ${i.song_author}</span>` : ''}
+              ${i.files?.length ? html`<div>${fileChips(i.files, i.song_key)}</div>` : ''}
               ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</span>
             <span class="lead">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</span>
             ${actions(i)}</div>`)}
@@ -86,6 +88,7 @@ export function drawPlan(panel, s, opts = {}) {
   }
 
   const save = (list) => { s.items = list; drawPlan(panel, s, opts); };
+  wirePlayers(panel);
 
   panel.onclick = async (e) => {
     const b = e.target.closest('button');

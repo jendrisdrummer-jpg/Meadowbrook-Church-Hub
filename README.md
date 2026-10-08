@@ -246,7 +246,11 @@ and who's serving (only requests that were sent, without contact details).
   - **Donors**, **Recurring**, and **Funds** (add, rename, reorder, hide, choose the default; set
     the cover-the-fee rate).
 
-**Songs**: the song library with keys, CCLI numbers, and when each song was last used.
+**Songs**: the song library with keys, CCLI numbers, and when each song was last used. Add
+**chord charts, lyrics and sheet music** (PDF, picture or text) and **audio** (MP3, M4A, WAV) to a
+song; they show as chips on that song in every service plan, in the hub and the app. Charts and
+lyrics open, and audio plays right in the plan. Name a file for its key ("Way Maker - G.pdf") and
+it's marked for G; files for the key being played come first.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
 

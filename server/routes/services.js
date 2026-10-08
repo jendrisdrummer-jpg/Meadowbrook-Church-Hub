@@ -5,6 +5,7 @@ import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
+import { filesForSongs } from './songfiles.js';
 import { notifyScheduled, notifyResponse, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
@@ -181,9 +182,12 @@ export default function serviceRoutes(db) {
 
   // ---------------------------------------------------------------- plan items
   function planItems(serviceId) {
-    return db.prepare(`SELECT i.*, so.title song_title, so.author song_author, so.ccli, p.first_name, p.last_name, p.nickname
+    const items = db.prepare(`SELECT i.*, so.title song_title, so.author song_author, so.ccli, p.first_name, p.last_name, p.nickname
       FROM plan_items i LEFT JOIN songs so ON so.id = i.song_id LEFT JOIN people p ON p.id = i.person_id
       WHERE i.service_id = ? ORDER BY i.sort, i.id`).all(serviceId);
+    // Each song's charts, lyrics and audio, so the plan can open them.
+    const files = filesForSongs(db, items.map((i) => i.song_id));
+    return items.map((i) => (i.song_id ? { ...i, files: files.get(i.song_id) || [] } : i));
   }
 
   // Only one row can mark where the service starts.
@@ -273,7 +277,7 @@ export default function serviceRoutes(db) {
   // ---------------------------------------------------------------- songs
   r.get('/songs', requireRole('volunteer'), (req, res) => {
     const q = `%${str(req.query.q, 100).toLowerCase()}%`;
-    res.json(db.prepare(`SELECT so.*, (SELECT MAX(s.starts_at) FROM plan_items i JOIN services s ON s.id = i.service_id WHERE i.song_id = so.id AND s.starts_at <= datetime('now')) last_used,
+    res.json(db.prepare(`SELECT so.*, (SELECT COUNT(*) FROM song_files f WHERE f.song_id = so.id) file_count, (SELECT MAX(s.starts_at) FROM plan_items i JOIN services s ON s.id = i.service_id WHERE i.song_id = so.id AND s.starts_at <= datetime('now')) last_used,
         (SELECT COUNT(*) FROM plan_items i JOIN services s ON s.id = i.service_id WHERE i.song_id = so.id AND s.starts_at >= date('now', '-1 year')) uses_year
       FROM songs so WHERE so.archived = 0 AND (lower(so.title) LIKE ? OR lower(so.author) LIKE ?) ORDER BY so.title COLLATE NOCASE`).all(q, q));
   });

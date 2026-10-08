@@ -146,6 +146,29 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   assert.equal(items.data[1].song_key, 'E');
   const copied = await api('admin', 'POST', `/services/${later.id}/copy-plan`, { from_service_id: north.id });
   assert.equal(copied.data.length, 2);
+  // Song files: charts and audio on a song show in every plan that uses it.
+  const up = (who, type, name, body, key = '') => fetch(`${base}/api/songs/${song.data.id}/files?name=${encodeURIComponent(name)}&key=${key}`, { method: 'POST', headers: { cookie: cookies[who], 'x-mb': '1', 'content-type': type }, body });
+  assert.equal((await up('vol', 'application/pdf', 'Way Maker - Chords', '%PDF-1.4 x')).status, 403);
+  assert.equal((await up('admin', 'application/x-msdownload', 'virus', 'MZ')).status, 400);
+  const chart = await (await up('admin', 'application/pdf', 'Way Maker - Chords', '%PDF-1.4 chart', 'E')).json();
+  const lyrics = await (await up('admin', 'application/pdf', 'Way Maker Lyrics', '%PDF-1.4 lyrics')).json();
+  const audio = await (await up('admin', 'audio/mpeg', 'Way Maker (rehearsal)', 'ID3fake')).json();
+  assert.deepEqual([chart.kind, chart.song_key, lyrics.kind, audio.kind], ['chart', 'E', 'lyrics', 'audio']);
+  const plan = (await api('vol', 'GET', `/services/${north.id}`)).data.items.find((i) => i.song_id === song.data.id);
+  assert.deepEqual(plan.files.map((f) => f.name).sort(), ['Way Maker (rehearsal)', 'Way Maker - Chords', 'Way Maker Lyrics']);
+  assert.ok(!('file' in plan.files[0])); // the stored name stays private
+  const got = await fetch(`${base}/api/song-files/${audio.id}`, { headers: { cookie: cookies.vol } });
+  assert.equal(got.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(await got.text(), 'ID3fake');
+  const part = await fetch(`${base}/api/song-files/${audio.id}`, { headers: { cookie: cookies.vol, range: 'bytes=0-2' } });
+  assert.equal(part.status, 206); // audio can be scrubbed
+  assert.equal((await fetch(`${base}/api/song-files/${audio.id}`)).status, 401);
+  await api('admin', 'PATCH', `/song-files/${lyrics.id}`, { kind: 'sheet', song_key: 'D' });
+  assert.equal((await api('vol', 'GET', `/songs/${song.data.id}/files`)).data.find((f) => f.id === lyrics.id).kind, 'sheet');
+  assert.equal((await api('vol', 'GET', '/songs')).data.find((x) => x.id === song.data.id).file_count, 3);
+  assert.equal((await api('vol', 'DELETE', `/song-files/${lyrics.id}`)).status, 403);
+  await api('admin', 'DELETE', `/song-files/${lyrics.id}`);
+  assert.equal((await api('vol', 'GET', `/song-files/${lyrics.id}`)).status, 404);
 });
 
 test('repeating services: skip one, change the future, stop the series', async () => {
