@@ -414,10 +414,32 @@ private network.
 
 ### 4. Backups
 
-Everything lives in one database file plus an `uploads` folder of photos. `npm run backup`
-saves a safe copy while the server is running and keeps the last 30. Run it daily (for example
-with cron: `15 3 * * * cd /app && npm run backup`), and copy `data/backups` somewhere off the
-server, such as a Google Drive folder or your host's snapshot feature.
+The hub backs itself up every night after 3:00 a.m. (church time): a consistent copy of the
+database, compressed and **locked with your password** (AES-256), plus any photos, song files and
+app pictures that are new or changed (each locked too). Copies go to a **Google Drive** folder,
+and the last 3 also stay on the server's disk. It keeps the last 14 nightly copies plus one a
+month for a year, and deletes older ones. If a backup fails, admins get a notification.
+**Settings → Backups** shows the status, the copies (with downloads) and a **Back up now** button.
+
+To turn it on:
+
+1. In Render → your service → **Environment**, add `MB_BACKUP_PASSWORD` with a long password of
+   your choosing. **Keep a copy somewhere safe** (a password manager): no one can open a backup
+   without it, including us.
+2. In Google Cloud Console (the project from step 1): **APIs & Services → Library → Google Drive
+   API → Enable**. On the **OAuth consent screen**, add the scope `.../auth/drive.file` (access only
+   to files the hub creates), and make sure the app is **In production** (publish it), not
+   *Testing*: in Testing, Google stops the hub's Drive access after 7 days.
+3. In the hub: **Settings → Backups → Connect Google Drive**, and sign in with the Google account
+   that should keep the backups (15 GB free on a personal account). A *Church Hub backups* folder
+   appears in that Drive.
+
+**Restoring:** download a copy (Settings → Backups, or from the Drive folder), then on a computer
+with this code run `MB_BACKUP_PASSWORD=… npm run restore -- the-file.db.gz.enc`. That gives you
+a `.db` file. With the hub stopped, put it where `MB_DB` points and start it again. Uploaded files
+(in the folder's *Uploaded files*) unlock the same way and go back under `MB_UPLOADS`.
+
+Render can also snapshot the disk; that's a useful extra, but it isn't off-site.
 
 ### 5. First-time setup
 

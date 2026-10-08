@@ -2,8 +2,9 @@
 import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
+import { backups } from './settings-backups.js';
 
-const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people']];
+const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups']];
 
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
@@ -11,7 +12,7 @@ export default async function settings(el, tab = 'church') {
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
   // Old links (#/settings/rooms) land on the section that now holds them.
-  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople };
+  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople, backups };
   await (pages[tab] || church)(panel);
 }
 

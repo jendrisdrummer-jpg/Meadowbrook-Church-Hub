@@ -764,6 +764,28 @@ const MIGRATIONS = [
     expires_at TEXT NOT NULL
   );
   `,
+  // 24: nightly backups. Each database copy, and which uploaded files are already backed up.
+  `
+  CREATE TABLE backups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    files INTEGER NOT NULL DEFAULT 0,                  -- uploaded files sent with this run
+    status TEXT NOT NULL,                              -- ok | failed
+    error TEXT NOT NULL DEFAULT '',
+    drive_id TEXT,                                     -- the copy in Google Drive
+    local INTEGER NOT NULL DEFAULT 0,                  -- a copy is on this server's disk too
+    reason TEXT NOT NULL DEFAULT 'nightly',            -- nightly | manual
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE backup_files (
+    path TEXT PRIMARY KEY,                             -- relative to the uploads folder
+    size INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    drive_id TEXT,
+    backed_up_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

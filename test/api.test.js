@@ -16,13 +16,13 @@ import { outbox } from '../server/mail.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
 
-let server, base, db;
+let server, base, db, upDir;
 const cookies = {};
 
 before(async () => {
   db = openDb(':memory:');
-  const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-up-'));
-  server = createApp({ db, uploadDir }).listen(0);
+  upDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-up-'));
+  server = createApp({ db, uploadDir: upDir }).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
   // Accounts: an admin, a North-campus-only staffer, and a volunteer.
@@ -1519,6 +1519,113 @@ test('search: people, songs, teams, services, events and tasks, only what you ca
   // Wildcards are taken literally.
   assert.deepEqual((await find('admin', '%%')).groups, []);
   assert.equal((await api(null, 'GET', '/search?q=zebulon')).status, 401);
+});
+
+test('backups: encrypted database copies, Google Drive, uploaded files, keeping and cleaning up', async (t) => {
+  const { encrypt, decrypt, connectDrive } = await import('../server/backup.js');
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-bk-'));
+  const saved = { ...process.env };
+  t.after(() => { for (const k of ['MB_BACKUP_PASSWORD', 'MB_BACKUP_DIR', 'MB_GOOGLE_API', 'MB_GOOGLE_TOKEN_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+  process.env.MB_BACKUP_DIR = dir;
+
+  // Locking: only the right password opens it.
+  const sealed = encrypt(Buffer.from('hello'), 'pw-1');
+  assert.equal(decrypt(sealed, 'pw-1').toString(), 'hello');
+  assert.throws(() => decrypt(sealed, 'wrong'), /Wrong password/);
+  assert.throws(() => decrypt(Buffer.from('nope'), 'pw-1'), /isn’t a Church Hub backup/);
+
+  // Admins only; without a password it fails and says how to fix it.
+  assert.equal((await api('north', 'POST', '/backups/run', {})).status, 403);
+  delete process.env.MB_BACKUP_PASSWORD;
+  const nopw = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(nopw.status, 500);
+  assert.match(nopw.data.error, /MB_BACKUP_PASSWORD/);
+  assert.match((await api('admin', 'GET', '/notifications')).data.items[0].title, /backup didn’t finish/);
+
+  // With a password and no Drive: a copy on this server that opens to the real database.
+  process.env.MB_BACKUP_PASSWORD = 'correct horse battery staple';
+  const local = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(local.status, 201);
+  assert.equal(local.data.drive_id, null);
+  const copy = path.join(dir, 'restored.db');
+  fs.writeFileSync(copy, decrypt(fs.readFileSync(path.join(dir, local.data.name))));
+  const restored = new DatabaseSync(copy);
+  assert.equal(restored.prepare('SELECT COUNT(*) n FROM people').get().n, db.prepare('SELECT COUNT(*) n FROM people').get().n);
+  restored.close();
+
+  // Google Drive (a stand-in): the copy and new uploaded files go to a folder; unchanged files don't go again.
+  const calls = [];
+  let n = 0;
+  const google = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: Buffer.concat(chunks) });
+      const send = (o, status = 200) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(o));
+      if (req.url === '/token') return send(String(Buffer.concat(chunks)).includes('refresh_token=rt-good') ? { access_token: 'at-1' } : { error: 'invalid_grant' }, String(Buffer.concat(chunks)).includes('rt-good') ? 200 : 400);
+      if (req.method === 'DELETE') return res.writeHead(204).end();
+      if (req.method === 'GET' && req.url.includes('alt=media')) return res.writeHead(200).end('drive-bytes');
+      if (req.method === 'GET') return send({ id: req.url.split('/').pop().split('?')[0], trashed: false });
+      send({ id: `f${++n}` });
+    });
+  }).listen(0);
+  await new Promise((r) => google.once('listening', r));
+  t.after(() => { google.closeAllConnections(); google.close(); });
+  Object.assign(process.env, { MB_GOOGLE_API: `http://127.0.0.1:${google.address().port}`, MB_GOOGLE_TOKEN_URL: `http://127.0.0.1:${google.address().port}/token`, GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'cs' });
+  fs.mkdirSync(path.join(upDir, 'songs'), { recursive: true });
+  fs.writeFileSync(path.join(upDir, 'songs', 'chart.pdf'), '%PDF chart');
+  connectDrive(db, { refresh_token: 'rt-good', email: 'office@church.org' });
+  const first = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(first.status, 201);
+  assert.ok(first.data.drive_id);
+  assert.ok(first.data.files >= 1);
+  const uploads = calls.filter((c) => c.url.startsWith('/upload/'));
+  assert.ok(uploads.every((c) => c.auth === 'Bearer at-1'));
+  assert.ok(uploads.some((c) => c.body.includes('"name":"songs__chart.pdf.enc"')));
+  assert.ok(!uploads.some((c) => c.body.includes('%PDF chart'))); // files are locked before they leave
+  const before = calls.length;
+  const second = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(second.data.files, 0);
+  fs.writeFileSync(path.join(upDir, 'songs', 'chart.pdf'), '%PDF chart v2 longer');
+  const third = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(third.data.files, 1);
+  assert.ok(calls.slice(before).some((c) => c.method === 'DELETE')); // the old copy of the changed file
+  // Only the last 3 stay on this server's disk.
+  assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.enc')).length, 3);
+
+  // Keeping: the newest 14, plus one a month for a year; older copies come out of Drive.
+  const ins = db.prepare("INSERT INTO backups (name, size, status, drive_id, created_at) VALUES (?, 1, 'ok', ?, ?)");
+  for (let d = 1; d <= 40; d++) ins.run(`old-${d}`, `old-${d}`, new Date(Date.now() - d * 864e5).toISOString().replace('T', ' ').slice(0, 19));
+  for (let m = 2; m <= 16; m++) ins.run(`month-${m}`, `month-${m}`, new Date(Date.now() - m * 31 * 864e5).toISOString().replace('T', ' ').slice(0, 19));
+  await api('admin', 'POST', '/backups/run', {});
+  const inDrive = db.prepare("SELECT COUNT(*) n FROM backups WHERE status = 'ok' AND drive_id IS NOT NULL").get().n;
+  assert.ok(inDrive <= 14 + 12 && inDrive >= 14, `kept ${inDrive}`);
+  assert.equal(db.prepare("SELECT drive_id FROM backups WHERE name = 'month-16'").get().drive_id, null); // over a year old
+
+  // The page, and downloading a copy (from this server's disk, or from Drive).
+  const page = (await api('admin', 'GET', '/backups')).data;
+  assert.deepEqual([page.password_set, page.drive.email, page.google_ready], [true, 'office@church.org', true]);
+  const latest = page.backups.find((b) => b.local);
+  const dl = await fetch(`${base}/api/backups/${latest.id}/download`, { headers: { cookie: cookies.admin } });
+  assert.equal(decrypt(Buffer.from(await dl.arrayBuffer())).subarray(0, 15).toString(), 'SQLite format 3');
+  const driveOnly = page.backups.find((b) => b.in_drive && !b.local);
+  assert.equal(await (await fetch(`${base}/api/backups/${driveOnly.id}/download`, { headers: { cookie: cookies.admin } })).text(), 'drive-bytes');
+  assert.equal((await fetch(`${base}/api/backups/${latest.id}/download`, { headers: { cookie: cookies.north } })).status, 403);
+
+  // Drive access removed in Google: the backup still lands on this server, and says what to do.
+  connectDrive(db, { refresh_token: 'rt-revoked', email: 'office@church.org' });
+  const revoked = await api('admin', 'POST', '/backups/run', {});
+  assert.equal(revoked.status, 500);
+  assert.match(revoked.data.error, /Connect Google Drive again/);
+
+  // Connecting goes through Google with Drive access limited to the hub's own files.
+  const start = await fetch(`${base}/auth/google/drive`, { headers: { cookie: cookies.admin }, redirect: 'manual' });
+  assert.match(start.headers.get('location'), /scope=openid\+email\+https%3A%2F%2Fwww\.googleapis\.com%2Fauth%2Fdrive\.file/);
+  assert.match(start.headers.get('location'), /access_type=offline/);
+  assert.equal((await fetch(`${base}/auth/google/drive`, { headers: { cookie: cookies.north }, redirect: 'manual' })).headers.get('location'), '/login');
+  await api('admin', 'DELETE', '/backups/drive');
+  assert.equal((await api('admin', 'GET', '/backups')).data.drive, null);
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
