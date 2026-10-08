@@ -95,6 +95,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
   const on = Boolean(sub) && perm === 'granted';
   const share = html`<svg class="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
   const labels = {
+    announcement: 'Announcements from the church',
     scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
     declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
     connect: 'New connect cards from guests', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', email: 'Also send me emails',

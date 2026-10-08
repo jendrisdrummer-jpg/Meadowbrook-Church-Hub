@@ -711,6 +711,36 @@ const MIGRATIONS = [
   );
   CREATE INDEX song_files_song ON song_files (song_id);
   `,
+  // 22: announcements to the congregation (push + inbox), sent now or scheduled, by accounts with
+  // the Announcements permission; and phones that get announcements without an account.
+  `
+  ALTER TABLE users ADD COLUMN announce INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE announcements (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',                     -- app path (#/events/3) or https:// address
+    audience TEXT NOT NULL DEFAULT '{"type":"everyone"}',  -- {type: everyone|campus|team|volunteers|staff, ids}
+    send_at TEXT NOT NULL,                             -- UTC, YYYY-MM-DD HH:MM:SS
+    status TEXT NOT NULL DEFAULT 'scheduled',          -- scheduled | sent | canceled
+    sent_at TEXT,
+    people INTEGER NOT NULL DEFAULT 0,                 -- accounts it went to
+    devices INTEGER NOT NULL DEFAULT 0,                -- phones and browsers pushed to
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX announcements_due ON announcements (status, send_at);
+  CREATE TABLE guest_push (
+    id INTEGER PRIMARY KEY,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    device TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used TEXT
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

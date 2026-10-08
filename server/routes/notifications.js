@@ -7,7 +7,7 @@ import { notify, KINDS, OFF_BY_DEFAULT } from '../notify.js';
 
 // Push messages only go to the browsers' own push services, never to an arbitrary address.
 const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'push.services.mozilla.com', 'web.push.apple.com', 'notify.windows.com'];
-function validEndpoint(v) {
+export function validEndpoint(v) {
   let u;
   try { u = new URL(String(v)); } catch { return false; }
   if (process.env.MB_PUSH_ALLOW_LOCAL === '1' && u.protocol === 'http:' && u.hostname === '127.0.0.1') return true;
@@ -60,6 +60,8 @@ export default function notificationRoutes(db) {
     db.prepare(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device, ui) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, device = excluded.device, ui = excluded.ui`)
       .run(req.user.id, b.endpoint, b.keys.p256dh, b.keys.auth, str(b.device, 80), b.ui === 'app' ? 'app' : 'hub');
+    // A phone that had announcements as a guest now gets them through the account.
+    db.prepare('DELETE FROM guest_push WHERE endpoint = ?').run(b.endpoint);
     res.status(201).json({ ok: true });
   });
 

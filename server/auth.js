@@ -70,6 +70,7 @@ function toUser(row) {
     theme: row.theme || 'light',
     photo: row.photo || null,
     finance: Boolean(row.finance),
+    announce: Boolean(row.announce) || row.role === 'admin',
   };
 }
 

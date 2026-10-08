@@ -6,7 +6,7 @@ import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'task', 'call', 'email'];
+export const KINDS = ['announcement', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'task', 'call', 'email'];
 // Notices that stay off until someone turns them on.
 export const OFF_BY_DEFAULT = new Set(['accepted']);
 
@@ -72,6 +72,19 @@ function pushAll(db, subs, msg) {
         // The person uninstalled the app or turned notifications off: forget that device.
         if (status === 404 || status === 410) db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(sub.id);
         else if (status < 300) db.prepare("UPDATE push_subscriptions SET last_used = datetime('now') WHERE id = ?").run(sub.id);
+      })
+      .catch(() => {});
+  }
+}
+
+// Announcements to phones that signed up without an account (they always open the member app).
+export function pushGuests(db, rows, msg) {
+  const keys = vapidKeys(db);
+  for (const sub of rows) {
+    sendPush(sub, { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url: msg.app_url || '/app/', data: {} }, keys, subject())
+      .then((status) => {
+        if (status === 404 || status === 410) db.prepare('DELETE FROM guest_push WHERE id = ?').run(sub.id);
+        else if (status < 300) db.prepare("UPDATE guest_push SET last_used = datetime('now') WHERE id = ?").run(sub.id);
       })
       .catch(() => {});
   }

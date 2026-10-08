@@ -1368,6 +1368,72 @@ test('events: calendar, sign-ups with questions and a cap, paid sign-ups through
   assert.equal(db.prepare('SELECT COUNT(*) n FROM events WHERE id = ?').get(members.id).n, 0);
 });
 
+test('announcements: permission, audiences, guest phones, scheduling and cancel', async (t) => {
+  const pushes = [];
+  const pushServer = http.createServer((req, res) => { req.resume(); req.on('end', () => { pushes.push(req.url); res.writeHead(201).end(); }); }).listen(0);
+  await new Promise((r) => pushServer.once('listening', r));
+  t.after(() => { pushServer.closeAllConnections(); pushServer.close(); });
+  const ep = (name) => `http://127.0.0.1:${pushServer.address().port}/push/${name}`;
+  const crypto = await import('node:crypto');
+  const ua = crypto.createECDH('prime256v1');
+  ua.generateKeys();
+  const keys = { p256dh: ua.getPublicKey('base64url'), auth: crypto.randomBytes(16).toString('base64url') };
+
+  // Staff need the Announcements permission; admins always have it.
+  assert.equal((await api('north', 'GET', '/announcements')).status, 403);
+  assert.equal((await api('admin', 'GET', '/me')).data.announce, true);
+  const northId = db.prepare("SELECT id FROM users WHERE email = 'north@mb.org'").get().id;
+  await api('admin', 'PATCH', `/users/${northId}`, { announce: true });
+  assert.equal((await api('north', 'GET', '/announcements')).status, 200);
+
+  // A guest phone signs up for announcements (no account); bad endpoints are refused.
+  assert.equal((await api(null, 'POST', '/push/guest', { endpoint: 'https://evil.example/x', keys: { p256dh: 'BNc', auth: 'x' } })).status, 400);
+  const { publicKey } = (await import('../server/push.js')).vapidKeys(db);
+  assert.equal((await api(null, 'GET', '/push/key')).data.public_key, publicKey);
+  assert.equal((await api(null, 'POST', '/push/guest', { endpoint: ep('guest1'), keys, campus_id: 1 })).status, 201);
+
+  // Who an audience reaches.
+  const reach = async (audience) => (await api('north', 'POST', '/announcements/reach', { audience })).data;
+  const everyone = await reach({ type: 'everyone' });
+  assert.equal(everyone.people, db.prepare('SELECT COUNT(*) n FROM users WHERE active = 1').get().n);
+  assert.ok(everyone.devices >= 1); // the guest phone
+  assert.equal((await reach({ type: 'staff' })).people, db.prepare("SELECT COUNT(*) n FROM users WHERE active = 1 AND role IN ('staff', 'admin')").get().n);
+  assert.equal((await api('north', 'POST', '/announcements', { title: 'Hi', audience: { type: 'campus', ids: [] } })).status, 400);
+  assert.equal((await api('north', 'POST', '/announcements', { title: 'Hi', link: 'javascript:alert(1)' })).status, 400);
+  assert.equal((await api('north', 'POST', '/announcements', { title: '' })).status, 400);
+
+  // Send now: an inbox item for every account, and a push to the guest phone.
+  const before = pushes.length;
+  const sent = (await api('north', 'POST', '/announcements', { title: 'Service moved to 11am', body: 'Because of snow.', link: '#/events', audience: { type: 'everyone' } })).data;
+  assert.equal(sent.status, 'sent');
+  assert.equal(sent.people, everyone.people);
+  const inbox = (await api('vol', 'GET', '/notifications')).data.items[0];
+  assert.deepEqual([inbox.kind, inbox.title, inbox.body, inbox.app_url], ['announcement', 'Service moved to 11am', 'Because of snow.', '/app/#/events']);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(pushes.slice(before).includes('/push/guest1'));
+
+  // Scheduled: waits, can be canceled, and goes out when due.
+  const later = new Date(Date.now() + 2 * 3600e3).toISOString();
+  const s1 = (await api('north', 'POST', '/announcements', { title: 'Revival tonight', audience: { type: 'staff' }, send_at: later })).data;
+  const s2 = (await api('north', 'POST', '/announcements', { title: 'Never mind', audience: { type: 'staff' }, send_at: later })).data;
+  assert.equal(s1.status, 'scheduled');
+  assert.equal((await api('north', 'POST', '/announcements', { title: 'Old', send_at: '2001-01-01T00:00:00Z' })).status, 400);
+  await api('north', 'PATCH', `/announcements/${s2.id}`, { canceled: true });
+  const { sendDueAnnouncements } = await import('../server/routes/announcements.js');
+  assert.equal(sendDueAnnouncements(db), 0);
+  db.prepare("UPDATE announcements SET send_at = datetime('now', '-1 minute') WHERE id IN (?, ?)").run(s1.id, s2.id);
+  assert.equal(sendDueAnnouncements(db), 1);
+  const rows = (await api('north', 'GET', '/announcements')).data;
+  assert.deepEqual([rows.find((a) => a.id === s1.id).status, rows.find((a) => a.id === s2.id).status], ['sent', 'canceled']);
+  assert.equal(rows.find((a) => a.id === s1.id).audience_label, 'Staff');
+  assert.ok(!(await api('vol', 'GET', '/notifications')).data.items.some((n) => n.title === 'Revival tonight')); // staff only
+  assert.equal((await api('north', 'PATCH', `/announcements/${s1.id}`, { canceled: true })).status, 400); // already sent
+
+  // A guest phone that signs in becomes the account's device, not a guest.
+  await api('vol', 'POST', '/push/subscriptions', { endpoint: ep('guest1'), keys, device: 'iPhone', ui: 'app' });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM guest_push').get().n, 0);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

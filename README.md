@@ -161,6 +161,12 @@ and who's serving (only requests that were sent, without contact details).
   Stripe account (event payments are kept apart from giving). Everyone gets a confirmation email;
   the Sign-ups tab lists who's coming, exports a CSV, adds people who signed up by phone, and cancels
   or refunds.
+- **Announcements** (Church app → Announcements): send a notification to everyone, a campus, a
+  team, all volunteers or staff, now or at a set time, with a link to open (a tab, an event or a
+  website) and a live preview. It pushes to phones with notifications on and lands in everyone's
+  in-app notifications. Guests can turn on announcements from the app's **More** tab without an
+  account. Only admins and accounts with the **Announcements** permission (Settings → Accounts, or a
+  person's access) can send.
 - **Connect cards** (Church app → Connect cards): what guests send, with first-time visits,
   interests and prayer requests. Staff get a notification for each one. Add the guest to People
   (it checks for duplicates), link them to someone already there, and mark them followed up.
