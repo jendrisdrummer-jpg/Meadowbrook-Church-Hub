@@ -22,7 +22,7 @@ on tablets. Everyone signs in with a Google account (church or personal).
 |---|---|---|---|
 | **1. People & planning** | People and households, campuses, teams, service plans and songs, volunteer scheduling, attendance, kids' check-in with name tags | Faith Teams | **Built** |
 | 2. Discipleship | Growth pathway and next steps, mentor pairs with meeting logs, small groups, new-guest follow-up | (new) | Next |
-| 3. Team communication | Team spaces and direct messages, tasks from chat, a Google Meet button per space | Google Chat | Planned |
+| 3. Team communication | A chat for every team plus groups, with photos, files, replies, reactions and @mentions (built); tasks with due dates and reminders (next) | Google Chat | **Chat built** |
 | 4. Website & member app | Public website, sermons, events, connect forms, an installable member app | Subsplash | Planned |
 | 5. Giving | Online giving with Stripe, funds, year-end statements | Subsplash Giving / Faith Teams giving | Planned |
 
@@ -152,6 +152,22 @@ and who's serving (only requests that were sent, without contact details).
 - **Connect cards** (Church app → Connect cards): what guests send, with first-time visits,
   interests and prayer requests. Staff get a notification for each one. Add the guest to People
   (it checks for duplicates), link them to someone already there, and mark them followed up.
+
+**Chat** (in the dashboard and the church app):
+- **Every team has a chat.** Its members are the team roster: adding someone to the team adds
+  them to the chat, and taking them off removes them. Staff can also open the team chats at their
+  campuses (under "Other team chats").
+- **Groups** for people who aren't one team (staff, elders, a project). Team leaders and staff
+  make them and choose who's in; whoever made it can add or remove people, rename or delete it.
+  Anyone can leave a group.
+- **Photos and files** (up to 25 MB; photos are shrunk before they upload), **replies** to a
+  message, **emoji reactions**, and **@mentions** (type @ and a name). Edit or delete your own
+  messages; team leaders and group admins can delete anyone's.
+- **Live**: open chats update as messages arrive. Everyone else gets a push notification (one
+  per chat, replacing the last). **Mute** a chat to stop those, except when someone @mentions you.
+  The Chat menu item and the app's chat button show unread counts.
+- In the church app, the chat button is at the top of every screen once you're signed in. Staff
+  can also turn on a **Chat** tab in the App Builder.
 
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
@@ -294,6 +310,8 @@ server, such as a Google Drive folder or your host's snapshot feature.
 | Own schedule, accept/decline, away dates | ✓ | ✓ | ✓ | ✓ |
 | Order of service for services they serve at | ✓ | ✓ | ✓ | ✓ |
 | See people, teams, all services; run check-in; add new families | | ✓ | ✓ | ✓ |
+| Chat with their teams and groups | ✓ | ✓ | ✓ | ✓ |
+| Start chat groups | | ✓ | ✓ | ✓ |
 | Schedule their own teams, edit orders of service | | ✓ | ✓ | ✓ |
 | Edit people, services, rooms; schedule any team | | | ✓ | ✓ |
 | Settings, campuses, accounts, import, merge duplicates | | | | ✓ |

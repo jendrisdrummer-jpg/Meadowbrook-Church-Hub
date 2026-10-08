@@ -630,6 +630,126 @@ test('leading a team gives leader access, and takes it back only if it came from
   assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
 });
 
+test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
+  // People with accounts: a team leader, two team members, and someone not on the team.
+  const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Chat', campus_id: 1, email: `${first.toLowerCase()}@chat.org` })).data;
+  const account = (key, p, role = 'volunteer') => {
+    const id = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(p.email, role, p.id).lastInsertRowid;
+    startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+    return Number(id);
+  };
+  const [lena, gina, hank, otto] = [await person('Lena'), await person('Gina'), await person('Hank'), await person('Otto')];
+  account('lena', lena, 'leader'); account('gina', gina); const hankId = account('hank', hank); account('otto', otto);
+  const team = (await api('admin', 'POST', '/teams', { name: 'Greeters', campus_id: 1, positions: ['Door'] })).data;
+  for (const [p, lead] of [[lena, true], [gina, false], [hank, false]]) await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [], is_leader: lead });
+
+  const list = (await api('gina', 'GET', '/chats')).data;
+  const chat = list.chats.find((c) => c.team_id === team.id);
+  assert.ok(chat && chat.member && !chat.manage);
+  assert.equal(chat.name, 'Greeters');
+  assert.ok(!(await api('otto', 'GET', '/chats')).data.chats.some((c) => c.id === chat.id));
+  assert.equal((await api('otto', 'GET', `/chats/${chat.id}`)).status, 404);
+  assert.equal((await api('otto', 'POST', `/chats/${chat.id}/messages`, { body: 'hi' })).status, 404);
+  // Staff see their campus's team chats without being on the team.
+  const staffView = (await api('north', 'GET', '/chats')).data.chats.find((c) => c.id === chat.id);
+  assert.ok(staffView && !staffView.member && staffView.manage);
+  assert.equal((await api('gina', 'GET', `/chats/${chat.id}`)).data.members.length, 3);
+
+  // Hank's phone gets pushes (a stand-in push service records them).
+  const pushes = [];
+  const pushServer = http.createServer((req, res) => { req.resume(); req.on('end', () => { pushes.push(req.url); res.writeHead(201).end(); }); }).listen(0);
+  await new Promise((r) => pushServer.once('listening', r));
+  t.after(() => { pushServer.closeAllConnections(); pushServer.close(); });
+  const crypto = await import('node:crypto');
+  const ua = crypto.createECDH('prime256v1'); ua.generateKeys();
+  await api('hank', 'POST', '/push/subscriptions', { endpoint: `http://127.0.0.1:${pushServer.address().port}/push/hank`, keys: { p256dh: ua.getPublicKey('base64url'), auth: crypto.randomBytes(16).toString('base64url') } });
+
+  // Hank keeps a live stream open on another page: he hears about new messages.
+  const ctl = new AbortController();
+  t.after(() => ctl.abort());
+  const stream = await fetch(`${base}/api/chats/stream`, { headers: { cookie: cookies.hank }, signal: ctl.signal });
+  assert.equal(stream.headers.get('content-type'), 'text/event-stream');
+  const reader = stream.body.getReader();
+  const heard = (async () => {
+    let text = '';
+    while (!text.includes('"type":"message"')) text += new TextDecoder().decode((await reader.read()).value);
+    return text;
+  })();
+
+  // A photo upload, then a message with it that @mentions Hank.
+  const png = Buffer.from('89504e470d0a1a0a', 'hex');
+  const up = await fetch(`${base}/api/chats/${chat.id}/files`, { method: 'POST', headers: { cookie: cookies.gina, 'x-mb': '1', 'content-type': 'application/octet-stream', 'x-file-type': 'image/png', 'x-file-name': encodeURIComponent('door plan.png') }, body: png }).then((r) => r.json());
+  assert.equal(up.name, 'door plan.png');
+  assert.equal((await fetch(base + up.url, { headers: { cookie: cookies.hank } })).status, 404); // not sent yet
+  const sent = await api('gina', 'POST', `/chats/${chat.id}/messages`, { body: 'Doors open at 8:15 @Hank Chat', mentions: [hank.id, otto.id], file_ids: [up.id] });
+  assert.equal(sent.status, 201);
+  assert.deepEqual(sent.data.mentions, [hank.id]); // Otto isn't in this chat
+  assert.equal(sent.data.files.length, 1);
+  assert.match(await heard, /Doors open/);
+  const file = await fetch(base + sent.data.files[0].url, { headers: { cookie: cookies.hank } });
+  assert.equal(file.headers.get('content-type'), 'image/png');
+  assert.equal((await fetch(base + sent.data.files[0].url, { headers: { cookie: cookies.otto } })).status, 404);
+  const txt = await fetch(`${base}/api/chats/${chat.id}/files`, { method: 'POST', headers: { cookie: cookies.gina, 'x-mb': '1', 'content-type': 'application/octet-stream', 'x-file-type': 'text/html', 'x-file-name': 'x.html' }, body: '<script>alert(1)</script>' }).then((r) => r.json());
+  await api('gina', 'POST', `/chats/${chat.id}/messages`, { file_ids: [txt.id] });
+  const html = await fetch(base + txt.url, { headers: { cookie: cookies.hank } });
+  assert.equal(html.headers.get('content-type'), 'application/octet-stream');
+  assert.match(html.headers.get('content-disposition'), /^attachment/);
+
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(pushes, ['/push/hank', '/push/hank']); // one per message; nothing for Gina's own
+  // Muted: quiet, unless someone @mentions him.
+  await api('hank', 'PATCH', `/chats/${chat.id}/me`, { muted: true });
+  await api('lena', 'POST', `/chats/${chat.id}/messages`, { body: 'Quiet one' });
+  await api('lena', 'POST', `/chats/${chat.id}/messages`, { body: '@Hank Chat can you lock up?', mentions: [hank.id] });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(pushes.length, 3);
+  assert.equal((await api('hank', 'GET', '/chats/unread')).data.total, 0); // muted chats don't count on the badge
+  await api('hank', 'PATCH', `/chats/${chat.id}/me`, { muted: false });
+
+  // Unread counts, then read.
+  assert.equal((await api('hank', 'GET', '/chats/unread')).data.total, 4);
+  assert.equal((await api('gina', 'GET', '/chats/unread')).data.total, 2); // Lena's two
+  await api('hank', 'POST', `/chats/${chat.id}/read`, {});
+  assert.equal((await api('hank', 'GET', '/chats/unread')).data.total, 0);
+
+  // Replies, reactions (tap again to take back), edits by the author only, deletes.
+  const reply = await api('hank', 'POST', `/chats/${chat.id}/messages`, { body: 'Got it', reply_to: sent.data.id });
+  assert.equal(reply.data.reply.id, sent.data.id);
+  let r = await api('hank', 'POST', `/messages/${sent.data.id}/reactions`, { emoji: '👍' });
+  assert.deepEqual(r.data.reactions, [{ emoji: '👍', user_ids: [hankId], names: ['Hank Chat'] }]);
+  r = await api('hank', 'POST', `/messages/${sent.data.id}/reactions`, { emoji: '👍' });
+  assert.deepEqual(r.data.reactions, []);
+  assert.equal((await api('hank', 'POST', `/messages/${sent.data.id}/reactions`, { emoji: '💩' })).status, 400);
+  assert.equal((await api('hank', 'PATCH', `/messages/${sent.data.id}`, { body: 'changed' })).status, 403);
+  assert.ok((await api('gina', 'PATCH', `/messages/${sent.data.id}`, { body: 'Doors open at 8:00' })).data.edited_at);
+  assert.equal((await api('hank', 'DELETE', `/messages/${sent.data.id}`)).status, 403);
+  assert.equal((await api('lena', 'DELETE', `/messages/${sent.data.id}`)).status, 200); // the team leader can
+  const msgs = (await api('gina', 'GET', `/chats/${chat.id}/messages`)).data.messages;
+  const gone = msgs.find((m) => m.id === sent.data.id);
+  assert.ok(gone.deleted && !gone.body && !gone.files.length);
+  assert.equal(msgs.find((m) => m.id === reply.data.id).reply.deleted, true);
+  assert.equal((await fetch(base + sent.data.files[0].url, { headers: { cookie: cookies.hank } })).status, 404);
+  // Leaving the team means leaving its chat.
+  await api('admin', 'DELETE', `/teams/${team.id}/members/${hank.id}`);
+  assert.equal((await api('hank', 'GET', `/chats/${chat.id}`)).status, 404);
+
+  // Groups: leaders and staff make them; only the people in them can see them.
+  assert.equal((await api('gina', 'POST', '/chats', { name: 'Nope', person_ids: [] })).status, 403);
+  const g = (await api('lena', 'POST', '/chats', { name: 'Welcome planning', person_ids: [gina.id] })).data;
+  assert.ok(g.manage);
+  assert.equal((await api('otto', 'GET', `/chats/${g.id}`)).status, 404);
+  assert.equal((await api('gina', 'POST', `/chats/${g.id}/members`, { person_ids: [otto.id] })).status, 403);
+  await api('lena', 'POST', `/chats/${g.id}/members`, { person_ids: [otto.id] });
+  assert.equal((await api('otto', 'POST', `/chats/${g.id}/messages`, { body: 'Thanks for adding me' })).status, 201);
+  assert.equal((await api('otto', 'DELETE', `/chats/${g.id}/members/${otto.id}`)).status, 200); // leave
+  assert.equal((await api('otto', 'GET', `/chats/${g.id}`)).status, 404);
+  assert.equal((await api('gina', 'PATCH', `/chats/${chat.id}`, { name: 'x' })).status, 400); // team chats follow the team
+  await api('gina', 'PATCH', `/chats/${g.id}/me`, { muted: true });
+  assert.equal((await api('gina', 'GET', '/chats')).data.chats.find((c) => c.id === g.id).muted, true);
+  assert.equal((await api('gina', 'DELETE', `/chats/${g.id}`)).status, 403);
+  assert.equal((await api('lena', 'DELETE', `/chats/${g.id}`)).status, 200);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

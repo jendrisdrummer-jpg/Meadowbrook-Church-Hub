@@ -421,6 +421,62 @@ const MIGRATIONS = [
   `
   ALTER TABLE assignments ADD COLUMN sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
   `,
+  // 13: chat. Every team has a chat (members come from the team roster); leaders and staff also
+  // make groups. Messages can reply to another, @mention people, carry files and reactions.
+  `
+  CREATE TABLE chats (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,                                -- team | group
+    team_id INTEGER UNIQUE REFERENCES teams(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',                     -- groups only; team chats use the team's name
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_message_at TEXT
+  );
+  CREATE TABLE chat_members (                          -- groups only
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id, person_id)
+  );
+  CREATE TABLE chat_reads (                            -- what each account has seen, and muting
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_read_id INTEGER NOT NULL DEFAULT 0,
+    muted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id)
+  );
+  CREATE TABLE messages (
+    id INTEGER PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    body TEXT NOT NULL DEFAULT '',
+    reply_to INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    mentions TEXT NOT NULL DEFAULT '[]',               -- JSON array of person ids
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    edited_at TEXT,
+    deleted_at TEXT
+  );
+  CREATE INDEX messages_chat ON messages (chat_id, id);
+  CREATE TABLE message_files (
+    id INTEGER PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,  -- NULL until the message is sent
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    file TEXT NOT NULL,                                -- name on disk, under uploads/chat
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE message_reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
