@@ -571,7 +571,26 @@ test('sending requests: drafts, one notice per person, email reply links, remova
   assert.equal((await pub(`${id}/${sig.slice(0, -1)}x`)).status, 404);
   const info = await (await pub(`${id}/${sig}`)).json();
   assert.equal(info.first_name, 'Pat');
+  await api('admin', 'POST', '/notifications/read', {});
+  const mailsBefore = outbox.length;
   assert.equal((await pub(`${id}/${sig}`, { status: 'declined', reason: 'Traveling' })).status, 200);
+  // The person who sent the request hears back (app and email), even without leading the team.
+  const reply = (await api('admin', 'GET', '/notifications')).data.items[0];
+  assert.match(reply.title, /Pat Usher can’t make it/);
+  assert.match(reply.body, /Traveling/);
+  assert.ok(outbox.slice(mailsBefore).some((m) => /Pat Usher can’t make it/.test(m.subject)));
+  // Accepts are quiet unless someone turns them on.
+  const accepted = async () => (await api('admin', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'accepted').length;
+  const otherSpot = db.prepare('SELECT id FROM assignments WHERE person_id = ? AND id != ?').get(pat.id, Number(id));
+  const sig2 = (await import('../server/notify.js')).assignmentSig(db, otherSpot.id, pat.id);
+  await pub(`${otherSpot.id}/${sig2}`, { status: 'accepted' });
+  assert.equal(await accepted(), 0);
+  await api('admin', 'PATCH', '/me/notify', { accepted: true });
+  assert.equal((await api('admin', 'GET', '/me/notify')).data.prefs.accepted, true);
+  await pub(`${otherSpot.id}/${sig2}`, { status: 'declined' });
+  await pub(`${otherSpot.id}/${sig2}`, { status: 'accepted' });
+  assert.equal(await accepted(), 1);
+  await api('admin', 'PATCH', '/me/notify', { accepted: false });
   assert.equal(db.prepare('SELECT status, decline_reason FROM assignments WHERE id = ?').get(id).decline_reason, 'Traveling');
   assert.equal((await fetch(`${base}/r/${id}/${sig}`)).status, 200);
 

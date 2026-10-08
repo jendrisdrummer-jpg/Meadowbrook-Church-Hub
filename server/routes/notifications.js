@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { requireRole } from '../auth.js';
 import { bad, str } from '../http.js';
 import { vapidKeys } from '../push.js';
-import { notify, KINDS } from '../notify.js';
+import { notify, KINDS, OFF_BY_DEFAULT } from '../notify.js';
 
 // Push messages only go to the browsers' own push services, never to an arbitrary address.
 const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'push.services.mozilla.com', 'web.push.apple.com', 'notify.windows.com'];
@@ -39,7 +39,7 @@ export default function notificationRoutes(db) {
   r.get('/me/notify', requireRole('volunteer'), (req, res) => {
     const prefs = JSON.parse(db.prepare('SELECT notify FROM users WHERE id = ?').get(req.user.id).notify || '{}');
     res.json({
-      prefs: Object.fromEntries(KINDS.map((k) => [k, prefs[k] !== false])),
+      prefs: Object.fromEntries(KINDS.map((k) => [k, OFF_BY_DEFAULT.has(k) ? prefs[k] === true : prefs[k] !== false])),
       devices: db.prepare('SELECT id, endpoint, device, created_at, last_used FROM push_subscriptions WHERE user_id = ? ORDER BY id').all(req.user.id),
       public_key: vapidKeys(db).publicKey,
     });

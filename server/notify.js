@@ -6,7 +6,9 @@ import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['scheduled', 'reminder', 'declined', 'connect', 'email'];
+export const KINDS = ['scheduled', 'reminder', 'declined', 'accepted', 'connect', 'email'];
+// Notices that stay off until someone turns them on.
+export const OFF_BY_DEFAULT = new Set(['accepted']);
 
 // Staff pages opened from the member app go to the dashboard's own address.
 const hub = (path) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}${path}`;
@@ -154,19 +156,39 @@ export function notifyUnscheduled(db, a) {
 
 export const assignmentRow = (db, id) => assignmentRows(db, [id])[0];
 
-// "Can't make it": tells the team's leaders (not the person who declined).
-export function notifyDeclined(db, assignmentId) {
+// A reply to a request: the team's leaders and whoever sent the request hear about it.
+// "Can't make it" comes by app and email; "accepted" only to those who turned it on.
+export function notifyResponse(db, assignmentId, status) {
   const [a] = assignmentRows(db, [assignmentId]);
   if (!a) return;
-  const leaders = db.prepare('SELECT DISTINCT person_id FROM team_members WHERE team_id = ? AND is_leader = 1 AND person_id != ?').all(a.team_id, a.person_id).map((r) => r.person_id);
-  notify(db, usersOf(db, leaders).map((u) => u.id), {
-    kind: 'declined',
-    title: `${name(a)} can’t make it`,
-    body: `${a.position} · ${when(a.starts_at)}${a.decline_reason ? ` — “${a.decline_reason}”` : ''}`,
+  const leaderPeople = db.prepare('SELECT DISTINCT person_id FROM team_members WHERE team_id = ? AND is_leader = 1').all(a.team_id).map((r) => r.person_id);
+  const ids = new Set(usersOf(db, leaderPeople).map((u) => u.id));
+  const sender = db.prepare('SELECT sent_by FROM assignments WHERE id = ?').get(a.id)?.sent_by;
+  if (sender) ids.add(sender);
+  // Not the person replying, and only active accounts.
+  const users = ids.size ? db.prepare(`SELECT id, email, person_id, notify FROM users WHERE active = 1 AND id IN (${[...ids].map(() => '?').join(',')})`).all(...ids)
+    .filter((u) => u.person_id !== a.person_id) : [];
+  const declined = status === 'declined';
+  const kind = declined ? 'declined' : 'accepted';
+  const wanted = users.filter((u) => (OFF_BY_DEFAULT.has(kind) ? prefs(u)[kind] === true : prefs(u)[kind] !== false));
+  if (!wanted.length) return;
+  notify(db, wanted.map((u) => u.id), {
+    kind,
+    title: declined ? `${name(a)} can’t make it` : `${name(a)} accepted`,
+    body: `${a.position} · ${when(a.starts_at)} · ${a.campus_short || a.campus}${declined && a.decline_reason ? ` — “${a.decline_reason}”` : ''}`,
     url: `/#/services/${a.service_id}`,
     app_url: hub(`/#/services/${a.service_id}`),
-    tag: `declined-${a.id}`,
+    tag: `${kind}-${a.id}`,
   });
+  if (!declined || !(mailConfigured() || canSendMail())) return;
+  for (const u of wanted) {
+    if (prefs(u).email === false) continue;
+    const to = (u.person_id && db.prepare("SELECT email FROM people WHERE id = ? AND email != ''").get(u.person_id)?.email) || u.email;
+    mail(db, to, `${name(a)} can’t make it ${when(a.starts_at).split(' at ')[0]}`,
+      [`${name(a)} can’t serve as ${a.position} (${a.team}) on ${when(a.starts_at)} at ${a.campus}.`,
+        a.decline_reason ? `Their note: “${a.decline_reason}”` : 'They didn’t leave a note.',
+        `Find someone else: ${hub(`/#/services/${a.service_id}`) || `/#/services/${a.service_id}`}`], { footer: false });
+  }
 }
 
 // The campus's local time as "YYYY-MM-DDTHH:MM", matching how services store their start.

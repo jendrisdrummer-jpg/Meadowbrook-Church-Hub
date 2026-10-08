@@ -5,7 +5,7 @@ import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
-import { notifyScheduled, notifyDeclined, notifyUnscheduled, assignmentRow } from '../notify.js';
+import { notifyScheduled, notifyResponse, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -501,7 +501,7 @@ export default function serviceRoutes(db) {
   r.post('/assignments/send', requireRole('leader'), (req, res) => {
     const list = drafts(req, (req.body?.service_ids || []).map(Number), int(req.body?.team_id));
     if (!list.length) return res.json({ sent: 0, people: 0 });
-    db.prepare(`UPDATE assignments SET sent_at = datetime('now') WHERE id IN (${list.map(() => '?').join(',')})`).run(...list.map((a) => a.id));
+    db.prepare(`UPDATE assignments SET sent_at = datetime('now'), sent_by = ? WHERE id IN (${list.map(() => '?').join(',')})`).run(req.user.id, ...list.map((a) => a.id));
     notifyScheduled(db, list.map((a) => a.id)); // including the sender, if they scheduled themselves
     audit(db, req, 'schedule.send', `${list.length} requests`);
     res.json({ sent: list.length, people: new Set(list.map((a) => a.person_id)).size });
@@ -516,7 +516,8 @@ export default function serviceRoutes(db) {
     if (!status) throw bad('Status must be accepted, declined or pending.');
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
-    if (status === 'declined' && a.status !== 'declined' && a.person_id === req.user.personId) notifyDeclined(db, a.id);
+    // The person's own reply goes to their team's leaders and whoever sent the request.
+    if (status !== a.status && status !== 'pending' && a.person_id === req.user.personId) notifyResponse(db, a.id, status);
     res.json({ ok: true });
   });
 
