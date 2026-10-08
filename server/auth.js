@@ -126,11 +126,12 @@ export function userForEmail(db, email) {
 export function authRoutes(app, db) {
   const devLogin = process.env.MB_DEV_LOGIN === '1';
   const google = () => ({
-    id: process.env.GOOGLE_CLIENT_ID,
-    secret: process.env.GOOGLE_CLIENT_SECRET,
+    // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
+    id: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+    secret: (process.env.GOOGLE_CLIENT_SECRET || '').trim(),
     domain: getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || ''),
   });
-  const callbackUrl = (req) => `${process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
+  const callbackUrl = (req) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
 
   app.get('/auth/options', (_req, res) => {
     res.json({ google: Boolean(google().id && google().secret), dev: devLogin, churchName: getSetting(db, 'church_name', 'Meadowbrook Church') });
@@ -170,7 +171,11 @@ export function authRoutes(app, db) {
         }),
       });
       const tokens = await r.json();
-      if (!r.ok || !tokens.id_token) return fail('Google sign-in failed.');
+      if (!r.ok || !tokens.id_token) {
+        // Google's error code (e.g. invalid_client, redirect_uri_mismatch) says what to fix; it holds no secrets.
+        console.error('Google token exchange failed:', r.status, tokens.error, tokens.error_description, 'redirect_uri =', callbackUrl(req));
+        return fail(`Google sign-in failed (${tokens.error || r.status}). ${SIGN_IN_HINTS[tokens.error] || ''}`.trim());
+      }
       // The ID token came straight from Google over TLS, so its claims can be trusted
       // without checking the signature (Google's OpenID Connect guidance).
       const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());
@@ -203,6 +208,13 @@ export function authRoutes(app, db) {
     res.json({ ok: true });
   });
 }
+
+const SIGN_IN_HINTS = {
+  invalid_client: 'Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server match the Google Cloud client.',
+  unauthorized_client: 'Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server match the Google Cloud client.',
+  redirect_uri_mismatch: 'PUBLIC_URL + /auth/google/callback must exactly match the redirect URI in Google Cloud.',
+  invalid_grant: 'The sign-in link expired or was already used. Please try again.',
+};
 
 function isListedAdmin(email) {
   return (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).includes(String(email).toLowerCase());
