@@ -26,7 +26,7 @@ export const WIDGETS = {
   text: { label: 'Text', hint: 'A heading and a few lines.', sizes: ['T', 'W', 'F'], size: 'F', style: 'card', fields: ['title', 'text'] },
 };
 
-export const ICONS = ['home', 'calendar', 'user', 'people', 'play', 'video', 'heart', 'gift', 'hand', 'chat', 'bell', 'book', 'music', 'map', 'phone', 'clock', 'check', 'tasks', 'info', 'link', 'image', 'send', 'menu'];
+export const ICONS = ['home', 'calendar', 'user', 'people', 'play', 'video', 'heart', 'gift', 'hand', 'chat', 'bell', 'book', 'music', 'map', 'phone', 'clock', 'check', 'tasks', 'info', 'link', 'image', 'send', 'coffee', 'shirt', 'menu'];
 
 export const isHex = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
 export const isAppImage = (v) => /^\/uploads\/app\/[\w-]+\.(jpg|png|webp)$/.test(String(v || ''));
