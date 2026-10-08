@@ -78,6 +78,7 @@ function cleanConfig(b) {
       w.image = k.image;
     }
     if (def.fields.includes('title')) w.title = str(k.title, 120);
+    if (def.fields.includes('campus')) w.campus_id = Number.isInteger(Number(k.campus_id)) && Number(k.campus_id) > 0 ? Number(k.campus_id) : null;
     if (def.fields.includes('text')) w.text = str(k.text, 4000);
     if (def.fields.includes('label')) w.label = required(k.label, 'Button text').slice(0, 30);
     if (def.fields.includes('icon')) w.icon = ICONS.includes(k.icon) ? k.icon : 'link';

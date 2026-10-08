@@ -509,6 +509,8 @@ test('member app: public config, App Builder rules, connect cards', async () => 
   assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'p', type: 'image', size: 'L', image: 'https://evil.example/x.jpg' }] })).status, 400);
   assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'p', type: 'image', size: 'L' }] })).status, 400);
   assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'x', type: 'clock' }] })).status, 400);
+  const cd = await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'cd', type: 'countdown', size: 'W', campus_id: 2, title: 'Join us' }, { id: 'cd2', type: 'countdown', campus_id: 'x' }] });
+  assert.deepEqual(cd.data.home.map((w) => [w.type, w.size, w.campus_id]), [['countdown', 'W', 2], ['countdown', 'W', null]]);
   // Upload a picture (staff only); anyone can see it, signed in or not.
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const upload = (who) => fetch(`${base}/api/app/images`, { method: 'POST', headers: { cookie: cookies[who], 'x-mb': '1', 'content-type': 'image/png' }, body: png });

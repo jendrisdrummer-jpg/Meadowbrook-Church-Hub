@@ -43,6 +43,16 @@ export function widget(w, ctx) {
       return box(w, html`<small>${app.church_name}</small><h2>${w.title || 'Welcome'}</h2>${w.text && w.size !== 'W' ? html`<p>${w.text}</p>` : ''}`, { link: '' });
     case 'text':
       return box(w, html`${w.title ? html`<h2>${w.title}</h2>` : ''}${w.text ? html`<p>${w.text}</p>` : ''}`, { link: '' });
+    case 'countdown': {
+      const next = nextService(app.times.filter((t) => !w.campus_id || t.campus_id === w.campus_id));
+      if (!next) return ctx.edit ? placeholder(w, 'Add repeating services to count down to') : null;
+      const { t, start } = next;
+      const where = app.campuses.length > 1 ? t.campus_short || t.campus_name : '';
+      return box(w, html`<span class="w-cd-when"><span class="w-sub">${w.title || 'Next service'}</span>
+        <b class="w-label">${DAYS[t.day_of_week]} ${clock(t.start_time)}${where ? html` <span class="w-sub">· ${where}</span>` : ''}</b></span>
+        <span class="w-count" data-countdown="${start.getTime()}" data-live-min="${LIVE_MIN}">${countdownText(start.getTime())}</span>`,
+      { link: `#/${tabFor('watch')}`, cls: 'w-cd' });
+    }
     case 'events': {
       const list = ctx.events || [];
       const tab = `#/${tabFor('events')}`;
@@ -115,6 +125,53 @@ export function widget(w, ctx) {
     default:
       return null;
   }
+}
+
+// How long a service counts as "live" after it starts.
+const LIVE_MIN = 90;
+
+// The next service from the weekly times, or the one on now: { t, start: Date }.
+export function nextService(times, now = new Date()) {
+  let best = null;
+  for (const t of times) {
+    const [h, m] = t.start_time.split(':').map(Number);
+    const start = new Date(now);
+    start.setHours(h, m, 0, 0);
+    start.setDate(start.getDate() + ((t.day_of_week - now.getDay() + 7) % 7));
+    // Already over this week: next week's.
+    if (start.getTime() + LIVE_MIN * 60e3 <= now.getTime()) start.setDate(start.getDate() + 7);
+    if (!best || start < best.start) best = { t, start };
+  }
+  return best;
+}
+
+export function countdownText(at, now = Date.now(), liveMin = LIVE_MIN) {
+  const ms = at - now;
+  if (ms <= 0 && -ms < liveMin * 60e3) return 'Live now';
+  const mins = Math.ceil(ms / 60e3);
+  if (mins <= 60) {
+    const sec = Math.max(0, Math.floor(ms / 1e3));
+    return `Starts in ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  }
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  return d ? `in ${d} day${d === 1 ? '' : 's'}${h ? ` ${h} hr` : ''}` : `in ${h} hr${m ? ` ${m} min` : ''}`;
+}
+
+// Keeps countdowns on a page up to date (every second, so the last hour ticks).
+export function tickCountdowns(root) {
+  const tick = () => {
+    const els = root.querySelectorAll('[data-countdown]');
+    if (!root.isConnected) return clearInterval(timer);
+    els.forEach((el) => {
+      const text = countdownText(Number(el.dataset.countdown));
+      if (el.textContent !== text) el.textContent = text;
+      el.closest('.w')?.classList.toggle('is-live', text.startsWith('Live now'));
+    });
+  };
+  const timer = setInterval(tick, 1000);
+  tick();
 }
 
 // The next repeating service from now (by day of week and time).
