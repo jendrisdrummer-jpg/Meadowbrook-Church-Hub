@@ -140,7 +140,9 @@ the app is added to the home screen (iOS 16.4 or later).
 your congregation, like a Subsplash app. Anyone can use it without an account: the home screen,
 service times and addresses, the livestream, giving, and a **connect card** for guests. Signing in
 adds the person's serving schedule (accept/decline, dates away, the order of service for anything
-they're on) and notifications.
+they're on) and notifications. The Serve tab also has **All services**: a month calendar with
+campus buttons, where anyone signed in can open any upcoming service to see its order of service
+and who's serving (only requests that were sent, without contact details).
 - **App Builder** (Church app → App Builder, staff): choose the tabs along the bottom (up to 5,
   including More), their names and icons, and arrange the home screen from ready-made blocks
   (welcome banner, my next times serving, buttons, service times, livestream player, text). Add

@@ -19,8 +19,6 @@ export default function serviceRoutes(db) {
   }
 
   const isStaff = (req) => rank(req.user.role) >= rank('staff');
-  const isAssigned = (req, serviceId) => Boolean(req.user.personId
-    && db.prepare("SELECT 1 FROM assignments WHERE service_id = ? AND person_id = ? AND status != 'declined'").get(serviceId, req.user.personId));
   const leadsTeam = (req, teamId) => Boolean(req.user.personId
     && db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND person_id = ? AND is_leader = 1').get(teamId, req.user.personId));
 
@@ -58,16 +56,20 @@ export default function serviceRoutes(db) {
     const args = [from, `${to}T23:59`, ...cf.args];
     let extra = '';
     if (req.query.campus_id) { extra = ' AND s.campus_id = ?'; args.push(int(req.query.campus_id)); }
-    // Volunteers only see the services they serve at.
-    if (rank(req.user.role) < rank('leader')) { extra += ' AND s.id IN (SELECT service_id FROM assignments WHERE person_id = ?)'; args.push(req.user.personId ?? -1); }
+    // Volunteers see the services they serve at, or (?all=1, the app's All services) every one.
+    if (rank(req.user.role) < rank('leader') && req.query.all !== '1') {
+      extra += ' AND s.id IN (SELECT service_id FROM assignments WHERE person_id = ? AND sent_at IS NOT NULL)';
+      args.push(req.user.personId ?? -1);
+    }
     const rows = db.prepare(`SELECT s.*, st.name type_name, c.name campus_name, c.short_name campus_short, c.color campus_color,
+        (SELECT a.status FROM assignments a WHERE a.service_id = s.id AND a.person_id = ? AND a.sent_at IS NOT NULL ORDER BY a.status = 'declined' LIMIT 1) my_status,
         (SELECT COALESCE(SUM(count), 0) FROM service_needs n WHERE n.service_id = s.id) needed, st.every_weeks,
         (SELECT COUNT(*) FROM plan_items i WHERE i.service_id = s.id AND i.placeholder = 1) to_fill,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status != 'declined') filled,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'accepted') accepted,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'declined') declined
       FROM services s JOIN campuses c ON c.id = s.campus_id LEFT JOIN service_types st ON st.id = s.service_type_id
-      WHERE s.starts_at >= ? AND s.starts_at <= ? AND ${cf.sql}${extra} ORDER BY s.starts_at, c.sort`).all(...args);
+      WHERE s.starts_at >= ? AND s.starts_at <= ? AND ${cf.sql}${extra} ORDER BY s.starts_at, c.sort`).all(req.user.personId ?? -1, ...args);
     res.json(rows);
   });
 
@@ -110,11 +112,17 @@ export default function serviceRoutes(db) {
 
   r.get('/services/:id', requireRole('volunteer'), (req, res) => {
     const s = service(req, req.params.id);
-    if (rank(req.user.role) < rank('leader') && !isAssigned(req, s.id)) throw forbidden();
     const campus = db.prepare('SELECT * FROM campuses WHERE id = ?').get(s.campus_id);
     const type = s.service_type_id ? db.prepare('SELECT * FROM service_types WHERE id = ?').get(s.service_type_id) : null;
-    const assignments = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.nickname, p.photo, p.phone, p.email
+    let assignments = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.nickname, p.photo, p.phone, p.email
       FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id = ? ORDER BY a.created_at`).all(s.id);
+    // Anyone signed in can look at any service's plan and who's serving, but volunteers only
+    // see requests that were sent, without contact details or reasons for declining.
+    const volunteer = rank(req.user.role) < rank('leader');
+    if (volunteer) {
+      assignments = assignments.filter((a) => a.sent_at && a.status !== 'declined')
+        .map((a) => ({ id: a.id, position_id: a.position_id, person_id: a.person_id, status: a.status, sent_at: a.sent_at, first_name: a.first_name, last_name: a.last_name, nickname: a.nickname, photo: a.photo }));
+    }
     const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
     // Every position of every team at this campus (or church-wide), plus anything someone was
     // scheduled into from elsewhere. Positions this service doesn't need show with needed = 0.
@@ -134,7 +142,7 @@ export default function serviceRoutes(db) {
         needed: needs.find((n) => n.position_id === p.id)?.count ?? 0,
         can_schedule: canSchedule(req, s, p.team_id),
         assignments: assignments.filter((a) => a.position_id === p.id),
-      })),
+      })).filter((p) => !volunteer || p.assignments.length),
       headcounts: db.prepare('SELECT area, count FROM headcounts WHERE service_id = ?').all(s.id),
     });
   });

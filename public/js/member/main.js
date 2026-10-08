@@ -60,7 +60,7 @@ async function route() {
   $('[data-content]').replaceChildren(el);
   window.scrollTo(0, 0);
   try {
-    if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1]); }
+    if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
     // Tabs that are off still open (from the More tab or a home screen button).
     const tab = app.config.tabs.find((t) => t.id === parts[0] && t.type !== 'link') || tabs()[0];
@@ -166,8 +166,12 @@ async function serve(el, tab, q) {
       <a class="btn primary" href="${signInHref(`/${tab.id}`)}">Sign in</a></div>`);
     return;
   }
+  // Two views: my own schedule, or every service (any campus) to look up a plan and who's serving.
+  const all = q.get('view') === 'all';
+  const switcher = html`<div class="seg m-seg" role="tablist"><a href="#/${tab.id}" class="${all ? '' : 'on'}">My schedule</a><a href="#/${tab.id}?view=all" class="${all ? 'on' : ''}">All services</a></div>`;
+  if (all) return allServices(el, tab, switcher);
   if (!app.user.linked) {
-    mount(el, html`<div class="card"><p>You’re signed in as <b>${app.user.name}</b>, but your account isn’t linked to the church directory yet, so there’s no schedule to show.</p><p class="muted small">Ask a church admin to link your account.</p></div>`);
+    mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>, but your account isn’t linked to the church directory yet, so there’s no schedule to show.</p><p class="muted small">Ask a church admin to link your account. You can still look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
     return;
   }
   const decline = q.get('decline');
@@ -175,13 +179,69 @@ async function serve(el, tab, q) {
   // Notifications are set up under More; here, just a nudge until they're on.
   const sub = await currentSubscription().catch(() => null);
   const on = sub && 'Notification' in window && Notification.permission === 'granted';
-  mount(el, html`${on || preview ? '' : html`<a class="m-banner" href="#/more" style="text-decoration:none">${icon('bell')}<span class="grow">Get a notification when you’re scheduled</span>${icon('external', 'ic small-ic')}</a>`}<div data-schedule></div>`);
+  mount(el, html`${switcher}${on || preview ? '' : html`<a class="m-banner" href="#/more" style="text-decoration:none">${icon('bell')}<span class="grow">Get a notification when you’re scheduled</span>${icon('external', 'ic small-ic')}</a>`}<div data-schedule></div>`);
   await drawSchedule(el.querySelector('[data-schedule]'), { planHref: (a) => `#/plan/${a.service_id}`, decline });
 }
 
+// Every service in a month, at one campus or all: a small calendar, then each day's services.
+async function allServices(el, tab, switcher) {
+  const remembered = (k, fallback) => { try { return sessionStorage.getItem(k) || fallback; } catch { return fallback; } };
+  const remember = (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* private window */ } };
+  let month = remembered('mb.app.month', new Date().toLocaleDateString('en-CA').slice(0, 7));
+  let campus = Number(remembered('mb.app.campus', '')) || null;
+  const today = new Date().toLocaleDateString('en-CA');
+
+  async function draw() {
+    const first = `${month}-01`;
+    const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate();
+    const last = `${month}-${String(days).padStart(2, '0')}`;
+    const list = (await get(`/services?all=1&from=${first < today && month === today.slice(0, 7) ? today : first}&to=${last}${campus ? `&campus_id=${campus}` : ''}`));
+    const byDay = Map.groupBy(list, (x) => x.starts_at.slice(0, 10));
+    const label = new Date(`${first}T12:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const lead = new Date(`${first}T12:00`).getDay();
+    const status = (x) => (x.my_status === 'pending' ? html`<span class="pill warn">Please reply</span>` : x.my_status === 'accepted' ? html`<span class="pill good">You’re serving</span>` : '');
+    mount(el, html`${switcher}
+      <div class="card m-cal-card">
+        <div class="row"><button class="btn small ghost" data-shift="-1" aria-label="Previous month">‹</button><b class="m-cal-title">${label}</b><button class="btn small ghost" data-shift="1" aria-label="Next month">›</button></div>
+        ${app.campuses.length > 1 ? html`<div class="m-chips">${[{ id: null, short_name: 'All' }, ...app.campuses].map((c) => html`<button class="chip ${campus === c.id ? 'on' : ''}" data-campus="${c.id ?? ''}">${c.short_name || c.name}</button>`)}</div>` : ''}
+        <div class="m-cal">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => html`<span class="dow">${d}</span>`)}
+          ${Array.from({ length: lead }, () => html`<span></span>`)}
+          ${Array.from({ length: days }, (_, i) => {
+            const day = `${month}-${String(i + 1).padStart(2, '0')}`;
+            const has = byDay.get(day);
+            const mine = has?.some((x) => x.my_status && x.my_status !== 'declined');
+            return html`<button class="day ${has ? 'has' : ''} ${mine ? 'mine' : ''} ${day === today ? 'today' : ''}" ${has ? '' : 'disabled'} data-day="${day}">${i + 1}</button>`;
+          })}</div>
+      </div>
+      ${list.length ? [...byDay].map(([day, rows]) => html`<div class="m-day" id="d-${day}"><h3>${fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+        <div class="card m-list">${rows.map((x) => html`<a href="#/plan/${x.id}?from=all"><span class="m-svc-time">${fmtTime(x.starts_at)}</span>
+          <span class="grow"><b>${x.campus_short || x.campus_name}</b>${x.title || x.series ? html`<br><span class="muted small">${[x.title, x.series].filter(Boolean).join(' · ')}</span>` : ''}</span>${status(x)}</a>`)}</div></div>`)
+        : html`<div class="m-empty">${icon('calendar')}<p>No services ${campus ? 'at this campus ' : ''}in ${label}.</p></div>`}`);
+  }
+
+  el.onclick = (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.shift) {
+      const d = new Date(`${month}-15T12:00`);
+      d.setMonth(d.getMonth() + Number(b.dataset.shift));
+      month = d.toLocaleDateString('en-CA').slice(0, 7);
+      remember('mb.app.month', month);
+      draw().catch(fail);
+    } else if (b.dataset.campus !== undefined) {
+      campus = Number(b.dataset.campus) || null;
+      remember('mb.app.campus', campus ?? '');
+      draw().catch(fail);
+    } else if (b.dataset.day) {
+      el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+  await draw();
+}
+
 // A read-only order of service and who's serving, for people on it.
-async function plan(el, id) {
-  setTitle('Order of service', html`<a class="btn small ghost" href="#/serve">Back</a>`);
+async function plan(el, id, q) {
+  setTitle('Order of service', html`<a class="btn small ghost" href="${q?.get('from') === 'all' ? '#/serve?view=all' : '#/serve'}">Back</a>`);
   const s = await get(`/services/${id}`);
   const times = timeline(s.items, s.starts_at);
   const fmt = (m) => new Date(2000, 0, 1, 0, Math.round(m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -195,7 +255,10 @@ async function plan(el, id) {
           ${i.first_name || i.info ? html`<div class="muted small">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</div>` : ''}
           ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</div></div>`))
       : html`<p class="muted">The order of service isn’t ready yet.</p>`}</div>
-    ${serving.length ? html`<div class="card"><h2>Who’s serving</h2>${serving.map((p) => html`<div class="small" style="padding:3px 0"><b>${p.name}</b> <span class="muted">· ${p.assignments.filter((a) => a.status !== 'declined').map(displayName).join(', ')}</span></div>`)}</div>` : ''}`);
+    <div class="card"><h2>Who’s serving</h2>${serving.length ? [...Map.groupBy(serving, (p) => p.team_name)].map(([team, ps]) => html`<div class="m-team">
+        <div class="m-team-name"><span class="dot" style="background:${ps[0].team_color}"></span>${team}</div>
+        ${ps.map((p) => html`<div class="small" style="padding:2px 0"><b>${p.name}</b> <span class="muted">· ${p.assignments.filter((a) => a.status !== 'declined').map(displayName).join(', ')}</span></div>`)}</div>`)
+      : html`<p class="muted small" style="margin:0">No one has been scheduled yet.</p>`}</div>`);
 }
 
 // ---------------------------------------------------------------- watch, give, page, link
