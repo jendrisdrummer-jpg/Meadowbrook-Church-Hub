@@ -465,6 +465,38 @@ test('member app: public config, App Builder rules, connect cards', async () => 
 
   // Signed in, the app knows who you are.
   assert.equal((await api('vol', 'GET', '/app/config')).data.user.role, 'volunteer');
+
+  // Home screen widgets: an old "buttons" block becomes one Button widget per button.
+  const { setSetting } = await import('../server/db.js');
+  setSetting(db, 'app_config', { ...saved.data, home: [{ id: 'old', type: 'buttons', items: [{ label: 'Give', tab: 'give' }, { label: 'Events', url: 'https://ev.example.org' }] }, { id: 'hi', type: 'text', title: 'Hi', text: 'There' }] });
+  const up = (await api(null, 'GET', '/app/config')).data.config.home;
+  assert.deepEqual(up.map((w) => [w.type, w.size]), [['button', 'M'], ['button', 'M'], ['text', 'F']]);
+  assert.equal(up[0].icon, 'heart');
+  assert.equal(up[1].url, 'https://ev.example.org');
+  // Sizes and styles are checked; pictures must be ones uploaded here.
+  const base2 = (await api(null, 'GET', '/app/config')).data.config;
+  const home = [
+    { id: 'g', type: 'button', size: 'T', style: 'color', color: '#AA3300', label: 'Give', icon: 'gift', tab: 'give' },
+    { id: 's', type: 'serving', size: 'S', style: 'nope' },
+  ];
+  const w1 = await api('admin', 'PUT', '/app/config', { ...base2, home });
+  assert.equal(w1.status, 200);
+  assert.deepEqual(w1.data.home[0], { id: 'g', type: 'button', size: 'T', style: 'color', color: '#aa3300', label: 'Give', icon: 'gift', tab: 'give' });
+  assert.deepEqual([w1.data.home[1].size, w1.data.home[1].style], ['F', 'card']); // not a size this widget comes in
+  assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'p', type: 'image', size: 'L', image: 'https://evil.example/x.jpg' }] })).status, 400);
+  assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'p', type: 'image', size: 'L' }] })).status, 400);
+  assert.equal((await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'x', type: 'clock' }] })).status, 400);
+  // Upload a picture (staff only); anyone can see it, signed in or not.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const upload = (who) => fetch(`${base}/api/app/images`, { method: 'POST', headers: { cookie: cookies[who], 'x-mb': '1', 'content-type': 'image/png' }, body: png });
+  assert.equal((await upload('vol')).status, 403);
+  const pic = await (await upload('admin')).json();
+  assert.match(pic.url, /^\/uploads\/app\/[0-9a-f]+\.png$/);
+  assert.equal((await fetch(base + pic.url)).status, 200);
+  const w2 = await api('admin', 'PUT', '/app/config', { ...base2, home: [{ id: 'p', type: 'image', size: 'W', image: pic.url, title: 'Revival', url: 'https://ev.example.org' }] });
+  assert.equal(w2.status, 200);
+  assert.equal(w2.data.home[0].image, pic.url);
+  assert.equal((await fetch(`${base}/uploads/x.png`)).status, 401); // other uploads still need sign-in
 });
 
 test('sign-in returns to where it started, on this site only', async () => {

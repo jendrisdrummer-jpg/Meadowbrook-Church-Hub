@@ -798,3 +798,25 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
   .shell { display: block; }
   .card, .stat { break-inside: avoid; border-color: #ccc; }
 }
+/* App Builder: home screen widgets */
+.w-add { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.w-add-btn { display: grid; justify-items: center; gap: 4px; padding: 10px 6px; border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: center; }
+.w-add-btn:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+.w-add-btn .ic { width: 20px; height: 20px; }
+.w-rows { display: grid; gap: 6px; }
+.w-row { border: 1px solid var(--line); border-radius: 12px; }
+.w-row.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.w-row-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.w-row-head .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-row-head > .ic:first-child { color: var(--accent-text); }
+.w-row.on .w-row-head > .small-ic { transform: rotate(180deg); }
+.w-row-body { display: grid; gap: 12px; padding: 4px 12px 12px; }
+.w-row-body .field > span { display: block; font-weight: 600; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.w-sizes { flex-wrap: wrap; }
+.w-sizes button { display: inline-flex; align-items: center; gap: 6px; }
+.w-size-ic { width: 28px; height: 16px; }
+.w-icons { display: flex; flex-wrap: wrap; gap: 4px; }
+.w-icons button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--text-2); cursor: pointer; }
+.w-icons button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.w-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.w-color { width: 44px; height: 32px; padding: 2px; border-radius: 8px; }

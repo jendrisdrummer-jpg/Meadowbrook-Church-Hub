@@ -1,22 +1,26 @@
 // The member app: what's on it comes from the dashboard's App Builder. Anyone can use it;
 // signing in adds the person's serving schedule, service plans and notifications.
-import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, DAYS } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription } from '../push.js';
 import { openChat } from '../chat.js';
-import { taskList, taskPage, taskRow } from '../tasks.js';
+import { taskList, taskPage } from '../tasks.js';
 import { giveForm, giveThanks, myGiving } from '../give.js';
+import { homeGrid } from './widgets.js';
+import { editHome } from './home-edit.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
 const preview = new URLSearchParams(location.search).has('preview');
+// In the App Builder, the preview's home screen can be rearranged (?preview=1&edit=1).
+const editing = preview && new URLSearchParams(location.search).has('edit');
+let selectedWidget = null;
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const atLeast = (role) => app.user && ROLES.indexOf(app.user.role) >= ROLES.indexOf(role);
 const tabs = () => app.config.tabs.filter((t) => t.on);
 const signInHref = (back) => `/login?next=${encodeURIComponent(`/app/#${back}`)}`;
-const clock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 function applyTheme() {
   const root = document.documentElement;
@@ -42,8 +46,15 @@ async function boot() {
   window.addEventListener('hashchange', route);
   // The App Builder's preview reloads this with fresh settings.
   window.addEventListener('message', (e) => {
-    if (e.origin === location.origin && e.data?.type === 'app-config') { app.config = e.data.config; route(); }
+    if (e.origin !== location.origin || e.data?.type !== 'app-config') return;
+    app.config = e.data.config;
+    selectedWidget = e.data.selected ?? null;
+    // Redrawing just the home screen keeps the scroll position while arranging it.
+    const onHome = homeShown && e.data.keepScroll;
+    if (onHome) return homeShown();
+    route();
   });
+  if (preview) parent.postMessage({ type: 'app-ready' }, location.origin);
   if ('serviceWorker' in navigator && !preview) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'navigate') location.href = e.data.url; });
@@ -102,16 +113,24 @@ async function route() {
 }
 
 // ---------------------------------------------------------------- home
+let homeShown = null; // redraws the home screen in place (App Builder preview)
 async function home(el, tab) {
   setTitle(tab.label === 'Home' ? app.church_name : tab.label);
-  const blocks = app.config.home;
-  const needServing = blocks.some((b) => b.type === 'serving') && app.user?.linked;
-  const mine = needServing ? await get('/my/schedule').catch(() => null) : null;
-  const myTasks = blocks.some((b) => b.type === 'tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
-  mount(el, html`${installBanner()}${blocks.map((b) => block(b, mine, myTasks)).filter(Boolean).map((x) => html`<div class="m-block">${x}</div>`)}`);
+  const widgets = app.config.home;
+  const has = (type) => widgets.some((w) => w.type === type);
+  const mine = has('serving') && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
+  const myTasks = has('tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
+  const draw = () => {
+    const ctx = { app, mine, tasks: myTasks, edit: editing, signInHref, videoEmbed };
+    mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
+    if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
+  };
+  draw();
+  homeShown = () => (el.isConnected ? draw() : route());
   el.onclick = async (e) => {
     const b = e.target.closest('button');
-    if (!b) return;
+    if (!b || editing) return;
+    e.preventDefault();
     try {
       if (b.dataset.done) { await patch(`/tasks/${b.dataset.done}`, { done: true }); toast('Done!'); refreshChatBadge(); return home(el, tab); }
       if (b.dataset.accept) { await patch(`/assignments/${b.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); home(el, tab); }
@@ -119,50 +138,6 @@ async function home(el, tab) {
       if (b.matches('[data-hide-banner]')) { localStorage.setItem('mb.app.banner', '1'); home(el, tab); }
     } catch (err) { fail(err); }
   };
-}
-
-function block(b, mine, myTasks = []) {
-  if (b.type === 'tasks') {
-    if (!myTasks.length) return null;
-    return html`<div class="card"><div class="card-head"><h2>My tasks</h2><a class="btn small ghost" href="#/tasks">All</a></div>
-      <div class="task-list">${myTasks.slice(0, 4).map((t) => taskRow(t, { showWho: false }))}</div></div>`;
-  }
-  if (b.type === 'welcome') {
-    return html`<div class="m-hero"><small>${app.church_name}</small><h2>${b.title || 'Welcome'}</h2>${b.text ? html`<p>${b.text}</p>` : ''}</div>`;
-  }
-  if (b.type === 'text') {
-    return html`<div class="card m-text">${b.title ? html`<h2 style="margin:0">${b.title}</h2>` : ''}<p>${b.text}</p></div>`;
-  }
-  if (b.type === 'buttons') {
-    return html`<div class="m-buttons">${b.items.map((x, i) => html`<a class="btn ${i === 0 ? 'primary' : ''}" href="${x.url || `#/${x.tab}`}" ${x.url ? raw('target="_blank" rel="noopener"') : ''}>${x.label}</a>`)}</div>`;
-  }
-  if (b.type === 'times') {
-    if (!app.times.length) return null;
-    const byCampus = Map.groupBy(app.times, (t) => t.campus_id);
-    return html`<div class="card m-times">${b.title ? html`<h2>${b.title}</h2>` : ''}
-      ${[...byCampus.values()].map((list) => {
-        const c = list[0];
-        const byDay = Map.groupBy(list, (t) => t.day_of_week);
-        return html`<div class="campus"><b>${c.campus_name}</b>
-          ${[...byDay].map(([day, ts]) => html`<div><span class="t">${DAYS[day]}s</span> · ${ts.map((t) => clock(t.start_time)).join(' & ')}</div>`)}
-          ${c.address ? html`<a class="small" href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map', 'ic small-ic')} ${c.address}</a>` : ''}</div>`;
-      })}</div>`;
-  }
-  if (b.type === 'serving') {
-    if (!app.user) return html`<a class="card row" href="${signInHref('/serve')}" style="color:inherit;text-decoration:none">${icon('calendar')}<span class="grow" style="margin-right:auto"><b>Serve on a team?</b><br><span class="muted small">Sign in to see when you’re scheduled.</span></span>${icon('external', 'ic small-ic')}</a>`;
-    const next = (mine?.assignments || []).filter((a) => a.status !== 'declined').slice(0, 3);
-    if (!next.length) return null;
-    return html`<div class="card"><div class="card-head"><h2>You’re serving</h2><a class="btn small ghost" href="#/serve">All</a></div>
-      ${next.map((a) => html`<div class="m-serving-row"><div class="what"><b>${fmtDate(a.starts_at)}</b> · ${fmtTime(a.starts_at)}<div class="muted small">${a.position} · ${a.campus}</div></div>
-        ${a.status === 'pending' ? html`<button class="btn small primary" data-accept="${a.id}">Accept</button>` : html`<a class="btn small ghost" href="#/plan/${a.service_id}">Plan</a>`}</div>`)}</div>`;
-  }
-  if (b.type === 'watch') {
-    const embed = videoEmbed(app.config.watch_url);
-    if (!app.config.watch_url) return null;
-    return html`<div class="card">${b.title ? html`<h2>${b.title}</h2>` : ''}${embed ? html`<div class="m-video"><iframe src="${embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>`
-      : html`<a class="btn primary" href="${app.config.watch_url}" target="_blank" rel="noopener">${icon('play')} Watch</a>`}</div>`;
-  }
-  return null;
 }
 
 function installBanner() {
