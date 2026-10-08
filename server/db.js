@@ -604,6 +604,26 @@ const MIGRATIONS = [
   CREATE INDEX gifts_date ON gifts (given_on);
   CREATE INDEX gifts_person ON gifts (person_id, given_on);
   `,
+  // 18: cash and checks entered in batches (an offering count), and year-end statements sent.
+  `
+  CREATE TABLE gift_batches (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    given_on TEXT NOT NULL,
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE gifts ADD COLUMN batch_id INTEGER REFERENCES gift_batches(id) ON DELETE CASCADE;
+  CREATE TABLE statement_sends (
+    year TEXT NOT NULL,
+    donor TEXT NOT NULL,                               -- "p:<person id>" or "e:<email>"
+    email TEXT NOT NULL,
+    total_cents INTEGER NOT NULL,
+    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (year, donor)
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

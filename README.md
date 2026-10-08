@@ -224,6 +224,13 @@ and who's serving (only requests that were sent, without contact details).
     for this month / last month / this year / last year / any dates;
   - **Gifts**: every gift with search, fund filter and **CSV export**; link a guest's gifts to
     their People record;
+  - **Cash & checks**: enter each offering as a batch (date, campus, label), one line per gift:
+    a person (or "loose cash"), fund, cash or check (with check number) and amount; Enter adds
+    the next line. Open a batch later to fix it, or delete it;
+  - **Statements**: everyone who gave in a year, with totals; **View** a statement (print or save
+    as PDF), **Email all** (each giver gets theirs; anyone already sent is skipped) or send one.
+    Set the church's legal name, EIN, address, message and signature that go on every statement.
+    Givers can also open their own from the app (More → My giving);
   - **Donors**, **Recurring**, and **Funds** (add, rename, reorder, hide, choose the default; set
     the cover-the-fee rate).
 

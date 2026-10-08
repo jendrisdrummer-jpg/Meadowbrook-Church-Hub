@@ -117,7 +117,8 @@ export async function myGiving(el, { year } = {}) {
   const status = { pending: html` <span class="pill warn">Processing</span>`, failed: html` <span class="pill bad">Didn’t go through</span>`, refunded: html` <span class="pill">Refunded</span>` };
   mount(el, html`<div class="card"><div class="row"><h2 style="margin:0">Giving in</h2>
       <select data-year aria-label="Year">${[0, 1, 2, 3].map((n) => html`<option ${String(thisYear - n) === d.year ? 'selected' : ''}>${thisYear - n}</option>`)}</select></div>
-      <p class="give-total">${money(d.total_cents)}</p><p class="muted small" style="margin:0">Gifts that went through in ${d.year}. Your year-end statement comes in January.</p></div>
+      <p class="give-total">${money(d.total_cents)}</p><p class="muted small" style="margin:0">Gifts that went through in ${d.year}. Your year-end statement comes by email in January.</p>
+      ${d.gifts.some((g) => g.status === 'succeeded') ? html`<a class="btn small ghost" style="margin-top:10px" href="/api/giving/statement?year=${d.year}" target="_blank" rel="noopener">${icon('printer')} ${d.year} statement</a>` : ''}</div>
     <div class="card"><div class="card-head"><h2>Recurring gifts</h2></div>
       ${d.recurring.length ? d.recurring.map((g) => html`<div class="give-row"><div class="grow"><b>${money(g.amount_cents)}</b> ${g.every_label} · ${g.fund}${g.fee_cents ? html`<span class="muted small"> (+${money(g.fee_cents)} fees)</span>` : ''}
           ${g.status === 'past_due' ? html`<br><span class="pill bad">Last payment didn’t go through: update your payment method</span>` : ''}</div>
