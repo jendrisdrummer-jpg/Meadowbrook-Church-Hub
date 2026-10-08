@@ -178,6 +178,35 @@ test('roll call marks people and families, and feeds follow-up lists', async () 
   assert.equal(hist.recent.length, 1);
 });
 
+test('order-of-service details, one start row, locking and edit permissions', async () => {
+  const day = nextSunday(30);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T10:00` })).data;
+  let items = (await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'item', category: 'Announcement', title: 'Service Huddle', length_sec: 2100, info: 'Pastor Dallas' })).data;
+  assert.equal(items[0].category, 'Announcement');
+  assert.equal(items[0].info, 'Pastor Dallas');
+  await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'header', title: 'Pre-service', is_start: true });
+  items = (await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'header', title: 'Service Start', is_start: true })).data;
+  assert.deepEqual(items.map((i) => i.is_start), [0, 0, 1]);
+
+  // Staff (North) can edit; a lock stops them but not an admin.
+  assert.equal((await api('north', 'POST', `/services/${svc.id}/items`, { kind: 'item', title: 'Welcome' })).status, 201);
+  assert.equal((await api('north', 'PATCH', `/services/${svc.id}`, { locked: true })).status, 200);
+  const blocked = await api('north', 'POST', `/services/${svc.id}/items`, { kind: 'item', title: 'Nope' });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.data.error, /locked/);
+  assert.equal((await api('north', 'PATCH', `/services/${svc.id}`, { title: 'Changed' })).status, 400);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'item', title: 'Admin fix' })).status, 201);
+  const seen = (await api('north', 'GET', `/services/${svc.id}`)).data;
+  assert.equal(seen.can_edit_plan, false);
+  assert.equal((await api('north', 'PATCH', `/services/${svc.id}`, { locked: false })).status, 200);
+
+  // Settings can raise who may edit plans.
+  await api('admin', 'PATCH', '/settings', { plan_edit_role: 'admin' });
+  assert.equal((await api('north', 'POST', `/services/${svc.id}/items`, { kind: 'item', title: 'Nope' })).status, 403);
+  await api('admin', 'PATCH', '/settings', { plan_edit_role: 'leader' });
+  assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'everyone' })).status, 400);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

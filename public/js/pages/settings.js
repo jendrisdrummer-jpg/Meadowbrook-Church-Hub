@@ -171,6 +171,18 @@ async function accounts(panel) {
       <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access below.</span></label>
     <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="mbclife.church">
       <span class="muted small">Used by the “church accounts” options.</span></label>
+    <h2 style="margin-top:8px">Who can make changes</h2>
+    <label class="field">Edit orders of service<select name="plan_edit_role">${options([
+      { value: 'leader', label: 'Leaders, staff and admins' },
+      { value: 'staff', label: 'Staff and admins' },
+      { value: 'admin', label: 'Admins only' },
+    ], s.plan_edit_role)}</select></label>
+    <label class="field">Schedule volunteers<select name="schedule_role">${options([
+      { value: 'team_leaders', label: 'Team leaders (their own teams), staff and admins' },
+      { value: 'staff', label: 'Staff and admins' },
+      { value: 'admin', label: 'Admins only' },
+    ], s.schedule_role)}</select>
+      <span class="muted small">Staff can also <b>Lock</b> a single service so only admins can change it.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
   <div class="card" style="margin-top:14px">

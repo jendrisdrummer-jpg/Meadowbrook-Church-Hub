@@ -270,6 +270,15 @@ const MIGRATIONS = [
   );
   CREATE INDEX attendance_person ON attendance(person_id);
   `,
+  // 5: order-of-service details (type, who's leading as free text, where the service starts)
+  // and a per-service lock.
+  `
+  ALTER TABLE plan_items ADD COLUMN category TEXT NOT NULL DEFAULT '';
+  ALTER TABLE plan_items ADD COLUMN info TEXT NOT NULL DEFAULT '';
+  ALTER TABLE plan_items ADD COLUMN is_start INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE services ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+  UPDATE plan_items SET category = 'Song' WHERE kind = 'song';
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
