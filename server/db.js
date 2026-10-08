@@ -544,6 +544,66 @@ const MIGRATIONS = [
   CREATE INDEX calls_chat ON calls (chat_id, ended_at);
   ALTER TABLE messages ADD COLUMN call_id INTEGER REFERENCES calls(id) ON DELETE SET NULL;
   `,
+  // 17: giving. Funds in sections, every gift (online through Stripe, or entered by hand),
+  // recurring gifts, and a Finance permission: only accounts with it see who gave what.
+  `
+  ALTER TABLE users ADD COLUMN finance INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE funds (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    section TEXT NOT NULL DEFAULT '',
+    sort INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    is_default INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO funds (name, section, sort, is_default) VALUES
+    ('Tithe', 'Main', 1, 1), ('General Offering', 'Main', 2, 0), ('Kingdom Building Pledge', 'Main', 3, 0),
+    ('Missions - Ukraine', 'Missions', 11, 0), ('Missions - General', 'Missions', 12, 0),
+    ('Bible Quizzing', 'Special Offering', 21, 0), ('Building Fund', 'Special Offering', 22, 0), ('Special Speaker', 'Special Offering', 23, 0),
+    ('Youth', 'Special Offering', 24, 0), ('Other', 'Special Offering', 25, 0);
+  CREATE TABLE giving_customers (                      -- a person's Stripe customer
+    person_id INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+    customer_id TEXT NOT NULL UNIQUE
+  );
+  CREATE TABLE recurring_gifts (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    fund_id INTEGER REFERENCES funds(id) ON DELETE SET NULL,
+    amount_cents INTEGER NOT NULL,                     -- the gift (fee added on top when covered)
+    fee_cents INTEGER NOT NULL DEFAULT 0,
+    every TEXT NOT NULL,                               -- week | 2week | month
+    subscription_id TEXT NOT NULL UNIQUE,
+    customer_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',             -- active | past_due | canceled
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    canceled_at TEXT
+  );
+  CREATE TABLE gifts (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    name TEXT NOT NULL DEFAULT '',                     -- as given (guests may not be in People)
+    email TEXT NOT NULL DEFAULT '',
+    fund_id INTEGER REFERENCES funds(id) ON DELETE SET NULL,
+    amount_cents INTEGER NOT NULL,                     -- to the fund
+    fee_cents INTEGER NOT NULL DEFAULT 0,              -- extra the giver added to cover fees
+    method TEXT NOT NULL DEFAULT 'card',               -- card | bank | cash | check | other
+    source TEXT NOT NULL DEFAULT 'online',             -- online | recurring | manual
+    status TEXT NOT NULL DEFAULT 'succeeded',          -- pending | succeeded | failed | refunded
+    given_on TEXT NOT NULL,                            -- YYYY-MM-DD
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    recurring_id INTEGER REFERENCES recurring_gifts(id) ON DELETE SET NULL,
+    stripe_ref TEXT UNIQUE,                            -- payment intent or invoice id
+    stripe_pi TEXT,                                    -- the payment intent (for refunds of recurring gifts)
+    check_number TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    recorded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX gifts_date ON gifts (given_on);
+  CREATE INDEX gifts_person ON gifts (person_id, given_on);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

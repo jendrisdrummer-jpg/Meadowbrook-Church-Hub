@@ -335,7 +335,7 @@ async function accounts(panel, q = '') {
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
-      <td><span class="pill">${u.role}</span></td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
+      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
     </tbody></table></div>`);
   panel.querySelector('[data-signin]').onsubmit = async (e) => {
@@ -353,6 +353,7 @@ async function accounts(panel, q = '') {
         <div class="field"><span>Campuses</span>
           <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''}> All campuses</label>
           ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
+        <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button></div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
         ${u.id ? html`<p class="muted small" style="margin:0">${u.has_password ? 'Signs in with email and password (or Google).' : 'Hasn’t set a password; signs in with Google or an emailed code.'}</p>
@@ -370,7 +371,7 @@ async function accounts(panel, q = '') {
       },
       onSubmit: (f) => {
         const b = formData(f);
-        const body = { role: b.role, person_id: personId, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        const body = { role: b.role, person_id: personId, finance: b.finance, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
         if (u.id) body.active = b.active;
         else body.email = b.email;
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);

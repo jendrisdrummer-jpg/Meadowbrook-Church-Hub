@@ -11,6 +11,7 @@ import http from 'node:http';
 import { sendReminders } from '../server/notify.js';
 import { sendTaskReminders, nextDue } from '../server/routes/tasks.js';
 import { syncCalls } from '../server/routes/calls.js';
+import { coverFee } from '../server/stripe.js';
 import { outbox } from '../server/mail.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
@@ -987,6 +988,142 @@ test('video calls: start, join with a private room, meetings, and the monthly li
   await syncCalls(db);
   assert.ok(db.prepare('SELECT ended_at FROM calls WHERE id = ?').get(meeting.id).ended_at);
   assert.equal((await api('admin', 'PATCH', '/settings', { video_minutes_limit: -1 })).status, 400);
+});
+
+test('giving: Stripe checkout, webhooks, recurring gifts, my giving, and finance-only reports', async (t) => {
+  const stripeCalls = [];
+  const mock = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const form = Object.fromEntries(new URLSearchParams(body));
+      stripeCalls.push({ method: req.method, url: req.url, form });
+      const send = (o) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(o));
+      if (req.url === '/customers') return send({ id: 'cus_member' });
+      if (req.url === '/checkout/sessions') return send({ id: `cs_test_${stripeCalls.length}`, client_secret: 'cs_secret' });
+      if (req.url.startsWith('/checkout/sessions/')) return send({ status: 'complete', payment_status: 'paid', metadata: { fund_id: '1', amount_cents: '5000', fee_cents: '0', every: 'once' }, customer_details: { email: 'guest@give.org' } });
+      if (req.url.startsWith('/payment_intents/pi_bank')) return send({ payment_method: { type: 'us_bank_account' } });
+      if (req.url.startsWith('/payment_intents/')) return send({ payment_method: { type: 'card' } });
+      if (req.url.startsWith('/subscriptions/sub_1') && req.method === 'GET') {
+        return send({ id: 'sub_1', metadata: { fund_id: '4', amount_cents: '2000', fee_cents: '75', every: 'month', person_id: '' }, customer: { id: 'cus_member', email: 'rita@give.org', name: 'Rita Give' }, items: { data: [{ id: 'si_1', price: { product: 'prod_1' } }] } });
+      }
+      send({});
+    });
+  }).listen(0);
+  await new Promise((r) => mock.once('listening', r));
+  t.after(() => { mock.closeAllConnections(); mock.close(); for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_API_URL']) delete process.env[k]; });
+  const crypto = await import('node:crypto');
+  const hook = (type, object, secret = 'whsec_test') => {
+    const raw = JSON.stringify({ id: `evt_${Math.random()}`, type, data: { object } });
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHmac('sha256', secret).update(`${ts}.${raw}`).digest('hex');
+    return fetch(`${base}/stripe/webhook`, { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': `t=${ts},v1=${sig}` }, body: raw });
+  };
+
+  // Not set up: the app falls back to the giving link.
+  assert.equal((await api(null, 'GET', '/giving/config')).data.enabled, false);
+  assert.equal((await api(null, 'POST', '/giving/checkout', { amount: 10, fund_id: 1 })).status, 503);
+  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PUBLISHABLE_KEY: 'pk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_test', STRIPE_API_URL: `http://127.0.0.1:${mock.address().port}` });
+  const cfg = (await api(null, 'GET', '/giving/config')).data;
+  assert.equal(cfg.publishable_key, 'pk_test_x');
+  assert.deepEqual([...new Set(cfg.funds.map((f) => f.section))], ['Main', 'Missions', 'Special Offering']);
+  assert.equal(cfg.funds.find((f) => f.is_default).name, 'Tithe');
+
+  // Guests give with a name and email; covering the fee adds exactly enough.
+  assert.equal((await api(null, 'POST', '/giving/checkout', { amount: 100, fund_id: 1 })).status, 400);
+  const tithe = cfg.funds.find((f) => f.name === 'Tithe').id;
+  const guest = await api(null, 'POST', '/giving/checkout', { amount: '$100', fund_id: tithe, cover_fee: true, name: 'Gail Guest', email: 'Guest@Give.org' });
+  assert.equal(guest.data.client_secret, 'cs_secret');
+  let sent = stripeCalls.at(-1).form;
+  assert.equal(coverFee(10000, 2.2, 30), 256);
+  assert.equal(sent['line_items[0][price_data][unit_amount]'], '10256');
+  assert.equal(sent.mode, 'payment');
+  assert.deepEqual([sent['payment_method_types[0]'], sent['payment_method_types[1]']], ['card', 'us_bank_account']);
+  assert.equal(sent.customer_email, 'guest@give.org');
+  assert.equal(sent.ui_mode, 'embedded');
+
+  // A member giving monthly: their own Stripe customer, a subscription.
+  const rita = (await api('admin', 'POST', '/people', { first_name: 'Rita', last_name: 'Give', email: 'rita@give.org', campus_id: 1 })).data;
+  const ritaUser = db.prepare("INSERT INTO users (email, role, person_id) VALUES ('rita@give.org', 'volunteer', ?)").run(rita.id).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.rita = v.split(';')[0]; } }, ritaUser);
+  const missions = cfg.funds.find((f) => f.name === 'Missions - Ukraine').id;
+  await api('rita', 'POST', '/giving/checkout', { amount: 20, fund_id: missions, every: 'month', cover_fee: true });
+  sent = stripeCalls.at(-1).form;
+  assert.equal(sent.customer, 'cus_member');
+  assert.equal(sent.mode, 'subscription');
+  assert.equal(sent['line_items[0][price_data][recurring][interval]'], 'month');
+  assert.equal(sent['subscription_data[metadata][person_id]'], String(rita.id));
+
+  // Webhooks: signatures are checked; repeats don't double count.
+  assert.equal((await hook('checkout.session.completed', {}, 'wrong')).status, 400);
+  const paid = { mode: 'payment', payment_intent: 'pi_card', payment_status: 'paid', amount_total: 10256, created: Math.floor(Date.now() / 1000),
+    metadata: { fund_id: String(tithe), amount_cents: '10000', fee_cents: '256', every: 'once', person_id: '', name: 'Gail Guest' }, customer_details: { email: 'guest@give.org', name: 'Gail Guest' } };
+  assert.equal((await hook('checkout.session.completed', paid)).status, 200);
+  await hook('checkout.session.completed', paid);
+  const g1 = db.prepare("SELECT * FROM gifts WHERE stripe_ref = 'pi_card'").all();
+  assert.equal(g1.length, 1);
+  assert.deepEqual([g1[0].amount_cents, g1[0].fee_cents, g1[0].status, g1[0].method, g1[0].person_id], [10000, 256, 'succeeded', 'card', null]);
+  assert.match(outbox.at(-1).text, /\$100\.00 to Tithe/);
+  // Bank payments are pending until they clear.
+  await hook('checkout.session.completed', { ...paid, payment_intent: 'pi_bank', payment_status: 'unpaid' });
+  assert.equal(db.prepare("SELECT status, method FROM gifts WHERE stripe_ref = 'pi_bank'").get().status, 'pending');
+  await hook('payment_intent.succeeded', { id: 'pi_bank' });
+  assert.deepEqual({ ...db.prepare("SELECT status, method FROM gifts WHERE stripe_ref = 'pi_bank'").get() }, { status: 'succeeded', method: 'bank' });
+  // Recurring: the first invoice may arrive before the checkout event.
+  await hook('invoice.paid', { id: 'in_1', subscription: 'sub_1', amount_paid: 2075, payment_intent: 'pi_sub1', created: Math.floor(Date.now() / 1000) });
+  await hook('checkout.session.completed', { mode: 'subscription', subscription: 'sub_1', customer: 'cus_member', metadata: { fund_id: String(missions), amount_cents: '2000', fee_cents: '75', every: 'month', person_id: String(rita.id) }, customer_details: { email: 'rita@give.org', name: 'Rita Give' } });
+  const rg = db.prepare("SELECT * FROM recurring_gifts WHERE subscription_id = 'sub_1'").get();
+  assert.equal(rg.person_id, rita.id);
+  assert.deepEqual({ ...db.prepare("SELECT amount_cents, fee_cents, source, person_id FROM gifts WHERE stripe_ref = 'in_1'").get() }, { amount_cents: 2000, fee_cents: 75, source: 'recurring', person_id: rita.id });
+
+  // Newer Stripe API versions put the subscription and payment elsewhere on the invoice.
+  await hook('invoice.paid', { id: 'in_2', parent: { subscription_details: { subscription: 'sub_1' } }, payments: { data: [{ payment: { payment_intent: 'pi_sub2' } }] }, amount_paid: 2075, created: Math.floor(Date.now() / 1000) });
+  assert.equal(db.prepare("SELECT recurring_id FROM gifts WHERE stripe_ref = 'in_2'").get().recurring_id, rg.id);
+  await hook('charge.refunded', { refunded: true, payment_intent: 'pi_sub2' });
+  assert.equal(db.prepare("SELECT status FROM gifts WHERE stripe_ref = 'in_2'").get().status, 'refunded');
+
+  // My giving: Rita sees hers; someone else can't touch her recurring gift.
+  const my = (await api('rita', 'GET', '/giving/mine')).data;
+  assert.equal(my.total_cents, 2000);
+  assert.equal(my.recurring[0].every_label, 'every month');
+  assert.equal((await api('vol', 'POST', `/giving/recurring/${rg.id}/cancel`)).status, 404);
+  assert.equal((await api('rita', 'PATCH', `/giving/recurring/${rg.id}`, { amount: 25 })).status, 200);
+  assert.equal(stripeCalls.at(-1).form['items[0][price_data][unit_amount]'], String(2500 + coverFee(2500, 2.2, 30)));
+  await api('rita', 'POST', `/giving/recurring/${rg.id}/cancel`);
+  assert.equal(stripeCalls.at(-1).method, 'DELETE');
+  assert.equal(db.prepare('SELECT status FROM recurring_gifts WHERE id = ?').get(rg.id).status, 'canceled');
+
+  // Finance-only: even admins need the Finance permission to see who gave.
+  assert.equal((await api('admin', 'GET', '/finance/summary')).status, 403);
+  assert.equal((await api('rita', 'GET', '/finance/gifts')).status, 403);
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  await api('admin', 'PATCH', `/users/${adminId}`, { finance: true });
+  assert.equal((await api('admin', 'GET', '/me')).data.finance, true);
+  const sum = (await api('admin', 'GET', '/finance/summary')).data;
+  assert.equal(sum.total, 10000 + 10000 + 2000);
+  assert.equal(sum.by_fund.find((f) => f.name === 'Tithe').total, 20000);
+  assert.ok(sum.by_method.some((m) => m.method === 'bank'));
+  const donors = (await api('admin', 'GET', '/finance/donors')).data;
+  assert.equal(donors[0].giver, 'Gail Guest');
+  // Link the guest's gifts to her People record.
+  const gail = (await api('admin', 'POST', '/people', { first_name: 'Gail', last_name: 'Guest', campus_id: 1 })).data;
+  await api('admin', 'PATCH', `/finance/gifts/${g1[0].id}`, { person_id: gail.id });
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM gifts WHERE person_id = ?").get(gail.id).n, 2);
+  const csv = await fetch(`${base}/api/finance/gifts.csv`, { headers: { cookie: cookies.admin } }).then((r) => r.text());
+  assert.match(csv, /^Date,Giver,Email,Fund,Amount/);
+  assert.match(csv, /Gail Guest/);
+  // Refunds.
+  await hook('charge.refunded', { refunded: true, payment_intent: 'pi_card' });
+  assert.equal(db.prepare("SELECT status FROM gifts WHERE stripe_ref = 'pi_card'").get().status, 'refunded');
+
+  // Funds: add, the default can't be hidden, a new default.
+  const youth2 = (await api('admin', 'POST', '/finance/funds', { name: 'Missions - Haiti', section: 'Missions' })).data;
+  assert.equal(youth2.section, 'Missions');
+  assert.equal((await api('admin', 'PATCH', `/finance/funds/${tithe}`, { active: false })).status, 400);
+  await api('admin', 'PATCH', `/finance/funds/${youth2.id}`, { is_default: true });
+  assert.equal((await api(null, 'GET', '/giving/config')).data.funds.find((f) => f.is_default).name, 'Missions - Haiti');
+  await api('admin', 'PATCH', `/finance/funds/${tithe}`, { is_default: true });
+  assert.equal((await api('admin', 'PATCH', '/finance/settings', { fee_percent: 50 })).status, 400);
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

@@ -69,6 +69,7 @@ function toUser(row) {
     name: row.first_name ? `${row.nickname || row.first_name} ${row.last_name}`.trim() : row.email,
     theme: row.theme || 'light',
     photo: row.photo || null,
+    finance: Boolean(row.finance),
   };
 }
 

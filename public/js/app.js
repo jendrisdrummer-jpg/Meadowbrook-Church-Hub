@@ -22,6 +22,9 @@ const NAV = [
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
     { path: '/templates', label: 'Templates', icon: 'copy', min: 'staff' },
   ] },
+  { group: 'Finance', items: [
+    { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
+  ] },
   { group: 'Church app', items: [
     { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader' },
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
@@ -51,6 +54,7 @@ const ROUTES = [
   [/^\/my$/, 'my'],
   [/^\/chat(?:\/(\d+))?$/, 'chat'],
   [/^\/tasks$/, 'tasks'],
+  [/^\/giving(?:\/(\w+))?$/, 'giving'],
   [/^\/tasks\/(new|\d+)$/, 'task'],
   [/^\/people$/, 'people'],
   [/^\/people\/(\d+)$/, 'person'],
@@ -160,7 +164,8 @@ document.addEventListener('click', (e) => {
 });
 
 function drawChrome() {
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min)) })).filter((g) => g.items.length);
+  // Finance pages are for accounts with the Finance permission, whatever their role.
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance)) })).filter((g) => g.items.length);
   const link = (n, label = n.label) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${label}</span>${n.badge ? html`<span class="nav-badge hidden" data-badge="${n.badge}"></span>` : ''}</a>`;
   mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map((n) => link(n))}`));
   mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map((n) => link(n, n.short || n.label)));
