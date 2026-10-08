@@ -117,7 +117,14 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   const svc = await api('vol', 'GET', `/services/${north.id}`);
   assert.equal(svc.status, 200);
   assert.equal(svc.data.positions.find((p) => p.id === drums.id).assignments[0].status, 'accepted');
-  assert.equal((await api('vol', 'GET', `/services/${south.id}`)).status, 403);
+  // Volunteers can look at any service, without contact details, drafts or decline reasons.
+  const other = await api('vol', 'GET', `/services/${south.id}`);
+  assert.equal(other.status, 200);
+  assert.ok(other.data.positions.every((p) => p.assignments.length && p.assignments.every((a) => a.sent_at && a.email === undefined && a.phone === undefined)));
+  const all = (await api('vol', 'GET', `/services?all=1&from=${sunday}&to=${addDays(sunday, 6)}`)).data;
+  assert.ok(all.some((x) => x.id === south.id));
+  assert.equal(all.find((x) => x.id === north.id).my_status, 'accepted');
+  assert.ok(!(await api('vol', 'GET', `/services?from=${sunday}&to=${addDays(sunday, 6)}`)).data.some((x) => x.id === south.id));
 
   // Blockouts block scheduling.
   const later = services.find((s) => s.service_type_id === st.data.id && s.id !== north.id);

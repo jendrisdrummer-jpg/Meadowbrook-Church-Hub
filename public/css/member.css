@@ -46,3 +46,26 @@ body.member { background: var(--bg); min-height: 100vh; }
 .m-form .checks { display: grid; gap: 8px; margin: 6px 0 14px; }
 .m-hp { position: absolute; left: -5000px; }
 .m-empty { text-align: center; padding: 30px 10px; color: var(--muted); }
+
+/* Serve: My schedule / All services */
+.m-seg { display: flex; margin-bottom: 14px; }
+.m-seg a { flex: 1; text-align: center; text-decoration: none; color: var(--text-2); padding: 7px; border-radius: 7px; font-weight: 600; font-size: 14px; }
+.m-seg a.on { color: var(--text); background: var(--panel); box-shadow: var(--shadow); }
+.m-cal-card .row { justify-content: space-between; }
+.m-cal-title { font-size: 17px; }
+.m-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
+.m-chips .chip { padding: 5px 12px; font-weight: 600; background: var(--panel); }
+.m-chips .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.m-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 10px; text-align: center; }
+.m-cal .dow { font-size: 11px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+.m-cal .day { aspect-ratio: 1; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 14px; color: var(--muted); position: relative; }
+.m-cal .day.has { color: var(--text); font-weight: 650; background: var(--panel-2); cursor: pointer; }
+.m-cal .day.has::after { content: ''; position: absolute; bottom: 5px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--accent); }
+.m-cal .day.mine { background: var(--accent); color: #fff; }
+.m-cal .day.mine::after { background: #fff; }
+.m-cal .day.today { outline: 2px solid var(--accent); outline-offset: -2px; }
+.m-day { scroll-margin-top: 70px; }
+.m-day h3 { margin: 18px 4px 8px; font-size: 15px; }
+.m-svc-time { width: 84px; flex: none; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
+.m-team + .m-team { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.m-team-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
