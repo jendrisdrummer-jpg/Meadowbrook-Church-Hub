@@ -45,6 +45,7 @@ export async function needsPicker(el, campusId, initial = []) {
 // New service (one-off or repeating). Resolves to the id of the service to open, if created.
 export async function newServiceDialog(date) {
   const camps = visibleCampuses();
+  const templates = await get('/templates').catch(() => []);
   let picker;
   let openId;
   await dialog({
@@ -56,10 +57,12 @@ export async function newServiceDialog(date) {
       <label class="field">Length (minutes)<input type="number" name="duration_min" value="75" min="5"></label>
       <label class="field">Repeats<select name="every_weeks">${options(REPEATS, 1)}</select></label>
       <label class="field" data-ends>Ends<input type="date" name="ends_on"><span class="muted small">Leave empty to keep going.</span></label>
-      <label class="field wide">Title (optional)<input type="text" name="title" placeholder="Sunday Morning"></label>
+      <label class="field">Title (optional)<input type="text" name="title" placeholder="Sunday Morning"></label>
+      <label class="field">Start from template<select name="template_id">${options(templates.map((t) => ({ value: t.id, label: t.name, campus: t.campus_id })), '', { blank: 'Blank order of service' })}</select>
+        <span class="muted small" data-tpl-note>Repeating services fill each new date from it.</span></label>
     </div>
     <h3 style="margin-top:16px">Positions needed</h3>
-    <p class="muted small">How many people each service needs. You can change it for a single Sunday later.</p>
+    <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
     <div data-needs></div>`,
     onOpen: async (d) => {
       const f = d.querySelector('form');
@@ -74,11 +77,11 @@ export async function newServiceDialog(date) {
       const b = formData(f);
       const needs = picker?.get() || [];
       if (b.every_weeks !== '0') {
-        const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs });
+        const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs, template_id: b.template_id || null });
         openId = r.first_service_id;
         toast('Repeating service created.');
       } else {
-        openId = (await post('/services', { campus_id: b.campus_id, starts_at: `${b.date}T${b.time}`, duration_min: b.duration_min, title: b.title, needs })).id;
+        openId = (await post('/services', { campus_id: b.campus_id, starts_at: `${b.date}T${b.time}`, duration_min: b.duration_min, title: b.title, needs, template_id: b.template_id || null })).id;
       }
     },
   });
@@ -105,6 +108,7 @@ async function askScope(s, verb) {
 // Edit date/time/length/title/notes. Resolves to 'deleted', true (saved) or undefined.
 export async function editServiceDialog(s) {
   let outcome;
+  const templates = s.type ? await get('/templates').catch(() => []) : [];
   await dialog({
     title: 'Service details', submit: 'Save',
     body: html`<div class="form">
@@ -115,6 +119,8 @@ export async function editServiceDialog(s) {
       <label class="field">Sermon series<input type="text" name="series" value="${s.series}"></label>
       <label class="field wide">Title<input type="text" name="title" value="${s.title}"></label>
       <label class="field wide">Notes for the team<textarea name="notes">${s.notes}</textarea></label>
+      ${s.type && templates.length ? html`<label class="field wide">Template for new services in this series<select name="series_template">${options(templates.map((t) => ({ value: t.id, label: t.name })), s.type.template_id, { blank: 'None' })}</select>
+        <span class="muted small">Upcoming services that don’t have a plan yet get it too.</span></label>` : ''}
     </div>
     <div class="row" style="margin-top:12px"><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete service</button>
       ${s.type ? html`<button type="button" class="btn danger small ghost" data-stop>Stop repeating</button>` : ''}</div>`,
@@ -142,6 +148,13 @@ export async function editServiceDialog(s) {
     },
     onSubmit: async (f) => {
       const b = formData(f);
+      // The series' template is a setting of the whole series, separate from "this one or all".
+      if (s.type && b.series_template !== undefined && Number(b.series_template || 0) !== Number(s.type.template_id || 0)) {
+        await patch(`/series/${s.type.id}`, { from_date: s.starts_at.slice(0, 10), template_id: b.series_template || null });
+      }
+      const changed = b.date !== s.starts_at.slice(0, 10) || b.time !== s.starts_at.slice(11) || Number(b.duration_min) !== s.duration_min
+        || b.title !== s.title || b.series !== s.series || b.notes !== s.notes;
+      if (!changed) { outcome = true; return; }
       const scope = await askScope(s, 'Change');
       if (!scope) return false;
       if (scope === 'future') {

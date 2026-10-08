@@ -64,15 +64,16 @@ export default async function services(el) {
             const open = Math.max(0, s.needed - s.filled);
             return html`<a class="cal-svc" href="#/services/${s.id}" style="--c:${s.campus_color}" title="${s.title || s.type_name || ''}">
               <span class="t">${fmtTime(s.starts_at)}</span> ${s.campus_short || s.campus_name}
+              ${s.to_fill ? html`<span class="cal-flag fill" title="${s.to_fill} to fill in">${icon('edit')}</span>` : ''}
               ${s.needed ? (open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good">${icon('check')}</span>`) : ''}</a>`;
           })}
         </div>`)}</div>
-      ${staff ? html`<p class="muted small" style="margin:10px 0 0">Click an empty part of a day to add a service. Numbers show open volunteer spots.</p>` : ''}
+      ${staff ? html`<p class="muted small" style="margin:10px 0 0">Click an empty part of a day to add a service. Numbers show open volunteer spots; ${icon('edit', 'ic small-ic')} means parts of the plan still need filling in.</p>` : ''}
     </div>
     ${leader ? html`<div class="card"><div class="card-head"><h2>Repeating services</h2>${staff ? html`<button class="btn small" data-new-series>${icon('plus')} Add repeating service</button>` : ''}</div>
       ${shownSeries.length ? html`<table class="list"><tbody>${shownSeries.map((t) => html`<tr class="${t.next_at ? 'click' : ''}" data-next="${t.next_at ? t.next_at : ''}">
         <td><span class="campus-tag"><span class="dot" style="background:${t.campus_color}"></span>${t.campus_short || t.campus_name}</span></td>
-        <td><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}</div></td>
+        <td><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}${t.template_name ? ` · from “${t.template_name}”` : ''}</div></td>
         <td class="small">${t.needs.length ? `${t.needs.reduce((a, n) => a + n.count, 0)} positions` : html`<span class="muted">No positions</span>`}</td>
         <td class="muted small nowrap">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td></tr>`)}</tbody></table>`
         : html`<div class="empty">No repeating services yet. Add your Sunday services once and they fill the calendar automatically.</div>`}
@@ -101,7 +102,7 @@ export default async function services(el) {
   function fill(s) {
     if (!s.needed) return html`<span class="muted small">${s.filled} scheduled</span>`;
     const open = Math.max(0, s.needed - s.filled);
-    return html`${open ? html`<span class="pill warn">${open} open</span>` : html`<span class="pill good">${icon('check')} Full</span>`}
+    return html`${s.to_fill ? html`<span class="pill warn">${s.to_fill} to fill in</span> ` : ''}${open ? html`<span class="pill warn">${open} open</span>` : html`<span class="pill good">${icon('check')} Full</span>`}
       ${s.declined ? html`<span class="pill bad">${s.declined} declined</span>` : ''} <span class="muted small">${s.accepted}/${s.needed} confirmed</span>`;
   }
 

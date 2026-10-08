@@ -4,6 +4,9 @@ import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
 import { drawRollCall } from '../rollcall.js';
 import { drawPlan } from '../plan.js';
+import { assignDialog } from '../scheduling.js';
+
+const taken = (s, positionId) => new Set(s.positions.find((p) => p.id === positionId)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
 
 export default async function service(el, id) {
   const s = await get(`/services/${id}`);
@@ -28,7 +31,8 @@ export default async function service(el, id) {
   const show = (name) => {
     sessionStorage.setItem('mb.service.tab', name);
     el.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-    ({ plan: drawPlan, people: drawPeople, counts: drawCounts })[name](panel, s);
+    const plan = (p) => drawPlan(p, s, { canSaveTemplate: can('staff'), onChange: () => service(el, id) });
+    ({ plan, people: drawPeople, counts: drawCounts })[name](panel, s);
   };
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) show(b.dataset.tab); };
   show(['plan', 'people', 'counts'].includes(tab) && (tab !== 'counts' || can('leader')) ? tab : 'plan');
@@ -52,10 +56,13 @@ function drawPeople(panel, s) {
   const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   const badge = (a) => ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status];
-  const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color }])).values()];
+  // A team is "in" this service when it needs someone or has someone scheduled; the rest can be shown on demand.
+  const active = (teamId) => s.positions.some((p) => p.team_id === teamId && (p.needed || p.assignments.length));
+  const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color, active: active(p.team_id) }])).values()]
+    .sort((a, b) => (b.active - a.active));
   // The scheduler's team filter, remembered across services.
   let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id));
-  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams;
+  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams.filter((t) => t.active);
   const teamStats = (t) => {
     const ps = s.positions.filter((p) => p.team_id === t.id);
     const open = ps.reduce((a, p) => a + Math.max(0, p.needed - p.assignments.filter((x) => x.status !== 'declined').length), 0);
@@ -64,14 +71,16 @@ function drawPeople(panel, s) {
   mount(panel, html`<div class="card">
     ${allTeams.length > 1 ? html`<div class="team-filter" data-team-filter>
       <button type="button" class="chip link ${only.length ? '' : 'on'}" data-team="all">All teams</button>
-      ${allTeams.map((t) => html`<button type="button" class="chip link ${only.includes(t.id) ? 'on' : ''}" data-team="${t.id}"><span class="dot" style="background:${t.color}"></span>${t.name}
+      ${allTeams.map((t) => html`<button type="button" class="chip link ${only.includes(t.id) ? 'on' : ''} ${t.active ? '' : 'idle'}" data-team="${t.id}" title="${t.active ? '' : 'Not set up for this service yet'}"><span class="dot" style="background:${t.color}"></span>${t.name}
         ${teamStats(t) ? html`<span class="cal-flag warn">${teamStats(t)}</span>` : ''}</button>`)}
     </div>` : ''}
     <div class="card-head"><h2>Who’s serving</h2>
       ${anyScheduling && s.positions.some((p) => p.needed) ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
       ${can('staff') && (!s.locked || can('admin')) ? html`<button class="btn small" data-needs>${icon('edit')} Positions needed</button>` : ''}
       ${anyScheduling ? html`<button class="btn small ghost" data-add-position title="Schedule someone in a position this service doesn't usually need">${icon('plus')} Extra position</button>` : ''}</div>
-    ${s.positions.length ? shown.map((team) => html`<h3 style="margin-top:14px"><span class="dot" style="background:${team.color}"></span> ${team.name}</h3><div class="grid three">
+    ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px"><span class="dot" style="background:${team.color}"></span> ${team.name}</h3>
+      ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
+      <div class="grid three">
       ${s.positions.filter((p) => p.team_id === team.id).map((p) => {
         const live = p.assignments.filter((a) => a.status !== 'declined');
         const open = Math.max(0, p.needed - live.length);
@@ -83,7 +92,7 @@ function drawPeople(panel, s) {
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
         </div>`;
       })}</div>`)
-      : html`<div class="empty">No positions for this service yet.${can('staff') ? ' Click Positions needed to choose who this service needs.' : ''}</div>`}
+      : html`<div class="empty">No teams are set up for this service yet.${can('staff') ? ' Click Positions needed to choose who it needs, or pick a team above.' : ''}</div>`}
   </div>`);
 
   panel.onclick = async (e) => {
@@ -100,7 +109,7 @@ function drawPeople(panel, s) {
       return drawPeople(panel, s);
     }
     try {
-      if (b.dataset.assign) await assign(s, s.positions.find((p) => p.id === Number(b.dataset.assign)) , reload);
+      if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
       if (b.matches('[data-autofill]')) {
         const r = await post(`/services/${s.id}/autofill`);
@@ -117,56 +126,11 @@ function drawPeople(panel, s) {
         await dialog({ title: 'Schedule an extra position', submit: 'Next', body: html`<label class="field">Position<select name="p">${options(all)}</select></label>`, onSubmit: (f) => { pid = Number(f.p.value); } });
         if (pid) {
           const t = all.find((x) => x.value === pid);
-          await assign(s, { id: pid, name: t.label }, reload);
+          await assignDialog(s.id, { id: pid, name: t.label }, taken(s, pid), reload);
         }
       }
     } catch (err) { fail(err); }
   };
-}
-
-async function assign(s, pos, reload) {
-  const list = await get(`/services/${s.id}/candidates?position_id=${pos.id}`);
-  const taken = new Set(s.positions.find((p) => p.id === pos.id)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
-  const available = list.filter((c) => !taken.has(c.id));
-  let showAll = false;
-  let picked;
-  const why = (c) => html`${c.conflicts.map((x) => html`<span class="pill ${x.level === 'block' ? 'bad' : 'warn'}">${x.text}</span> `)}
-    ${!c.plays_position ? html`<span class="pill">Not usually ${pos.name}</span> ` : ''}
-    <div class="muted small">${c.last_served ? `Last served ${fmtDate(c.last_served)}` : 'Hasn’t served yet'}${c.recent_count ? ` · serving ${c.recent_count} other ${c.recent_count === 1 ? 'day' : 'days'} within 4 weeks` : ''}</div>`;
-  // Only people assigned to this position, unless the scheduler asks for the whole team.
-  const rows = () => (showAll ? available : available.filter((c) => c.plays_position));
-  const others = available.filter((c) => !c.plays_position).length;
-  const listHtml = () => (rows().length ? html`<div class="picker-list">${rows().map((c, i) => html`<button type="button" data-i="${i}">${avatar(c)}<span>${displayName(c)}</span><span class="why">${why(c)}</span></button>`)}</div>`
-    : html`<p class="muted">No one is assigned to ${pos.name} yet. Tick people for it in the team’s roster.</p>`);
-  await dialog({
-    title: `Schedule ${pos.name}`, submit: null,
-    body: html`<p class="muted small">People assigned to ${pos.name}, best choices first: not away or booked elsewhere, and haven’t served recently.</p>
-      <div data-rows>${listHtml()}</div>
-      <div class="row" style="margin-top:10px">${others ? html`<button type="button" class="btn small ghost" data-all>Show everyone on the team (${others} more)</button>` : ''}
-        <button type="button" class="btn small ghost" data-anyone>Someone not on the team…</button></div>`,
-    onOpen: (d, close) => {
-      d.querySelector('[data-rows]').addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) { picked = rows()[b.dataset.i]; close(); } });
-      d.querySelector('[data-all]')?.addEventListener('click', (e) => { showAll = true; e.target.remove(); mount(d.querySelector('[data-rows]'), listHtml()); });
-      d.querySelector('[data-anyone]').onclick = async () => {
-        close();
-        const p = await pickPerson(`Schedule ${pos.name}`);
-        if (p) await save(p);
-      };
-    },
-  });
-  if (picked) await save(picked);
-
-  async function save(person) {
-    try {
-      await post(`/services/${s.id}/assignments`, { position_id: pos.id, person_id: person.id });
-      toast(`${displayName(person)} scheduled. They’ll see it in My Schedule.`);
-    } catch (e) {
-      if (e.status !== 409) throw e;
-      if (!(await confirm('Schedule anyway?', `${displayName(person)}: ${e.message}`, 'Schedule anyway'))) return;
-      await post(`/services/${s.id}/assignments`, { position_id: pos.id, person_id: person.id, force: true });
-    }
-    reload();
-  }
 }
 
 // ---------------------------------------------------------------- attendance

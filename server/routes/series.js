@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, isDate, audit } from '../http.js';
+import { applyTemplate } from './templates.js';
 
 const AHEAD_DAYS = 120;
 const MAX_AHEAD_DAYS = 400;
@@ -49,6 +50,11 @@ export function ensureServices(db, until = addDays(today(), AHEAD_DAYS)) {
         if (exists.get(t.id, day) || skipped.get(t.id, day)) continue;
         const id = ins.run(t.campus_id, t.id, t.default_title, `${day}T${t.start_time}`, t.duration_min).lastInsertRowid;
         copyNeeds(db, t.id, id);
+        // The series' own positions win; its template fills the plan (and positions, if the series has none).
+        if (t.template_id) {
+          const hasNeeds = db.prepare('SELECT 1 FROM service_type_needs WHERE service_type_id = ?').get(t.id);
+          applyTemplate(db, t.template_id, Number(id), { needs: !hasNeeds });
+        }
         created++;
       }
     }
@@ -78,6 +84,13 @@ export default function seriesRoutes(db) {
     for (const n of needs) ins.run(typeId, n.position_id, n.count);
   }
 
+  // A template the series fills new services from (empty = none).
+  const templateId = (v) => {
+    const id = int(v);
+    if (id && !db.prepare('SELECT 1 FROM service_templates WHERE id = ? AND archived = 0').get(id)) throw bad('Unknown template.');
+    return id;
+  };
+
   const time = (t, fallback) => {
     if (t == null || t === '') return fallback;
     if (!/^\d{2}:\d{2}$/.test(t)) throw bad('Times look like 09:30.');
@@ -87,6 +100,7 @@ export default function seriesRoutes(db) {
   r.get('/series', requireRole('leader'), (req, res) => {
     const cf = campusFilter(req.user, 't.campus_id');
     const rows = db.prepare(`SELECT t.*, c.name campus_name, c.short_name campus_short, c.color campus_color,
+        (SELECT name FROM service_templates x WHERE x.id = t.template_id) template_name,
         (SELECT MIN(starts_at) FROM services s WHERE s.service_type_id = t.id AND s.starts_at >= date('now')) next_at
       FROM service_types t JOIN campuses c ON c.id = t.campus_id
       WHERE t.archived = 0 AND t.day_of_week IS NOT NULL AND (t.ends_on IS NULL OR t.ends_on >= date('now')) AND ${cf.sql}
@@ -108,9 +122,9 @@ export default function seriesRoutes(db) {
     const everyWeeks = Math.min(Math.max(int(b.every_weeks) ?? 1, 1), 8);
     const name = str(b.name, 120) || `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek(b.starts_on)]} ${startTime}`;
     const id = tx(db, () => {
-      const info = db.prepare(`INSERT INTO service_types (campus_id, name, day_of_week, start_time, duration_min, every_weeks, starts_on, ends_on, default_title)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(campusId, name, dayOfWeek(b.starts_on), startTime, int(b.duration_min) ?? 75, everyWeeks, b.starts_on, b.ends_on || null, str(b.title, 200));
+      const info = db.prepare(`INSERT INTO service_types (campus_id, name, day_of_week, start_time, duration_min, every_weeks, starts_on, ends_on, default_title, template_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(campusId, name, dayOfWeek(b.starts_on), startTime, int(b.duration_min) ?? 75, everyWeeks, b.starts_on, b.ends_on || null, str(b.title, 200), templateId(b.template_id));
       saveNeeds(info.lastInsertRowid, cleanNeeds(b.needs) || []);
       return Number(info.lastInsertRowid);
     });
@@ -130,10 +144,11 @@ export default function seriesRoutes(db) {
     const needs = cleanNeeds(b.needs);
     if (b.ends_on && !isDate(b.ends_on)) throw bad('Pick a valid last date.');
     tx(db, () => {
-      db.prepare('UPDATE service_types SET name = ?, start_time = ?, duration_min = ?, default_title = ?, ends_on = ? WHERE id = ?')
+      db.prepare('UPDATE service_types SET name = ?, start_time = ?, duration_min = ?, default_title = ?, ends_on = ?, template_id = ? WHERE id = ?')
         .run(b.name !== undefined ? required(b.name, 'Name') : t.name, startTime, duration,
           b.title !== undefined ? str(b.title, 200) : t.default_title,
-          b.ends_on !== undefined ? (b.ends_on || null) : t.ends_on, t.id);
+          b.ends_on !== undefined ? (b.ends_on || null) : t.ends_on,
+          b.template_id !== undefined ? templateId(b.template_id) : t.template_id, t.id);
       const future = db.prepare('SELECT * FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').all(t.id, from);
       for (const s of future) {
         db.prepare('UPDATE services SET starts_at = ?, duration_min = ? WHERE id = ?').run(`${s.starts_at.slice(0, 10)}T${startTime}`, duration, s.id);
@@ -144,6 +159,13 @@ export default function seriesRoutes(db) {
         for (const s of future) {
           db.prepare('DELETE FROM service_needs WHERE service_id = ?').run(s.id);
           copyNeeds(db, t.id, s.id);
+        }
+      }
+      // A newly linked template fills the future services that don't have a plan yet.
+      const newTpl = b.template_id !== undefined ? templateId(b.template_id) : null;
+      if (newTpl && newTpl !== t.template_id) {
+        for (const s of future) {
+          if (!db.prepare('SELECT 1 FROM plan_items WHERE service_id = ?').get(s.id)) applyTemplate(db, newTpl, s.id);
         }
       }
       // Ending the series earlier removes its services after the new last date.
