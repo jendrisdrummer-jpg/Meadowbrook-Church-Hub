@@ -494,7 +494,7 @@ export default function serviceRoutes(db) {
     const list = drafts(req, (req.body?.service_ids || []).map(Number), int(req.body?.team_id));
     if (!list.length) return res.json({ sent: 0, people: 0 });
     db.prepare(`UPDATE assignments SET sent_at = datetime('now') WHERE id IN (${list.map(() => '?').join(',')})`).run(...list.map((a) => a.id));
-    notifyScheduled(db, list.map((a) => a.id), { byUserId: req.user.id });
+    notifyScheduled(db, list.map((a) => a.id)); // including the sender, if they scheduled themselves
     audit(db, req, 'schedule.send', `${list.length} requests`);
     res.json({ sent: list.length, people: new Set(list.map((a) => a.person_id)).size });
   });
@@ -519,7 +519,7 @@ export default function serviceRoutes(db) {
     const told = assignmentRow(db, a.id);
     db.prepare('DELETE FROM assignments WHERE id = ?').run(a.id);
     // Someone who was already asked hears they're no longer needed.
-    if (told?.sent_at && told.person_id !== req.user.personId) notifyUnscheduled(db, told);
+    if (told?.sent_at) notifyUnscheduled(db, told);
     res.json({ ok: true });
   });
 
