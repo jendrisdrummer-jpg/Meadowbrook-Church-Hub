@@ -678,3 +678,30 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 @media (max-width: 600px) { .task-fields { grid-template-columns: 1fr; } }
 .task-filters .seg a { padding: 5px 12px; border-radius: 7px; font-weight: 600; color: var(--text-2); text-decoration: none; }
 .task-filters .seg a.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+
+/* ------------------------------------------------------------- tasks in chats */
+.chat-tabs { display: flex; gap: 4px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.chat-tabs button { border: 0; background: none; padding: 8px 10px; font: inherit; font-weight: 650; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.chat-tabs button.on { color: var(--accent-text); border-bottom-color: var(--accent); }
+.chat-tab-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-size: 11px; }
+.chat-tasks { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 14px 16px; }
+.chat-tasks-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.chat-tasks .task-group + .task-group { margin-top: 12px; }
+.chat-tasks-done { margin-top: 16px; }
+.chat-tasks-done summary { cursor: pointer; }
+.chat-task { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-left: 4px solid var(--accent); background: var(--panel); border-radius: 12px; padding: 10px 12px; margin: 2px 0; max-width: 460px; }
+.chat-task.done { border-left-color: var(--good, #1f9254); }
+.chat-task.done .chat-task-title { text-decoration: line-through; color: var(--muted); }
+.chat-task.gone { border-left-color: var(--line); }
+.chat-task .task-check { margin-top: 2px; }
+.chat-task-main { flex: 1; min-width: 0; display: grid; gap: 2px; color: inherit; text-decoration: none; }
+.chat-task-label { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-text); }
+.chat-task.done .chat-task-label { color: var(--good, #1f9254); }
+.chat-task-title { overflow-wrap: anywhere; }
+.chat-task .task-meta .avatar { width: 18px; height: 18px; font-size: 9px; margin-right: 2px; }
+.qt-title { width: 100%; font-size: 17px; }
+.qt-label { font-size: 12px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
+.qt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.qt-chips .chip { cursor: pointer; padding: 5px 12px; font: inherit; font-size: 14px; color: var(--text); }
+.qt-chips .chip .avatar { width: 20px; height: 20px; font-size: 9px; }
+.qt-chips + input[type=date] { margin-top: 8px; }

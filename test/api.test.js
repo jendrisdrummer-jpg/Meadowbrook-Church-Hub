@@ -830,6 +830,65 @@ test('tasks: team tasks, personal tasks, checklists, comments, repeating and rem
   assert.ok(avaId && benId);
 });
 
+test('tasks in chats: cards that stay current, the Tasks tab, group tasks', async (t) => {
+  const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Card', campus_id: 1, email: `${first.toLowerCase()}@card.org` })).data;
+  const account = (key, p, role = 'volunteer') => {
+    const id = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(p.email, role, p.id).lastInsertRowid;
+    startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+  };
+  const [dee, eli, fay] = [await person('Dee'), await person('Eli'), await person('Fay')];
+  account('dee', dee, 'leader'); account('eli', eli); account('fay', fay);
+  const team = (await api('admin', 'POST', '/teams', { name: 'Ushers', campus_id: 1, positions: ['Door'] })).data;
+  for (const p of [dee, eli]) await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [] });
+  const chat = (await api('eli', 'GET', '/chats')).data.chats.find((c) => c.team_id === team.id);
+
+  // Eli watches the chat live while Dee gives him a task.
+  const ctl = new AbortController();
+  t.after(() => ctl.abort());
+  const reader = (await fetch(`${base}/api/chats/stream?viewing=${chat.id}`, { headers: { cookie: cookies.eli }, signal: ctl.signal })).body.getReader();
+  let heard = '';
+  const hear = async (text) => { while (!heard.includes(text)) heard += new TextDecoder().decode((await reader.read()).value); };
+
+  const task = (await api('dee', 'POST', '/tasks', { title: 'Count the offering', team_id: team.id, assignee_id: eli.id, due_date: '2030-01-06' })).data;
+  await hear('"kind":"task"');
+  let msgs = (await api('eli', 'GET', `/chats/${chat.id}/messages`)).data.messages;
+  const card = msgs.find((m) => m.kind === 'task');
+  assert.equal(card.task.title, 'Count the offering');
+  assert.equal(card.task.assignee.first_name, 'Eli');
+  assert.equal((await api('eli', 'GET', `/chats/${chat.id}`)).data.open_tasks, 1);
+  assert.match((await api('dee', 'GET', '/chats')).data.chats.find((c) => c.id === chat.id).last.body, /New task: Count the offering/);
+
+  // Ticking it off updates the card for everyone (and the Tasks tab).
+  heard = '';
+  await api('eli', 'PATCH', `/tasks/${task.id}`, { done: true });
+  await hear('"type":"tasks"');
+  msgs = (await api('dee', 'GET', `/chats/${chat.id}/messages`)).data.messages;
+  assert.ok(msgs.find((m) => m.id === card.id).task.done_at);
+  assert.equal(msgs.find((m) => m.id === card.id).task.done_by, 'Eli');
+  const tab = (await api('eli', 'GET', `/tasks?view=chat&chat_id=${chat.id}`)).data;
+  assert.deepEqual(tab.map((x) => [x.title, Boolean(x.done_at)]), [['Count the offering', true]]); // finished this week still shows
+  assert.equal((await api('fay', 'GET', `/tasks?view=chat&chat_id=${chat.id}`)).status, 404);
+  // Deleted: the card says so.
+  await api('dee', 'DELETE', `/tasks/${task.id}`);
+  msgs = (await api('eli', 'GET', `/chats/${chat.id}/messages`)).data.messages;
+  assert.equal(msgs.find((m) => m.id === card.id).task, null);
+
+  // Groups have tasks too: only for people in the group.
+  const g = (await api('dee', 'POST', '/chats', { name: 'Parking lot crew', person_ids: [fay.id] })).data;
+  assert.equal((await api('dee', 'POST', '/tasks', { title: 'Cones', chat_id: g.id, assignee_id: eli.id })).status, 400);
+  assert.equal((await api('eli', 'POST', '/tasks', { title: 'Cones', chat_id: g.id })).status, 400); // not in it
+  const cones = (await api('dee', 'POST', '/tasks', { title: 'Put out cones', chat_id: g.id, assignee_id: fay.id })).data;
+  assert.equal(cones.group_name, 'Parking lot crew');
+  assert.equal((await api('fay', 'GET', `/tasks?view=chat&chat_id=${g.id}`)).data.length, 1);
+  assert.equal((await api('eli', 'GET', `/tasks/${cones.id}`)).status, 404);
+  assert.ok((await api('fay', 'GET', '/tasks?view=team')).data.some((x) => x.id === cones.id));
+  assert.ok((await api('fay', 'GET', '/tasks/teams')).data.some((x) => x.key === `chat:${g.id}` && x.members.length === 2));
+  assert.ok((await api('fay', 'GET', `/chats/${g.id}/messages`)).data.messages.some((m) => m.task?.id === cones.id));
+  // Moving it to a team takes it out of the group, and the person if they aren't on the team.
+  const moved = (await api('dee', 'PATCH', `/tasks/${cones.id}`, { team_id: team.id, chat_id: null })).data;
+  assert.deepEqual([moved.team_id, moved.chat_id, moved.assignee_id], [team.id, null, null]);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

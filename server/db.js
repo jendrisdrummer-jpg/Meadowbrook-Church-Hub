@@ -515,6 +515,15 @@ const MIGRATIONS = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 15: tasks inside chats. A group's tasks belong to the group (teams' tasks to the team), and
+  // giving one posts a card in the chat that stays up to date.
+  `
+  ALTER TABLE tasks ADD COLUMN chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE;
+  CREATE INDEX tasks_chat ON tasks (chat_id, done_at);
+  ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT '';     -- '' | task
+  ALTER TABLE messages ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
+  CREATE INDEX messages_task ON messages (task_id);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

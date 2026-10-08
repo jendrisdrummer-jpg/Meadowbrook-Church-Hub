@@ -10,6 +10,7 @@ import { requireRole, canCampus, rank } from '../auth.js';
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { pushOnly } from '../notify.js';
+import { streams, send, hooks } from '../live.js';
 
 export const REACTIONS = ['👍', '❤️', '😂', '🙏', '🎉', '😮', '😢', '🔥'];
 // Shown in the browser; everything else downloads.
@@ -24,12 +25,6 @@ export default function chatRoutes(db, { uploadDir }) {
 
   // ---------------------------------------------------------------- live updates
   // Each open chat page holds a stream; `viewing` is the chat on screen (they get no push for it).
-  const streams = new Set();
-  function send(userIds, chatId, event) {
-    const ids = new Set(userIds);
-    const data = `data: ${JSON.stringify(event)}\n\n`;
-    for (const s of streams) if (ids.has(s.userId) || (chatId && s.viewing === chatId)) s.res.write(data);
-  }
   const viewers = (chatId) => new Set([...streams].filter((s) => s.viewing === chatId).map((s) => s.userId));
 
   r.get('/chats/stream', requireRole('volunteer'), (req, res) => {
@@ -115,6 +110,18 @@ export default function chatRoutes(db, { uploadDir }) {
         (SELECT COUNT(*) FROM message_files f WHERE f.message_id = m.id) files
       FROM messages m LEFT JOIN users u ON u.id = m.user_id LEFT JOIN people p ON p.id = u.person_id
       WHERE m.id IN (${replyIds.map(() => '?').join(',')})`).all(...replyIds).map((x) => [x.id, x]) : []);
+    // Task cards show the task as it is now.
+    const taskIds = [...new Set(rows.map((m) => m.task_id).filter(Boolean))];
+    const tasks = new Map(taskIds.length ? db.prepare(`SELECT t.id, t.title, t.due_date, t.due_time, t.done_at, t.assignee_id, t.repeat,
+        p.first_name, p.last_name, p.nickname, p.photo, dp.first_name done_first, dp.nickname done_nick,
+        (SELECT COUNT(*) FROM task_items i WHERE i.task_id = t.id) items, (SELECT COUNT(*) FROM task_items i WHERE i.task_id = t.id AND i.done = 1) items_done,
+        (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) comments
+      FROM tasks t LEFT JOIN people p ON p.id = t.assignee_id LEFT JOIN users du ON du.id = t.done_by LEFT JOIN people dp ON dp.id = du.person_id
+      WHERE t.id IN (${taskIds.map(() => '?').join(',')})`).all(...taskIds).map((t) => [t.id, {
+        id: t.id, title: t.title, due_date: t.due_date, due_time: t.due_time, done_at: t.done_at, repeat: t.repeat, assignee_id: t.assignee_id,
+        assignee: t.assignee_id ? { first_name: t.first_name, last_name: t.last_name, nickname: t.nickname, photo: t.photo } : null,
+        done_by: t.done_at ? t.done_nick || t.done_first || '' : '', items: t.items, items_done: t.items_done, comments: t.comments,
+      }]) : []);
     return rows.map((m) => {
       const gone = Boolean(m.deleted_at);
       const reply = m.reply_to && replies.get(m.reply_to);
@@ -122,6 +129,8 @@ export default function chatRoutes(db, { uploadDir }) {
       return {
         id: m.id,
         chat_id: m.chat_id,
+        kind: m.kind,
+        task: m.kind === 'task' ? tasks.get(m.task_id) || null : undefined,
         user_id: m.user_id,
         person_id: m.person_id,
         name: personName(m),
@@ -157,7 +166,7 @@ export default function chatRoutes(db, { uploadDir }) {
       manage: a.manage,
       muted: Boolean(read.muted),
       unread: a.member ? unread(c.id, req.user.id, read.last_read_id) : 0,
-      last: last ? { name: personName(last), body: last.body.slice(0, 120), files: db.prepare('SELECT COUNT(*) n FROM message_files WHERE message_id = ?').get(last.id).n, at: last.created_at, mine: last.user_id === req.user.id } : null,
+      last: last ? { name: personName(last), body: last.kind === 'task' ? `New task: ${db.prepare('SELECT title FROM tasks WHERE id = ?').get(last.task_id)?.title || '(deleted)'}` : last.body.slice(0, 120), files: db.prepare('SELECT COUNT(*) n FROM message_files WHERE message_id = ?').get(last.id).n, at: last.created_at, mine: last.user_id === req.user.id } : null,
     };
   }
 
@@ -189,7 +198,7 @@ export default function chatRoutes(db, { uploadDir }) {
   // ---------------------------------------------------------------- one chat
   r.get('/chats/:id', requireRole('volunteer'), (req, res) => {
     const { c, a } = chat(req, req.params.id);
-    res.json({ ...summary(req, c, a), members: members(c), last_read_id: readRow(c.id, req.user.id).last_read_id });
+    res.json({ ...summary(req, c, a), campus_id: c.campus_id ?? null, members: members(c), open_tasks: openTasks(c), last_read_id: readRow(c.id, req.user.id).last_read_id });
   });
 
   // Newest PAGE messages, or older (?before=id) / newer (?after=id) than one.
@@ -246,13 +255,15 @@ export default function chatRoutes(db, { uploadDir }) {
 
   // A push to everyone in the chat who isn't looking at it. Muted chats stay quiet unless
   // the message @mentions them.
-  function notifyMembers(c, msg, people) {
+  // skip: accounts told some other way (whoever was just given a task hears about it from Tasks).
+  function notifyMembers(c, msg, people, skip = new Set()) {
     const watching = viewers(c.id);
     const mentioned = new Set(people.filter((p) => msg.mentions.includes(p.person_id)).map((p) => p.user_id));
     const chatName = c.kind === 'team' ? c.team_name : c.name;
-    const preview = msg.body ? msg.body.slice(0, 140) : msg.files.some((f) => f.mime.startsWith('image/')) ? 'Sent a photo' : 'Sent a file';
+    const preview = msg.task ? `New task: ${msg.task.title}${msg.task.assignee ? ` → ${msg.task.assignee.nickname || msg.task.assignee.first_name}` : ''}`
+      : msg.body ? msg.body.slice(0, 140) : msg.files.some((f) => f.mime.startsWith('image/')) ? 'Sent a photo' : 'Sent a file';
     const quiet = new Set(db.prepare('SELECT user_id FROM chat_reads WHERE chat_id = ? AND muted = 1').all(c.id).map((x) => x.user_id));
-    const to = memberUserIds(c).filter((u) => u !== msg.user_id && !watching.has(u));
+    const to = memberUserIds(c).filter((u) => u !== msg.user_id && !watching.has(u) && !skip.has(u));
     const base = { kind: 'chat', url: `/#/chat/${c.id}`, app_url: `/app/#/chat/${c.id}`, tag: `chat-${c.id}`, renotify: true, data: { chat_id: c.id } };
     pushOnly(db, to.filter((u) => mentioned.has(u)), { ...base, title: `${msg.name} mentioned you in ${chatName}`, body: preview });
     pushOnly(db, to.filter((u) => !mentioned.has(u) && !quiet.has(u)), { ...base, title: chatName, body: `${msg.name}: ${preview}` });
@@ -336,6 +347,61 @@ export default function chatRoutes(db, { uploadDir }) {
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.sendFile(path.join(fileDir, f.file));
   });
+
+  // ---------------------------------------------------------------- tasks in chats
+  // A team chat's tasks are the team's; a group's are the ones made in it.
+  const openTasks = (c) => (c.kind === 'team'
+    ? db.prepare('SELECT COUNT(*) n FROM tasks WHERE team_id = ? AND done_at IS NULL').get(c.team_id).n
+    : db.prepare('SELECT COUNT(*) n FROM tasks WHERE chat_id = ? AND done_at IS NULL').get(c.id).n);
+  function chatForTask(t) {
+    if (t.chat_id) return getChat(t.chat_id);
+    if (!t.team_id) return null;
+    ensureTeamChats();
+    const row = db.prepare('SELECT id FROM chats WHERE team_id = ?').get(t.team_id);
+    return row ? getChat(row.id) : null;
+  }
+  hooks.chatAccess = (req, chatId) => {
+    const c = getChat(chatId);
+    const a = access(req, c);
+    return a ? { ...a, id: c.id, kind: c.kind, team_id: c.team_id } : null;
+  };
+  hooks.chatPeople = (chatId) => {
+    const c = getChat(chatId);
+    return c ? members(c).map((m) => m.person_id) : [];
+  };
+  hooks.myGroups = (req) => db.prepare("SELECT * FROM chats WHERE kind = 'group' ORDER BY name").all()
+    .filter((c) => access(req, c)).map((c) => ({ id: c.id, name: c.name }));
+  // Giving a team or group task posts it in that chat as a card.
+  hooks.taskPosted = (taskId, req) => {
+    const t = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+    const c = t && chatForTask(t);
+    if (!c || c.team_archived) return;
+    const id = Number(db.prepare("INSERT INTO messages (chat_id, user_id, kind, task_id) VALUES (?, ?, 'task', ?)").run(c.id, req.user.id, taskId).lastInsertRowid);
+    db.prepare("UPDATE chats SET last_message_at = datetime('now') WHERE id = ?").run(c.id);
+    markRead(c.id, req.user.id, id);
+    const msg = message(id);
+    announce(c, msg);
+    send(memberUserIds(c), c.id, { type: 'tasks', chat_id: c.id });
+    const assignee = t.assignee_id && db.prepare('SELECT id FROM users WHERE person_id = ? AND active = 1').get(t.assignee_id)?.id;
+    notifyMembers(c, msg, members(c), new Set(assignee ? [assignee] : []));
+  };
+  // Ticked off, reassigned, renamed…: every card for it, and its chat's Tasks tab, update.
+  // `was` is the task's team/chat when it has just been deleted.
+  hooks.taskChanged = (taskId, messageIds = null, was = null) => {
+    const ids = messageIds || db.prepare('SELECT id FROM messages WHERE task_id = ?').all(taskId).map((x) => x.id);
+    const chats = new Set();
+    for (const id of ids) {
+      const msg = message(id);
+      const c = msg && getChat(msg.chat_id);
+      if (!c) continue;
+      announce(c, msg);
+      chats.add(c.id);
+    }
+    const t = db.prepare('SELECT team_id, chat_id FROM tasks WHERE id = ?').get(taskId) || was;
+    const home = t && chatForTask(t);
+    if (home) chats.add(home.id);
+    for (const cid of chats) { const c = getChat(cid); send(memberUserIds(c), cid, { type: 'tasks', chat_id: cid }); }
+  };
 
   // ---------------------------------------------------------------- groups
   // Groups are for people who aren't one team: staff, elders, a project. Leaders and staff make them.

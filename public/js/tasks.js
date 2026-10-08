@@ -18,6 +18,11 @@ function bucket(t) {
 }
 const BUCKETS = [['late', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'], ['later', 'Later'], ['none', 'No due date']];
 
+// [[label, tasks]] for open tasks, in the order people care about.
+export function groupTasks(list) {
+  return BUCKETS.map(([k, label]) => [k, label, list.filter((t) => bucket(t) === k)]).filter(([, , ts]) => ts.length);
+}
+
 export function dueLabel(t) {
   if (!t.due_date) return '';
   const b = bucket(t);
@@ -32,7 +37,7 @@ export function taskRow(t, { showWho = true, href = (x) => `#/tasks/${x.id}` } =
     <a class="task-main" href="${href(t)}"><span class="task-title">${t.title}</span>
       <span class="task-meta">${t.due_date ? html`<span class="${late ? 'late' : ''}">${icon('clock', 'ic small-ic')} ${dueLabel(t)}</span>` : ''}
         ${t.repeat ? html`<span title="Repeats">↻</span>` : ''}
-        ${t.team_name ? html`<span><span class="dot" style="background:${t.team_color}"></span> ${t.team_name}</span>` : html`<span>Personal</span>`}
+        ${t.team_name ? html`<span><span class="dot" style="background:${t.team_color}"></span> ${t.team_name}</span>` : t.group_name ? html`<span>${icon('people', 'ic small-ic')} ${t.group_name}</span>` : html`<span>Personal</span>`}
         ${t.items ? html`<span>${icon('check', 'ic small-ic')} ${t.items_done}/${t.items}</span>` : ''}
         ${t.comments ? html`<span>${icon('chat', 'ic small-ic')} ${t.comments}</span>` : ''}
         ${t.service ? html`<span>${icon('calendar', 'ic small-ic')} ${fmtDate(t.service.starts_at)} ${fmtTime(t.service.starts_at)}</span>` : ''}</span></a>
@@ -50,32 +55,45 @@ async function toggleDone(id, done, after) {
   return t;
 }
 
+// Teams, then groups, as <option>s keyed "team:ID" / "chat:ID".
+function placeOptions(places, selected) {
+  const teams = places.filter((p) => p.kind === 'team');
+  const groups = places.filter((p) => p.kind === 'group');
+  const opt = (p) => html`<option value="${p.key}" ${p.key === selected ? 'selected' : ''}>${p.name}</option>`;
+  return html`${teams.length ? html`<optgroup label="Teams">${teams.map(opt)}</optgroup>` : ''}${groups.length ? html`<optgroup label="Groups">${groups.map(opt)}</optgroup>` : ''}`;
+}
+
 // ---------------------------------------------------------------- the lists
 // q: URLSearchParams from the address (view, team, done). base: '#/tasks'.
 export async function taskList(el, { setTitle, q, base = '#/tasks', onChange = () => {} }) {
   const view = ['mine', 'given', 'team'].includes(q.get('view')) ? q.get('view') : 'mine';
   const done = q.get('done') === '1';
-  const teams = await get('/tasks/teams');
-  const teamId = Number(q.get('team')) || null;
+  const teams = await get('/tasks/teams'); // teams and groups
+  const place = q.get('place') || (q.get('team') ? `team:${q.get('team')}` : '');
   const link = (o) => {
-    const p = new URLSearchParams({ view, ...(teamId ? { team: teamId } : {}), ...(done ? { done: 1 } : {}), ...o });
+    const p = new URLSearchParams({ view, ...(place ? { place } : {}), ...(done ? { done: 1 } : {}), ...o });
     for (const [k, v] of [...p]) if (v === '' || v === 'null') p.delete(k);
     if (p.get('view') === 'mine') p.delete('view');
     return `${base}${p.toString() ? `?${p}` : ''}`;
   };
-  setTitle('Tasks', html`<a class="btn primary small" href="${base}/new${teamId && view === 'team' ? `?team=${teamId}` : ''}">${icon('plus')} New task</a>`);
+  const newHref = () => {
+    if (view !== 'team' || !place) return `${base}/new`;
+    const [kind, id] = place.split(':');
+    return `${base}/new?${kind === 'chat' ? 'group' : 'team'}=${id}`;
+  };
+  setTitle('Tasks', html`<a class="btn primary small" href="${newHref()}">${icon('plus')} New task</a>`);
 
   async function draw() {
-    const list = await get(`/tasks?view=${view}${view === 'team' && teamId ? `&team_id=${teamId}` : ''}${done ? '&done=1' : ''}`);
-    const groups = done ? [['done', 'Finished in the last 60 days', list]] : BUCKETS.map(([k, label]) => [k, label, list.filter((t) => bucket(t) === k)]).filter(([, , ts]) => ts.length);
+    const list = await get(`/tasks?view=${view}${view === 'team' && place ? `&place=${place}` : ''}${done ? '&done=1' : ''}`);
+    const groups = done ? [['done', 'Finished in the last 60 days', list]] : groupTasks(list);
     const empty = {
       mine: 'Nothing on your list. Tasks people give you show up here, and you can add your own.',
       given: 'Tasks you give to other people show up here, so you can see how they’re going.',
       team: teams.length ? 'No open tasks for this team.' : 'You’re not on a team yet.',
     }[view];
     mount(el, html`<div class="task-filters">
-        <div class="seg" role="tablist"><a href="${link({ view: 'mine', team: '' })}" class="${view === 'mine' ? 'on' : ''}">My tasks</a><a href="${link({ view: 'given', team: '' })}" class="${view === 'given' ? 'on' : ''}">I gave out</a>${teams.length ? html`<a href="${link({ view: 'team' })}" class="${view === 'team' ? 'on' : ''}">Teams</a>` : ''}</div>
-        ${view === 'team' && teams.length > 1 ? html`<select data-team aria-label="Team"><option value="">All my teams</option>${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? 'selected' : ''}>${t.name}</option>`)}</select>` : ''}
+        <div class="seg" role="tablist"><a href="${link({ view: 'mine', place: '' })}" class="${view === 'mine' ? 'on' : ''}">My tasks</a><a href="${link({ view: 'given', place: '' })}" class="${view === 'given' ? 'on' : ''}">I gave out</a>${teams.length ? html`<a href="${link({ view: 'team' })}" class="${view === 'team' ? 'on' : ''}">Teams</a>` : ''}</div>
+        ${view === 'team' && teams.length > 1 ? html`<select data-team aria-label="Team or group"><option value="">All my teams and groups</option>${placeOptions(teams, place)}</select>` : ''}
         <a class="chip link ${done ? 'on' : ''}" href="${link({ done: done ? '' : '1' })}">${done ? 'Showing finished' : 'Show finished'}</a>
       </div>
       ${groups.length ? groups.map(([k, label, ts]) => html`<div class="task-group ${k}"><h3>${label} <span class="muted">${ts.length}</span></h3>
@@ -83,7 +101,7 @@ export async function taskList(el, { setTitle, q, base = '#/tasks', onChange = (
         : html`<div class="card empty">${done ? 'Nothing finished lately.' : empty}</div>`}`);
   }
 
-  el.onchange = (e) => { if (e.target.matches('[data-team]')) location.hash = link({ team: e.target.value }); };
+  el.onchange = (e) => { if (e.target.matches('[data-team]')) location.hash = link({ place: e.target.value }); };
   el.onclick = async (e) => {
     const b = e.target.closest('[data-done]');
     if (!b) return;
@@ -94,26 +112,29 @@ export async function taskList(el, { setTitle, q, base = '#/tasks', onChange = (
 }
 
 // ---------------------------------------------------------------- one task
-// id: a task id, or 'new' (q may carry team, title, service, due from where it was started).
+// id: a task id, or 'new' (q may carry team or group, title, service, due from where it was started).
 export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onChange = () => {} }) {
   const isNew = id === 'new';
-  const teams = await get('/tasks/teams');
+  const teams = await get('/tasks/teams'); // teams and groups
+  const shared = q.get('team') || q.get('group');
   let t = isNew
-    ? { title: q.get('title') || '', notes: '', team_id: Number(q.get('team')) || null, assignee_id: q.get('team') ? null : me, due_date: q.get('due') || '', due_time: '', repeat: '', service_id: Number(q.get('service')) || null, checklist: [], thread: [], can_edit: true }
+    ? { title: q.get('title') || '', notes: '', team_id: Number(q.get('team')) || null, chat_id: Number(q.get('group')) || null, assignee_id: shared ? null : me, due_date: q.get('due') || '', due_time: '', repeat: '', service_id: Number(q.get('service')) || null, checklist: [], thread: [], can_edit: true }
     : await get(`/tasks/${id}`);
-  if (isNew && t.team_id && !teams.some((x) => x.id === t.team_id)) t.team_id = null;
+  const placeKey = () => (t.chat_id ? `chat:${t.chat_id}` : t.team_id ? `team:${t.team_id}` : '');
+  const placeOf = () => teams.find((x) => x.key === placeKey());
+  if (isNew && placeKey() && !placeOf()) Object.assign(t, { team_id: null, chat_id: null, assignee_id: me });
   setTitle(isNew ? 'New task' : 'Task', html`<a class="btn small ghost" href="${base}">${icon('back')} Tasks</a>`);
   let services = [];
 
   async function loadServices() {
-    const campus = teams.find((x) => x.id === t.team_id)?.campus_id;
+    const campus = placeOf()?.campus_id;
     const from = today();
     services = await get(`/services?all=1&from=${from}&to=${plusDays(from, 70)}${campus ? `&campus_id=${campus}` : ''}`).catch(() => []);
     if (t.service_id && !services.some((s) => s.id === t.service_id) && t.service) services.unshift({ id: t.service_id, starts_at: t.service.starts_at, campus_short: t.service.campus, title: t.service.title });
   }
 
   function draw() {
-    const team = teams.find((x) => x.id === t.team_id);
+    const team = placeOf();
     const people = team ? team.members : [];
     const doneCount = t.checklist.filter((i) => i.done).length;
     mount(el, html`<form class="card task-detail" data-form autocomplete="off">
@@ -123,7 +144,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onCh
         </div>
         ${t.done_at ? html`<div class="alert good small" style="margin:0 0 12px">Done ${fmtDate(t.done_at.slice(0, 10))}.</div>` : ''}
         <div class="form task-fields">
-          <label class="field">Team<select name="team_id"><option value="">Personal (just me)</option>${teams.map((x) => html`<option value="${x.id}" ${x.id === t.team_id ? 'selected' : ''}>${x.name}</option>`)}</select></label>
+          <label class="field">Team or group<select name="place"><option value="">Personal (just me)</option>${placeOptions(teams, placeKey())}</select></label>
           <label class="field">Assigned to<select name="assignee_id" ${team ? '' : 'disabled'}>
             ${team ? html`<option value="">Unassigned</option>${people.map((p) => html`<option value="${p.id}" ${p.id === t.assignee_id ? 'selected' : ''}>${displayName(p)}${p.id === me ? ' (me)' : ''}</option>`)}` : html`<option>Me</option>`}</select></label>
           <label class="field">Due<span class="row nowrap" style="gap:6px"><input type="date" name="due_date" value="${t.due_date || ''}"><input type="time" name="due_time" value="${t.due_time || ''}" ${t.due_date ? '' : 'disabled'} aria-label="Time (optional)"></span></label>
@@ -176,14 +197,21 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onCh
       return;
     }
     if (!f.name || f.closest('[data-comment]')) return;
-    const v = ['team_id', 'assignee_id', 'service_id'].includes(f.name) ? (Number(f.value) || null) : f.value;
+    // Team or group: one select, saved as team_id / chat_id.
+    if (f.name === 'place') {
+      const [kind, pid] = f.value.split(':');
+      const where = { team_id: kind === 'team' ? Number(pid) : null, chat_id: kind === 'chat' ? Number(pid) : null };
+      if (isNew) Object.assign(t, where, { assignee_id: f.value ? null : me });
+      else {
+        try { t = { ...t, ...(await patch(`/tasks/${t.id}`, where)) }; onChange(); } catch (err) { fail(err); }
+      }
+      await loadServices();
+      return draw();
+    }
+    const v = ['assignee_id', 'service_id'].includes(f.name) ? (Number(f.value) || null) : f.value;
     if (f.name === 'title' && !v.trim()) { f.value = t.title; return; }
     await save(f.name, v);
-    if (f.name === 'team_id') {
-      if (isNew) t.assignee_id = null;
-      await loadServices();
-    }
-    if (['team_id', 'due_date', 'assignee_id'].includes(f.name) || isNew) draw();
+    if (['due_date', 'assignee_id'].includes(f.name) || isNew) draw();
   });
 
   el.addEventListener('keydown', async (e) => {
@@ -220,7 +248,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onCh
         if (!t.title) { f.title.focus(); return toast('Say what needs doing.'); }
         const pending = el.querySelector('[data-new-step]').value.trim();
         const made = await post('/tasks', {
-          title: t.title, notes: t.notes, team_id: t.team_id, ...(t.team_id ? { assignee_id: t.assignee_id } : {}), due_date: t.due_date || null,
+          title: t.title, notes: t.notes, team_id: t.team_id, chat_id: t.chat_id, ...(t.team_id || t.chat_id ? { assignee_id: t.assignee_id } : {}), due_date: t.due_date || null,
           due_time: t.due_time || null, repeat: t.repeat, service_id: t.service_id, checklist: [...t.checklist.map((i) => i.text), ...(pending ? [pending] : [])],
         });
         onChange();
