@@ -1,7 +1,7 @@
 // Services: a month calendar (or list) of every service across campuses, plus repeating services.
-import { get, html, mount, icon, fmtDate, fmtTime, today, addDays } from '../lib.js';
+import { get, html, mount, icon, fmtDate, fmtTime, today, addDays, fail } from '../lib.js';
 import { can, setTitle, go, campusQuery } from '../app.js';
-import { newServiceDialog, repeatLabel } from '../service-forms.js';
+import { newServiceDialog, repeatLabel, seriesDialog, deleteSeries } from '../service-forms.js';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -30,6 +30,7 @@ export default async function services(el) {
     else draw();
   }
 
+  let series = [];
   const remember = () => sessionStorage.setItem('mb.services', JSON.stringify({ view, month, from }));
 
   async function draw() {
@@ -43,13 +44,14 @@ export default async function services(el) {
     const first = `${month}-01`;
     const gridStart = addDays(first, -new Date(`${first}T12:00:00Z`).getUTCDay());
     const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-    const [list, series] = await Promise.all([
+    const [list, seriesList] = await Promise.all([
       get(`/services?from=${days[0]}&to=${days[41]}${campusQuery('&')}`),
       leader ? get('/series') : [],
     ]);
     const byDay = new Map();
     for (const s of list) byDay.set(s.starts_at.slice(0, 10), [...(byDay.get(s.starts_at.slice(0, 10)) || []), s]);
     const label = new Date(`${first}T12:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    series = seriesList;
     const shownSeries = series.filter((t) => !campusQuery() || campusQuery().endsWith(`=${t.campus_id}`));
     const weeks = days.slice(35).every((d) => !d.startsWith(month)) ? 5 : 6;
 
@@ -75,7 +77,8 @@ export default async function services(el) {
         <td><span class="campus-tag"><span class="dot" style="background:${t.campus_color}"></span>${t.campus_short || t.campus_name}</span></td>
         <td><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}${t.template_name ? ` · from “${t.template_name}”` : ''}</div></td>
         <td class="small">${t.needs.length ? `${t.needs.reduce((a, n) => a + n.count, 0)} positions` : html`<span class="muted">No positions</span>`}</td>
-        <td class="muted small nowrap">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td></tr>`)}</tbody></table>`
+        <td class="muted small nowrap">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td>
+        ${staff ? html`<td class="nowrap" style="text-align:right"><button class="icon-btn" data-edit-series="${t.id}" title="Edit repeating service">${icon('edit')}</button><button class="icon-btn danger" data-del-series="${t.id}" title="Delete repeating service">${icon('trash')}</button></td>` : ''}</tr>`)}</tbody></table>`
         : html`<div class="empty">No repeating services yet. Add your Sunday services once and they fill the calendar automatically.</div>`}
     </div>` : ''}`);
   }
@@ -124,6 +127,13 @@ export default async function services(el) {
       return draw();
     }
     if (e.target.closest('[data-new-series]')) return create();
+    const editS = e.target.closest('[data-edit-series]');
+    const delS = e.target.closest('[data-del-series]');
+    if (editS || delS) {
+      const t = series.find((x) => x.id === Number((editS || delS).dataset.editSeries || (editS || delS).dataset.delSeries));
+      (async () => { if (await (editS ? seriesDialog(t) : deleteSeries(t))) await draw(); })().catch(fail);
+      return;
+    }
     const next = e.target.closest('tr[data-next]');
     if (next?.dataset.next) {
       const day = next.dataset.next.slice(0, 10);
