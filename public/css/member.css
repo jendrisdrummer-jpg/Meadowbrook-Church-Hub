@@ -69,3 +69,7 @@ body.member { background: var(--bg); min-height: 100vh; }
 .m-svc-time { width: 84px; flex: none; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
 .m-team + .m-team { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .m-team-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+
+.m-pos { padding: 2px 0; }
+.m-pos .is-me { color: var(--accent-text); }
+.m-chips .chip .dot { width: 8px; height: 8px; }
