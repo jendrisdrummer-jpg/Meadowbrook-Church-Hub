@@ -17,6 +17,7 @@ import dashboardRoutes from './routes/dashboard.js';
 import fieldRoutes from './routes/fields.js';
 import templateRoutes from './routes/templates.js';
 import notificationRoutes from './routes/notifications.js';
+import appRoutes from './routes/app.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -30,7 +31,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // the App Builder previews the app in a frame
     next();
   });
 
@@ -53,6 +54,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(fieldRoutes(db));
   api.use(templateRoutes(db));
   api.use(notificationRoutes(db));
+  api.use(appRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 
@@ -61,11 +63,13 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 
   // The installable app: its name, colours and icon come from Settings → Church.
   app.get('/manifest.webmanifest', (_req, res) => {
-    const name = getSetting(db, 'church_name', 'Church Hub');
+    // The staff dashboard, installable too; the member app has its own manifest under /app/.
+    const name = `${getSetting(db, 'church_name', 'Church')} Hub`;
     const v = getSetting(db, 'app_icon_version', 0);
     res.type('application/manifest+json').json({
+      id: '/',
       name,
-      short_name: getSetting(db, 'app_short_name', '') || name.split(' ')[0],
+      short_name: 'Hub',
       start_url: '/#/',
       scope: '/',
       display: 'standalone',
@@ -86,12 +90,39 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
     res.sendFile(fs.existsSync(custom) ? custom : path.join(root, 'public', 'icons', `icon-${size}.png`));
   });
 
+  // The member app: its own address (MB_APP_URL, e.g. https://app.mbclife.church) opens it
+  // straight away; on any address it also lives at /app/.
+  const appHost = (() => { try { return new URL((process.env.MB_APP_URL || '').trim()).host; } catch { return ''; } })();
+  app.get('/', (req, res, next) => (appHost && req.get('host') === appHost ? res.redirect('/app/') : next()));
+  // Express matches /app and /app/ alike, so check the address itself.
+  app.get('/app', (req, res, next) => (req.originalUrl.split('?')[0] === '/app' ? res.redirect('/app/') : next()));
+  app.get('/app/manifest.webmanifest', (_req, res) => {
+    const name = getSetting(db, 'church_name', 'Church');
+    const v = getSetting(db, 'app_icon_version', 0);
+    res.type('application/manifest+json').json({
+      id: '/app/',
+      name,
+      short_name: getSetting(db, 'app_short_name', '') || name.split(' ')[0],
+      start_url: '/app/',
+      scope: '/app/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: getSetting(db, 'brand_color', '#135fd1'),
+      icons: [
+        { src: `/app-icon/192.png?v=${v}`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: `/app-icon/512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: `/app-icon/512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    });
+  });
+
   const pub = path.join(root, 'public');
   app.use(express.static(pub, { extensions: ['html'], index: false }));
   const page = (file) => (_req, res) => res.sendFile(path.join(pub, file));
   app.get('/login', page('login.html'));
   app.get('/checkin', page('checkin.html'));
   app.get('/', page('app.html'));
+  app.get('/app/', page('app/index.html'));
 
   app.use(errorHandler);
   return app;

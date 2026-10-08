@@ -109,6 +109,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       ...Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])),
       app_icon_version: getSetting(db, 'app_icon_version', 0),
       custom_app_icon: fs.existsSync(path.join(uploadDir, 'app-icon', '512.png')),
+      app_url: `${(process.env.MB_APP_URL || '').trim().replace(/\/+$/, '')}/app/`,
     });
   });
 

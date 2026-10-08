@@ -1,0 +1,48 @@
+/* The member app: phone-first, a title bar on top and tabs along the bottom. */
+body.member { background: var(--bg); min-height: 100vh; }
+.m-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: calc(12px + env(safe-area-inset-top)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.m-top h1 { margin: 0 auto 0 0; font-size: 24px; letter-spacing: -.02em; }
+.m-top-actions { display: flex; gap: 6px; align-items: center; }
+.m-main { max-width: 640px; margin: 0 auto; padding: 4px 16px calc(96px + env(safe-area-inset-bottom)); }
+.m-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; background: var(--panel); border-top: 1px solid var(--line); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+.m-tabs a { flex: 1; display: grid; justify-items: center; gap: 2px; padding: 6px 0; font-size: 11px; font-weight: 600; color: var(--muted); text-decoration: none; }
+.m-tabs a.on { color: var(--accent-text); }
+.m-tabs .ic { width: 23px; height: 23px; }
+@media (min-width: 700px) {
+  .m-tabs { left: 50%; right: auto; transform: translateX(-50%); width: 640px; border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; }
+}
+
+/* Home blocks */
+.m-hero { border-radius: 20px; padding: 26px 20px; color: #fff; background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #000)); box-shadow: var(--shadow); }
+.m-hero small { opacity: .85; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+.m-hero h2 { color: #fff; font-size: 26px; margin: 6px 0 8px; letter-spacing: -.02em; }
+.m-hero p { margin: 0; opacity: .92; white-space: pre-line; }
+.m-block + .m-block { margin-top: 14px; }
+.m-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.m-buttons .btn { min-height: 52px; justify-content: center; font-weight: 650; border-radius: 14px; }
+.m-text p { white-space: pre-line; margin: 6px 0 0; }
+.m-times .campus + .campus { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.m-times .t { font-weight: 650; }
+.m-serving-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.m-serving-row + .m-serving-row { border-top: 1px solid var(--line); }
+.m-serving-row .what { margin-right: auto; }
+.m-video { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
+.m-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.m-big-action { display: grid; gap: 10px; text-align: center; padding: 28px 18px; }
+.m-big-action .ic { width: 40px; height: 40px; margin: 0 auto; color: var(--accent-text); }
+.m-big-action .btn { min-height: 52px; justify-content: center; font-size: 17px; border-radius: 14px; }
+.m-list a, .m-list button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 4px; border: 0; background: none; color: inherit; font: inherit; text-decoration: none; text-align: left; cursor: pointer; }
+.m-list > * + * { border-top: 1px solid var(--line); }
+.m-list .ic { width: 20px; height: 20px; color: var(--muted); }
+.m-list span.grow { margin-right: auto; }
+.m-banner { display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 14px; background: var(--accent-soft); color: var(--text); margin-bottom: 14px; }
+.m-banner .grow { margin-right: auto; font-size: 14px; }
+.m-plan-row:first-child { border-top: 0; }
+.m-plan-row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.m-plan-row.section { grid-template-columns: 1fr; background: var(--panel-2); margin: 0 -16px; padding: 8px 16px; font-weight: 700; }
+.m-plan-row .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.m-plan-row .details { color: var(--text-2); font-size: 13px; white-space: pre-line; }
+.m-form .field { margin-bottom: 12px; }
+.m-form .checks { display: grid; gap: 8px; margin: 6px 0 14px; }
+.m-hp { position: absolute; left: -5000px; }
+.m-empty { text-align: center; padding: 30px 10px; color: var(--muted); }

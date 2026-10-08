@@ -18,7 +18,8 @@ export default function notificationRoutes(db) {
   const r = Router();
 
   r.get('/notifications', requireRole('volunteer'), (req, res) => {
-    const items = db.prepare('SELECT id, kind, title, body, url, created_at, read_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 40').all(req.user.id);
+    const items = db.prepare('SELECT id, kind, title, body, url, data, created_at, read_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 40').all(req.user.id)
+      .map(({ data, ...n }) => ({ ...n, app_url: JSON.parse(data || '{}').app_url || '' }));
     const unread = db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(req.user.id).n;
     res.json({ unread, items });
   });
@@ -56,9 +57,9 @@ export default function notificationRoutes(db) {
     const b = req.body || {};
     if (!validEndpoint(b.endpoint) || !b.keys?.p256dh || !b.keys?.auth) throw bad('That isn’t a push subscription this app can use.');
     if (String(b.keys.p256dh).length > 200 || String(b.keys.auth).length > 100) throw bad('Invalid push keys.');
-    db.prepare(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, device = excluded.device`)
-      .run(req.user.id, b.endpoint, b.keys.p256dh, b.keys.auth, str(b.device, 80));
+    db.prepare(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device, ui) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, device = excluded.device, ui = excluded.ui`)
+      .run(req.user.id, b.endpoint, b.keys.p256dh, b.keys.auth, str(b.device, 80), b.ui === 'app' ? 'app' : 'hub');
     res.status(201).json({ ok: true });
   });
 
@@ -69,7 +70,7 @@ export default function notificationRoutes(db) {
   });
 
   r.post('/push/test', requireRole('volunteer'), (req, res) => {
-    notify(db, [req.user.id], { kind: 'test', title: 'Notifications are on', body: 'You’ll hear here when you’re scheduled and before you serve.', url: '/#/my' });
+    notify(db, [req.user.id], { kind: 'test', title: 'Notifications are on', body: 'You’ll hear here when you’re scheduled and before you serve.', url: '/#/my', app_url: '/app/#/serve' });
     res.json({ ok: true });
   });
 

@@ -33,7 +33,11 @@
     </div>
   </div>
   <script type="module">
-    const err = new URLSearchParams(location.search).get('error');
+    const q = new URLSearchParams(location.search);
+    const err = q.get('error');
+    // Return to where sign-in started (e.g. the member app), on this site only.
+    const next = /^\/(?![/\\])/.test(q.get('next') || '') ? q.get('next') : '/';
+    document.getElementById('google').href = `/auth/google?next=${encodeURIComponent(next)}`;
     const box = document.getElementById('error');
     if (err) { box.textContent = err; box.classList.remove('hidden'); }
     const opts = await fetch('/auth/options').then((r) => r.json());
@@ -52,7 +56,7 @@
         method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' },
         body: JSON.stringify({ email: e.target.email.value }),
       });
-      if (res.ok) location.href = '/';
+      if (res.ok) location.href = next;
       else { box.textContent = (await res.json()).error; box.classList.remove('hidden'); }
     });
   </script>
