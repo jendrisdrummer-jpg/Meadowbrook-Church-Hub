@@ -33,6 +33,7 @@ const NAV = [
   ] },
   { group: 'Check-in', items: [
     { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
+    { path: '/stations', label: 'Check-in stations', icon: 'phone', min: 'staff' },
   ] },
   { group: 'Admin', items: [
     { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
@@ -73,6 +74,7 @@ const ROUTES = [
   [/^\/attendance$/, 'attendance'],
   [/^\/connect$/, 'connect'],
   [/^\/announcements$/, 'announcements'],
+  [/^\/stations$/, 'stations'],
   [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],
 ];

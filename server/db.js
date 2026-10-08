@@ -741,6 +741,29 @@ const MIGRATIONS = [
     last_used TEXT
   );
   `,
+  // 23: check-in stations: iPads paired with a code from the hub, so they check kids in without
+  // anyone signed in. A station can only use check-in, at its own campus.
+  `
+  CREATE TABLE checkin_devices (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    campus_id INTEGER NOT NULL REFERENCES campuses(id) ON DELETE CASCADE,
+    print INTEGER NOT NULL DEFAULT 1,
+    token_hash TEXT NOT NULL UNIQUE,
+    device TEXT NOT NULL DEFAULT '',
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT
+  );
+  CREATE TABLE device_pairings (
+    code TEXT PRIMARY KEY,                             -- shown on the iPad, typed into the hub
+    secret TEXT NOT NULL UNIQUE,                       -- only the iPad knows it; it collects the token with it
+    device TEXT NOT NULL DEFAULT '',
+    token TEXT,                                        -- set once paired, handed over once, then the row goes
+    device_id INTEGER REFERENCES checkin_devices(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

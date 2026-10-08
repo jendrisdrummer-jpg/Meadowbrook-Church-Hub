@@ -135,6 +135,13 @@ export default function peopleRoutes(db, { uploadDir }) {
     const b = req.body || {};
     const f = personFields(b, false);
     f.campus_id ??= null;
+    // A check-in station adds new families as guests at its campus.
+    if (req.user.station) {
+      f.status = 'guest';
+      f.campus_id = req.user.station.campus_id;
+      const hh = f.household_id ? db.prepare('SELECT campus_id FROM households WHERE id = ?').get(f.household_id) : null;
+      if (f.household_id && (!hh || (hh.campus_id != null && hh.campus_id !== f.campus_id))) throw forbidden();
+    }
     if (!canCampus(req.user, f.campus_id)) throw forbidden();
     if (!b.force) {
       const dup = findDuplicate(f);

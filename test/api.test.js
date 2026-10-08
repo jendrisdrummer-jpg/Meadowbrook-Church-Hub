@@ -633,7 +633,7 @@ test('sending requests: drafts, one notice per person, email reply links, remova
   // The email's link works without signing in, and only with the right signature.
   const [, id, sig] = mails[0].text.match(/\/r\/(\d+)\/([\w-]+)/);
   const pub = (path, body) => fetch(`${base}/api/public/assignments/${path}`, body ? { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify(body) } : {});
-  assert.equal((await pub(`${id}/${sig.slice(0, -1)}x`)).status, 404);
+  assert.equal((await pub(`${id}/${sig.slice(0, -1)}${sig.endsWith('x') ? 'y' : 'x'}`)).status, 404); // a changed signature (never the same one)
   const info = await (await pub(`${id}/${sig}`)).json();
   assert.equal(info.first_name, 'Pat');
   await api('admin', 'POST', '/notifications/read', {});
@@ -1434,6 +1434,64 @@ test('announcements: permission, audiences, guest phones, scheduling and cancel'
   // A guest phone that signs in becomes the account's device, not a guest.
   await api('vol', 'POST', '/push/subscriptions', { endpoint: ep('guest1'), keys, device: 'iPhone', ui: 'app' });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM guest_push').get().n, 0);
+});
+
+test('check-in stations: pair an iPad with a code, what it can and can’t reach, remove it', async () => {
+  // The iPad (signed out) asks for a code and waits.
+  const pair = (await api(null, 'POST', '/checkin/pair', { device: 'iPad' })).data;
+  assert.match(pair.code, /^[A-HJ-NP-Z2-9]{6}$/);
+  assert.deepEqual((await api(null, 'GET', `/checkin/pair/${pair.secret}`)).data, { paired: false });
+  assert.equal((await api(null, 'GET', '/checkin/pair/nope')).status, 404);
+
+  // Staff enter the code in the hub. Volunteers can't; a wrong code doesn't pair.
+  assert.equal((await api('vol', 'POST', '/checkin/devices', { code: pair.code, name: 'Lobby', campus_id: 1 })).status, 403);
+  assert.equal((await api('admin', 'POST', '/checkin/devices', { code: 'ZZZZZZ', name: 'Lobby', campus_id: 1 })).status, 400);
+  assert.equal((await api('north', 'POST', '/checkin/devices', { code: pair.code, name: 'Lobby', campus_id: 2 })).status, 403); // not their campus
+  const made = await api('north', 'POST', '/checkin/devices', { code: `${pair.code.slice(0, 3)}-${pair.code.slice(3).toLowerCase()}`, name: 'Lobby iPad', campus_id: 1, print: false });
+  assert.equal(made.status, 201);
+  assert.equal((await api('admin', 'POST', '/checkin/devices', { code: pair.code, name: 'Again', campus_id: 1 })).status, 400); // used up
+
+  // The iPad collects its sign-in once.
+  const got = (await api(null, 'GET', `/checkin/pair/${pair.secret}`)).data;
+  assert.equal(got.paired, true);
+  assert.deepEqual([got.station.name, got.station.campusId, got.station.print], ['Lobby iPad', 1, false]);
+  assert.equal((await api(null, 'GET', `/checkin/pair/${pair.secret}`)).status, 404);
+  const as = (method, url, body) => fetch(`${base}/api${url}`, { method, headers: { 'x-mb': '1', 'x-station': got.token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+    .then(async (r) => ({ status: r.status, data: await r.json().catch(() => ({})) }));
+
+  // It can do check-in at its own campus, and nothing else.
+  assert.equal((await as('GET', '/checkin/station')).data.name, 'Lobby iPad');
+  assert.equal((await as('GET', '/campuses')).status, 200);
+  assert.equal((await as('GET', '/checkin/roster?campus_id=1')).status, 200);
+  assert.equal((await as('GET', '/checkin/roster?campus_id=2')).status, 403);
+  assert.equal((await as('GET', '/people')).status, 401);
+  assert.equal((await as('GET', '/people/1')).status, 401);
+  assert.equal((await as('GET', '/finance/summary')).status, 401);
+  assert.equal((await as('GET', '/checkin/devices')).status, 403);
+  // A new family at the desk is added as guests at the station's campus.
+  const parent = await as('POST', '/people', { first_name: 'New', last_name: 'Family', phone: '555-0100', campus_id: 2, status: 'member', new_household: true, force: true });
+  assert.equal(parent.status, 201);
+  assert.deepEqual([parent.data.status, parent.data.campus_id], ['guest', 1]);
+  const kid = await as('POST', '/people', { first_name: 'Kid', last_name: 'Family', household_id: parent.data.household_id, household_role: 'child', force: true });
+  assert.equal(kid.status, 201);
+  const otherHousehold = db.prepare('INSERT INTO households (name, campus_id) VALUES (?, 2)').run('South Household').lastInsertRowid;
+  assert.equal((await as('POST', '/people', { first_name: 'Sneaky', household_id: Number(otherHousehold), force: true })).status, 403);
+  const rec = { id: crypto.randomUUID(), person_id: kid.data.id, kind: 'kid', security_code: 'K7Q2', station: 'Lobby iPad', checked_in_at: new Date().toISOString() };
+  assert.equal((await as('POST', '/checkin/checkins', { campus_id: 1, records: [rec] })).status, 201);
+  assert.ok((await as('GET', '/checkin/active?campus_id=1')).data.some((c) => c.id === rec.id));
+  assert.ok(db.prepare('SELECT last_seen FROM checkin_devices WHERE name = ?').get('Lobby iPad').last_seen);
+
+  // The hub lists, edits and removes it; a removed station is told to pair again.
+  const list = (await api('admin', 'GET', '/checkin/devices')).data;
+  const dev = list.find((d) => d.name === 'Lobby iPad');
+  assert.equal(dev.device, 'iPad');
+  assert.ok(!('token_hash' in dev));
+  await api('admin', 'PATCH', `/checkin/devices/${dev.id}`, { name: 'Kids Wing', print: true });
+  assert.deepEqual([(await as('GET', '/checkin/station')).data.name, (await as('GET', '/checkin/station')).data.print], ['Kids Wing', true]);
+  await api('admin', 'DELETE', `/checkin/devices/${dev.id}`);
+  const gone = await as('GET', '/checkin/roster?campus_id=1');
+  assert.deepEqual([gone.status, gone.data.station_removed], [401, true]);
+  db.prepare('DELETE FROM checkins WHERE id = ?').run(rec.id); // keep today's check-ins for the next test
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

@@ -46,3 +46,8 @@
   .label .code { font-weight: 900; letter-spacing: .08em; }
   .label .alert-strip { background: #000; color: #fff; font-weight: 900; padding: 1mm 2mm; }
 }
+/* Pairing this device as a station */
+.k-pair { max-width: 560px; margin: 8vh auto 0; text-align: center; display: grid; gap: 10px; }
+.k-pair h1 { font-size: 28px; margin: 0 0 6px; }
+.k-pair p { margin: 0; font-size: 17px; }
+.k-pair-code { margin: 18px auto; padding: 18px 28px; border-radius: 20px; background: var(--panel); border: 2px solid var(--accent); font-size: 64px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-text); }
