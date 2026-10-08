@@ -1494,6 +1494,33 @@ test('check-in stations: pair an iPad with a code, what it can and can’t reach
   db.prepare('DELETE FROM checkins WHERE id = ?').run(rec.id); // keep today's check-ins for the next test
 });
 
+test('search: people, songs, teams, services, events and tasks, only what you can see', async () => {
+  const find = async (who, q) => (await api(who, 'GET', `/search?q=${encodeURIComponent(q)}`)).data;
+  const keys = (d) => d.groups.map((g) => g.key);
+  const south = (await api('admin', 'POST', '/people', { first_name: 'Zebulon', last_name: 'Quill', email: 'zq@example.org', phone: '555-867-5309', campus_id: 2 })).data;
+  await api('admin', 'POST', '/songs', { title: 'Zebulon Anthem', author: 'Quill' });
+  const year = new Date().getFullYear() + 1;
+  await api('admin', 'POST', '/admin/events', { title: 'Zebulon Retreat', starts_at: `${year}-05-01T10:00`, published: true });
+  await api('vol', 'POST', '/tasks', { title: 'Zebulon chairs' });
+
+  assert.deepEqual((await find('admin', 'z')).groups, []); // too short
+  const all = await find('admin', 'zebulon');
+  assert.ok(['people', 'songs', 'events'].every((k) => keys(all).includes(k)));
+  const person = all.groups.find((g) => g.key === 'people').items[0];
+  assert.deepEqual([person.id, person.href], [south.id, `/people/${south.id}`]);
+  assert.equal((await find('admin', '8675309')).groups.find((g) => g.key === 'people').items[0].id, south.id); // by phone
+  assert.equal((await find('admin', 'zq@example')).groups.find((g) => g.key === 'people').items[0].id, south.id);
+  // A North-only staff member doesn't find South people; volunteers don't search people, songs or events.
+  assert.ok(!(await find('north', 'zebulon')).groups.find((g) => g.key === 'people'));
+  const vol = await find('vol', 'zebulon');
+  assert.deepEqual(keys(vol), ['tasks']); // only their own task
+  assert.equal(vol.groups[0].items[0].title, 'Zebulon chairs');
+  assert.ok(!(await find('admin', 'zebulon')).groups.some((g) => g.key === 'tasks')); // someone else's task
+  // Wildcards are taken literally.
+  assert.deepEqual((await find('admin', '%%')).groups, []);
+  assert.equal((await api(null, 'GET', '/search?q=zebulon')).status, 401);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

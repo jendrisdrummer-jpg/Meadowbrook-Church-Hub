@@ -1,5 +1,6 @@
 // App shell: sign-in check, navigation, campus switcher and a small hash router.
 import { get, post, patch, html, mount, icon, avatar, $, fail } from './lib.js';
+import { initSearch, searchButton, openSearch } from './search.js';
 
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 
@@ -114,6 +115,7 @@ async function boot() {
   drawChrome();
   window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } route(); });
   route();
+  initSearch(searchPages, go);
   drawBell();
   refreshBadges();
   setInterval(() => { if (!document.hidden) { drawBell(); refreshBadges(); } }, 90e3);
@@ -170,9 +172,15 @@ document.addEventListener('click', (e) => {
   if (bellOpen && !e.target.closest('[data-bell]')) { bellOpen = false; drawBell(); }
 });
 
+// The pages this account can open. Finance pages are for accounts with the Finance permission,
+// whatever their role; Announcements likewise.
+const searchPages = () => visibleNav().flatMap((g) => g.items);
+const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce)) })).filter((g) => g.items.length);
+
 function drawChrome() {
-  // Finance pages are for accounts with the Finance permission, whatever their role.
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce)) })).filter((g) => g.items.length);
+  const groups = visibleNav();
+  mount($('[data-search]'), searchButton());
+  $('[data-search]').onclick = () => openSearch(searchPages, go);
   const link = (n, label = n.label) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${label}</span>${n.badge ? html`<span class="nav-badge hidden" data-badge="${n.badge}"></span>` : ''}</a>`;
   mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map((n) => link(n))}`));
   mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map((n) => link(n, n.short || n.label)));

@@ -253,6 +253,10 @@ and who's serving (only requests that were sent, without contact details).
   - **Donors**, **Recurring**, and **Funds** (add, rename, reorder, hide, choose the default; set
     the cover-the-fee rate).
 
+**Search** (the box at the top of every page, or press **Ctrl/⌘ K** or **/**): people (by name,
+email or phone), teams, songs, services, events, your open tasks and the hub's own pages, grouped
+and opened with the arrow keys and Enter. Results only include what your access already shows.
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used. Add
 **chord charts, lyrics and sheet music** (PDF, picture or text) and **audio** (MP3, M4A, WAV) to a
 song. Charts and lyrics show as chips on that song in every service plan, in the hub and the app. Name a file for its key ("Way Maker - G.pdf") and
