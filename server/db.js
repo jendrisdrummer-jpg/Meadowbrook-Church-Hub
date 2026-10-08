@@ -417,6 +417,10 @@ const MIGRATIONS = [
   UPDATE users SET role = 'leader', role_auto = 1
     WHERE role = 'volunteer' AND person_id IN (SELECT person_id FROM team_members WHERE is_leader = 1);
   `,
+  // 12: who sent each request, so they hear the reply even if they don't lead that team.
+  `
+  ALTER TABLE assignments ADD COLUMN sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

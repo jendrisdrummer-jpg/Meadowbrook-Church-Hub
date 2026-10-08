@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
-import { notify, notifyDeclined, assignmentSig } from '../notify.js';
+import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
@@ -149,7 +149,7 @@ export default function appRoutes(db) {
     if (view(a).past) throw bad('This date has already passed.');
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
-    if (status === 'declined' && a.status !== 'declined') notifyDeclined(db, a.id);
+    if (status !== a.status) notifyResponse(db, a.id, status);
     res.json(view({ ...a, status }));
   });
 

@@ -94,9 +94,13 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const on = Boolean(sub) && perm === 'granted';
   const share = html`<svg class="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
-  const labels = { scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve', declined: 'When someone on my team can’t make it', connect: 'New connect cards from guests' };
+  const labels = {
+    scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
+    declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
+    connect: 'New connect cards from guests', email: 'Also send me emails',
+  };
   const atLeast = (r) => ROLES.indexOf(role) >= ROLES.indexOf(r);
-  const kinds = Object.keys(labels).filter((k) => (k === 'declined' ? atLeast('leader') : k === 'connect' ? atLeast('staff') : true) || info.prefs[k] === false);
+  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : k === 'connect' ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
 
   let install = '';
   if (ui === 'hub' && appLink) {
