@@ -1,7 +1,8 @@
 // Video calls in chats (Daily): start one now, or schedule a team meeting. The Daily room is
 // made when the first person joins and closed when everyone has left. A monthly minutes limit
 // (Settings → Video calls) keeps it inside the free plan: Daily's own usage records are
-// checked every few minutes, and once the limit is reached no call starts and live ones end.
+// checked every minute while calls are live (and on every join); admins are told at 80% and
+// 100%, and once the limit is reached no call starts and live ones end.
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { requireRole, rank } from '../auth.js';
@@ -25,7 +26,20 @@ export async function usage(db, maxAge = 5 * 60e3) {
   if (!u || u.month !== monthKey()) u = { month: monthKey(), minutes: 0, synced_at: 0 };
   if (daily.dailyConfigured() && Date.now() - u.synced_at > maxAge) {
     try {
-      u = { month: monthKey(), minutes: await daily.minutesSince(monthStart()), synced_at: Date.now() };
+      u = { ...u, month: monthKey(), minutes: await daily.minutesSince(monthStart()), synced_at: Date.now() };
+      // Tell admins once a month at 80%, and again when the limit is reached.
+      const level = limit && u.minutes >= limit ? 100 : limit && u.minutes >= limit * 0.8 ? 80 : 0;
+      if (level > (u.warned || 0)) {
+        u.warned = level;
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((x) => x.id);
+        notify(db, admins, {
+          kind: 'call',
+          title: level === 100 ? 'Video calls paused: monthly minutes used up' : 'Video calls: 80% of this month’s minutes used',
+          body: `${u.minutes.toLocaleString()} of ${limit.toLocaleString()} minutes. ${level === 100 ? 'Calls start again on the 1st, or raise the limit in Settings.' : 'Calls stop at the limit until the 1st.'}`,
+          url: '/#/settings/church',
+          tag: 'video-usage',
+        });
+      }
       setSetting(db, 'video_usage', u);
     } catch (e) { console.error('Video usage check failed:', e.message); }
   }
@@ -98,7 +112,7 @@ export default function callRoutes(db) {
     const { c, a } = load(req, req.params.id);
     if (c.ended_at) throw bad('This call has ended.');
     if (c.starts_at && Date.now() < parse(c.starts_at) - EARLY_MIN * 60e3) throw bad(`You can join from ${EARLY_MIN} minutes before it starts.`);
-    const u = await usage(db, 2 * 60e3);
+    const u = await usage(db, 60e3);
     if (!u.configured) throw new HttpError(503, 'Video calls aren’t set up yet. An admin can turn them on in Settings → Church.');
     if (u.left <= 0) throw new HttpError(403, `This month’s video minutes are used up (${u.minutes} of ${u.limit}). They reset on the 1st.`);
     let room = { name: c.room_name, url: c.room_url, exp: c.room_exp };
@@ -165,7 +179,7 @@ export async function syncCalls(db) {
   // Over the monthly limit: end what's live so the bill stays at zero.
   const rooms = db.prepare('SELECT * FROM calls WHERE ended_at IS NULL AND room_name IS NOT NULL').all();
   if (rooms.length && daily.dailyConfigured()) {
-    const u = await usage(db, 3 * 60e3);
+    const u = await usage(db, 55e3);
     if (u.left <= 0) {
       for (const c of rooms) {
         notify(db, hooks.chatUsers(c.chat_id), { kind: 'call', title: 'Call ended: monthly video minutes used up', body: `${u.minutes} of ${u.limit} minutes this month. They reset on the 1st.`, ...links(c), tag: `call-${c.id}` });
