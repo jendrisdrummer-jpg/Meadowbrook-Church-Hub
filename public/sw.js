@@ -38,7 +38,7 @@ self.addEventListener('push', (e) => {
     icon: '/app-icon/192.png',
     badge: '/icons/badge-96.png',
     actions: msg.actions || [],
-    data: { url: msg.url || '/', id: msg.id, assignment_ids: msg.data?.assignment_ids || [] },
+    data: { url: msg.url || '/', id: msg.id, assignment_ids: msg.data?.assignment_ids || [], task_id: msg.data?.task_id || null },
   }));
 });
 
@@ -62,7 +62,7 @@ async function openApp(url) {
 
 self.addEventListener('notificationclick', (e) => {
   const n = e.notification;
-  const { url, id, assignment_ids: ids = [] } = n.data || {};
+  const { url, id, assignment_ids: ids = [], task_id: taskId } = n.data || {};
   n.close();
   const home = String(url || '').startsWith('/app/') ? '/app/#/serve' : '/#/my';
   e.waitUntil((async () => {
@@ -74,6 +74,17 @@ self.addEventListener('notificationclick', (e) => {
         return;
       }
       return openApp(home);
+    }
+    // Tasks: tick it off, or push it to tomorrow, without opening the app.
+    if (taskId && (e.action === 'task-done' || e.action === 'task-snooze')) {
+      const d = new Date(Date.now() + 864e5);
+      const tomorrow = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const res = await api('PATCH', `/api/tasks/${taskId}`, e.action === 'task-done' ? { done: true } : { due_date: tomorrow }).catch(() => null);
+      if (res?.ok) {
+        await self.registration.showNotification(e.action === 'task-done' ? 'Task done ✓' : 'Moved to tomorrow', { body: n.body, tag: n.tag, icon: '/app-icon/192.png', data: { url } });
+        return;
+      }
+      return openApp(url || '/');
     }
     // Declining asks for a reason, so it opens the app.
     if (e.action === 'decline' && ids.length === 1) return openApp(String(url).startsWith('/app/') ? `/app/#/serve?decline=${ids[0]}` : `/#/my?decline=${ids[0]}`);

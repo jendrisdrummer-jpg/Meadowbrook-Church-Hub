@@ -1,6 +1,7 @@
 // Chat, shared by the dashboard and the member app: the list of chats, and one conversation
 // with replies, @mentions, photos and files, and reactions. Open chats update live.
-import { get, post, patch, del, html, raw, mount, icon, avatar, displayName, esc, toast, fail, dialog, confirm, pickPeople, shrinkImage } from './lib.js';
+import { get, post, patch, del, html, raw, mount, icon, avatar, displayName, esc, toast, toastAction, fail, dialog, confirm, pickPeople, shrinkImage, fmtDate, fmtTime } from './lib.js';
+import { taskRow, groupTasks, dueLabel } from './tasks.js';
 
 const MAX_FILE = 25 * 1024 * 1024;
 const touch = matchMedia('(pointer: coarse)').matches;
@@ -56,7 +57,8 @@ function formatBody(m, members, myPersonId) {
 // split: the list and the open chat side by side (wide dashboard screens).
 export async function openChat(el, { id = null, split = false, setTitle, onUnread = () => {} }) {
   stop();
-  const S = { id, list: null, chat: null, msgs: [], more: false, reply: null, files: [], mentions: new Map(), loadingOlder: false };
+  // view: the chat's Messages, or its Tasks (everything still open).
+  const S = { id, list: null, chat: null, msgs: [], more: false, reply: null, files: [], mentions: new Map(), loadingOlder: false, view: 'messages' };
   document.body.classList.add('chat-on');
   if (id && !split) document.body.classList.add('chat-open');
   mount(el, split
@@ -104,6 +106,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       }
       refreshList();
     }
+    if (ev.type === 'tasks' && ev.chat_id === S.id) refreshTasks();
     if (ev.type === 'chats') {
       refreshList();
       if (S.id) get(`/chats/${S.id}`).then((c) => { S.chat = c; drawHead(); }).catch(() => { toast('That chat is no longer available.'); location.hash = '#/chat'; });
@@ -207,8 +210,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
 
   function headActions() {
     const c = S.chat;
-    const tasks = c.kind === 'team' && c.member ? html`<a class="icon-btn" href="#/tasks?view=team&team=${c.team_id}" title="${c.name} tasks" aria-label="${c.name} tasks">${icon('tasks')}</a>` : '';
-    return html`${tasks}<button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
+    return html`<button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
       <button class="icon-btn" data-info title="People in this chat" aria-label="People in this chat">${icon('people')}</button>`;
   }
   // On phones the chat's own header (with a way back) replaces the page's title bar.
@@ -218,6 +220,12 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     if (!split) setTitle(c.name);
     mount(main.querySelector('[data-head]'), html`${split ? '' : html`<a class="icon-btn chat-back" href="#/chat" aria-label="All chats">${icon('back')}</a>`}
       <button class="chat-title" data-info><b>${c.name}</b><span class="muted small">${sub}</span></button>${headActions()}`);
+    drawTabs();
+  }
+  function drawTabs() {
+    const n = S.chat.open_tasks || 0;
+    mount(main.querySelector('[data-tabs]'), html`<button type="button" data-view="messages" class="${S.view === 'messages' ? 'on' : ''}">Messages</button>
+      <button type="button" data-view="tasks" class="${S.view === 'tasks' ? 'on' : ''}">Tasks${n ? html` <span class="chat-tab-count">${n}</span>` : ''}</button>`);
   }
 
   function msgHtml(m, prev) {
@@ -232,6 +240,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
           ${grouped ? '' : html`<div class="chat-meta"><b>${m.name}</b><span class="muted small">${clock(d)}</span></div>`}
           ${m.deleted ? html`<div class="muted small"><i>Message deleted</i></div>` : html`
             ${m.reply ? html`<button type="button" class="chat-quote" data-goto="${m.reply.id}"><b>${m.reply.name}</b> <span>${m.reply.deleted ? 'Message deleted' : m.reply.body || (m.reply.files ? 'Attachment' : '')}</span></button>` : ''}
+            ${m.kind === 'task' ? taskCard(m) : ''}
             ${m.body ? html`<div class="chat-body">${formatBody(m, S.chat.members, S.list.person_id)}${m.edited_at ? html` <span class="muted small">(edited)</span>` : ''}</div>` : ''}
             ${m.files.length ? html`<div class="chat-files">${m.files.map((f) => (f.mime.startsWith('image/') && f.mime !== 'image/heic'
               ? html`<a class="chat-img" href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="${f.name}" loading="lazy"></a>`
@@ -242,8 +251,8 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
           <div class="chat-emoji">${S.list.reactions.map((e) => html`<button type="button" data-react="${e}" aria-label="React ${e}">${e}</button>`)}</div>
           <button type="button" class="icon-btn" data-pick title="React" aria-label="React">${icon('smile')}</button>
           <button type="button" class="icon-btn" data-reply title="Reply" aria-label="Reply">${icon('reply')}</button>
-          <button type="button" class="icon-btn" data-task title="Make a task from this" aria-label="Make a task from this">${icon('tasks')}</button>
-          ${mine ? html`<button type="button" class="icon-btn" data-edit title="Edit" aria-label="Edit">${icon('edit')}</button>` : ''}
+          ${m.kind === 'task' ? '' : html`<button type="button" class="icon-btn" data-task title="Make a task from this" aria-label="Make a task from this">${icon('tasks')}</button>`}
+          ${mine && m.kind !== 'task' ? html`<button type="button" class="icon-btn" data-edit title="Edit" aria-label="Edit">${icon('edit')}</button>` : ''}
           ${canDelete ? html`<button type="button" class="icon-btn danger" data-delete title="Delete" aria-label="Delete">${icon('trash')}</button>` : ''}
         </div>`}
       </div>`;
@@ -267,6 +276,8 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
   async function openConversation() {
     mount(main, html`<div class="chat-conv">
       <div class="chat-head" data-head></div>
+      <div class="chat-tabs" data-tabs role="tablist"></div>
+      <div class="chat-tasks hidden" data-tasks></div>
       <div class="chat-scroll" data-scroll><div class="chat-msgs" data-msgs><p class="muted small" style="padding:16px">Loading…</p></div></div>
       <button type="button" class="chat-jump hidden" data-jump>New messages ${icon('down', 'ic small-ic')}</button>
       <div class="chat-composer">
@@ -274,6 +285,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
         <div class="chat-mentions hidden" data-mention-menu role="listbox"></div>
         <form class="chat-form" data-form>
           <label class="icon-btn chat-attach" title="Add a photo or file">${icon('attach')}<input type="file" multiple data-file hidden></label>
+          <button type="button" class="icon-btn chat-attach" data-quick title="Give a task" aria-label="Give a task">${icon('tasks')}</button>
           <textarea rows="1" data-text placeholder="Message ${S.chat.name}" aria-label="Message"></textarea>
           <button class="btn primary chat-send" aria-label="Send">${icon('send')}</button>
         </form>
@@ -394,6 +406,108 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     return data;
   }
 
+  // ------------------------------------------------ tasks in this chat
+  const placeQuery = () => (S.chat.kind === 'team' ? `team=${S.chat.team_id}` : `group=${S.chat.id}`);
+  const canGive = () => S.chat.kind === 'group' || S.chat.member || S.chat.manage;
+
+  // A task posted in the chat, shown as it is now.
+  function taskCard(m) {
+    const t = m.task;
+    if (!t) return html`<div class="chat-task gone muted small">${icon('tasks', 'ic small-ic')} This task was deleted.</div>`;
+    const who = t.assignee ? displayName(t.assignee) : 'Anyone can take it';
+    return html`<div class="chat-task ${t.done_at ? 'done' : ''}">
+      <button type="button" class="task-check ${t.done_at ? 'on' : ''}" data-done="${t.id}" aria-label="${t.done_at ? 'Mark not done' : 'Mark done'}">${icon('check')}</button>
+      <a class="chat-task-main" href="#/tasks/${t.id}"><span class="chat-task-label">${t.done_at ? `Done${t.done_by ? ` by ${t.done_by}` : ''}` : 'New task'}</span>
+        <b class="chat-task-title">${t.title}</b>
+        <span class="task-meta"><span>${t.assignee ? avatar(t.assignee) : ''}${who}</span>${t.due_date ? html`<span>${icon('clock', 'ic small-ic')} ${dueLabel(t)}</span>` : ''}${t.repeat ? html`<span>↻</span>` : ''}
+          ${t.items ? html`<span>${icon('check', 'ic small-ic')} ${t.items_done}/${t.items}</span>` : ''}${t.comments ? html`<span>${icon('chat', 'ic small-ic')} ${t.comments}</span>` : ''}</span></a></div>`;
+  }
+
+  function setView(v) {
+    S.view = v;
+    main.querySelector('[data-tasks]').classList.toggle('hidden', v !== 'tasks');
+    for (const sel of ['[data-scroll]', '.chat-composer']) main.querySelector(sel).classList.toggle('hidden', v === 'tasks');
+    main.querySelector('[data-jump]').classList.add('hidden');
+    drawTabs();
+    if (v === 'tasks') drawTasks().catch(fail);
+    else toBottom();
+  }
+
+  // Everything still open in this chat, then what was finished this week.
+  async function drawTasks() {
+    const box = main.querySelector('[data-tasks]');
+    const list = await get(`/tasks?view=chat&chat_id=${S.id}`);
+    const open = list.filter((t) => !t.done_at);
+    const done = list.filter((t) => t.done_at);
+    S.chat.open_tasks = open.length;
+    drawTabs();
+    mount(box, html`<div class="chat-tasks-head"><b>${open.length ? `${open.length} open` : 'Nothing open'}</b><span class="spacer"></span>
+        ${canGive() ? html`<button type="button" class="btn small primary" data-quick>${icon('plus')} New task</button>` : ''}</div>
+      ${open.length ? groupTasks(open).map(([k, label, ts]) => html`<div class="task-group ${k}"><h3>${label} <span class="muted">${ts.length}</span></h3>
+          <div class="task-list">${ts.map((t) => taskRow(t))}</div></div>`)
+        : html`<div class="chat-empty">${icon('tasks')}<p>No open tasks for ${S.chat.name}.${canGive() ? ' Give one with New task, or from any message.' : ''}</p></div>`}
+      ${done.length ? html`<details class="chat-tasks-done"><summary class="muted small">Done this week (${done.length})</summary><div class="task-list">${done.map((t) => taskRow(t))}</div></details>` : ''}`);
+  }
+  let tasksTimer;
+  function refreshTasks() {
+    clearTimeout(tasksTimer);
+    tasksTimer = setTimeout(async () => {
+      if (S.view === 'tasks') return drawTasks().catch(() => {});
+      try { S.chat.open_tasks = (await get(`/chats/${S.id}`)).open_tasks; drawTabs(); } catch { /* ignore */ }
+    }, 200);
+  }
+
+  // Quick add, made for thumbs: what, who, when. More options opens the full task.
+  async function quickTask(title) {
+    if (!canGive()) return toast('Only people on this team can give its tasks.');
+    const me = S.list.person_id;
+    const people = [...S.chat.members].sort((a, b) => (b.person_id === me) - (a.person_id === me));
+    const today = new Date().toLocaleDateString('en-CA');
+    const tomorrow = new Date(Date.now() + 864e5).toLocaleDateString('en-CA');
+    const svc = (await get(`/services?all=1&from=${today}&to=${new Date(Date.now() + 21 * 864e5).toLocaleDateString('en-CA')}${S.chat.campus_id ? `&campus_id=${S.chat.campus_id}` : ''}`).catch(() => []))
+      .find((x) => new Date(`${x.starts_at}:00`) > new Date());
+    const whens = [['today', 'Today', { due_date: today }], ['tomorrow', 'Tomorrow', { due_date: tomorrow }],
+      ...(svc ? [['service', `Before ${fmtDate(svc.starts_at)} ${fmtTime(svc.starts_at)}`, { due_date: svc.starts_at.slice(0, 10), due_time: svc.starts_at.slice(11, 16), service_id: svc.id }]] : []),
+      ['pick', 'Pick a date', null], ['none', 'No date', {}]];
+    let who = null;
+    let when = 'none';
+    await dialog({
+      title: `New task for ${S.chat.name}`,
+      submit: 'Give task',
+      body: html`<input type="text" name="title" value="${title}" placeholder="What needs doing?" maxlength="200" required class="qt-title">
+        <div class="qt-label">Who</div>
+        <div class="qt-chips" data-who><button type="button" class="chip on" data-who-id="">Anyone</button>${people.map((p) => html`<button type="button" class="chip" data-who-id="${p.person_id}">${avatar(p)} ${p.person_id === me ? 'Me' : displayName(p)}</button>`)}</div>
+        <div class="qt-label">When</div>
+        <div class="qt-chips" data-when>${whens.map(([k, label]) => html`<button type="button" class="chip ${k === when ? 'on' : ''}" data-when-k="${k}">${label}</button>`)}</div>
+        <input type="date" name="pick" class="hidden" min="${today}" aria-label="Due date">
+        <p class="small" style="margin:14px 0 0"><a href="#" data-more>More options: checklist, repeat, notes</a></p>`,
+      onOpen: (d, close) => {
+        d.addEventListener('click', (e) => {
+          const c = e.target.closest('[data-who-id], [data-when-k]');
+          if (c) {
+            const box = c.parentElement;
+            box.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c));
+            if (c.dataset.whoId !== undefined) who = Number(c.dataset.whoId) || null;
+            if (c.dataset.whenK) { when = c.dataset.whenK; d.querySelector('[name=pick]').classList.toggle('hidden', when !== 'pick'); if (when === 'pick') d.querySelector('[name=pick]').focus(); }
+          }
+          if (e.target.closest('[data-more]')) {
+            e.preventDefault();
+            const t = d.querySelector('[name=title]').value.trim();
+            close();
+            location.hash = `#/tasks/new?${placeQuery()}&title=${encodeURIComponent(t)}`;
+          }
+        });
+      },
+      onSubmit: async (f) => {
+        const due = when === 'pick' ? (f.pick.value ? { due_date: f.pick.value } : null) : whens.find(([k]) => k === when)[2];
+        if (!due) { toast('Pick a date.'); return false; }
+        await post('/tasks', { title: f.title.value, ...(S.chat.kind === 'team' ? { team_id: S.chat.team_id } : { chat_id: S.chat.id }), assignee_id: who, ...due });
+        toast(who && who !== me ? `Sent to ${displayName(people.find((p) => p.person_id === who))}.` : 'Task added.');
+        return true;
+      },
+    });
+  }
+
   // ------------------------------------------------ people in the chat
   async function info() {
     const c = S.chat;
@@ -463,6 +577,17 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     const m = msgEl && S.msgs.find((x) => x.id === Number(msgEl.dataset.id));
     try {
       if (b.matches('[data-new]')) return await newGroup();
+      if (b.dataset.view) return setView(b.dataset.view);
+      if (b.matches('[data-quick]')) return await quickTask('');
+      // Tick a task off (on a card, or in the Tasks tab). Undo puts it back.
+      if (b.dataset.done) {
+        const done = !b.classList.contains('on');
+        b.disabled = true;
+        const r = await patch(`/tasks/${b.dataset.done}`, { done }).finally(() => { b.disabled = false; });
+        refreshTasks();
+        if (done) toastAction(r.next_id ? 'Done. The next one is on the list.' : 'Done.', 'Undo', () => patch(`/tasks/${b.dataset.done}`, { done: false }).then(refreshTasks).catch(fail));
+        return;
+      }
       if (b.matches('[data-info]')) return await info();
       if (b.matches('[data-mute]')) return await toggleMute();
       if (b.matches('[data-older]')) return await loadOlder();
@@ -479,10 +604,8 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       if (b.dataset.react) { msgEl.classList.remove('picking', 'sel'); return upsert(await post(`/messages/${m.id}/reactions`, { emoji: b.dataset.react })); }
       // A task from a message: its text as the title, for this team (or personal, from a group).
       if (b.matches('[data-task]')) {
-        const title = (m.body || m.files[0]?.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-        const team = S.chat.kind === 'team' && S.chat.member ? `team=${S.chat.team_id}&` : '';
-        location.hash = `#/tasks/new?${team}title=${encodeURIComponent(title)}`;
-        return;
+        msgEl.classList.remove('sel');
+        return await quickTask((m.body || m.files[0]?.name || '').replace(/\s+/g, ' ').trim().slice(0, 200));
       }
       if (b.matches('[data-reply]')) {
         S.reply = m;

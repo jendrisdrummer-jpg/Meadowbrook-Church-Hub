@@ -181,8 +181,16 @@ and who's serving (only requests that were sent, without contact details).
 - **Notifications**: when you're given a task; "due tomorrow" the morning before and "due today"
   that morning (in the campus's time zone); and to whoever gave it, when it's finished or someone
   comments. The Tasks menu item shows how many of yours are due today or late.
+- **In every chat**: a **Tasks** tab next to Messages lists everything still open for that team or
+  group (grouped by when it's due), with what was finished this week underneath. Giving a task
+  posts a **task card** in the chat that stays current: tick it off right on the card and it turns
+  into "Done by Grace" for everyone. The ☑ button by the message box (or on any message) opens a
+  quick sheet: what, who (tap a face), and when (Today, Tomorrow, Before the next service, or a
+  date). Groups have their own tasks too, for the people in the group.
+- **Notifications have buttons**: Done, or Tomorrow to push the due date back a day, without
+  opening the app.
 - In the church app: **More → Tasks**, a **My tasks** block on the home screen, and an optional
-  Tasks tab (App Builder). Team chats have a button to that team's tasks.
+  Tasks tab (App Builder).
 - The person who gave a task, team leaders and staff can delete it.
 
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.

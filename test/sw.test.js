@@ -53,3 +53,19 @@ test('Accept on a notification accepts without opening the app; Decline opens it
   await sw.fire('notificationclick', { action: '', notification: notification({ url: '/#/services/9' }) });
   assert.equal(sw.opened.at(-1), 'https://hub.example/#/services/9');
 });
+
+test('Done and Tomorrow on a task notification update the task without opening the app', async () => {
+  const sw = load();
+  const notification = (data) => ({ data, tag: 'task-5', body: 'Print charts', close: () => {} });
+  await sw.fire('push', { data: { json: () => ({ title: 'Due today: Print charts', tag: 'task-5', url: '/app/#/tasks/5', actions: [{ action: 'task-done', title: 'Done' }], data: { task_id: 5 } }) } });
+  assert.equal(sw.shown[0].data.task_id, 5);
+  await sw.fire('notificationclick', { action: 'task-done', notification: notification({ url: '/app/#/tasks/5', task_id: 5 }) });
+  let call = sw.fetches.find((f) => f.method === 'PATCH');
+  assert.equal(call.url, '/api/tasks/5');
+  assert.deepEqual(JSON.parse(call.body), { done: true });
+  assert.equal(sw.shown.at(-1).title, 'Task done ✓');
+  await sw.fire('notificationclick', { action: 'task-snooze', notification: notification({ url: '/app/#/tasks/5', task_id: 5 }) });
+  call = sw.fetches.filter((f) => f.method === 'PATCH').at(-1);
+  assert.match(JSON.parse(call.body).due_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(sw.opened.length, 0);
+});
