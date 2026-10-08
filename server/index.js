@@ -22,6 +22,8 @@ import notificationRoutes from './routes/notifications.js';
 import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
 import searchRoutes from './routes/search.js';
+import backupRoutes from './routes/backups.js';
+import { maybeNightly } from './backup.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
@@ -75,6 +77,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(appRoutes(db, { uploadDir }));
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
+  api.use(backupRoutes(db, { uploadDir }));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
@@ -192,4 +195,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
   setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
   setInterval(() => sendDueAnnouncements(db), 60e3).unref();
+  // Nightly backup (from 3 a.m. church time; see Settings → Backups).
+  setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
 }

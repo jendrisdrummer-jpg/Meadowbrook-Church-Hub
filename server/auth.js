@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { getSetting } from './db.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
+import { connectDrive, DRIVE_SCOPE } from './backup.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -245,8 +246,41 @@ export function authRoutes(app, db) {
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
+  // Settings → Backups: an admin lets the hub save backups to their Google Drive. It only asks for
+  // access to files the hub itself creates (drive.file), and uses the same callback address.
+  app.get('/auth/google/drive', (req, res) => {
+    const g = google();
+    if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (!g.id) return res.status(500).send('Google sign-in is not set up yet. See README → Google sign-in.');
+    const state = crypto.randomBytes(16).toString('base64url');
+    res.setHeader('Set-Cookie', `mb_drive=${state}; Max-Age=600; ${cookieFlags(req)}`);
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+      client_id: g.id, redirect_uri: callbackUrl(req), response_type: 'code', scope: `openid email ${DRIVE_SCOPE}`,
+      state, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'false',
+    })}`);
+  });
+
+  async function finishDrive(req, res) {
+    const back = (msg) => res.redirect(`/#/settings/backups${msg ? `?drive_error=${encodeURIComponent(msg)}` : '?drive=connected'}`);
+    if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (req.query.error) return back('Google Drive wasn’t connected.');
+    const g = google();
+    const r = await fetch(process.env.MB_GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code: String(req.query.code || ''), client_id: g.id, client_secret: g.secret, redirect_uri: callbackUrl(req), grant_type: 'authorization_code' }),
+    });
+    const t = await r.json().catch(() => ({}));
+    if (!r.ok || !t.refresh_token) return back(`Google didn’t allow Drive access (${t.error || 'no long-term access was given'}). Try again, and tick the Google Drive box.`);
+    if (!String(t.scope || '').includes(DRIVE_SCOPE)) return back('The Google Drive box wasn’t ticked. Try again and allow it.');
+    const claims = t.id_token ? JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url').toString()) : {};
+    connectDrive(db, { refresh_token: t.refresh_token, email: claims.email || '' });
+    back('');
+  }
+
   app.get('/auth/google/callback', async (req, res) => {
     const fail = (msg) => res.redirect(`/login?error=${encodeURIComponent(msg)}`);
+    if (req.query.state && req.query.state === parseCookies(req).mb_drive) return finishDrive(req, res).catch(() => res.redirect('/#/settings/backups?drive_error=Connecting%20failed.'));
     if (!req.query.state || req.query.state !== parseCookies(req).mb_oauth) return fail('Sign-in expired. Please try again.');
     const g = google();
     try {
