@@ -151,7 +151,9 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, person?.id ?? null);
+  // Someone who already leads a team starts with leader access (see teams: syncLeaderAccess).
+  const leads = role === 'volunteer' && person && db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(person.id);
+  const info = db.prepare('INSERT INTO users (email, role, person_id, role_auto) VALUES (?, ?, ?, ?)').run(email, leads ? 'leader' : role, person?.id ?? null, leads ? 1 : 0);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 

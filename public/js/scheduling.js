@@ -1,5 +1,5 @@
 // Shared scheduling helpers for a service's Who's serving tab and the Schedule page.
-import { get, post, html, mount, avatar, displayName, dialog, toast, fail, confirm, fmtDate, pickPerson } from './lib.js';
+import { get, post, html, mount, icon, avatar, displayName, dialog, toast, fail, confirm, fmtDate, pickPerson } from './lib.js';
 
 // Schedules one person, asking first if they're away or already serving then. Returns false if cancelled.
 export async function scheduleOne(serviceId, positionId, person) {
@@ -48,8 +48,34 @@ export async function assignDialog(serviceId, pos, taken, reload) {
 
   async function save(person) {
     try {
-      if (await scheduleOne(serviceId, pos.id, person)) toast(`${displayName(person)} scheduled. They’ll see it in My Schedule.`);
+      if (await scheduleOne(serviceId, pos.id, person)) toast(`${displayName(person)} added. Send requests when you’re ready to let them know.`);
     } catch (e) { fail(e); }
     reload();
   }
+}
+
+// Sends the drafts in these services (optionally one team's): shows who'll be asked for what,
+// then tells each person once. Resolves to true when sent.
+export async function sendRequests(serviceIds, teamId = null) {
+  const q = new URLSearchParams({ service_ids: serviceIds.join(',') });
+  if (teamId) q.set('team_id', teamId);
+  const list = await get(`/assignments/unsent?${q}`);
+  if (!list.length) { toast('Everyone here has already been asked.'); return false; }
+  const people = [...Map.groupBy(list, (a) => a.person_id).values()];
+  const unreachable = people.filter((spots) => !spots[0].reachable);
+  let result;
+  await dialog({
+    title: `Send ${list.length} ${list.length === 1 ? 'request' : 'requests'}`, wide: true, submit: `Send to ${people.length} ${people.length === 1 ? 'person' : 'people'}`,
+    body: html`<p class="muted small" style="margin-top:0">Each person gets one email and app notification listing their spots, with buttons to accept or decline.</p>
+      <div class="send-list">${people.map((spots) => html`<div class="send-row"><b>${displayName(spots[0])}</b>${spots[0].reachable ? '' : html` <span class="pill warn">No email or app</span>`}
+        <span class="muted small">${spots.map((a) => `${fmtDate(a.starts_at)} ${a.position}`).join(' · ')}</span></div>`)}</div>
+      ${unreachable.length ? html`<p class="small" style="margin-bottom:0">${icon('info', 'ic small-ic')} ${unreachable.length === 1 ? 'One person has' : `${unreachable.length} people have`} no email and no app account. Let them know yourself, or add an email to their profile.</p>` : ''}`,
+    onSubmit: async () => {
+      const body = { service_ids: serviceIds };
+      if (teamId) body.team_id = teamId;
+      result = await post('/assignments/send', body);
+    },
+  });
+  if (result) toast(`Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`);
+  return Boolean(result);
 }

@@ -120,14 +120,34 @@ export default function teamRoutes(db) {
       const ins = db.prepare('INSERT INTO team_members (team_id, person_id, position_id, is_leader) VALUES (?, ?, ?, ?)');
       if (!positionIds.length) ins.run(t.id, personId, null, leader);
       for (const pid of positionIds) ins.run(t.id, personId, pid, leader);
+      syncLeaderAccess(personId);
     });
     res.json({ ok: true });
   });
+
+  // Leading a team gives leader access (so they can schedule it); it's taken back when they
+  // lead no team any more, but only if it came from here. Access set by hand never changes.
+  function syncLeaderAccess(personId) {
+    const leads = db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(personId);
+    const user = db.prepare('SELECT * FROM users WHERE person_id = ?').get(personId);
+    if (leads) {
+      if (user?.role === 'volunteer') db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
+      if (!user) {
+        const email = db.prepare('SELECT lower(email) e FROM people WHERE id = ?').get(personId)?.e;
+        if (email && !db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+          db.prepare("INSERT INTO users (email, role, person_id, role_auto) VALUES (?, 'leader', ?, 1)").run(email, personId);
+        }
+      }
+    } else if (user?.role_auto && user.role === 'leader') {
+      db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(user.id);
+    }
+  }
 
   r.delete('/teams/:id/members/:personId', requireRole('leader'), (req, res) => {
     const t = team(req, req.params.id);
     if (!canManage(req, t)) throw forbidden();
     db.prepare('DELETE FROM team_members WHERE team_id = ? AND person_id = ?').run(t.id, int(req.params.personId));
+    syncLeaderAccess(int(req.params.personId));
     res.json({ ok: true });
   });
 

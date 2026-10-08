@@ -4,6 +4,14 @@ import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
 
+const ROLE_LABEL = { volunteer: 'Volunteer', leader: 'Leader', staff: 'Staff', admin: 'Admin' };
+const ROLE_HELP = {
+  volunteer: 'Their own schedule and the services they serve at',
+  leader: 'Also people, teams, scheduling their teams, check-in',
+  staff: 'Also edits people, services, rooms and all scheduling',
+  admin: 'Everything, including settings and accounts',
+};
+
 const GRADES = [{ value: -1, label: 'Pre-K' }, { value: 0, label: 'Kindergarten' }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: gradeLabel(i + 1) }))];
 
 export default async function person(el, id) {
@@ -34,7 +42,11 @@ export default async function person(el, id) {
           ${p.allergies ? html`<div class="alert bad" style="margin-top:12px"><span class="allergy">Allergies:</span> ${p.allergies}</div>` : ''}
           ${p.medical_notes ? html`<div class="alert" style="margin-top:8px"><b>Medical:</b> ${p.medical_notes}</div>` : ''}
           ${p.notes ? html`<p class="muted small" style="white-space:pre-wrap">${p.notes}</p>` : ''}
-          ${p.account ? html`<p class="muted small">Signs in as ${p.account.email} (${p.account.role})</p>` : ''}
+          ${p.account || can('admin') ? html`<div class="row small" style="margin-top:10px">${icon('user', 'ic small-ic')}
+            <span class="muted">${p.account
+              ? html`Account: <b>${ROLE_LABEL[p.account.role]}</b>${p.account.role_auto ? ' (team leader)' : ''} · ${p.account.email}${p.account.active ? '' : ' · can’t sign in'} · ${p.account.last_login ? `last signed in ${fmtDate(p.account.last_login.slice(0, 10))}` : 'hasn’t signed in yet'}`
+              : p.email ? 'No account yet; they get a volunteer account by signing in.' : 'No account (needs an email to sign in).'}</span>
+            ${can('admin') && (p.account || p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
         </div>
 
         <div class="stack" data-profile></div>
@@ -95,6 +107,7 @@ export default async function person(el, id) {
     try { await api('POST', `/people/${p.id}/photo`, await shrinkImage(file)); toast('Photo updated.'); reload(); } catch (err) { fail(err); }
   });
 
+  el.querySelector('[data-access]')?.addEventListener('click', () => accessDialog(p).then((ok) => ok && person(el, id)).catch(fail));
   el.onclick = async (e) => {
     const row = e.target.closest('tr[data-href]');
     if (row) { location.hash = row.dataset.href; return; }
@@ -198,3 +211,27 @@ export async function personDialog(p = {}) {
   return saved;
 }
 
+// An admin changes what this person can do (or sets up an account before they first sign in).
+async function accessDialog(p) {
+  const a = p.account || { role: 'volunteer', active: 1, campus_ids: null };
+  const camps = a.campus_ids ? JSON.parse(a.campus_ids) : null;
+  return dialog({
+    title: `${displayName(p)}’s access`,
+    body: html`<div class="stack">
+      ${p.account ? html`<p class="muted small" style="margin:0">Signs in as ${a.email}${a.has_password ? ' (email and password, or Google)' : ''}.</p>`
+        : html`<label class="field">Email they’ll sign in with<input type="email" name="email" value="${p.email}" required></label>`}
+      <label class="field">Access<select name="role">${options(Object.keys(ROLE_HELP).map((r) => ({ value: r, label: `${ROLE_LABEL[r]}: ${ROLE_HELP[r]}` })), a.role)}</select></label>
+      ${a.role_auto ? html`<p class="muted small" style="margin:0">They have leader access because they lead a team. Choosing access here keeps it, even if they stop leading.</p>` : ''}
+      <div class="field"><span>Campuses</span>
+        <label class="check"><input type="checkbox" name="all" ${!camps ? 'checked' : ''}> All campuses</label>
+        ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${camps?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
+      ${p.account ? html`<label class="check"><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> Can sign in</label>` : ''}
+    </div>`,
+    onSubmit: (f) => {
+      const b = formData(f);
+      const body = { role: b.role, person_id: p.id, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+      if (p.account) return patch(`/users/${a.id}`, { ...body, active: b.active });
+      return post('/users', { ...body, email: b.email });
+    },
+  });
+}

@@ -108,7 +108,9 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   assert.equal(clash.status, 409);
   assert.match(clash.data.error, /Already serving Drums at North/);
 
-  // Volunteer sees and accepts their own assignment, but can't see the people list.
+  // Spots are drafts until requests are sent; then the volunteer sees and accepts theirs.
+  assert.equal((await api('vol', 'GET', '/my/schedule')).data.assignments.length, 0);
+  assert.equal((await api('admin', 'POST', '/assignments/send', { service_ids: [north.id] })).data.sent, 1);
   const mine = await api('vol', 'GET', '/my/schedule');
   assert.equal(mine.data.assignments.length, 1);
   assert.equal((await api('vol', 'PATCH', `/assignments/${mine.data.assignments[0].id}`, { status: 'accepted' })).status, 200);
@@ -376,6 +378,8 @@ test('notifications: scheduled, declined to leaders, reminders, push and prefere
   const day = nextSunday(21);
   const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T08:00` })).data;
   const a = await api('admin', 'POST', `/services/${svc.id}/assignments`, { position_id: lot.id, person_id: vol });
+  assert.equal((await api('vol', 'GET', '/notifications')).data.unread, 0); // a draft until sent
+  await api('admin', 'POST', '/assignments/send', { service_ids: [svc.id] });
   let inbox = (await api('vol', 'GET', '/notifications')).data;
   assert.equal(inbox.unread, 1);
   assert.match(inbox.items[0].title, /scheduled: Lot/);
@@ -398,7 +402,8 @@ test('notifications: scheduled, declined to leaders, reminders, push and prefere
   const soon = new Date(Date.now() + 24 * 3600e3).toLocaleString('sv-SE', { timeZone: 'America/Chicago' }).replace(' ', 'T').slice(0, 16);
   const svc2 = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: soon })).data;
   const a2 = await api('admin', 'POST', `/services/${svc2.id}/assignments`, { position_id: lot.id, person_id: vol });
-  db.prepare("UPDATE assignments SET created_at = datetime('now', '-2 days') WHERE id = ?").run(a2.data.id);
+  assert.equal(sendReminders(db), 0); // drafts get no reminders
+  db.prepare("UPDATE assignments SET sent_at = datetime('now', '-2 days') WHERE id = ?").run(a2.data.id);
   assert.ok(sendReminders(db) >= 1);
   assert.equal(sendReminders(db), 0);
   inbox = (await api('vol', 'GET', '/notifications')).data;
@@ -520,6 +525,77 @@ test('email sign-in: codes, passwords, new people from the app, and deleting acc
   assert.equal((await api('admin', 'DELETE', `/users/${sarahUser.id}`)).status, 200);
   assert.ok(!db.prepare('SELECT 1 FROM users WHERE id = ?').get(sarahUser.id));
   assert.ok(db.prepare("SELECT 1 FROM people WHERE email = 'sarah@example.com'").get());
+});
+
+test('sending requests: drafts, one notice per person, email reply links, removal notices', async () => {
+  const team = await api('admin', 'POST', '/teams', { name: 'Ushers', campus_id: 2, positions: ['Door', 'Aisle'] });
+  const [door, aisle] = (await api('admin', 'GET', `/teams/${team.data.id}`)).data.positions;
+  const pat = (await api('admin', 'POST', '/people', { first_name: 'Pat', last_name: 'Usher', email: 'pat@example.com', campus_id: 2 })).data;
+  const noEmail = (await api('admin', 'POST', '/people', { first_name: 'Ned', last_name: 'Noemail', campus_id: 2 })).data;
+  const s1 = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: `${nextSunday(28)}T10:00` })).data;
+  const s2 = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: `${nextSunday(35)}T10:00` })).data;
+  for (const [s, p, pos] of [[s1, pat, door], [s2, pat, aisle], [s1, noEmail, aisle]]) {
+    await api('admin', 'POST', `/services/${s.id}/assignments`, { position_id: pos.id, person_id: p.id });
+  }
+  // Drafts show on the service, unsent, with who can't be reached.
+  const detail = (await api('admin', 'GET', `/services/${s1.id}`)).data;
+  assert.ok(detail.positions.flatMap((p) => p.assignments).every((a) => a.sent_at === null));
+  const unsent = (await api('admin', 'GET', `/assignments/unsent?service_ids=${s1.id},${s2.id}`)).data;
+  assert.equal(unsent.length, 3);
+  assert.equal(unsent.find((a) => a.person_id === noEmail.id).reachable, false);
+  // Leaders of other teams can't send this team's requests.
+  assert.equal((await api('north', 'POST', '/assignments/send', { service_ids: [s1.id, s2.id] })).data.sent, 0);
+
+  const before = outbox.length;
+  const sent = (await api('admin', 'POST', '/assignments/send', { service_ids: [s1.id, s2.id], team_id: team.data.id })).data;
+  assert.deepEqual([sent.sent, sent.people], [3, 2]);
+  const mails = outbox.slice(before).filter((m) => m.to === 'pat@example.com');
+  assert.equal(mails.length, 1);
+  assert.match(mails[0].subject, /scheduled 2 times/);
+  assert.equal((await api('admin', 'GET', `/assignments/unsent?service_ids=${s1.id},${s2.id}`)).data.length, 0);
+
+  // The email's link works without signing in, and only with the right signature.
+  const [, id, sig] = mails[0].text.match(/\/r\/(\d+)\/([\w-]+)/);
+  const pub = (path, body) => fetch(`${base}/api/public/assignments/${path}`, body ? { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify(body) } : {});
+  assert.equal((await pub(`${id}/${sig.slice(0, -1)}x`)).status, 404);
+  const info = await (await pub(`${id}/${sig}`)).json();
+  assert.equal(info.first_name, 'Pat');
+  assert.equal((await pub(`${id}/${sig}`, { status: 'declined', reason: 'Traveling' })).status, 200);
+  assert.equal(db.prepare('SELECT status, decline_reason FROM assignments WHERE id = ?').get(id).decline_reason, 'Traveling');
+  assert.equal((await fetch(`${base}/r/${id}/${sig}`)).status, 200);
+
+  // Taking someone off after they were told sends a short note; drafts go quietly.
+  const other = db.prepare('SELECT id FROM assignments WHERE person_id = ? AND id != ?').get(pat.id, Number(id));
+  const n = outbox.length;
+  await api('admin', 'DELETE', `/assignments/${other.id}`);
+  assert.match(outbox.at(-1).subject, /Schedule change/);
+  assert.equal(outbox.length, n + 1);
+  await api('admin', 'POST', `/services/${s2.id}/assignments`, { position_id: door.id, person_id: pat.id });
+  const draft = db.prepare('SELECT id FROM assignments WHERE person_id = ? AND service_id = ? AND position_id = ?').get(pat.id, s2.id, door.id);
+  await api('admin', 'DELETE', `/assignments/${draft.id}`);
+  assert.equal(outbox.length, n + 1);
+});
+
+test('leading a team gives leader access, and takes it back only if it came from there', async () => {
+  const team = await api('admin', 'POST', '/teams', { name: 'Media', campus_id: 1, positions: ['Camera'] });
+  const tid = team.data.id;
+  const mia = (await api('admin', 'POST', '/people', { first_name: 'Mia', last_name: 'Media', email: 'mia@example.com', campus_id: 1 })).data;
+  const role = () => db.prepare('SELECT role, role_auto FROM users WHERE person_id = ?').get(mia.id);
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [] });
+  assert.equal(role(), undefined);
+  // Made a leader before ever signing in: an account is set up with leader access.
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
+  assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
+  assert.equal((await api('admin', 'GET', `/people/${mia.id}`)).data.account.role, 'leader');
+  // No longer leading: back to volunteer.
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [] });
+  assert.deepEqual({ ...role() }, { role: 'volunteer', role_auto: 0 });
+  // Access set by hand stays, whatever happens on teams.
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
+  const uid = db.prepare('SELECT id FROM users WHERE person_id = ?').get(mia.id).id;
+  await api('admin', 'PATCH', `/users/${uid}`, { role: 'staff' });
+  await api('admin', 'DELETE', `/teams/${tid}/members/${mia.id}`);
+  assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

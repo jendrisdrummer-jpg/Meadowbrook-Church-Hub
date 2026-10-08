@@ -2,10 +2,11 @@
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
 import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
 import { state, setTitle, campusName } from '../app.js';
-import { assignDialog, scheduleOne } from '../scheduling.js';
+import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
-const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined' };
+const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not sent yet' };
+const statusOf = (a) => (!a.sent_at && a.status !== 'declined' ? 'draft' : a.status);
 
 export default async function schedule(el) {
   const prefs = JSON.parse(sessionStorage.getItem(KEY) || '{}');
@@ -15,7 +16,8 @@ export default async function schedule(el) {
   let picked = null; // person id chosen in the side panel
   let grid;
 
-  setTitle('Schedule', html`<button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
+  setTitle('Schedule', html`<button class="btn primary hidden" data-send></button><button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
+  const sendBtn = document.querySelector('[data-actions] [data-send]');
   const [allSeries, allTeams] = await Promise.all([get('/series'), get('/teams')]);
   const inCampus = (cid) => !state.campusId || cid == null || cid === state.campusId;
   const series = allSeries.filter((t) => inCampus(t.campus_id));
@@ -50,6 +52,11 @@ export default async function schedule(el) {
 
   function draw() {
     const { services, positions, cells, members } = grid;
+    // Drafts this person can send, across the services and team shown.
+    const drafts = services.flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
+      .flatMap((p) => (cells[`${sv.id}:${p.id}`]?.assignments || []).filter((a) => statusOf(a) === 'draft'))).length;
+    sendBtn.classList.toggle('hidden', !drafts);
+    sendBtn.textContent = `Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}`;
     const multiCampus = new Set(services.map((s) => s.campus_id)).size > 1;
     const byTeam = [];
     for (const p of positions) {
@@ -115,7 +122,7 @@ export default async function schedule(el) {
     const ready = sel && sel.position_ids.includes(p.id) && !isAway(sel, day) && !serving(sel.id, s.id);
     const dropHere = can ? raw(`data-drop="${s.id}:${p.id}"`) : '';
     return html`<td class="${needed ? '' : 'not-needed'} ${open ? 'has-open' : ''}" ${dropHere}>
-      ${list.map((a) => html`<button type="button" class="sch-chip st-${a.status} ${a.person_id === picked ? 'mine' : ''}" data-chip="${a.id}" data-svc="${s.id}" title="${displayName(a)} · ${STATUS[a.status]}">
+      ${list.map((a) => html`<button type="button" class="sch-chip st-${statusOf(a)} ${a.person_id === picked ? 'mine' : ''}" data-chip="${a.id}" data-svc="${s.id}" title="${displayName(a)} · ${STATUS[statusOf(a)]}">
         <span class="sch-dot"></span>${displayName(a)}</button>`)}
       ${can ? Array.from({ length: open }, () => html`<button type="button" class="sch-open ${ready ? 'ready' : ''}" data-add="${s.id}:${p.id}" title="${ready ? `Schedule ${displayName(sel)}` : 'Choose someone'}">${icon('plus')} ${ready ? sel.nickname || sel.first_name : 'Open'}</button>`)
         : open ? html`<span class="muted small">${open} open</span>` : ''}
@@ -158,7 +165,7 @@ export default async function schedule(el) {
     const r = await dialog({
       title: displayName(a), submit: can ? 'Remove from this service' : null, danger: true, cancel: 'Close',
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
-        <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : ''}">${STATUS[a.status]}</span></p>
+        <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : statusOf(a) === 'draft' ? 'draft' : ''}">${STATUS[statusOf(a)]}</span></p>
         <p class="small"><a href="#/people/${a.person_id}">Open their profile</a> · <a href="#/services/${s.id}">Open the service</a></p>`,
     });
     if (r) { await del(`/assignments/${id}`); await load(); }
@@ -214,6 +221,10 @@ export default async function schedule(el) {
     place(td.dataset.drop, person).catch(fail);
   };
 
+  sendBtn.addEventListener('click', async () => {
+    try { if (await sendRequests(grid.services.map((sv) => sv.id), teamId)) await load(); } catch (err) { fail(err); }
+  });
+
   document.querySelector('[data-actions] [data-fill]').addEventListener('click', async () => {
     const team = teams.find((t) => t.id === teamId);
     const ids = grid.services.map((s) => s.id);
@@ -221,12 +232,12 @@ export default async function schedule(el) {
     const ok = await dialog({
       title: 'Fill the month', submit: 'Fill open spots',
       body: html`<p>Fill every open ${team ? html`<b>${team.name}</b>` : ''} spot in the ${ids.length} ${ids.length === 1 ? 'service' : 'services'} shown for ${monthLabel()}.</p>
-        <p class="muted small">Only people assigned to each position, never anyone away or already serving at that time, spreading the Sundays out fairly. Everyone already scheduled stays. Check the result and adjust before people are asked.</p>`,
+        <p class="muted small">Only people assigned to each position, never anyone away or already serving at that time, spreading the Sundays out fairly. Everyone already scheduled stays. Nobody is told yet: look it over, then use Send requests.</p>`,
     });
     if (!ok) return;
     try {
       const r = await post('/schedule/autofill', { service_ids: ids, team_id: teamId });
-      toast(r.added.length ? `Scheduled ${r.added.length} ${r.added.length === 1 ? 'spot' : 'spots'}.` : 'No one available to fill the open spots.');
+      toast(r.added.length ? `Added ${r.added.length} ${r.added.length === 1 ? 'person' : 'people'}. Look it over, then Send requests.` : 'No one available to fill the open spots.');
       await load();
     } catch (err) { fail(err); }
   });
