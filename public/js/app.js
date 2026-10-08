@@ -9,6 +9,7 @@ const NAV = [
     { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
     { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
     { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
+    { path: '/tasks', label: 'Tasks', icon: 'tasks', min: 'volunteer', badge: 'tasks' },
   ] },
   { group: 'People', items: [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
@@ -49,6 +50,8 @@ const ROUTES = [
   [/^\/$/, 'home'],
   [/^\/my$/, 'my'],
   [/^\/chat(?:\/(\d+))?$/, 'chat'],
+  [/^\/tasks$/, 'tasks'],
+  [/^\/tasks\/(new|\d+)$/, 'task'],
   [/^\/people$/, 'people'],
   [/^\/people\/(\d+)$/, 'person'],
   [/^\/teams$/, 'teams'],
@@ -101,9 +104,9 @@ async function boot() {
   window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } route(); });
   route();
   drawBell();
-  refreshChatBadge();
-  setInterval(() => { if (!document.hidden) { drawBell(); refreshChatBadge(); } }, 90e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawBell(); refreshChatBadge(); } });
+  refreshBadges();
+  setInterval(() => { if (!document.hidden) { drawBell(); refreshBadges(); } }, 90e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawBell(); refreshBadges(); } });
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // A notification tapped while the app is open moves it to that page.
@@ -113,11 +116,16 @@ async function boot() {
   }
 }
 
-// Unread chat messages, on the Chat menu item.
+// Counts on menu items: unread chat messages, and my tasks due today or late.
+function setBadge(kind, n) {
+  document.querySelectorAll(`[data-badge="${kind}"]`).forEach((b) => { b.textContent = n > 99 ? '99+' : n; b.classList.toggle('hidden', !n); });
+}
 export async function refreshChatBadge() {
-  let total = 0;
-  try { total = (await get('/chats/unread')).total; } catch { return; }
-  document.querySelectorAll('[data-badge="chat"]').forEach((b) => { b.textContent = total > 99 ? '99+' : total; b.classList.toggle('hidden', !total); });
+  try { setBadge('chat', (await get('/chats/unread')).total); } catch { /* try again later */ }
+}
+export async function refreshBadges() {
+  refreshChatBadge();
+  try { setBadge('tasks', (await get('/tasks/summary')).due); } catch { /* try again later */ }
 }
 
 // ---------------------------------------------------------------- notifications bell

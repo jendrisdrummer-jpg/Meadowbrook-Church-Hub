@@ -22,7 +22,7 @@ on tablets. Everyone signs in with a Google account (church or personal).
 |---|---|---|---|
 | **1. People & planning** | People and households, campuses, teams, service plans and songs, volunteer scheduling, attendance, kids' check-in with name tags | Faith Teams | **Built** |
 | 2. Discipleship | Growth pathway and next steps, mentor pairs with meeting logs, small groups, new-guest follow-up | (new) | Next |
-| 3. Team communication | A chat for every team plus groups, with photos, files, replies, reactions and @mentions (built); tasks with due dates and reminders (next) | Google Chat | **Chat built** |
+| 3. Team communication | A chat for every team plus groups, with photos, files, replies, reactions and @mentions; tasks with due dates, reminders, checklists and comments | Google Chat | **Built** |
 | 4. Website & member app | Public website, sermons, events, connect forms, an installable member app | Subsplash | Planned |
 | 5. Giving | Online giving with Stripe, funds, year-end statements | Subsplash Giving / Faith Teams giving | Planned |
 
@@ -169,6 +169,22 @@ and who's serving (only requests that were sent, without contact details).
 - In the church app, the chat button is at the top of every screen once you're signed in. Staff
   can also turn on a **Chat** tab in the App Builder.
 
+**Tasks** (in the dashboard and the church app):
+- **Anyone on a team can give a task to anyone on that team**, and everyone can keep personal
+  tasks just for themselves. Start one from **Tasks → New task**, or from any chat message (the
+  ☑ button on a message makes it the task's title, for that team).
+- Each task can have a **due date and time**, a **service** it's for, **notes**, a **checklist**,
+  **comments**, and can **repeat** (every day, week, 2 weeks or month): ticking it off makes the
+  next one, with the checklist unticked. Undo takes the next one back.
+- **Lists**: My tasks (grouped Overdue, Today, Tomorrow, This week, Later), I gave out (to see how
+  they're going), and Teams (every open task on your teams). Show finished ones from the last 60 days.
+- **Notifications**: when you're given a task; "due tomorrow" the morning before and "due today"
+  that morning (in the campus's time zone); and to whoever gave it, when it's finished or someone
+  comments. The Tasks menu item shows how many of yours are due today or late.
+- In the church app: **More → Tasks**, a **My tasks** block on the home screen, and an optional
+  Tasks tab (App Builder). Team chats have a button to that team's tasks.
+- The person who gave a task, team leaders and staff can delete it.
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
@@ -312,6 +328,7 @@ server, such as a Google Drive folder or your host's snapshot feature.
 | See people, teams, all services; run check-in; add new families | | ✓ | ✓ | ✓ |
 | Chat with their teams and groups | ✓ | ✓ | ✓ | ✓ |
 | Start chat groups | | ✓ | ✓ | ✓ |
+| Give tasks to people on their teams; keep personal tasks | ✓ | ✓ | ✓ | ✓ |
 | Schedule their own teams, edit orders of service | | ✓ | ✓ | ✓ |
 | Edit people, services, rooms; schedule any team | | | ✓ | ✓ |
 | Settings, campuses, accounts, import, merge duplicates | | | | ✓ |

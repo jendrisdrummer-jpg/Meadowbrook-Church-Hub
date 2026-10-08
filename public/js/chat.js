@@ -207,7 +207,8 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
 
   function headActions() {
     const c = S.chat;
-    return html`<button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
+    const tasks = c.kind === 'team' && c.member ? html`<a class="icon-btn" href="#/tasks?view=team&team=${c.team_id}" title="${c.name} tasks" aria-label="${c.name} tasks">${icon('tasks')}</a>` : '';
+    return html`${tasks}<button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
       <button class="icon-btn" data-info title="People in this chat" aria-label="People in this chat">${icon('people')}</button>`;
   }
   // On phones the chat's own header (with a way back) replaces the page's title bar.
@@ -241,6 +242,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
           <div class="chat-emoji">${S.list.reactions.map((e) => html`<button type="button" data-react="${e}" aria-label="React ${e}">${e}</button>`)}</div>
           <button type="button" class="icon-btn" data-pick title="React" aria-label="React">${icon('smile')}</button>
           <button type="button" class="icon-btn" data-reply title="Reply" aria-label="Reply">${icon('reply')}</button>
+          <button type="button" class="icon-btn" data-task title="Make a task from this" aria-label="Make a task from this">${icon('tasks')}</button>
           ${mine ? html`<button type="button" class="icon-btn" data-edit title="Edit" aria-label="Edit">${icon('edit')}</button>` : ''}
           ${canDelete ? html`<button type="button" class="icon-btn danger" data-delete title="Delete" aria-label="Delete">${icon('trash')}</button>` : ''}
         </div>`}
@@ -475,6 +477,13 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       if (!m) return;
       if (b.matches('[data-pick]')) { msgEl.classList.toggle('picking'); return; }
       if (b.dataset.react) { msgEl.classList.remove('picking', 'sel'); return upsert(await post(`/messages/${m.id}/reactions`, { emoji: b.dataset.react })); }
+      // A task from a message: its text as the title, for this team (or personal, from a group).
+      if (b.matches('[data-task]')) {
+        const title = (m.body || m.files[0]?.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        const team = S.chat.kind === 'team' && S.chat.member ? `team=${S.chat.team_id}&` : '';
+        location.hash = `#/tasks/new?${team}title=${encodeURIComponent(title)}`;
+        return;
+      }
       if (b.matches('[data-reply]')) {
         S.reply = m;
         drawComposer();

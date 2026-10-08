@@ -8,8 +8,8 @@ import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
-export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'page', 'link', 'more'];
-export const BLOCK_TYPES = ['welcome', 'times', 'serving', 'buttons', 'watch', 'text'];
+export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
+export const BLOCK_TYPES = ['welcome', 'times', 'serving', 'tasks', 'buttons', 'watch', 'text'];
 const ICONS = ['home', 'calendar', 'user', 'play', 'heart', 'hand', 'info', 'link', 'menu', 'music', 'people', 'gift', 'book', 'chat', 'check'];
 
 export const DEFAULT_APP = {
@@ -20,11 +20,13 @@ export const DEFAULT_APP = {
     { id: 'give', type: 'give', label: 'Give', icon: 'heart', on: true },
     { id: 'connect', type: 'connect', label: 'Connect', icon: 'hand', on: false },
     { id: 'chat', type: 'chat', label: 'Chat', icon: 'chat', on: false },
+    { id: 'tasks', type: 'tasks', label: 'Tasks', icon: 'check', on: false },
     { id: 'more', type: 'more', label: 'More', icon: 'menu', on: true },
   ],
   home: [
     { id: 'welcome', type: 'welcome', title: 'Welcome home', text: 'We’re so glad you’re here.' },
     { id: 'serving', type: 'serving' },
+    { id: 'tasks', type: 'tasks' },
     { id: 'buttons', type: 'buttons', items: [
       { label: 'I’m new here', tab: 'connect' },
       { label: 'Watch live', tab: 'watch' },
