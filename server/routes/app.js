@@ -6,12 +6,15 @@ import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import express from 'express';
 import { stripeConfigured } from '../stripe.js';
+import { WIDGETS, STYLES, ICONS, isHex, isAppImage, upgradeHome } from '../../public/js/app-widgets.js';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
 export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
-export const BLOCK_TYPES = ['welcome', 'times', 'serving', 'tasks', 'buttons', 'watch', 'text'];
-const ICONS = ['home', 'calendar', 'user', 'play', 'heart', 'hand', 'info', 'link', 'menu', 'music', 'people', 'gift', 'book', 'chat', 'check'];
+export const BLOCK_TYPES = Object.keys(WIDGETS);
 
 export const DEFAULT_APP = {
   tabs: [
@@ -25,15 +28,13 @@ export const DEFAULT_APP = {
     { id: 'more', type: 'more', label: 'More', icon: 'menu', on: true },
   ],
   home: [
-    { id: 'welcome', type: 'welcome', title: 'Welcome home', text: 'We’re so glad you’re here.' },
-    { id: 'serving', type: 'serving' },
-    { id: 'tasks', type: 'tasks' },
-    { id: 'buttons', type: 'buttons', items: [
-      { label: 'I’m new here', tab: 'connect' },
-      { label: 'Watch live', tab: 'watch' },
-      { label: 'Give', tab: 'give' },
-    ] },
-    { id: 'times', type: 'times', title: 'Service times' },
+    { id: 'welcome', type: 'welcome', size: 'F', style: 'accent', title: 'Welcome home', text: 'We’re so glad you’re here.' },
+    { id: 'new', type: 'button', size: 'M', style: 'accent', label: 'I’m new here', icon: 'hand', tab: 'connect' },
+    { id: 'live', type: 'button', size: 'M', style: 'soft', label: 'Watch live', icon: 'play', tab: 'watch' },
+    { id: 'serving', type: 'serving', size: 'T', style: 'card' },
+    { id: 'give', type: 'button', size: 'T', style: 'soft', label: 'Give', icon: 'heart', tab: 'give' },
+    { id: 'tasks', type: 'tasks', size: 'F', style: 'card' },
+    { id: 'times', type: 'times', size: 'F', style: 'card', title: 'Service times' },
   ],
   watch_url: '',
   give_url: '',
@@ -66,16 +67,27 @@ function cleanConfig(b) {
   tabs.push({ ...(b.tabs.find((t) => t.type === 'more') || DEFAULT_APP.tabs.at(-1)), id: 'more', type: 'more', on: true, label: str(b.tabs.find((t) => t.type === 'more')?.label, 20) || 'More', icon: 'menu' });
   if (tabs.filter((t) => t.on).length > 5) throw bad('Up to 5 tabs fit along the bottom of a phone (including More). Turn one off.');
   if (new Set(tabs.map((t) => t.id)).size !== tabs.length) throw bad('Two tabs have the same id.');
-  const home = b.home.slice(0, 20).map((k, i) => {
-    if (!BLOCK_TYPES.includes(k.type)) throw bad('Unknown home screen block.');
-    const block = { id: id(k.id, i), type: k.type };
-    if (['welcome', 'text', 'times', 'watch'].includes(k.type)) block.title = str(k.title, 120);
-    if (['welcome', 'text'].includes(k.type)) block.text = str(k.text, 4000);
-    if (k.type === 'buttons') {
-      block.items = (Array.isArray(k.items) ? k.items : []).slice(0, 6).map((x) => ({ label: required(x.label, 'Button text').slice(0, 30), ...(x.url ? { url: url(x.url) } : { tab: id(x.tab, 0) }) }));
+  const home = upgradeHome(b.home).slice(0, 40).map((k, i) => {
+    const def = WIDGETS[k.type];
+    if (!def) throw bad('Unknown home screen widget.');
+    const w = { id: id(k.id, i), type: k.type, size: def.sizes.includes(k.size) ? k.size : def.size, style: STYLES[k.style] ? k.style : def.style };
+    if (w.style === 'color') w.color = isHex(k.color) ? k.color.toLowerCase() : '#135fd1';
+    if (def.image && k.image) {
+      if (!isAppImage(k.image)) throw bad('Pictures are uploaded in the App Builder.');
+      w.image = k.image;
     }
-    return block;
+    if (def.fields.includes('title')) w.title = str(k.title, 120);
+    if (def.fields.includes('text')) w.text = str(k.text, 4000);
+    if (def.fields.includes('label')) w.label = required(k.label, 'Button text').slice(0, 30);
+    if (def.fields.includes('icon')) w.icon = ICONS.includes(k.icon) ? k.icon : 'link';
+    if (def.fields.includes('link')) {
+      if (k.url) w.url = url(k.url);
+      else if (k.tab) w.tab = id(k.tab, 0);
+    }
+    if (k.type === 'image' && !w.image) throw bad('Add a picture to the Picture widget, or remove it.');
+    return w;
   });
+  if (new Set(home.map((w) => w.id)).size !== home.length) throw bad('Two widgets have the same id.');
   const c = b.connect || {};
   return {
     tabs,
@@ -93,6 +105,7 @@ function cleanConfig(b) {
 // Saved configs from before a tab type existed get it too (switched off), just before More.
 export const appConfig = (db) => {
   const cfg = { ...DEFAULT_APP, ...getSetting(db, 'app_config', {}) };
+  cfg.home = upgradeHome(cfg.home);
   for (const t of DEFAULT_APP.tabs) {
     if (!cfg.tabs.some((x) => x.type === t.type)) cfg.tabs = [...cfg.tabs.slice(0, -1), { ...t, on: false }, cfg.tabs.at(-1)];
   }
@@ -111,8 +124,19 @@ function rateLimit(key, max = 5, windowMs = 10 * 60e3) {
   return true;
 }
 
-export default function appRoutes(db) {
+export default function appRoutes(db, { uploadDir } = {}) {
   const r = Router();
+  const imageDir = path.join(uploadDir || 'data/uploads', 'app');
+
+  // Pictures for home screen widgets. Everyone sees the app, so these are public (/uploads/app/).
+  r.post('/app/images', requireRole('staff'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }), (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad('Send a JPEG, PNG or WebP image.');
+    const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.get('content-type')];
+    const name = `${crypto.randomBytes(9).toString('hex')}.${ext}`;
+    fs.mkdirSync(imageDir, { recursive: true });
+    fs.writeFileSync(path.join(imageDir, name), req.body);
+    res.status(201).json({ url: `/uploads/app/${name}` });
+  });
 
   // Everything the app needs to draw itself. Public: guests use the app without signing in.
   r.get('/app/config', (req, res) => {

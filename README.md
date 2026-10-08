@@ -144,8 +144,12 @@ they're on) and notifications. The Serve tab also has **All services**: a month 
 campus buttons, where anyone signed in can open any upcoming service to see its order of service
 and who's serving (only requests that were sent, without contact details).
 - **App Builder** (Church app → App Builder, staff): choose the tabs along the bottom (up to 5,
-  including More), their names and icons, and arrange the home screen from ready-made blocks
-  (welcome banner, my next times serving, buttons, service times, livestream player, text). Add
+  including More), their names and icons, and build the home screen from **widgets** on a grid
+  four squares wide: buttons, pictures (upload a graphic for an event or series), welcome banner,
+  my serving, my tasks, service times, livestream and text. Right on the phone preview, drag a
+  widget to move it and drag its corner to resize it (Small, Medium, Square, Wide, Large or Full,
+  depending on the widget); tap one to change its words, icon, link, picture and look (white,
+  tinted, brand color or any color). Add
   your own **pages** (beliefs, next steps…) and **links** (events, sermons, sign-ups). A live phone
   preview shows every change before you save. Set the livestream (YouTube links play in the app)
   and giving links here.
@@ -189,7 +193,7 @@ and who's serving (only requests that were sent, without contact details).
   date). Groups have their own tasks too, for the people in the group.
 - **Notifications have buttons**: Done, or Tomorrow to push the due date back a day, without
   opening the app.
-- In the church app: **More → Tasks**, a **My tasks** block on the home screen, and an optional
+- In the church app: **More → Tasks**, a **My tasks** widget on the home screen, and an optional
   Tasks tab (App Builder).
 - The person who gave a task, team leaders and staff can delete it.
 

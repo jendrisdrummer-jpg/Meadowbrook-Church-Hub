@@ -63,7 +63,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(fieldRoutes(db));
   api.use(templateRoutes(db));
   api.use(notificationRoutes(db));
-  api.use(appRoutes(db));
+  api.use(appRoutes(db, { uploadDir }));
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
@@ -72,6 +72,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 
+  // Home screen pictures are part of the public app.
+  app.use('/uploads/app', express.static(path.join(uploadDir, 'app'), { maxAge: '30d', fallthrough: false }));
   // Photos include children, so they are only served to signed-in users.
   app.use('/uploads', requireRole('volunteer'), express.static(uploadDir, { maxAge: '7d', fallthrough: false }));
 
