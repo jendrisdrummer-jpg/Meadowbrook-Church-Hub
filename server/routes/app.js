@@ -189,6 +189,24 @@ export default function appRoutes(db) {
     res.json({ ok: true });
   });
 
+  // People who created their own account in the app and haven't been welcomed yet.
+  r.get('/signups', requireRole('leader'), (req, res) => {
+    const cf = campusFilter(req.user, 'p.campus_id');
+    const done = req.query.status === 'done';
+    res.json(db.prepare(`SELECT p.id, p.first_name, p.last_name, p.email, p.phone, p.campus_id, p.signed_up_at, p.welcomed_at, c.short_name campus_short
+      FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
+      WHERE p.signed_up_at IS NOT NULL AND p.archived = 0 AND p.welcomed_at IS ${done ? 'NOT ' : ''}NULL AND ${cf.sql}
+      ORDER BY p.signed_up_at DESC LIMIT 200`).all(...cf.args));
+  });
+
+  r.patch('/signups/:id', requireRole('leader'), (req, res) => {
+    const p = db.prepare('SELECT id, campus_id FROM people WHERE id = ? AND signed_up_at IS NOT NULL').get(req.params.id);
+    if (!p) throw notFound('Sign-up');
+    if (!canCampus(req.user, p.campus_id)) throw forbidden();
+    db.prepare('UPDATE people SET welcomed_at = ? WHERE id = ?').run(req.body?.welcomed ? new Date().toISOString().replace('T', ' ').slice(0, 19) : null, p.id);
+    res.json({ ok: true });
+  });
+
   r.delete('/connect-cards/:id', requireRole('staff'), (req, res) => {
     const c = card(req, req.params.id);
     db.prepare('DELETE FROM connect_cards WHERE id = ?').run(c.id);

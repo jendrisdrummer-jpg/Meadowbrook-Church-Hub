@@ -165,7 +165,7 @@ h3 { font-size: 15px; margin: 0 0 6px; }
 .icon-btn:hover { background: var(--panel-2); color: var(--text); }
 .icon-btn .ic { width: 17px; height: 17px; }
 
-input[type=text], input[type=email], input[type=tel], input[type=date], input[type=time], input[type=datetime-local], input[type=number], input[type=search], select, textarea {
+input[type=text], input[type=email], input[type=tel], input[type=date], input[type=time], input[type=datetime-local], input[type=number], input[type=search], input[type=password], input[type=url], input:not([type]), select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); min-height: 38px;
 }
 textarea { min-height: 70px; resize: vertical; }

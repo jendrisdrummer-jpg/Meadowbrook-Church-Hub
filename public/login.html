@@ -2,62 +2,193 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · Church Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sign in</title>
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/app.css">
   <style>
     body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
-    .login { width: min(400px, 100%); text-align: center; }
+    .login { width: min(400px, 100%); }
+    .login .head { text-align: center; }
     .login .brand-mark { width: 56px; height: 56px; font-size: 24px; margin: 0 auto 14px; border-radius: 16px; }
     .login h1 { margin-bottom: 4px; }
-    .login .stack { margin-top: 22px; text-align: left; }
-    .google { width: 100%; min-height: 46px; }
+    .login form, .login .view { display: grid; gap: 12px; margin-top: 18px; }
+    .login .btn.wide { width: 100%; min-height: 46px; justify-content: center; }
+    .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 6px 0 -4px; }
+    .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
+    .links { display: grid; gap: 8px; text-align: center; font-size: 14px; margin-top: 4px; }
+    .links button { background: none; border: 0; color: var(--accent-text); font: inherit; cursor: pointer; padding: 2px; }
+    .code-input { font-size: 26px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+    .names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   </style>
 </head>
 <body>
   <div class="card login">
-    <div class="brand-mark">M</div>
-    <h1 id="name">Meadowbrook Church</h1>
-    <p class="muted">Church Hub</p>
-    <div id="error" class="alert bad hidden"></div>
-    <div class="stack">
-      <a id="google" class="btn primary google hidden" href="/auth/google">Sign in with Google</a>
-      <form id="dev" class="stack hidden">
-        <label class="field">Email (test sign-in, no password)<input type="email" name="email" required placeholder="you@meadowbrook.church"></label>
-        <button class="btn">Sign in</button>
-        <p class="muted small">Test sign-in is on because the server was started with MB_DEV_LOGIN=1. Turn it off before going live.</p>
-      </form>
-      <p class="muted small" style="text-align:center"><a href="/privacy">Privacy</a></p>
-      <p id="none" class="muted small hidden">Sign-in isn’t set up yet. See “Google sign-in” in the README.</p>
+    <div class="head">
+      <div class="brand-mark">M</div>
+      <h1 id="name">Sign in</h1>
+      <p class="muted" id="sub">Church Hub</p>
     </div>
+    <div id="error" class="alert bad hidden"></div>
+    <div id="info" class="alert info hidden"></div>
+
+    <!-- Sign in: Google, or email + password -->
+    <div class="view" data-view="signin">
+      <a id="google" class="btn primary wide hidden" href="/auth/google">Sign in with Google</a>
+      <div class="or hidden" id="or">or</div>
+      <form id="password" class="hidden" autocomplete="on">
+        <label class="field">Email<input type="email" name="email" required autocomplete="email"></label>
+        <label class="field">Password<input type="password" name="password" required autocomplete="current-password"></label>
+        <button class="btn wide">Sign in</button>
+        <div class="links">
+          <button type="button" data-go="code">First time, or forgot your password? Email me a code</button>
+          <button type="button" data-go="create" id="create-link" class="hidden">New here? Create an account</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Get a code (first time / forgot password / new account) -->
+    <form class="view hidden" data-view="code" id="send">
+      <p class="muted small" style="margin:0" id="send-help">We’ll email you a 6-digit code. Use it to sign in the first time, or to choose a new password.</p>
+      <div class="names hidden" id="send-names">
+        <label class="field">First name<input type="text" name="first_name" autocomplete="given-name"></label>
+        <label class="field">Last name<input type="text" name="last_name" autocomplete="family-name"></label>
+      </div>
+      <label class="field">Email<input type="email" name="email" required autocomplete="email"></label>
+      <button class="btn primary wide">Email me a code</button>
+      <div class="links"><button type="button" data-go="signin">Back to sign in</button></div>
+    </form>
+
+    <!-- Enter the code and choose a password -->
+    <form class="view hidden" data-view="verify" id="verify">
+      <p class="small" style="margin:0">We sent a code to <b id="sent-to"></b>. It may take a minute; check spam too.</p>
+      <label class="field">Code<input class="code-input" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+      <div class="names hidden" id="verify-names">
+        <label class="field">First name<input type="text" name="first_name" autocomplete="given-name"></label>
+        <label class="field">Last name<input type="text" name="last_name" autocomplete="family-name"></label>
+      </div>
+      <label class="field"><span id="pw-label">Choose a password</span><input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
+      <button class="btn primary wide">Continue</button>
+      <div class="links"><button type="button" data-resend>Send a new code</button><button type="button" data-go="signin">Back to sign in</button></div>
+    </form>
+
+    <form id="dev" class="hidden">
+      <label class="field">Email (test sign-in, no password)<input type="email" name="email" required placeholder="you@meadowbrook.church"></label>
+      <button class="btn">Test sign-in</button>
+      <p class="muted small">Test sign-in is on because the server was started with MB_DEV_LOGIN=1. Turn it off before going live.</p>
+    </form>
+    <p id="none" class="muted small hidden">Sign-in isn’t set up yet. See “Google sign-in” in the README.</p>
+    <p class="muted small" style="text-align:center;margin-top:16px"><a href="/privacy">Privacy</a></p>
   </div>
   <script type="module">
+    const $ = (s) => document.querySelector(s);
     const q = new URLSearchParams(location.search);
-    const err = q.get('error');
     // Return to where sign-in started (e.g. the member app), on this site only.
     const next = /^\/(?![/\\])/.test(q.get('next') || '') ? q.get('next') : '/';
-    document.getElementById('google').href = `/auth/google?next=${encodeURIComponent(next)}`;
-    const box = document.getElementById('error');
-    if (err) { box.textContent = err; box.classList.remove('hidden'); }
+    const inApp = next.startsWith('/app/');
+    $('#google').href = `/auth/google?next=${encodeURIComponent(next)}`;
+
+    const show = (el, msg) => { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); };
+    const error = (msg) => { show($('#error'), msg); if (msg) show($('#info'), ''); };
+    const info = (msg) => { show($('#info'), msg); if (msg) show($('#error'), ''); };
+    if (q.get('error')) error(q.get('error'));
+
+    let email = '';
+    let names = { first_name: '', last_name: '' };
+    let mode = 'code'; // or 'create'
+    const view = (name) => {
+      document.querySelectorAll('[data-view]').forEach((v) => v.classList.toggle('hidden', v.dataset.view !== name));
+      const first = document.querySelector(`[data-view="${name}"] input:not([type=hidden])`);
+      if (first && name !== 'signin') setTimeout(() => first.focus(), 50);
+    };
+    const post = async (url, body) => {
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, data };
+    };
+
     const opts = await fetch('/auth/options').then((r) => r.json());
-    document.getElementById('name').textContent = opts.churchName;
-    document.querySelector('.brand-mark').textContent = (opts.churchName || 'C').trim()[0].toUpperCase();
+    $('#name').textContent = opts.churchName;
+    $('#sub').textContent = inApp ? 'Sign in to see when you’re serving, and get notifications.' : 'Church Hub';
+    document.title = `Sign in · ${opts.churchName}`;
+    $('.brand-mark').textContent = (opts.churchName || 'C').trim()[0].toUpperCase();
     if (/^#[0-9a-f]{6}$/i.test(opts.brandColor || '')) {
       document.documentElement.style.setProperty('--accent', opts.brandColor);
       try { localStorage.setItem('mb.accent', opts.brandColor); } catch {}
     }
-    document.getElementById('google').classList.toggle('hidden', !opts.google);
-    document.getElementById('dev').classList.toggle('hidden', !opts.dev);
-    document.getElementById('none').classList.toggle('hidden', opts.google || opts.dev);
-    document.getElementById('dev').addEventListener('submit', async (e) => {
+    $('#google').classList.toggle('hidden', !opts.google);
+    $('#password').classList.toggle('hidden', !opts.email);
+    $('#or').classList.toggle('hidden', !(opts.google && opts.email));
+    $('#create-link').classList.toggle('hidden', !opts.signups);
+    $('#dev').classList.toggle('hidden', !opts.dev);
+    $('#none').classList.toggle('hidden', opts.google || opts.email || opts.dev);
+
+    document.addEventListener('click', (e) => {
+      const go = e.target.closest('[data-go]');
+      if (!go) return;
+      error('');
+      info('');
+      if (go.dataset.go === 'signin') return view('signin');
+      mode = go.dataset.go === 'create' ? 'create' : 'code';
+      $('#send-names').classList.toggle('hidden', mode !== 'create');
+      $('#send').first_name.required = mode === 'create';
+      $('#send-help').textContent = mode === 'create'
+        ? 'Create your account. We’ll email you a code to confirm your address, then you choose a password.'
+        : 'We’ll email you a 6-digit code. Use it to sign in the first time, or to choose a new password.';
+      $('#send').email.value ||= $('#password').email.value;
+      view('code');
+    });
+
+    $('#password').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const res = await fetch('/auth/dev', {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' },
-        body: JSON.stringify({ email: e.target.email.value }),
-      });
-      if (res.ok) location.href = next;
-      else { box.textContent = (await res.json()).error; box.classList.remove('hidden'); }
+      const f = e.target;
+      const r = await post('/auth/password', { email: f.email.value, password: f.password.value });
+      if (r.ok) location.href = next;
+      else error(r.data.error);
+    });
+
+    async function sendCode() {
+      const r = await post('/auth/code', { email });
+      if (!r.ok) { error(r.data.error); return false; }
+      $('#sent-to').textContent = email;
+      info('');
+      return true;
+    }
+    $('#send').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      email = f.email.value.trim();
+      names = { first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim() };
+      if (await sendCode()) {
+        $('#verify-names').classList.add('hidden');
+        view('verify');
+      }
+    });
+    document.querySelector('[data-resend]').addEventListener('click', async () => {
+      if (await sendCode()) info('We sent a new code.');
+    });
+    $('#verify').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      if (!$('#verify-names').classList.contains('hidden')) names = { first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim() };
+      const r = await post('/auth/code/verify', { email, code: f.code.value, password: f.password.value, ...names });
+      if (r.ok) { location.href = next; return; }
+      if (r.data.need_name) {
+        $('#verify-names').classList.remove('hidden');
+        f.first_name.required = true;
+        f.first_name.focus();
+        info(r.data.error);
+        return;
+      }
+      if (r.data.need_password) { f.password.focus(); info(r.data.error); return; }
+      error(r.data.error);
+    });
+
+    $('#dev').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const r = await post('/auth/dev', { email: e.target.email.value });
+      if (r.ok) location.href = next;
+      else error(r.data.error);
     });
   </script>
 </body>

@@ -1,5 +1,5 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
+import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 
@@ -275,8 +275,9 @@ async function profileFields(panel) {
 }
 
 // ---------------------------------------------------------------- accounts
-async function accounts(panel) {
-  const [users, s] = await Promise.all([get('/users'), get('/settings')]);
+async function accounts(panel, q = '') {
+  const [list, s, auth] = await Promise.all([get(`/users${q ? `?q=${encodeURIComponent(q)}` : ''}`), get('/settings'), fetch('/auth/options').then((r) => r.json()).catch(() => ({}))]);
+  const users = list.users;
   const roleHelp = {
     volunteer: 'Their own schedule and the services they serve at',
     leader: 'Also people, teams, scheduling their teams, check-in',
@@ -285,13 +286,14 @@ async function accounts(panel) {
   };
   mount(panel, html`<form class="card stack" style="max-width:820px" data-signin>
     <h2>Who can sign in</h2>
-    <label class="field">On their own, with Google<select name="sign_in_policy">${options([
-      { value: 'anyone', label: 'Anyone with a Google account' },
-      { value: 'directory', label: 'People whose email is in the directory, and church accounts' },
+    ${auth.email === false ? html`<div class="alert warn small">Email sign-in (codes and passwords) isn’t set up yet, so people can only use Google. Add <code>MB_SMTP_USER</code> and <code>MB_SMTP_PASS</code> in your host’s settings (see README → Email).</div>` : ''}
+    <label class="field">On their own, with Google or their email<select name="sign_in_policy">${options([
+      { value: 'anyone', label: 'Anyone: people in People, and new people (added to People)' },
+      { value: 'directory', label: 'Only people whose email is in People, and church accounts' },
       { value: 'domain', label: 'Church Google accounts only' },
       { value: 'invited', label: 'Only accounts an admin adds below' },
     ], s.sign_in_policy)}</select>
-      <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access below.</span></label>
+      <span class="muted small">Everyone starts as a volunteer: their own schedule and the services they serve at. With “Anyone”, people new to the church can create an account in the app and are added to People for you to welcome.</span></label>
     <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="mbclife.church">
       <span class="muted small">Used by the “church accounts” options.</span></label>
     <h2 style="margin-top:8px">Who can make changes</h2>
@@ -309,9 +311,11 @@ async function accounts(panel) {
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
   <div class="card" style="margin-top:14px">
-    <div class="card-head"><h2>Accounts</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
-    <p class="muted small">Add someone here to give them more access, even before their first sign-in.</p>
+    <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
+    <p class="muted small">Everyone in People with an email can sign in as a volunteer: no account needed. ${list.volunteers} of ${list.people_with_email} have so far. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
+    <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
     <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
+    ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
       <td><span class="pill">${u.role}</span></td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
@@ -327,15 +331,21 @@ async function accounts(panel) {
     const ok = await dialog({
       title: u.id ? u.email : 'Add account',
       body: html`<div class="stack">
-        ${u.id ? '' : html`<label class="field">Google account email<input type="email" name="email" required></label>`}
+        ${u.id ? '' : html`<label class="field">Email<input type="email" name="email" required></label>`}
         <label class="field">Access<select name="role">${options(Object.keys(roleHelp).map((r) => ({ value: r, label: `${r[0].toUpperCase()}${r.slice(1)} — ${roleHelp[r]}` })), u.role)}</select></label>
         <div class="field"><span>Campuses</span>
           <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''}> All campuses</label>
           ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button></div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
+        ${u.id ? html`<p class="muted small" style="margin:0">${u.has_password ? 'Signs in with email and password (or Google).' : 'Hasn’t set a password; signs in with Google or an emailed code.'}</p>
+          <div><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete account</button></div>` : ''}
       </div>`,
-      onOpen: (d) => {
+      onOpen: (d, close) => {
+        d.querySelector('[data-delete]')?.addEventListener('click', async () => {
+          if (!(await confirm('Delete this account?', `${u.email} can’t sign in until they set up again (as a volunteer, if they’re in People). Their record in People, attendance and serving history stay.`))) return;
+          try { await del(`/users/${u.id}`); toast('Account deleted.'); close('deleted'); } catch (err) { fail(err); }
+        });
         d.querySelector('[data-link]').onclick = async () => {
           const p = await pickPerson('Link to which person?');
           if (p) { personId = p.id; d.querySelector('[data-person]').textContent = displayName(p); }
@@ -349,9 +359,11 @@ async function accounts(panel) {
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);
       },
     });
-    if (ok) accounts(panel);
+    if (ok) accounts(panel, q);
   };
+  panel.querySelector('[data-search]').onsubmit = (e) => { e.preventDefault(); accounts(panel, e.target.q.value.trim()); };
   panel.onclick = (e) => {
+    if (e.target.closest('[data-clear]')) return accounts(panel);
     if (e.target.closest('[data-add]')) return edit();
     const tr = e.target.closest('tr[data-id]');
     if (tr) edit(users.find((u) => u.id === Number(tr.dataset.id)));

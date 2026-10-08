@@ -142,9 +142,31 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     res.json({ ok: true });
   });
 
-  r.get('/users', requireRole('admin'), (_req, res) => {
-    res.json(db.prepare(`SELECT u.*, p.first_name, p.last_name FROM users u LEFT JOIN people p ON p.id = u.person_id ORDER BY u.email`).all()
-      .map((u) => ({ ...u, campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })));
+  // Accounts with more than volunteer access, or (?q=) anyone matching a search. Everyone in
+  // People gets a volunteer account by signing in, so those don't need listing.
+  r.get('/users', requireRole('admin'), (req, res) => {
+    const q = str(req.query.q, 100).toLowerCase();
+    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at,
+        u.password_hash IS NOT NULL has_password, p.first_name, p.last_name
+      FROM users u LEFT JOIN people p ON p.id = u.person_id
+      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0)"}
+      ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
+    const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
+    const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
+    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })), volunteers, people_with_email: withEmail });
+  });
+
+  // Removes the sign-in (and its sessions and devices). The person stays in People.
+  r.delete('/users/:id', requireRole('admin'), (req, res) => {
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    if (!u) throw notFound('Account');
+    if (u.id === req.user.id) throw bad('You can’t delete your own account. Ask another admin.');
+    if (u.role === 'admin' && db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n <= 1) {
+      throw bad('This is the only admin. Make someone else an admin first.');
+    }
+    db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    audit(db, req, 'user.delete', u.email);
+    res.json({ ok: true });
   });
 
   r.post('/users', requireRole('admin'), (req, res) => {
