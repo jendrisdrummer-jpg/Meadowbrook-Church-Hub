@@ -239,26 +239,51 @@ async function allServices(el, tab, switcher) {
   await draw();
 }
 
-// A read-only order of service and who's serving, for people on it.
+// One service: tabs for the order of service and who's serving (the last choice is remembered),
+// with the signed-in person's own spot shown first.
 async function plan(el, id, q) {
-  setTitle('Order of service', html`<a class="btn small ghost" href="${q?.get('from') === 'all' ? '#/serve?view=all' : '#/serve'}">Back</a>`);
+  setTitle('Service', html`<a class="btn small ghost" href="${q?.get('from') === 'all' ? '#/serve?view=all' : '#/serve'}">Back</a>`);
   const s = await get(`/services/${id}`);
   const times = timeline(s.items, s.starts_at);
   const fmt = (m) => new Date(2000, 0, 1, 0, Math.round(m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const serving = s.positions.filter((p) => p.assignments.some((a) => a.status !== 'declined'));
-  mount(el, html`<div class="card"><h2 style="margin:0">${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-      <div class="muted">${fmtTime(s.starts_at)} · ${s.campus.name}${s.title ? ` · ${s.title}` : ''}</div>
-      ${s.notes ? html`<p class="small" style="white-space:pre-line">${s.notes}</p>` : ''}</div>
-    <div class="card">${s.items.length ? s.items.map((i, n) => (i.kind === 'header'
-      ? html`<div class="m-plan-row section">${i.title}</div>`
-      : html`<div class="m-plan-row"><span class="when">${fmt(times[n].from)}</span><div><b>${i.title || 'Item'}</b>${i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
-          ${i.first_name || i.info ? html`<div class="muted small">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</div>` : ''}
-          ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</div></div>`))
-      : html`<p class="muted">The order of service isn’t ready yet.</p>`}</div>
-    <div class="card"><h2>Who’s serving</h2>${serving.length ? [...Map.groupBy(serving, (p) => p.team_name)].map(([team, ps]) => html`<div class="m-team">
-        <div class="m-team-name"><span class="dot" style="background:${ps[0].team_color}"></span>${team}</div>
-        ${ps.map((p) => html`<div class="small" style="padding:2px 0"><b>${p.name}</b> <span class="muted">· ${p.assignments.filter((a) => a.status !== 'declined').map(displayName).join(', ')}</span></div>`)}</div>`)
-      : html`<p class="muted small" style="margin:0">No one has been scheduled yet.</p>`}</div>`);
+  const teams = [...Map.groupBy(serving, (p) => p.team_id).values()].map((ps) => ({ id: ps[0].team_id, name: ps[0].team_name, color: ps[0].team_color, positions: ps }));
+  const me = app.user?.person_id;
+  const mine = serving.filter((p) => p.assignments.some((a) => a.person_id === me && a.status !== 'declined'));
+  const saved = (k, fallback) => { try { return localStorage.getItem(k) || fallback; } catch { return fallback; } };
+  let view = saved('mb.app.planTab', 'plan');
+  let team = null; // team filter on Who's serving
+
+  function draw() {
+    try { localStorage.setItem('mb.app.planTab', view); } catch { /* private window */ }
+    const shown = team ? teams.filter((t) => t.id === team) : teams;
+    mount(el, html`<div class="card"><h2 style="margin:0">${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
+        <div class="muted">${fmtTime(s.starts_at)} · ${s.campus.name}${s.title ? ` · ${s.title}` : ''}</div>
+        ${s.notes ? html`<p class="small" style="white-space:pre-line">${s.notes}</p>` : ''}
+        ${mine.length ? html`<div class="m-banner" style="margin:12px 0 0">${icon('check')}<span class="grow">You’re serving: <b>${mine.map((p) => p.name).join(', ')}</b></span></div>` : ''}</div>
+      <div class="seg m-seg" role="tablist"><a href="#" role="tab" data-view="plan" class="${view === 'plan' ? 'on' : ''}">Order of service</a><a href="#" role="tab" data-view="team" class="${view === 'team' ? 'on' : ''}">Who’s serving</a></div>
+      ${view === 'plan'
+        ? html`<div class="card">${s.items.length ? s.items.map((i, n) => (i.kind === 'header'
+          ? html`<div class="m-plan-row section">${i.title}</div>`
+          : html`<div class="m-plan-row"><span class="when">${fmt(times[n].from)}</span><div><b>${i.title || 'Item'}</b>${i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
+              ${i.first_name || i.info ? html`<div class="muted small">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</div>` : ''}
+              ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</div></div>`))
+          : html`<p class="muted" style="margin:0">The order of service isn’t ready yet.</p>`}</div>`
+        : html`${teams.length > 1 ? html`<div class="m-chips" style="margin:0 0 10px">${[{ id: null, name: 'All teams' }, ...teams].map((t) => html`<button class="chip ${team === t.id ? 'on' : ''}" data-team="${t.id ?? ''}">${t.color ? html`<span class="dot" style="background:${t.color}"></span> ` : ''}${t.name}</button>`)}</div>` : ''}
+          <div class="card">${shown.length ? shown.map((t) => html`<div class="m-team">
+            <div class="m-team-name"><span class="dot" style="background:${t.color}"></span>${t.name}</div>
+            ${t.positions.map((p) => html`<div class="small m-pos"><b>${p.name}</b> <span class="muted">· ${p.assignments.filter((a) => a.status !== 'declined').map((a) => (a.person_id === me ? html`<b class="is-me">${displayName(a)} (you)</b>` : displayName(a)))
+              .reduce((acc, x, i) => (i ? html`${acc}, ${x}` : x), '')}</span></div>`)}</div>`)
+          : html`<p class="muted small" style="margin:0">No one has been scheduled yet.</p>`}</div>`}`);
+  }
+
+  el.onclick = (e) => {
+    const v = e.target.closest('[data-view]');
+    if (v) { e.preventDefault(); view = v.dataset.view; return draw(); }
+    const t = e.target.closest('[data-team]');
+    if (t) { team = Number(t.dataset.team) || null; draw(); }
+  };
+  draw();
 }
 
 // ---------------------------------------------------------------- watch, give, page, link

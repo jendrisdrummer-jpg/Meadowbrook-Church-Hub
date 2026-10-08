@@ -116,7 +116,7 @@ export default function appRoutes(db) {
       times,
       config: appConfig(db),
       hub_url: (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
-      user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), photo: req.user.photo, theme: req.user.theme } : null,
+      user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), person_id: req.user.personId ?? null, photo: req.user.photo, theme: req.user.theme } : null,
     });
   });
 
