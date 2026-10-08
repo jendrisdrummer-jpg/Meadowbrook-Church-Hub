@@ -6,13 +6,30 @@ import { roomFor, ageMonths, securityCode } from '../public/js/checkin-rules.js'
 import { parseDate } from '../server/routes/people.js';
 import { parseCsv } from '../server/csv.js';
 
-test('a stranger cannot claim a new install; the church domain can', () => {
+test('a stranger cannot claim a new install as admin, but can join as a volunteer', () => {
   const db = openDb(':memory:');
   setSetting(db, 'workspace_domain', 'meadowbrook.church');
-  assert.equal(userForEmail(db, 'someone@gmail.com'), null);
-  assert.equal(userForEmail(db, 'pastor@meadowbrook.church').role, 'admin');
+  assert.equal(userForEmail(db, 'someone@gmail.com').role, 'volunteer');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin'").get().n, 0);
   assert.equal(userForEmail(db, 'helper@meadowbrook.church').role, 'volunteer');
-  assert.equal(userForEmail(db, 'other@gmail.com'), null);
+});
+
+test('sign-in policies', () => {
+  const fresh = (policy) => {
+    const db = openDb(':memory:');
+    setSetting(db, 'workspace_domain', 'meadowbrook.church');
+    setSetting(db, 'sign_in_policy', policy);
+    db.prepare("INSERT INTO users (email, role) VALUES ('admin@meadowbrook.church', 'admin')").run();
+    db.prepare("INSERT INTO people (first_name, email) VALUES ('Kim', 'kim@gmail.com')").run();
+    return db;
+  };
+  const joins = (policy, email) => Boolean(userForEmail(fresh(policy), email));
+  assert.deepEqual(['anyone', 'directory', 'domain', 'invited'].map((p) => joins(p, 'stranger@gmail.com')), [true, false, false, false]);
+  assert.deepEqual(['anyone', 'directory', 'domain', 'invited'].map((p) => joins(p, 'kim@gmail.com')), [true, true, false, false]);
+  assert.deepEqual(['anyone', 'directory', 'domain', 'invited'].map((p) => joins(p, 'staff@meadowbrook.church')), [true, true, true, false]);
+  // A directory match links the account to that person.
+  const db = fresh('directory');
+  assert.ok(userForEmail(db, 'KIM@gmail.com').person_id);
 });
 
 test('rooms by grade first, then age', () => {

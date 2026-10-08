@@ -6,7 +6,7 @@ team chat, the website/app and giving to follow. It replaces Faith Teams, Google
 and our discipleship tracking, one phase at a time.
 
 It is a web app. Staff use it on a computer, volunteers on their phones, and the welcome desks
-on tablets. Everyone signs in with their church Google Workspace account.
+on tablets. Everyone signs in with a Google account (church or personal).
 
 ![Home](docs/home.png)
 
@@ -105,8 +105,10 @@ Do this once, signed in as a Google Workspace admin:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com) → create a project called
    "Church Hub".
-2. **APIs & Services → OAuth consent screen** → choose **Internal**, so only church accounts can
-   sign in. Fill in the app name and support email.
+2. **APIs & Services → OAuth consent screen** → choose **External**, so volunteers can sign in
+   with personal Gmail accounts too, then **Publish app** (Audience → *In production*). The hub
+   only asks for name and email, so Google doesn't require a review. Pick **Internal** instead
+   only if everyone will use a church Google account.
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → **Web
    application**.
    - Authorized redirect URI: `https://YOUR-ADDRESS/auth/google/callback`
@@ -162,9 +164,10 @@ server, such as a Google Drive folder or your host's snapshot feature.
 5. **Teams**: create teams and positions, and add members.
 6. **Settings → Service times**: add your regular services and the positions each one needs.
 7. **Settings → Kids' rooms**: add rooms with their age or grade ranges.
-8. **Settings → Accounts**: give staff and team leaders the right access. Anyone with a
-   church Google account can sign in as a volunteer automatically; you can turn that off in
-   Settings → Church.
+8. **Settings → Accounts**: give staff and team leaders the right access. By default anyone with
+   a Google account can sign in and starts as a volunteer, who sees only their own schedule.
+   **Settings → Church → Who can sign in** can limit this to people in the directory, church
+   accounts, or invited accounts only.
 
 ### Check-in tablets and printers
 

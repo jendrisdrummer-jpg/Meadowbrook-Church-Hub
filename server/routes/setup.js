@@ -1,6 +1,6 @@
 // Campuses, kids' rooms, service types, church settings and user accounts.
 import { Router } from 'express';
-import { requireRole, canCampus, ROLES } from '../auth.js';
+import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
 
@@ -115,7 +115,7 @@ export default function setupRoutes(db) {
   const SETTINGS = {
     church_name: 'Meadowbrook Church',
     workspace_domain: '',
-    auto_join_volunteers: true,
+    sign_in_policy: 'anyone',
     label_size: 'brother-62x29',
     checkin_print_parent_tag: true,
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
@@ -129,6 +129,7 @@ export default function setupRoutes(db) {
     for (const [k, v] of Object.entries(req.body || {})) {
       if (!(k in SETTINGS)) continue;
       if (typeof v !== typeof SETTINGS[k] || Array.isArray(v) !== Array.isArray(SETTINGS[k])) throw bad(`Invalid value for ${k}.`);
+      if (k === 'sign_in_policy' && !SIGN_IN_POLICIES.includes(v)) throw bad('Unknown sign-in option.');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
     audit(db, req, 'settings.update', Object.keys(req.body || {}).join(','));
