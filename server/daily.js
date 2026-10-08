@@ -19,11 +19,12 @@ async function call(method, path, body) {
   return data;
 }
 
-// A private room (only people we give a token can join) that closes itself at `exp`.
-export const createRoom = (name, exp, maxParticipants) => call('POST', '/rooms', {
+// A private room (only people we give a token can join) that closes itself at `exp`. The
+// number of people allowed is left to the Daily plan (the free plan won't let us set it).
+export const createRoom = (name, exp) => call('POST', '/rooms', {
   name,
   privacy: 'private',
-  properties: { exp, eject_at_room_exp: true, max_participants: maxParticipants, enable_prejoin_ui: true, enable_screenshare: true, enable_chat: true },
+  properties: { exp, eject_at_room_exp: true, enable_prejoin_ui: true, enable_screenshare: true, enable_chat: true },
 });
 export const deleteRoom = (name) => call('DELETE', `/rooms/${encodeURIComponent(name)}`);
 export const presence = (name) => call('GET', `/rooms/${encodeURIComponent(name)}/presence`);

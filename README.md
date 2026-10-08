@@ -201,8 +201,9 @@ and who's serving (only requests that were sent, without contact details).
 - Calls end on their own 5 minutes after everyone leaves. Whoever started a call (or the team's
   leaders) can end it for everyone or cancel a meeting.
 - **Monthly limit** (Settings → Church → Video calls, 9,000 minutes to start): Daily's free plan is
-  10,000 participant-minutes a month. The hub checks Daily's own usage every few minutes; once
-  the limit is reached, new calls can't start and calls going on end, until the 1st. Setup: see
+  10,000 participant-minutes a month. The hub checks Daily's own usage every minute while calls
+  are live (and on every join), shows it as a meter in Settings, and notifies admins at 80% and at
+  the limit. Once the limit is reached, new calls can't start and calls going on end, until the 1st. Setup: see
   "Video calls (Daily)" under Going live.
 
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.

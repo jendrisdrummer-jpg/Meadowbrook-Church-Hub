@@ -943,6 +943,7 @@ test('video calls: start, join with a private room, meetings, and the monthly li
   assert.equal(joined.token, `tok-${gusId}-true`);
   const room = daily.requests.find((r) => r.method === 'POST' && r.url === '/rooms');
   assert.equal(room.body.privacy, 'private');
+  assert.equal(room.body.properties.max_participants, undefined); // the free plan refuses it
   assert.ok(room.body.properties.exp > Date.now() / 1000);
   assert.equal(room.auth, 'Bearer test-key');
   assert.equal((await api('hal', 'POST', `/calls/${call.data.id}/join`)).data.token, `tok-${halId}-false`);
@@ -976,6 +977,11 @@ test('video calls: start, join with a private room, meetings, and the monthly li
   db.prepare("UPDATE settings SET value = json_set(value, '$.synced_at', 0) WHERE key = 'video_usage'").run();
   const u = (await api('admin', 'GET', '/calls/usage')).data;
   assert.deepEqual([u.minutes, u.limit, u.left], [45, 30, 0]);
+  const told = (await api('admin', 'GET', '/notifications')).data.items.filter((n) => /Video calls paused/.test(n.title));
+  assert.equal(told.length, 1); // admins hear once
+  db.prepare("UPDATE settings SET value = json_set(value, '$.synced_at', 0) WHERE key = 'video_usage'").run();
+  await api('admin', 'GET', '/calls/usage');
+  assert.equal((await api('admin', 'GET', '/notifications')).data.items.filter((n) => /Video calls paused/.test(n.title)).length, 1);
   assert.equal((await api('gus', 'POST', `/chats/${chat.id}/calls`, {})).status, 403);
   assert.equal((await api('hal', 'POST', `/calls/${meeting.id}/join`)).status, 403);
   await syncCalls(db);
