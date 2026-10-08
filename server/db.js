@@ -306,6 +306,43 @@ const MIGRATIONS = [
     ('Discipleship', 'Classes completed', 'multi', '["New Believers","Foundations","Membership"]', 3),
     ('Leadership', 'Leadership track', 'choice', '["Not started","Serving","In training","Leader","Leader of leaders"]', 4);
   `,
+  // 7: service templates. A template is a reusable order of service (with "fill in" slots) and
+  // the positions it needs; repeating services can fill each new service from one.
+  `
+  CREATE TABLE service_templates (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE CASCADE,   -- NULL = every campus
+    description TEXT NOT NULL DEFAULT '',
+    start_time TEXT NOT NULL DEFAULT '10:00',                       -- for showing times while editing
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE template_items (
+    id INTEGER PRIMARY KEY,
+    template_id INTEGER NOT NULL REFERENCES service_templates(id) ON DELETE CASCADE,
+    sort INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'item',
+    category TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    song_id INTEGER REFERENCES songs(id) ON DELETE SET NULL,
+    song_key TEXT NOT NULL DEFAULT '',
+    length_sec INTEGER NOT NULL DEFAULT 0,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    info TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    is_start INTEGER NOT NULL DEFAULT 0,
+    placeholder INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE template_needs (
+    template_id INTEGER NOT NULL REFERENCES service_templates(id) ON DELETE CASCADE,
+    position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+    count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (template_id, position_id)
+  );
+  ALTER TABLE service_types ADD COLUMN template_id INTEGER REFERENCES service_templates(id) ON DELETE SET NULL;
+  ALTER TABLE plan_items ADD COLUMN placeholder INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

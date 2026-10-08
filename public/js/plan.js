@@ -30,9 +30,16 @@ export function timeline(items, startsAt) {
 let songCache = null;
 const songs = async (fresh = false) => (songCache && !fresh ? songCache : (songCache = await get('/songs')));
 
-export function drawPlan(panel, s) {
+// opts.mode: 'service' (default) or 'template'. Templates use their own endpoints, have no
+// schedule, and can add "fill in each week" slots.
+export function drawPlan(panel, s, opts = {}) {
+  const mode = opts.mode || 'service';
+  const api = mode === 'template'
+    ? { base: `/templates/${s.id}`, item: (id) => `/template-items/${id}` }
+    : { base: `/services/${s.id}`, item: (id) => `/items/${id}` };
   const items = s.items;
   const edit = s.can_edit_plan;
+  const toFill = items.filter((i) => i.placeholder).length;
   const times = timeline(items, s.starts_at);
   const total = items.reduce((a, i) => a + i.length_sec, 0);
   const people = [...new Map(s.positions.flatMap((p) => p.assignments).map((a) => [a.person_id, a])).values()];
@@ -41,8 +48,10 @@ export function drawPlan(panel, s) {
     <div class="card-head"><h2>Order of service</h2>
       ${total ? html`<span class="muted small">${clock(times[0].from)} – ${clock(times.at(-1).to)} · ${Math.round(total / 60)} min</span>` : ''}
       ${s.locked ? html`<span class="pill warn">${icon('lock', 'ic small-ic')} Locked</span>` : ''}
-      ${edit ? html`<button class="btn small" data-copy>${icon('copy')} Copy from…</button>` : ''}
-      <button class="btn small ghost" data-print title="Print">${icon('printer')}</button></div>
+      ${toFill && mode === 'service' ? html`<span class="pill warn">${toFill} to fill in</span>` : ''}
+      ${edit && mode === 'service' ? html`<button class="btn small" data-apply>${icon('copy')} Use a template</button><button class="btn small ghost" data-copy>Copy from…</button>` : ''}
+      ${mode === 'service' && opts.canSaveTemplate ? html`<button class="btn small ghost" data-save-template>Save as template</button>` : ''}
+      ${mode === 'service' ? html`<button class="btn small ghost" data-print title="Print">${icon('printer')}</button>` : ''}</div>
     <div class="plan2" data-plan>
       <div class="plan2-head"><span></span><span>Min</span><span>Time frame</span><span>Type</span><span>Name</span><span>Led by</span><span></span></div>
       ${items.map((i, n) => i.kind === 'header'
@@ -50,12 +59,12 @@ export function drawPlan(panel, s) {
             <span class="grip">${edit ? icon('grip') : ''}</span>
             <span class="sec-title">${i.title || 'Section'}${i.is_start ? html` <span class="pill info">Service starts · ${clock(times[n].from)}</span>` : ''}</span>
             ${actions(i)}</div>`
-        : html`<div class="plan2-row" data-item="${i.id}" ${edit ? raw('draggable="true"') : ''}>
+        : html`<div class="plan2-row ${i.placeholder ? 'fill' : ''}" data-item="${i.id}" ${edit ? raw('draggable="true"') : ''}>
             <span class="grip">${edit ? icon('grip') : ''}</span>
             <span class="num">${i.length_sec ? minutesLabel(i.length_sec) : ''}</span>
             <span class="num nowrap muted">${i.length_sec ? `${clock(times[n].from)} – ${clock(times[n].to)}` : clock(times[n].from)}</span>
             <span class="type">${i.category || (i.kind === 'song' ? 'Song' : '')}</span>
-            <span class="name"><b>${i.title || 'Item'}</b>${i.kind === 'song' && i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
+            <span class="name"><b>${i.title || 'Item'}</b>${i.placeholder ? html` <span class="pill warn">${mode === 'template' ? 'Fill in each week' : 'Needs filling'}</span>` : ''}${i.kind === 'song' && i.song_key ? html` <span class="pill">${i.song_key}</span>` : ''}
               ${i.kind === 'song' && i.song_author ? html`<span class="muted small"> · ${i.song_author}</span>` : ''}
               ${i.notes ? html`<div class="details">${i.notes}</div>` : ''}</span>
             <span class="lead">${[i.first_name ? displayName(i) : '', i.info].filter(Boolean).join(', ')}</span>
@@ -67,6 +76,7 @@ export function drawPlan(panel, s) {
       <span class="add-title"><input type="text" name="title" placeholder="Add an item, e.g. Welcome" aria-label="Name"><div class="suggest hidden" data-suggest></div></span>
       <input type="text" name="length" placeholder="Min" inputmode="numeric" aria-label="Minutes" class="add-min">
       <button class="btn primary small">${icon('plus')} Add</button>
+      ${mode === 'template' ? html`<label class="check small add-fill"><input type="checkbox" name="placeholder"> Fill in each week (e.g. speaker, songs, announcements)</label>` : ''}
     </form>` : ''}
   </div>`);
 
@@ -75,7 +85,7 @@ export function drawPlan(panel, s) {
       <button class="icon-btn danger" data-del-item="${i.id}" title="Remove">${icon('trash')}</button></span>` : html`<span></span>`;
   }
 
-  const save = (list) => { s.items = list; drawPlan(panel, s); };
+  const save = (list) => { s.items = list; drawPlan(panel, s, opts); };
 
   panel.onclick = async (e) => {
     const b = e.target.closest('button');
@@ -83,37 +93,39 @@ export function drawPlan(panel, s) {
     try {
       if (b.matches('[data-print]')) return printPlan(s);
       if (b.dataset.editItem) {
-        const list = await itemDialog(s, items.find((i) => i.id === Number(b.dataset.editItem)), people);
+        const list = await itemDialog(s, items.find((i) => i.id === Number(b.dataset.editItem)), people, api, mode);
         if (list) save(list);
       }
       if (b.dataset.delItem) {
         const item = items.find((i) => i.id === Number(b.dataset.delItem));
         const at = items.indexOf(item);
-        save(await del(`/items/${item.id}`));
+        save(await del(api.item(item.id)));
         toastAction(`Removed “${item.title || 'item'}”.`, 'Undo', async () => {
           try {
-            const restored = await post(`/services/${s.id}/items`, pick(item));
+            const restored = await post(`${api.base}/items`, pick(item));
             const ids = restored.map((x) => x.id);
             const newId = ids.at(-1);
             ids.pop();
             ids.splice(at, 0, newId);
-            save(await put(`/services/${s.id}/items/order`, { ids }));
+            save(await put(`${api.base}/items/order`, { ids }));
           } catch (err) { fail(err); }
         });
       }
       if (b.matches('[data-copy]')) await copyFrom(s, save);
+      if (b.matches('[data-apply]')) await applyTemplateDialog(s, save, opts);
+      if (b.matches('[data-save-template]')) await saveAsTemplate(s);
     } catch (err) { fail(err); }
   };
 
   if (!edit) return;
-  wireAdd(panel, s, save);
-  wireDrag(panel, s, save);
+  wireAdd(panel, s, save, api, mode);
+  wireDrag(panel, s, save, api);
 }
 
 // Fields to recreate an item (for Undo).
-const pick = (i) => ({ kind: i.kind, title: i.title, song_id: i.song_id, song_key: i.song_key, length_sec: i.length_sec, person_id: i.person_id, notes: i.notes, category: i.category, info: i.info, is_start: i.is_start });
+const pick = (i) => ({ kind: i.kind, title: i.title, song_id: i.song_id, song_key: i.song_key, length_sec: i.length_sec, person_id: i.person_id, notes: i.notes, category: i.category, info: i.info, is_start: i.is_start, placeholder: i.placeholder });
 
-function wireAdd(panel, s, save) {
+function wireAdd(panel, s, save, api, mode) {
   const form = panel.querySelector('[data-add]');
   const title = form.title;
   const box = form.querySelector('[data-suggest]');
@@ -137,9 +149,12 @@ function wireAdd(panel, s, save) {
       ${q ? html`<button type="button" class="${active === list.length ? 'on' : ''}" data-create>${icon('plus')} Add “${q}” as a new song</button>` : ''}`);
     box.classList.toggle('hidden', !list.length && !q);
   };
+  // A "fill in each week" song slot doesn't need a real song, so skip the suggestions.
+  const slot = () => mode === 'template' && form.placeholder?.checked;
+  form.placeholder?.addEventListener('change', () => { picked = null; hide(); title.focus(); });
   title.addEventListener('input', async () => {
     picked = null;
-    if (!isSong()) return hide();
+    if (!isSong() || slot()) return hide();
     const q = title.value.trim().toLowerCase();
     const all = await songs();
     list = q ? all.filter((so) => so.title.toLowerCase().includes(q) || so.author.toLowerCase().includes(q)).slice(0, 8) : all.slice(0, 8);
@@ -182,11 +197,15 @@ function wireAdd(panel, s, save) {
     const body = kind === 'header' ? { kind: 'header', title: title.value.trim() }
       : kind === 'Song' ? { kind: 'song', category: 'Song', song_id: picked?.id }
         : { kind: 'item', category: kind, title: title.value.trim() };
-    if (kind === 'Song' && !picked) { toast('Pick a song from the list, or add it as a new song.'); title.focus(); return; }
+    const fill = form.placeholder?.checked;
+    // A template can hold an empty song slot ("Song") to fill in each week.
+    if (kind === 'Song' && !picked && !(mode === 'template' && (fill || !title.value.trim()))) { toast('Pick a song from the list, or add it as a new song.'); title.focus(); return; }
+    if (kind === 'Song' && !picked) { body.title = title.value.trim() || 'Song'; body.placeholder = true; }
     if (kind !== 'Song' && !body.title) { title.focus(); return; }
     if (kind !== 'header') body.length_sec = parseLength(form.length.value);
+    if (fill) body.placeholder = true;
     try {
-      save(await post(`/services/${s.id}/items`, body));
+      save(await post(`${api.base}/items`, body));
       const again = panel.querySelector('[data-add]');
       again.kind.value = kind;
       again.kind.dispatchEvent(new Event('change'));
@@ -194,7 +213,7 @@ function wireAdd(panel, s, save) {
   };
 }
 
-function wireDrag(panel, s, save) {
+function wireDrag(panel, s, save, api) {
   const plan = panel.querySelector('[data-plan]');
   let dragging;
   plan.addEventListener('dragstart', (e) => { dragging = e.target.closest('.plan2-row'); dragging?.classList.add('dragging'); });
@@ -209,7 +228,7 @@ function wireDrag(panel, s, save) {
     if (!dragging) return;
     dragging.classList.remove('dragging');
     dragging = null;
-    try { save(await put(`/services/${s.id}/items/order`, { ids: [...plan.querySelectorAll('.plan2-row')].map((c) => Number(c.dataset.item)) })); } catch (err) { fail(err); }
+    try { save(await put(`${api.base}/items/order`, { ids: [...plan.querySelectorAll('.plan2-row')].map((c) => Number(c.dataset.item)) })); } catch (err) { fail(err); }
   });
 }
 
@@ -230,7 +249,7 @@ async function copyFrom(s, save) {
   if (list) save(list);
 }
 
-async function itemDialog(s, item, people) {
+async function itemDialog(s, item, people, api, mode) {
   const header = item.kind === 'header';
   const song = item.kind === 'song';
   const all = song ? await songs() : [];
@@ -242,7 +261,7 @@ async function itemDialog(s, item, people) {
           <label class="check"><input type="checkbox" name="is_start" ${item.is_start ? 'checked' : ''}> The service starts here
             <span class="muted small">(rows above count down to the start time, like a pre-service huddle)</span></label></div>`
       : html`<div class="form">
-          ${song ? html`<label class="field wide">Song<select name="song_id">${options(all.map((x) => ({ value: x.id, label: `${x.title}${x.author ? ` · ${x.author}` : ''}` })), item.song_id)}</select></label>
+          ${song ? html`<label class="field wide">Song<select name="song_id">${options(all.map((x) => ({ value: x.id, label: `${x.title}${x.author ? ` · ${x.author}` : ''}` })), item.song_id, { blank: 'Choose a song…' })}</select></label>
             <label class="field">Key<input type="text" name="song_key" value="${item.song_key}" placeholder="G"></label>`
           : html`<label class="field">Type<select name="category">${options(TYPES.filter((t) => t !== 'Song').map((t) => ({ value: t, label: t })), item.category || 'Other')}</select></label>
             <label class="field">Name<input type="text" name="title" value="${item.title}" required></label>`}
@@ -250,14 +269,21 @@ async function itemDialog(s, item, people) {
           <label class="field">Led by<select name="person_id">${options(people.map((p) => ({ value: p.person_id, label: displayName(p) })), item.person_id, { blank: '—' })}</select></label>
           <label class="field">Or type a name<input type="text" name="info" value="${item.info}" placeholder="Pastor Dallas"></label>
           <label class="field wide">Details<textarea name="notes" rows="5" placeholder="Cues, announcements, who walks out when…">${item.notes}</textarea></label>
+          <label class="check wide"><input type="checkbox" name="placeholder" ${item.placeholder ? 'checked' : ''}> ${mode === 'template' ? 'Fill in each week' : 'Still needs filling in'}</label>
         </div>`,
+    // In a service, filling the slot in (choosing the song, naming who leads…) unticks "still needs filling".
+    onOpen: (d) => {
+      const box = d.querySelector('[name=placeholder]');
+      if (!box || mode !== 'service') return;
+      d.querySelectorAll('[name=song_id], [name=title], [name=info], [name=person_id], [name=notes]').forEach((el) => el.addEventListener('change', () => { box.checked = false; }));
+    },
     onSubmit: async (f) => {
       const b = formData(f);
       const body = header ? { title: b.title, is_start: b.is_start }
         : { ...b, length_sec: parseLength(b.length) };
       delete body.length;
       if (song && b.song_id) body.title = all.find((x) => x.id === Number(b.song_id))?.title;
-      result = await patch(`/items/${item.id}`, body);
+      result = await patch(api.item(item.id), body);
     },
   });
   return result;
@@ -280,4 +306,34 @@ function printPlan(s) {
          <td><b>${esc(i.title)}</b>${i.song_key ? ` (${esc(i.song_key)})` : ''}${i.notes ? `<div class="d">${esc(i.notes)}</div>` : ''}</td><td>${esc([i.first_name ? `${i.nickname || i.first_name} ${i.last_name}` : '', i.info].filter(Boolean).join(', '))}</td></tr>`)).join('')}
     </table><script>print()<\/script>`);
   w.document.close();
+}
+
+async function applyTemplateDialog(s, save, opts) {
+  const templates = (await get('/templates')).filter((t) => t.campus_id == null || t.campus_id === s.campus_id);
+  if (!templates.length) { toast(opts.canSaveTemplate ? 'No templates yet. Make one under Planning → Templates, or Save as template.' : 'No templates yet.'); return; }
+  let list;
+  await dialog({
+    title: 'Use a template', submit: 'Use template',
+    body: html`<div class="stack"><label class="field">Template<select name="t">${options(templates.map((t) => ({ value: t.id, label: `${t.name}${t.fill_count ? ` (${t.fill_count} to fill in)` : ''}` })))}</select></label>
+      ${s.items.length ? html`<label class="check"><input type="checkbox" name="replace" checked> Replace what’s here now</label>` : ''}
+      ${opts.canSaveTemplate ? html`<label class="check"><input type="checkbox" name="needs" checked> Also use its positions needed</label>` : ''}</div>`,
+    onSubmit: async (f) => {
+      list = await post(`/services/${s.id}/apply-template`, { template_id: Number(f.t.value), replace: f.replace?.checked ?? false, needs: f.needs?.checked ?? false });
+    },
+  });
+  if (list) {
+    toast('Template added. Fill in the highlighted rows.');
+    if (opts.onChange) opts.onChange(); else save(list);
+  }
+}
+
+async function saveAsTemplate(s) {
+  let made;
+  await dialog({
+    title: 'Save as template', submit: 'Save template',
+    body: html`<div class="stack"><label class="field">Template name<input type="text" name="name" required value="${s.title || 'Sunday Morning'}"></label>
+      <p class="muted small">Copies this order of service and its positions needed. Afterwards, mark the rows that change each week as “Fill in each week”.</p></div>`,
+    onSubmit: async (f) => { made = await post('/templates', { name: f.name.value, campus_id: s.campus_id, from_service_id: s.id }); },
+  });
+  if (made) { toast('Template saved.'); location.hash = `#/templates/${made.id}`; }
 }

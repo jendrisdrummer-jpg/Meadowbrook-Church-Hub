@@ -82,10 +82,16 @@ choose **just this one** or **this and all following**. Each service has:
   created there. Edit and delete buttons appear on the right of each row (deleting can be undone).
   Drag to reorder, copy from another service, or print. Mark a section **"the service starts
   here"** and the rows above it (huddle, countdown) count down to the start time.
-- **Who's serving**: filter to one or more teams. *Schedule someone* lists only the people
+- **Who's serving**: every team at the campus is listed (teams with nothing needed yet are dimmed); filter to one or more teams. *Schedule someone* lists only the people
   assigned to that position, best choices first: not away, not already serving at the same time
   **at any campus**, and not overused lately. **Fill open spots** does this for the whole service
   at once.
+- **Templates** (Planning → Templates, staff only): reusable orders of service such as "Sunday
+  Morning". Mark the rows that change each week (speaker, songs, announcements) as **Fill in each
+  week**; on a service they show as *Needs filling* until someone fills them in, and the calendar
+  marks services that still have empty slots. Start a new service from a template, use one on an
+  existing service (**Use a template**), save a finished service as a template, or link a template
+  to a repeating service so every new date arrives already laid out.
 - **Lock**: staff can lock a service once it's final, so only admins can change its order of
   service and schedule. **Settings → Sign-in & accounts** also sets who can edit orders of service
   and who can schedule.
@@ -182,7 +188,8 @@ server, such as a Google Drive folder or your host's snapshot feature.
    **test import** first. Re-importing updates people rather than duplicating them, so you can
    keep Faith Teams running alongside until you switch over.
 5. **Teams**: create teams and positions, and add members.
-6. **Services → New service**: add your regular services as repeating services, with the
+6. **Templates**, then **Services → New service**: build a template for your usual order of
+   service, then add your regular services as repeating services that start from it, with the
    positions each one needs.
 7. **Settings → Check-in & attendance**: pick your label printer and add kids' rooms with their
    age or grade ranges.

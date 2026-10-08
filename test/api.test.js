@@ -252,6 +252,49 @@ test('profile fields: milestones, validation, filtering, visibility and import',
   assert.equal(gp[by('New birth').id], 'Received the Holy Ghost');
 });
 
+test('service templates: fill-in slots, apply, save-as, and repeating services', async () => {
+  const tpl = (await api('admin', 'POST', '/templates', { name: 'Sunday Morning' })).data;
+  assert.equal((await api('north', 'POST', '/templates', { name: 'Church-wide from staff' })).status, 403);
+  assert.equal((await api('vol', 'GET', '/templates')).status, 403);
+  await api('admin', 'POST', `/templates/${tpl.id}/items`, { kind: 'item', category: 'Announcement', title: 'Service Huddle', length_sec: 2100 });
+  await api('admin', 'POST', `/templates/${tpl.id}/items`, { kind: 'header', title: 'Service Start', is_start: true });
+  let items = (await api('admin', 'POST', `/templates/${tpl.id}/items`, { kind: 'song' })).data;
+  assert.equal(items.at(-1).placeholder, 1);
+  await api('admin', 'POST', `/templates/${tpl.id}/items`, { kind: 'item', category: 'Message', title: 'Sermon', length_sec: 2100, placeholder: true });
+  const pos = (await api('admin', 'GET', '/teams')).data[0].positions[0];
+  await api('admin', 'PUT', `/templates/${tpl.id}/needs`, { needs: [{ position_id: pos.id, count: 2 }] });
+
+  // A one-off service started from the template gets its plan and positions.
+  const day = nextSunday(90);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T10:00`, template_id: tpl.id })).data;
+  let full = (await api('admin', 'GET', `/services/${svc.id}`)).data;
+  assert.deepEqual(full.items.map((i) => i.title), ['Service Huddle', 'Service Start', 'Song', 'Sermon']);
+  assert.equal(full.positions.find((p) => p.id === pos.id).needed, 2);
+  const listed = (await api('admin', 'GET', `/services?from=${day}&to=${day}`)).data.find((x) => x.id === svc.id);
+  assert.equal(listed.to_fill, 2);
+
+  // Filling a slot clears its flag.
+  const song = (await api('admin', 'POST', '/songs', { title: 'Firm Foundation' })).data;
+  const slot = full.items.find((i) => i.title === 'Song');
+  await api('admin', 'PATCH', `/items/${slot.id}`, { song_id: song.id, title: 'Firm Foundation' });
+  full = (await api('admin', 'GET', `/services/${svc.id}`)).data;
+  assert.equal(full.items.find((i) => i.id === slot.id).placeholder, 0);
+
+  // Apply again (append) and replace.
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/apply-template`, { template_id: tpl.id })).data.length, 8);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/apply-template`, { template_id: tpl.id, replace: true })).data.length, 4);
+
+  // Save a real service as a template.
+  const copy = (await api('admin', 'POST', '/templates', { name: 'Copy', from_service_id: svc.id })).data;
+  assert.equal((await api('admin', 'GET', `/templates/${copy.id}`)).data.items.length, 4);
+
+  // A repeating service linked to the template fills each new service.
+  const series = (await api('admin', 'POST', '/series', { campus_id: 1, starts_on: nextSunday(95), start_time: '11:00', template_id: tpl.id })).data;
+  const first = (await api('admin', 'GET', `/services/${series.first_service_id}`)).data;
+  assert.equal(first.items.length, 4);
+  assert.equal(first.positions.find((p) => p.id === pos.id).needed, 2);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

@@ -382,3 +382,9 @@ details.card[open] > summary::before { content: '▾ '; }
 .field-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; padding: 9px 6px; border-bottom: 1px solid var(--line); }
 .field-row .grip { color: var(--muted); cursor: grab; }
 .field-row.archived { opacity: .55; }
+.team-filter .chip.idle { border-style: dashed; color: var(--muted); }
+.cal-flag.fill { color: var(--warn); margin-left: auto; padding: 0 2px; }
+.cal-flag.fill + .cal-flag { margin-left: 2px; }
+.plan2-row.fill { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.plan2-row.fill:hover { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.add-fill { grid-column: 1 / -1; }

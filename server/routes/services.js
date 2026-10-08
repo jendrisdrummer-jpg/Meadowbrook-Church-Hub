@@ -4,6 +4,7 @@ import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
+import { applyTemplate } from './templates.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -60,6 +61,7 @@ export default function serviceRoutes(db) {
     if (rank(req.user.role) < rank('leader')) { extra += ' AND s.id IN (SELECT service_id FROM assignments WHERE person_id = ?)'; args.push(req.user.personId ?? -1); }
     const rows = db.prepare(`SELECT s.*, st.name type_name, c.name campus_name, c.short_name campus_short, c.color campus_color,
         (SELECT COALESCE(SUM(count), 0) FROM service_needs n WHERE n.service_id = s.id) needed, st.every_weeks,
+        (SELECT COUNT(*) FROM plan_items i WHERE i.service_id = s.id AND i.placeholder = 1) to_fill,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status != 'declined') filled,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'accepted') accepted,
         (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'declined') declined
@@ -79,6 +81,10 @@ export default function serviceRoutes(db) {
       const info = db.prepare('INSERT INTO services (campus_id, title, series, starts_at, duration_min, notes) VALUES (?, ?, ?, ?, ?, ?)')
         .run(campusId, str(b.title, 200), str(b.series, 200), b.starts_at, int(b.duration_min) ?? 75, str(b.notes));
       saveNeeds(info.lastInsertRowid, b.needs);
+      const tpl = int(b.template_id);
+      if (tpl && db.prepare('SELECT 1 FROM service_templates WHERE id = ?').get(tpl)) {
+        applyTemplate(db, tpl, info.lastInsertRowid, { needs: !(Array.isArray(b.needs) && b.needs.length) });
+      }
       return info.lastInsertRowid;
     });
     res.status(201).json(getService(id));
@@ -109,12 +115,12 @@ export default function serviceRoutes(db) {
     const assignments = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.nickname, p.photo, p.phone, p.email
       FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id = ? ORDER BY a.created_at`).all(s.id);
     const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
-    // Positions shown = this service's needs plus anything someone was scheduled into ad hoc.
-    const posIds = new Set([...needs.map((n) => n.position_id), ...assignments.map((a) => a.position_id)]);
-    const positions = posIds.size
-      ? db.prepare(`SELECT ps.id, ps.name, ps.team_id, t.name team_name, t.color team_color FROM positions ps JOIN teams t ON t.id = ps.team_id
-          WHERE ps.id IN (${[...posIds].map(() => '?').join(',')}) ORDER BY t.name, ps.sort`).all(...posIds)
-      : [];
+    // Every position of every team at this campus (or church-wide), plus anything someone was
+    // scheduled into from elsewhere. Positions this service doesn't need show with needed = 0.
+    const posIds = new Set(assignments.map((a) => a.position_id));
+    const positions = db.prepare(`SELECT ps.id, ps.name, ps.team_id, t.name team_name, t.color team_color FROM positions ps JOIN teams t ON t.id = ps.team_id
+        WHERE (t.archived = 0 AND (t.campus_id IS NULL OR t.campus_id = ?)) OR ps.id IN (${[...posIds, -1].map(() => '?').join(',')})
+        ORDER BY t.name COLLATE NOCASE, ps.sort`).all(s.campus_id, ...posIds, -1);
     res.json({
       ...s,
       campus,
@@ -206,6 +212,8 @@ export default function serviceRoutes(db) {
     if (!item) throw notFound('Item');
     requireEditPlan(req, service(req, item.service_id));
     const f = itemFields(req.body || {});
+    // Filling in a "fill in" slot (picking the song, naming the speaker…) clears its flag.
+    if (f.placeholder === undefined && ['song_id', 'title', 'info', 'notes', 'person_id'].some((k) => f[k] !== undefined && f[k] !== item[k])) f.placeholder = 0;
     updateFields(db, 'plan_items', item.id, f, Object.keys(f));
     if (f.is_start) onlyStart(item.service_id, item.id);
     res.json(planItems(item.service_id));
@@ -227,6 +235,16 @@ export default function serviceRoutes(db) {
     res.json(planItems(s.id));
   });
 
+  // Body: { template_id, replace, needs } – needs (the template's positions) is staff-only.
+  r.post('/services/:id/apply-template', requireRole('leader'), (req, res) => {
+    const s = service(req, req.params.id);
+    requireEditPlan(req, s);
+    const t = db.prepare('SELECT * FROM service_templates WHERE id = ?').get(int(req.body?.template_id, 'Template'));
+    if (!t || !canCampus(req.user, t.campus_id)) throw notFound('Template');
+    tx(db, () => applyTemplate(db, t.id, s.id, { replace: Boolean(req.body?.replace), needs: Boolean(req.body?.needs) && isStaff(req) }));
+    res.json(planItems(s.id));
+  });
+
   // Copies another service's order of service (e.g. 9:00 → 11:00, or last week's as a template).
   r.post('/services/:id/copy-plan', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
@@ -237,8 +255,8 @@ export default function serviceRoutes(db) {
       const base = db.prepare('SELECT COALESCE(MAX(sort), -1) m FROM plan_items WHERE service_id = ?').get(s.id).m + 1;
       // The copied plan's "service starts here" row wins over this one's.
       if (!req.body?.replace) db.prepare('UPDATE plan_items SET is_start = 0 WHERE service_id = ?').run(s.id);
-      db.prepare(`INSERT INTO plan_items (service_id, sort, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start)
-        SELECT ?, sort + ?, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start FROM plan_items WHERE service_id = ? ORDER BY sort`).run(s.id, base, from.id);
+      db.prepare(`INSERT INTO plan_items (service_id, sort, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start, placeholder)
+        SELECT ?, sort + ?, kind, title, song_id, song_key, length_sec, person_id, notes, category, info, is_start, placeholder FROM plan_items WHERE service_id = ? ORDER BY sort`).run(s.id, base, from.id);
     });
     res.json(planItems(s.id));
   });
