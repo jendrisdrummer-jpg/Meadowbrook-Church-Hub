@@ -705,3 +705,23 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .qt-chips .chip { cursor: pointer; padding: 5px 12px; font: inherit; font-size: 14px; color: var(--text); }
 .qt-chips .chip .avatar { width: 20px; height: 20px; font-size: 9px; }
 .qt-chips + input[type=date] { margin-top: 8px; }
+
+/* ------------------------------------------------------------- video calls */
+.chat-call { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 2px 0; max-width: 460px; background: var(--panel); }
+.chat-call > .ic { width: 26px; height: 26px; flex: none; }
+.chat-call > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.chat-call.live { border-color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+.chat-call.live > .ic { color: var(--good); }
+.chat-call.scheduled > .ic { color: var(--accent-text); }
+.chat-call.ended { color: var(--muted); }
+.chat-join-top { background: var(--good); border-color: var(--good); color: #fff; }
+.chat-call-now { width: 100%; justify-content: center; min-height: 48px; font-size: 16px; }
+.call-overlay { position: fixed; inset: 0; z-index: 1000; background: #111; display: flex; flex-direction: column; }
+.call-bar { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: #1b1b1f; color: #fff; }
+.call-bar .btn.ghost { color: #fff; }
+.call-overlay iframe { flex: 1; width: 100%; border: 0; }
+.meter { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin: 6px 0; }
+.meter > span { display: block; height: 100%; background: var(--accent); }
+.meter > span.warn { background: #e0a100; }
+.meter > span.bad { background: var(--bad); }
+@media (max-width: 600px) { .call-bar .wide-only { display: none; } .call-bar b { font-size: 14px; } }

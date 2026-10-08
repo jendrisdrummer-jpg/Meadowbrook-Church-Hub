@@ -524,6 +524,26 @@ const MIGRATIONS = [
   ALTER TABLE messages ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
   CREATE INDEX messages_task ON messages (task_id);
   `,
+  // 16: video calls and meetings in chats (Daily rooms are made when the first person joins).
+  `
+  CREATE TABLE calls (
+    id INTEGER PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    starts_at TEXT,                                    -- a scheduled meeting (UTC ISO); NULL = started now
+    started_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    room_name TEXT,
+    room_url TEXT,
+    room_created_at TEXT,                              -- first join
+    room_exp INTEGER,                                  -- unix seconds
+    empty_since TEXT,
+    reminded INTEGER NOT NULL DEFAULT 0,
+    ended_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX calls_chat ON calls (chat_id, ended_at);
+  ALTER TABLE messages ADD COLUMN call_id INTEGER REFERENCES calls(id) ON DELETE SET NULL;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

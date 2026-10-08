@@ -15,6 +15,8 @@ export function send(userIds, chatId, event) {
 // myGroups(req) → [{ id, name }] groups this account is in
 // taskPosted(taskId, req) → posts the task as a card in its chat
 // taskChanged(taskId, messageIds?) → refreshes its cards and the chat's Tasks tab
+// chatUsers(chatId), chatName(chatId); callPosted(callId, chatId, userId) → who is watching;
+// callChanged(callId) → refreshes its cards
 export const hooks = {
   chatAccess: () => null,
   chatPeople: () => [],

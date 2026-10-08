@@ -9,6 +9,7 @@ const touch = matchMedia('(pointer: coarse)').matches;
 // One chat page at a time: its live stream and listeners are dropped when you leave.
 let live = null;
 function stop() {
+  document.querySelector('.call-overlay')?.remove();
   live?.();
   live = null;
   document.body.classList.remove('chat-on', 'chat-open');
@@ -107,6 +108,11 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       refreshList();
     }
     if (ev.type === 'tasks' && ev.chat_id === S.id) refreshTasks();
+    if (ev.type === 'call' && ev.chat_id === S.id) {
+      get(`/chats/${S.id}`).then((c) => { S.chat = c; drawHead(); }).catch(() => {});
+    }
+    // The call on screen ended (for everyone): close it.
+    if (ev.type === 'message' && ev.message.call?.ended_at && callOpen === ev.message.call.id) { closeCall(); toast('The call has ended.'); }
     if (ev.type === 'chats') {
       refreshList();
       if (S.id) get(`/chats/${S.id}`).then((c) => { S.chat = c; drawHead(); }).catch(() => { toast('That chat is no longer available.'); location.hash = '#/chat'; });
@@ -210,7 +216,11 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
 
   function headActions() {
     const c = S.chat;
-    return html`<button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
+    const call = c.live_call;
+    const live = call && (!call.starts_at || Date.parse(call.starts_at) - 15 * 60e3 <= Date.now());
+    return html`${live ? html`<button class="btn small chat-join-top" data-join="${call.id}">${icon('video')} Join</button>`
+        : html`<button class="icon-btn" data-call-menu title="Video call" aria-label="Video call">${icon('video')}</button>`}
+      <button class="icon-btn" data-mute title="${c.muted ? 'Unmute' : 'Mute'}" aria-label="${c.muted ? 'Unmute' : 'Mute'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>
       <button class="icon-btn" data-info title="People in this chat" aria-label="People in this chat">${icon('people')}</button>`;
   }
   // On phones the chat's own header (with a way back) replaces the page's title bar.
@@ -240,7 +250,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
           ${grouped ? '' : html`<div class="chat-meta"><b>${m.name}</b><span class="muted small">${clock(d)}</span></div>`}
           ${m.deleted ? html`<div class="muted small"><i>Message deleted</i></div>` : html`
             ${m.reply ? html`<button type="button" class="chat-quote" data-goto="${m.reply.id}"><b>${m.reply.name}</b> <span>${m.reply.deleted ? 'Message deleted' : m.reply.body || (m.reply.files ? 'Attachment' : '')}</span></button>` : ''}
-            ${m.kind === 'task' ? taskCard(m) : ''}
+            ${m.kind === 'task' ? taskCard(m) : ''}${m.kind === 'call' ? callCard(m) : ''}
             ${m.body ? html`<div class="chat-body">${formatBody(m, S.chat.members, S.list.person_id)}${m.edited_at ? html` <span class="muted small">(edited)</span>` : ''}</div>` : ''}
             ${m.files.length ? html`<div class="chat-files">${m.files.map((f) => (f.mime.startsWith('image/') && f.mime !== 'image/heic'
               ? html`<a class="chat-img" href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="${f.name}" loading="lazy"></a>`
@@ -251,8 +261,8 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
           <div class="chat-emoji">${S.list.reactions.map((e) => html`<button type="button" data-react="${e}" aria-label="React ${e}">${e}</button>`)}</div>
           <button type="button" class="icon-btn" data-pick title="React" aria-label="React">${icon('smile')}</button>
           <button type="button" class="icon-btn" data-reply title="Reply" aria-label="Reply">${icon('reply')}</button>
-          ${m.kind === 'task' ? '' : html`<button type="button" class="icon-btn" data-task title="Make a task from this" aria-label="Make a task from this">${icon('tasks')}</button>`}
-          ${mine && m.kind !== 'task' ? html`<button type="button" class="icon-btn" data-edit title="Edit" aria-label="Edit">${icon('edit')}</button>` : ''}
+          ${m.kind ? '' : html`<button type="button" class="icon-btn" data-task title="Make a task from this" aria-label="Make a task from this">${icon('tasks')}</button>`}
+          ${mine && !m.kind ? html`<button type="button" class="icon-btn" data-edit title="Edit" aria-label="Edit">${icon('edit')}</button>` : ''}
           ${canDelete ? html`<button type="button" class="icon-btn danger" data-delete title="Delete" aria-label="Delete">${icon('trash')}</button>` : ''}
         </div>`}
       </div>`;
@@ -508,6 +518,85 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     });
   }
 
+  // ------------------------------------------------ video calls (Daily)
+  // A call or meeting posted in the chat: Join while it's on, the time when it's later.
+  function callCard(m) {
+    const c = m.call;
+    if (!c) return '';
+    const mine = c.started_by === S.list.me || S.chat.manage;
+    const start = c.starts_at ? new Date(c.starts_at) : null;
+    const opens = start ? start - 15 * 60e3 : 0;
+    const when = start ? start.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    if (c.ended_at) {
+      const mins = c.room_created_at ? Math.max(1, Math.round((Date.parse(`${c.ended_at.replace(' ', 'T')}Z`) - Date.parse(`${c.room_created_at.replace(' ', 'T')}Z`)) / 60e3)) : 0;
+      return html`<div class="chat-call ended">${icon('video')}<span><b>${c.title || 'Call'}</b><span class="muted small">${mins ? `Ended · ${mins} min` : start ? 'Cancelled' : 'Ended'}</span></span></div>`;
+    }
+    if (start && Date.now() < opens) {
+      return html`<div class="chat-call scheduled">${icon('calendar')}<span><b>${c.title || 'Meeting'}</b><span class="small">${when}</span>
+        <span class="muted small">Join opens 15 minutes before</span></span>${mine ? html`<button type="button" class="btn small ghost" data-call-cancel="${c.id}">Cancel</button>` : ''}</div>`;
+    }
+    return html`<div class="chat-call live">${icon('video')}<span><b>${c.title || 'Video call'}</b><span class="small">${start ? `Starts ${when}` : c.room_created_at ? 'In progress' : 'Starting now'}</span></span>
+      <button type="button" class="btn small primary" data-join="${c.id}">Join</button></div>`;
+  }
+
+  async function callMenu() {
+    if (!S.list.video) return toast('Video calls aren’t set up yet. An admin can turn them on in Settings → Church.', 'bad');
+    const u = await get('/calls/usage').catch(() => null);
+    if (u && u.left <= 0) return toast(`This month’s video minutes are used up (${u.minutes} of ${u.limit}). They reset on the 1st.`, 'bad');
+    const now = new Date(Date.now() + 864e5);
+    const day = now.toLocaleDateString('en-CA');
+    const out = await dialog({
+      title: `Video call · ${S.chat.name}`,
+      submit: 'Schedule meeting',
+      body: html`<button type="button" class="btn primary chat-call-now" data-now>${icon('video')} Start a call now</button>
+        <p class="muted small" style="margin:6px 0 16px">Everyone in ${S.chat.name} gets a notification to join.</p>
+        <h3 style="margin:0 0 8px">Or schedule a meeting</h3>
+        <div class="form"><label class="field wide">What’s it for<input type="text" name="title" placeholder="Team meeting" maxlength="120"></label>
+          <label class="field">Day<input type="date" name="day" value="${day}" min="${new Date().toLocaleDateString('en-CA')}"></label>
+          <label class="field">Time<input type="time" name="time" value="19:00"></label></div>
+        <p class="muted small">A card goes in the chat, and everyone gets a reminder 15 minutes before.</p>`,
+      onOpen: (d, close) => d.querySelector('[data-now]').addEventListener('click', () => close('now')),
+      onSubmit: (f) => ({ title: f.title.value, starts_at: new Date(`${f.day.value}T${f.time.value}`).toISOString() }),
+    });
+    if (!out) return;
+    if (out === 'now') {
+      const c = await post(`/chats/${S.id}/calls`, {});
+      return joinCall(c.id);
+    }
+    await post(`/chats/${S.id}/calls`, out);
+    toast('Meeting scheduled.');
+  }
+
+  // The call itself: Daily's call screen, full screen over the app.
+  let callOpen = null;
+  function closeCall() {
+    document.querySelector('.call-overlay')?.remove();
+    callOpen = null;
+  }
+  async function joinCall(id) {
+    const j = await post(`/calls/${id}/join`);
+    closeCall();
+    callOpen = id;
+    const src = `${j.url}?t=${encodeURIComponent(j.token)}`;
+    const box = document.createElement('div');
+    box.className = 'call-overlay';
+    const mine = S.chat.manage || S.msgs.some((m) => m.call?.id === id && m.call.started_by === S.list.me);
+    mount(box, html`<div class="call-bar"><b>${j.title}</b><span class="spacer"></span>
+        <a class="btn small ghost" href="${src}" target="_blank" rel="noopener" title="If the camera won’t start here">${icon('external')}<span class="wide-only"> Open in browser</span></a>
+        ${mine ? html`<button type="button" class="btn small danger" data-end>End<span class="wide-only"> for everyone</span></button>` : ''}
+        <button type="button" class="btn small" data-leave>${icon('x')} Leave</button></div>
+      <iframe src="${src}" allow="camera; microphone; fullscreen; display-capture; autoplay; speaker-selection" title="Video call"></iframe>`);
+    document.body.append(box);
+    box.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-leave]')) closeCall();
+      if (e.target.closest('[data-end]')) {
+        if (!(await confirm('End the call for everyone?', 'Everyone still on it is disconnected.', 'End call'))) return;
+        closeCall();
+        await post(`/calls/${id}/end`).catch(fail);
+      }
+    });
+  }
+
   // ------------------------------------------------ people in the chat
   async function info() {
     const c = S.chat;
@@ -579,6 +668,12 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       if (b.matches('[data-new]')) return await newGroup();
       if (b.dataset.view) return setView(b.dataset.view);
       if (b.matches('[data-quick]')) return await quickTask('');
+      if (b.matches('[data-call-menu]')) return await callMenu();
+      if (b.dataset.join) return await joinCall(Number(b.dataset.join));
+      if (b.dataset.callCancel) {
+        if (!(await confirm('Cancel this meeting?', 'Everyone in the chat sees it’s cancelled.', 'Cancel meeting'))) return;
+        return await post(`/calls/${b.dataset.callCancel}/end`);
+      }
       // Tick a task off (on a card, or in the Tasks tab). Undo puts it back.
       if (b.dataset.done) {
         const done = !b.classList.contains('on');
@@ -654,6 +749,11 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       return;
     }
     await openConversation();
+    const want = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('call'));
+    if (want) {
+      history.replaceState(null, '', location.hash.split('?')[0]);
+      joinCall(want).catch(fail);
+    }
   } else if (split) {
     mount(main, html`<div class="chat-empty big">${icon('chat')}<p>Pick a chat on the left.</p></div>`);
   }
