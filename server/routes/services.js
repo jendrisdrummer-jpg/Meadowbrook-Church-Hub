@@ -5,6 +5,7 @@ import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
+import { notifyScheduled, notifyDeclined } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -354,10 +355,14 @@ export default function serviceRoutes(db) {
     if (conflicts.some((c) => c.level === 'block') && !req.body?.force) {
       return res.status(409).json({ error: conflicts.filter((c) => c.level === 'block').map((c) => c.text).join('; '), conflicts });
     }
+    const before = db.prepare('SELECT status FROM assignments WHERE service_id = ? AND position_id = ? AND person_id = ?').get(s.id, positionId, personId);
     db.prepare(`INSERT INTO assignments (service_id, position_id, person_id, status) VALUES (?, ?, ?, ?)
-      ON CONFLICT(service_id, position_id, person_id) DO UPDATE SET status = excluded.status, responded_at = NULL, decline_reason = ''`)
+      ON CONFLICT(service_id, position_id, person_id) DO UPDATE SET status = excluded.status, responded_at = NULL, decline_reason = '', reminded_at = NULL`)
       .run(s.id, positionId, personId, req.body?.status === 'accepted' ? 'accepted' : 'pending');
-    res.status(201).json({ ok: true, conflicts });
+    const a = db.prepare('SELECT id FROM assignments WHERE service_id = ? AND position_id = ? AND person_id = ?').get(s.id, positionId, personId);
+    // Tell them, unless they were already on it (and hadn't declined).
+    if (!before || before.status === 'declined') notifyScheduled(db, [a.id], { byUserId: req.user.id });
+    res.status(201).json({ ok: true, id: a.id, conflicts });
   });
 
   // Fills open spots with the best available people (no blockouts or double-booking),
@@ -373,8 +378,9 @@ export default function serviceRoutes(db) {
       for (const c of candidates(s, pos)) {
         if (filled >= n.count) break;
         if (!c.plays_position || c.conflicts.length) continue;
-        db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
-        added.push({ service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
+        const info = db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
+        if (!info.changes) continue;
+        added.push({ id: Number(info.lastInsertRowid), service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
         filled++;
       }
     }
@@ -383,7 +389,9 @@ export default function serviceRoutes(db) {
 
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    res.json({ added: tx(db, () => autofill(req, s)) });
+    const added = tx(db, () => autofill(req, s));
+    notifyScheduled(db, added.map((a) => a.id), { byUserId: req.user.id });
+    res.json({ added });
   });
 
   // ---------------------------------------------------------------- month schedule
@@ -461,6 +469,7 @@ export default function serviceRoutes(db) {
     const teamId = int(req.body?.team_id);
     const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
     const added = tx(db, () => list.flatMap((s) => autofill(req, s, teamId)));
+    notifyScheduled(db, added.map((a) => a.id), { byUserId: req.user.id });
     res.json({ added });
   });
 
@@ -473,6 +482,7 @@ export default function serviceRoutes(db) {
     if (!status) throw bad('Status must be accepted, declined or pending.');
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
+    if (status === 'declined' && a.status !== 'declined' && a.person_id === req.user.personId) notifyDeclined(db, a.id);
     res.json({ ok: true });
   });
 

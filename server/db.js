@@ -343,6 +343,34 @@ const MIGRATIONS = [
   ALTER TABLE service_types ADD COLUMN template_id INTEGER REFERENCES service_templates(id) ON DELETE SET NULL;
   ALTER TABLE plan_items ADD COLUMN placeholder INTEGER NOT NULL DEFAULT 0;
   `,
+  // 8: notifications. An inbox per account, the phones/browsers that allowed push, each
+  // person's notification choices, and when a serving reminder went out.
+  `
+  CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,                                -- scheduled | reminder | declined | test
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL DEFAULT '{}',                   -- JSON, e.g. { "assignment_ids": [..] }
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    read_at TEXT
+  );
+  CREATE INDEX notifications_user ON notifications (user_id, created_at);
+  CREATE TABLE push_subscriptions (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    device TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used TEXT
+  );
+  ALTER TABLE users ADD COLUMN notify TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE assignments ADD COLUMN reminded_at TEXT;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

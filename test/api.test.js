@@ -7,6 +7,10 @@ import fs from 'node:fs';
 import { openDb } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
+import http from 'node:http';
+import { sendReminders } from '../server/notify.js';
+
+process.env.MB_PUSH_ALLOW_LOCAL = '1';
 
 let server, base, db;
 const cookies = {};
@@ -336,6 +340,71 @@ test('month schedule: grid, members and filling the month for one team', async (
   if (after.services[0].starts_at.startsWith(first)) assert.notEqual(firstCell.assignments[0].person_id, people[0].id);
   // North-only staff can't schedule South services.
   assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id] })).status, 403);
+});
+
+test('notifications: scheduled, declined to leaders, reminders, push and preferences', async (t) => {
+  // A stand-in push service that records what it receives.
+  const got = [];
+  const pushServer = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { got.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks) }); res.writeHead(201).end(); });
+  }).listen(0);
+  await new Promise((r) => pushServer.once('listening', r));
+  t.after(() => { pushServer.closeAllConnections(); pushServer.close(); });
+  const endpoint = `http://127.0.0.1:${pushServer.address().port}/push/vol`;
+
+  const vol = db.prepare("SELECT person_id FROM users WHERE email = 'vol@mb.org'").get().person_id;
+  await api('vol', 'POST', '/notifications/read', {}); // earlier tests scheduled them too
+  const lead = (await api('admin', 'POST', '/people', { first_name: 'Lee', last_name: 'Leader', campus_id: 1 })).data;
+  db.prepare("UPDATE users SET person_id = ? WHERE email = 'north@mb.org'").run(lead.id);
+  const team = await api('admin', 'POST', '/teams', { name: 'Parking', campus_id: 1, positions: ['Lot'] });
+  const lot = (await api('admin', 'GET', `/teams/${team.data.id}`)).data.positions[0];
+  await api('admin', 'PUT', `/teams/${team.data.id}/members/${vol}`, { position_ids: [lot.id] });
+  await api('admin', 'PUT', `/teams/${team.data.id}/members/${lead.id}`, { position_ids: [lot.id], is_leader: true });
+
+  assert.equal((await api('vol', 'POST', '/push/subscriptions', { endpoint: 'https://evil.example.com/x', keys: { p256dh: 'a', auth: 'b' } })).status, 400);
+  const key = (await api('vol', 'GET', '/me/notify')).data.public_key;
+  assert.equal(Buffer.from(key, 'base64url').length, 65);
+  const crypto = await import('node:crypto');
+  const ua = crypto.createECDH('prime256v1'); ua.generateKeys();
+  const sub = await api('vol', 'POST', '/push/subscriptions', { endpoint, keys: { p256dh: ua.getPublicKey('base64url'), auth: crypto.randomBytes(16).toString('base64url') }, device: 'Test phone' });
+  assert.equal(sub.status, 201);
+
+  // Scheduled: an inbox item and a push with Accept/Decline.
+  const day = nextSunday(21);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T08:00` })).data;
+  const a = await api('admin', 'POST', `/services/${svc.id}/assignments`, { position_id: lot.id, person_id: vol });
+  let inbox = (await api('vol', 'GET', '/notifications')).data;
+  assert.equal(inbox.unread, 1);
+  assert.match(inbox.items[0].title, /scheduled: Lot/);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(got.length, 1);
+  assert.equal(got[0].headers['content-encoding'], 'aes128gcm');
+  assert.match(got[0].headers.authorization, /^vapid t=.+, k=/);
+  // Scheduling the same spot again doesn't notify twice.
+  await api('admin', 'POST', `/services/${svc.id}/assignments`, { position_id: lot.id, person_id: vol });
+  assert.equal((await api('vol', 'GET', '/notifications')).data.unread, 1);
+
+  // Declining tells the team leader.
+  await api('vol', 'PATCH', `/assignments/${a.data.id}`, { status: 'declined', reason: 'Out of town' });
+  const leaderBox = (await api('north', 'GET', '/notifications')).data;
+  assert.match(leaderBox.items[0].title, /Dan Drums can’t make it/);
+  assert.match(leaderBox.items[0].body, /Out of town/);
+
+  // Reminders a day ahead, once; turned-off kinds stay in the inbox but aren't pushed.
+  await api('vol', 'PATCH', '/me/notify', { reminder: false, reminders: false, scheduled: true });
+  const soon = new Date(Date.now() + 24 * 3600e3).toLocaleString('sv-SE', { timeZone: 'America/Chicago' }).replace(' ', 'T').slice(0, 16);
+  const svc2 = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: soon })).data;
+  const a2 = await api('admin', 'POST', `/services/${svc2.id}/assignments`, { position_id: lot.id, person_id: vol });
+  db.prepare("UPDATE assignments SET created_at = datetime('now', '-2 days') WHERE id = ?").run(a2.data.id);
+  assert.ok(sendReminders(db) >= 1);
+  assert.equal(sendReminders(db), 0);
+  inbox = (await api('vol', 'GET', '/notifications')).data;
+  assert.ok(inbox.items.some((n) => n.kind === 'reminder' && /Lot at/.test(n.body)));
+  await api('vol', 'POST', '/notifications/read', {});
+  assert.equal((await api('vol', 'GET', '/notifications')).data.unread, 0);
+  pushServer.close();
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

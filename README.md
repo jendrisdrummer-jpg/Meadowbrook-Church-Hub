@@ -113,6 +113,16 @@ or remove them.
 **My Schedule**: volunteers accept or decline (with a reason), mark dates they'll be away, and
 open the order of service for anything they're on.
 
+**The app and notifications**: anyone can put the site on their phone's home screen and use it
+like an app (My Schedule shows how, step by step on iPhone). With notifications on, volunteers get
+a notice when they're scheduled and can **Accept right from the notification**; *Can't make it*
+opens the app to give a reason. They're reminded before they serve (two days ahead by default;
+**Settings → Church → App**), and team leaders hear when someone declines. Everything also shows
+under the bell at the top of every page. Each person chooses which notices they want. Admins can
+set the app's icon and short name in **Settings → Church**. Notifications need no setup or
+outside service: the server makes its own keys the first time. On iPhone, notifications work once
+the app is added to the home screen (iOS 16.4 or later).
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.

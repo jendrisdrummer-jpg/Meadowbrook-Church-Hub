@@ -1,12 +1,31 @@
 // Campuses, kids' rooms, service types, church settings and user accounts.
-import { Router } from 'express';
+import express, { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
 
-export default function setupRoutes(db) {
+export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
   const campus = (id) => db.prepare('SELECT * FROM campuses WHERE id = ?').get(id);
+
+  // ---------------------------------------------------------------- app icon
+  // The installed app's home-screen icon, one PNG per size (the page resizes the upload).
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  r.post('/app-icon/:size', requireRole('admin'), express.raw({ type: 'image/png', limit: '2mb' }), (req, res) => {
+    if (!['180', '192', '512'].includes(req.params.size)) throw bad('Sizes are 180, 192 and 512.');
+    if (!Buffer.isBuffer(req.body) || !req.body.subarray(0, 4).equals(PNG)) throw bad('Send a PNG image.');
+    fs.mkdirSync(path.join(uploadDir, 'app-icon'), { recursive: true });
+    fs.writeFileSync(path.join(uploadDir, 'app-icon', `${req.params.size}.png`), req.body);
+    setSetting(db, 'app_icon_version', Date.now());
+    res.json({ ok: true });
+  });
+  r.delete('/app-icon', requireRole('admin'), (_req, res) => {
+    fs.rmSync(path.join(uploadDir, 'app-icon'), { recursive: true, force: true });
+    setSetting(db, 'app_icon_version', Date.now());
+    res.json({ ok: true });
+  });
 
   // ---------------------------------------------------------------- campuses
   r.get('/campuses', requireRole('volunteer'), (_req, res) => {
@@ -81,10 +100,16 @@ export default function setupRoutes(db) {
     label_size: 'brother-62x29',
     checkin_print_parent_tag: true,
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
+    reminder_hours: 48,
+    app_short_name: '',
   };
 
   r.get('/settings', requireRole('volunteer'), (_req, res) => {
-    res.json(Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])));
+    res.json({
+      ...Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])),
+      app_icon_version: getSetting(db, 'app_icon_version', 0),
+      custom_app_icon: fs.existsSync(path.join(uploadDir, 'app-icon', '512.png')),
+    });
   });
 
   r.patch('/settings', requireRole('admin'), (req, res) => {
@@ -94,6 +119,7 @@ export default function setupRoutes(db) {
       if (k === 'sign_in_policy' && !SIGN_IN_POLICIES.includes(v)) throw bad('Unknown sign-in option.');
       if (k === 'brand_color' && !/^#[0-9a-f]{6}$/i.test(v)) throw bad('Colours look like #135fd1.');
       if (k === 'plan_edit_role' && !['leader', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
+      if (k === 'reminder_hours' && !(Number.isInteger(v) && v >= 0 && v <= 168)) throw bad('Reminders can go out up to 168 hours (a week) ahead, or 0 for none.');
       if (k === 'schedule_role' && !['team_leaders', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
