@@ -1126,6 +1126,66 @@ test('giving: Stripe checkout, webhooks, recurring gifts, my giving, and finance
   assert.equal((await api('admin', 'PATCH', '/finance/settings', { fee_percent: 50 })).status, 400);
 });
 
+test('finance: cash and check batches, year-end statements (Finance only)', async () => {
+  const fin = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  await api('admin', 'PATCH', `/users/${fin}`, { finance: true });
+  const funds = (await api('admin', 'GET', '/finance/funds')).data.funds;
+  const tithe = funds.find((f) => f.name === 'Tithe').id;
+  const youth = funds.find((f) => f.name === 'Youth').id;
+  const hh = (await api('admin', 'POST', '/people', { first_name: 'Cash', last_name: 'Giver', email: 'cash@give.org', campus_id: 1, new_household: true })).data;
+  db.prepare("UPDATE households SET address = '12 Elm St', city = 'Springfield', state = 'IL', zip = '62701' WHERE id = ?").run(hh.household_id);
+  const year = String(new Date().getFullYear() - 1);
+
+  // A Sunday offering: two checks from a known giver, loose cash.
+  assert.equal((await api('north', 'POST', '/finance/batches', {})).status, 403); // staff without Finance
+  assert.equal((await api('admin', 'POST', '/finance/batches', { given_on: `${year}-03-01`, gifts: [{ amount: '', fund_id: tithe }] })).status, 400);
+  const b = await api('admin', 'POST', '/finance/batches', { label: 'Sunday 9am', given_on: `${year}-03-01`, campus_id: 1, gifts: [
+    { person_id: hh.id, fund_id: tithe, amount: '150.00', method: 'check', check_number: '1042' },
+    { person_id: hh.id, fund_id: youth, amount: 25, method: 'check', check_number: '1043' },
+    { name: 'Loose offering', fund_id: tithe, amount: '312.50', method: 'cash' },
+  ] });
+  assert.equal(b.status, 201);
+  let batches = (await api('admin', 'GET', '/finance/batches')).data;
+  assert.deepEqual([batches[0].label, batches[0].gifts, batches[0].total], ['Sunday 9am', 3, 48750]);
+  // Fixing a typo replaces the batch's gifts.
+  const one = (await api('admin', 'GET', `/finance/batches/${b.data.id}`)).data;
+  await api('admin', 'PUT', `/finance/batches/${b.data.id}`, { ...one, gifts: one.gifts.map((g) => ({ ...g, amount: g.check_number === '1042' ? 160 : g.amount_cents / 100 })) });
+  batches = (await api('admin', 'GET', '/finance/batches')).data;
+  assert.equal(batches[0].total, 49750);
+
+  // Statements: the year's givers, a printable statement, emailing everyone once.
+  const st = (await api('admin', 'GET', `/finance/statements?year=${year}`)).data;
+  const d = st.donors.find((x) => x.person_id === hh.id);
+  assert.equal(d.total, 18500);
+  assert.ok(!st.donors.some((x) => x.name === 'Loose offering')); // anonymous cash has no statement
+  await api('admin', 'PUT', '/finance/statement-info', { org: 'Meadowbrook Church', address: '100 Meadow Ln', ein: '12-3456789', signer: 'Pastor Rachel', note: 'No goods or services were provided.' });
+  const page = await fetch(`${base}/api/finance/statements/${d.key}?year=${year}`, { headers: { cookie: cookies.admin } }).then((r) => r.text());
+  assert.match(page, /Giving Statement/);
+  assert.match(page, /EIN 12-3456789/);
+  assert.match(page, /12 Elm St, Springfield, IL 62701/);
+  assert.match(page, /\$185\.00/);
+  assert.match(page, /Check #1042/);
+  assert.equal((await fetch(`${base}/api/finance/statements/${d.key}?year=${year}`, { headers: { cookie: cookies.north } })).status, 403);
+  const before = outbox.length;
+  const sent = (await api('admin', 'POST', '/finance/statements/send', { year })).data;
+  assert.ok(sent.sent >= 1);
+  assert.ok(outbox.slice(before).some((m) => m.to === 'cash@give.org' && /\$185\.00/.test(m.html)));
+  const again = (await api('admin', 'POST', '/finance/statements/send', { year })).data;
+  assert.equal(again.sent, 0); // not twice
+  assert.ok((await api('admin', 'GET', `/finance/statements?year=${year}`)).data.donors.find((x) => x.key === d.key).sent_at);
+
+  // The giver downloads their own.
+  const uid = db.prepare("INSERT INTO users (email, role, person_id) VALUES ('cash@give.org', 'volunteer', ?)").run(hh.id).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.cash = v.split(';')[0]; } }, uid);
+  const mine = await fetch(`${base}/api/giving/statement?year=${year}`, { headers: { cookie: cookies.cash } });
+  assert.equal(mine.status, 200);
+  assert.match(await mine.text(), /\$185\.00/);
+  assert.equal((await fetch(`${base}/api/giving/statement?year=1999`, { headers: { cookie: cookies.cash } })).status, 404);
+
+  await api('admin', 'DELETE', `/finance/batches/${b.data.id}`);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM gifts WHERE batch_id = ?').get(b.data.id).n, 0);
+});
+
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Nursery', min_age_months: 0, max_age_months: 23 });
   await api('admin', 'POST', '/rooms', { campus_id: 1, name: 'Preschool', min_age_months: 24, max_age_months: 71 });

@@ -762,3 +762,6 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .giving-filters input { flex: 1; min-width: 0; }
 .giving-filters select { width: auto; }
 @media (max-width: 700px) { .giving-filters { flex-wrap: wrap; } .giving-filters input { flex-basis: 100%; } }
+.batch-rows input, .batch-rows select { padding: 6px 8px; }
+.batch-rows td { vertical-align: middle; }
+.batch { margin-top: 14px; }
