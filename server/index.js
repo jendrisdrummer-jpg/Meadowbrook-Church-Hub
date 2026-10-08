@@ -21,6 +21,7 @@ import appRoutes from './routes/app.js';
 import chatRoutes from './routes/chat.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
 import callRoutes, { syncCalls } from './routes/calls.js';
+import givingRoutes, { stripeWebhook } from './routes/giving.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -37,6 +38,10 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
     res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // the App Builder previews the app in a frame
     next();
   });
+
+  // Stripe's notices about gifts: the raw body is needed to check their signature, so this comes
+  // before the JSON parser and the app-header check.
+  app.post('/stripe/webhook', express.raw({ type: () => true, limit: '1mb' }), stripeWebhook(db));
 
   app.use(express.json({ limit: '2mb' }));
   app.use(loadUser(db));
@@ -61,6 +66,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
+  api.use(givingRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 
@@ -130,6 +136,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.get('/', page('app.html'));
   app.get('/app/', page('app/index.html'));
   app.get('/r/:id/:sig', page('respond.html'));
+  app.get('/give', page('give.html'));
 
   app.use(errorHandler);
   return app;

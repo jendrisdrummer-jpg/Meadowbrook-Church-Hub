@@ -6,6 +6,7 @@ import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
+import { stripeConfigured } from '../stripe.js';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
 export const TAB_TYPES = ['home', 'serve', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
@@ -126,6 +127,7 @@ export default function appRoutes(db) {
       times,
       config: appConfig(db),
       hub_url: (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
+      giving: stripeConfigured(),
       user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), person_id: req.user.personId ?? null, photo: req.user.photo, theme: req.user.theme } : null,
     });
   });

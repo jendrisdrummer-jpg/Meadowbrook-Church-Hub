@@ -6,6 +6,7 @@ import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription } from '../push.js';
 import { openChat } from '../chat.js';
 import { taskList, taskPage, taskRow } from '../tasks.js';
+import { giveForm, giveThanks, myGiving } from '../give.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -76,6 +77,17 @@ async function route() {
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
+    if (parts[0] === 'giving') {
+      drawTabs('more');
+      setTitle('My giving');
+      if (!app.user) { location.href = signInHref('/giving'); return; }
+      return await myGiving(el);
+    }
+    if (parts[0] === 'give') {
+      const t = app.config.tabs.find((x) => x.type === 'give') || { id: 'give', label: 'Give' };
+      drawTabs(t.on ? t.id : 'more');
+      return await give(el, t, q);
+    }
     if (parts[0] === 'tasks') { drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
     if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
@@ -321,8 +333,14 @@ function watch(el, tab) {
     : html`<div class="m-empty">${icon('play')}<p>The livestream isn’t set up yet.</p></div>`);
 }
 
-function give(el, tab) {
+async function give(el, tab, q) {
   setTitle(tab.label);
+  // Built-in giving (Stripe) when it's set up; otherwise the giving link from the App Builder.
+  if (app.giving && !preview) {
+    if (q?.get('done')) return giveThanks(el, q.get('done'), { again: `#/${tab.id}`, mine: app.user ? '#/giving' : '' });
+    giveForm(el, await get('/giving/config'), { returnTo: 'app', mineHref: app.user ? '#/giving' : '' });
+    return;
+  }
   const url = app.config.give_url;
   mount(el, url
     ? html`<div class="card m-big-action">${icon('heart')}<h2 style="margin:0">Thank you for your generosity</h2>
@@ -393,6 +411,7 @@ async function more(el, tab, q) {
     ${app.user ? html`<div class="card app-card" data-notify></div>` : ''}
     <div class="card m-list">
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
+      ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
       ${app.user && !tasksTab()?.on ? html`<a href="#/tasks">${icon('check')}<span class="grow">Tasks</span><span class="nav-badge hidden" data-badge="tasks"></span></a>` : ''}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}

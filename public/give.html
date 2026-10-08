@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Give</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="give-page">
+  <!-- The public giving page: link to it from the church website (…/give). -->
+  <main class="give-wrap">
+    <header class="give-head"><img src="/app-icon/192.png" alt="" width="56" height="56"><div><h1 data-church>Give</h1><p class="muted" data-tagline>Thank you for your generosity.</p></div></header>
+    <div data-content><p class="muted">Loading…</p></div>
+  </main>
+  <script type="module">
+    import { get, html, mount } from '/js/lib.js';
+    import { giveForm, giveThanks } from '/js/give.js';
+    const el = document.querySelector('[data-content]');
+    const [app, cfg] = await Promise.all([get('/app/config'), get('/giving/config')]);
+    document.title = `Give · ${app.church_name}`;
+    document.querySelector('[data-church]').textContent = `Give to ${app.church_name}`;
+    if (/^#[0-9a-f]{6}$/i.test(app.brand_color)) document.documentElement.style.setProperty('--accent', app.brand_color);
+    const done = new URLSearchParams(location.search).get('done');
+    if (done) giveThanks(el, done, { again: '/give', mine: cfg.me ? '/app/#/giving' : '' });
+    else if (cfg.enabled) giveForm(el, cfg, { returnTo: 'web', mineHref: cfg.me ? '/app/#/giving' : '' });
+    else mount(el, html`<div class="card"><p>Online giving isn’t set up yet. Please give in person, or contact the church office.</p></div>`);
+  </script>
+</body>
+</html>

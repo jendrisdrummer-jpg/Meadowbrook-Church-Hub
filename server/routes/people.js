@@ -125,7 +125,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
         WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
-      account: db.prepare(`SELECT id, role, email, active, last_login, campus_ids, role_auto, password_hash IS NOT NULL has_password
+      account: db.prepare(`SELECT id, role, email, active, last_login, campus_ids, role_auto, finance, password_hash IS NOT NULL has_password
         FROM users WHERE person_id = ?`).get(p.id) || null,
     });
   });

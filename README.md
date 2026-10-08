@@ -206,6 +206,27 @@ and who's serving (only requests that were sent, without contact details).
   the limit. Once the limit is reached, new calls can't start and calls going on end, until the 1st. Setup: see
   "Video calls (Daily)" under Going live.
 
+**Giving** (Stripe):
+- **Give** in the church app (and a public page at `/give` to link from the church website): an
+  amount (or $25 / $50 / $100 / $250 / $500), a fund (grouped: Main, Missions, Special Offering),
+  one time, weekly, every 2 weeks or monthly, and **cover the fee** (adds exactly enough that the
+  church receives the full gift). Then Stripe's secure form opens in the page: card, **bank
+  account**, **Apple Pay** or **Google Pay**. Card numbers go to Stripe, never through the hub.
+  Guests give with a name and email (matched to People by email); signing in isn't needed.
+- Every successful gift gets a thank-you email that serves as the receipt. Bank payments show as
+  processing until they clear (a few business days).
+- **My giving** (app → More): the year's total, every gift, and recurring gifts to change (amount
+  or fund) or stop, plus a link to update the card or bank account (Stripe's page).
+- **Finance permission**: only accounts with **Finance** ticked (Settings → Sign-in & accounts, or
+  a person's *Change access*) see giving: the **Giving** page under Finance. Not even admins see who
+  gave what without it. Finance → Giving has:
+  - **Overview**: totals, gifts, givers, recurring per month, by fund, by method, by campus, by week,
+    for this month / last month / this year / last year / any dates;
+  - **Gifts**: every gift with search, fund filter and **CSV export**; link a guest's gifts to
+    their People record;
+  - **Donors**, **Recurring**, and **Funds** (add, rename, reorder, hide, choose the default; set
+    the cover-the-fee rate).
+
 **Songs**: the song library with keys, CCLI numbers, and when each song was last used.
 
 **Attendance**: weekly headcount, kids checked in, and volunteers serving, per campus.
@@ -305,6 +326,35 @@ a month (one person on a call for one minute), and the hub stops calls at its ow
 
 Keep the API key secret: only in Render's Environment, never in chat or in the code. If it's ever
 exposed, delete it in Daily's dashboard and make a new one.
+
+### Giving (Stripe)
+
+Stripe has no setup or monthly fee: it keeps a small part of each gift (2.2% + 30¢ on cards with the
+nonprofit discount, 0.8% capped at $5 for bank payments) and deposits the rest in the church's bank.
+
+1. **Create the account** at **stripe.com** with the church's legal name, EIN and the bank account
+   for deposits. In **Settings → Payment methods**, make sure **Cards**, **ACH Direct Debit** (US bank
+   account), **Apple Pay** and **Google Pay** are on.
+2. **Nonprofit discount**: follow Stripe's "Fee discount for nonprofit organizations" support page
+   (EIN or 501(c)(3) letter). Then set the same rate under Finance → Giving → Funds → Cover the fee.
+3. **Keys**: Stripe dashboard → **Developers → API keys**. In Render → Environment add
+   `STRIPE_PUBLISHABLE_KEY` (starts `pk_live_`) and `STRIPE_SECRET_KEY` (starts `sk_live_`).
+4. **Webhook** (how Stripe tells the hub a gift went through): Developers → **Webhooks → Add
+   endpoint**. URL: `https://<your Render address>/stripe/webhook`. Events:
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `checkout.session.async_payment_failed`, `payment_intent.succeeded`,
+   `payment_intent.payment_failed`, `invoice.paid`, `invoice.payment_failed`,
+   `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`.
+   Copy its **Signing secret** (starts `whsec_`) into Render as `STRIPE_WEBHOOK_SECRET`.
+5. **Apple Pay**: Settings → Payment methods → **Payment method domains** → add your Render address
+   (and app.mbclife.church later, if you move the app there).
+6. **Updating cards**: Settings → Billing → **Customer portal** → turn it on (lets givers change the
+   card or bank account on a recurring gift).
+7. Give **Finance** access to whoever handles giving (a person's *Change access*).
+8. Try it with Stripe's **test mode** keys first (`pk_test_`/`sk_test_`, card 4242 4242 4242 4242),
+   then switch to the live keys.
+
+Keep the secret key and webhook secret only in Render.
 
 ### 3. Run it
 

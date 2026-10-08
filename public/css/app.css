@@ -725,3 +725,40 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .meter > span.warn { background: #e0a100; }
 .meter > span.bad { background: var(--bad); }
 @media (max-width: 600px) { .call-bar .wide-only { display: none; } .call-bar b { font-size: 14px; } }
+
+/* ------------------------------------------------------------- giving */
+.give-page { background: var(--bg); min-height: 100vh; }
+.give-wrap { max-width: 560px; margin: 0 auto; padding: 28px 16px 60px; }
+.give-head { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+.give-head img { border-radius: 14px; }
+.give-head h1 { margin: 0; font-size: 24px; }
+.give-head p { margin: 2px 0 0; }
+.give-form { display: grid; gap: 14px; }
+.give-amount { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 44px; font-weight: 750; padding: 6px 0; }
+.give-amount span { color: var(--muted); }
+.give-amount input { width: 7ch; font: inherit; border: 0; border-bottom: 2px solid var(--line); border-radius: 0; background: none; text-align: center; padding: 0; }
+.give-amount input:focus { outline: none; border-bottom-color: var(--accent); }
+.give-presets { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.give-presets .chip { cursor: pointer; padding: 6px 14px; font: inherit; font-weight: 650; }
+.give-every { display: flex; flex-wrap: wrap; }
+.give-every button { flex: 1; white-space: nowrap; }
+.give-cover { align-items: flex-start; }
+.give-go { min-height: 52px; font-size: 17px; justify-content: center; border-radius: 14px; }
+.give-secure { margin: 0; text-align: center; }
+.give-checkout { margin-top: 10px; border-radius: 14px; overflow: hidden; background: #fff; }
+.give-thanks { display: grid; justify-items: center; text-align: center; gap: 4px; padding: 30px 18px; }
+.give-thanks > .ic { width: 42px; height: 42px; color: var(--accent-text); }
+.give-thanks h2 { margin: 6px 0 0; }
+.give-total { font-size: 32px; font-weight: 750; margin: 8px 0 2px; }
+.give-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+.give-row + .give-row { border-top: 1px solid var(--line); }
+.give-row .grow { flex: 1; min-width: 0; }
+.giving-range { flex-wrap: wrap; gap: 6px; margin: 0 0 14px; align-items: center; }
+.giving-range input[type=date] { width: auto; padding: 4px 8px; }
+.giving-sec { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.giving-bar { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px 0; }
+.giving-bar .meter { grid-column: 1 / -1; margin: 0; height: 6px; }
+.giving-filters { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+.giving-filters input { flex: 1; min-width: 0; }
+.giving-filters select { width: auto; }
+@media (max-width: 700px) { .giving-filters { flex-wrap: wrap; } .giving-filters input { flex-basis: 100%; } }
