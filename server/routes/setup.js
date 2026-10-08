@@ -1,7 +1,7 @@
 // Campuses, kids' rooms, service types, church settings and user accounts.
 import { Router } from 'express';
 import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
-import { getSetting, setSetting, updateFields, tx } from '../db.js';
+import { getSetting, setSetting, updateFields } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
 
 export default function setupRoutes(db) {
@@ -70,50 +70,10 @@ export default function setupRoutes(db) {
     res.json(db.prepare('SELECT * FROM rooms WHERE id = ?').get(room.id));
   });
 
-  // ---------------------------------------------------------------- service types
-  r.get('/service-types', requireRole('volunteer'), (_req, res) => {
-    const types = db.prepare('SELECT * FROM service_types WHERE archived = 0 ORDER BY campus_id, day_of_week, start_time').all();
-    const needs = db.prepare(`SELECT n.*, p.name position_name, p.team_id FROM service_type_needs n JOIN positions p ON p.id = n.position_id`).all();
-    res.json(types.map((t) => ({ ...t, needs: needs.filter((n) => n.service_type_id === t.id) })));
-  });
-
-  r.post('/service-types', requireRole('staff'), (req, res) => {
-    const b = req.body || {};
-    const campusId = int(b.campus_id, 'Campus');
-    if (!campus(campusId)) throw bad('Pick a campus.');
-    if (!canCampus(req.user, campusId)) throw forbidden();
-    const info = db.prepare('INSERT INTO service_types (campus_id, name, day_of_week, start_time, duration_min) VALUES (?, ?, ?, ?, ?)')
-      .run(campusId, required(b.name, 'Name'), int(b.day_of_week), time(b.start_time), int(b.duration_min) ?? 75);
-    if (Array.isArray(b.needs)) saveNeeds(info.lastInsertRowid, b.needs);
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
-  });
-
-  r.patch('/service-types/:id', requireRole('staff'), (req, res) => {
-    const t = db.prepare('SELECT * FROM service_types WHERE id = ?').get(req.params.id);
-    if (!t) throw notFound('Service type');
-    if (!canCampus(req.user, t.campus_id)) throw forbidden();
-    const b = { ...req.body };
-    if (b.start_time !== undefined) b.start_time = time(b.start_time);
-    if (b.day_of_week !== undefined) b.day_of_week = int(b.day_of_week);
-    updateFields(db, 'service_types', t.id, b, ['name', 'day_of_week', 'start_time', 'duration_min', 'archived']);
-    if (Array.isArray(b.needs)) saveNeeds(t.id, b.needs);
-    res.json({ ok: true });
-  });
-
-  function saveNeeds(typeId, needs) {
-    tx(db, () => {
-      db.prepare('DELETE FROM service_type_needs WHERE service_type_id = ?').run(typeId);
-      const ins = db.prepare('INSERT INTO service_type_needs (service_type_id, position_id, count) VALUES (?, ?, ?)');
-      for (const n of needs) {
-        const count = int(n.count) ?? 1;
-        if (count > 0) ins.run(typeId, int(n.position_id, 'Position'), count);
-      }
-    });
-  }
-
   // ---------------------------------------------------------------- settings
   const SETTINGS = {
     church_name: 'Meadowbrook Church',
+    brand_color: '#135fd1',
     workspace_domain: '',
     sign_in_policy: 'anyone',
     label_size: 'brother-62x29',
@@ -130,6 +90,7 @@ export default function setupRoutes(db) {
       if (!(k in SETTINGS)) continue;
       if (typeof v !== typeof SETTINGS[k] || Array.isArray(v) !== Array.isArray(SETTINGS[k])) throw bad(`Invalid value for ${k}.`);
       if (k === 'sign_in_policy' && !SIGN_IN_POLICIES.includes(v)) throw bad('Unknown sign-in option.');
+      if (k === 'brand_color' && !/^#[0-9a-f]{6}$/i.test(v)) throw bad('Colours look like #135fd1.');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
     audit(db, req, 'settings.update', Object.keys(req.body || {}).join(','));
@@ -140,6 +101,14 @@ export default function setupRoutes(db) {
   r.get('/me', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
     res.json(req.user);
+  });
+
+  // Personal preferences anyone can change for themselves.
+  r.patch('/me', requireRole('volunteer'), (req, res) => {
+    if (req.body?.theme !== undefined) {
+      db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(oneOf(req.body.theme, ['light', 'dark', 'device'], 'light'), req.user.id);
+    }
+    res.json({ ok: true });
   });
 
   r.get('/users', requireRole('admin'), (_req, res) => {
@@ -198,10 +167,4 @@ function validTz(tz) {
 
 function color(c) {
   return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#2f7d4f';
-}
-
-function time(t) {
-  if (t == null || t === '') return '09:00';
-  if (!/^\d{2}:\d{2}$/.test(t)) throw bad('Times look like 09:30.');
-  return t;
 }

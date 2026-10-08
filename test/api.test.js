@@ -28,6 +28,13 @@ before(async () => {
 
 after(() => server.close());
 
+const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+// The first Sunday at least `minDays` from today.
+function nextSunday(minDays = 0) {
+  const d = addDays(new Date().toISOString().slice(0, 10), minDays);
+  return addDays(d, (7 - new Date(`${d}T12:00:00Z`).getUTCDay()) % 7);
+}
+
 async function api(role, method, url, body) {
   const res = await fetch(base + '/api' + url, {
     method,
@@ -76,17 +83,18 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   db.prepare('UPDATE users SET person_id = ? WHERE email = ?').run(drummer.id, 'vol@mb.org');
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${drummer.id}`, { position_ids: [drums.id] });
 
-  const st = await api('admin', 'POST', '/service-types', { campus_id: 1, name: 'Sunday 9:00', day_of_week: 0, start_time: '09:00', needs: [{ position_id: drums.id, count: 1 }, { position_id: vocals.id, count: 2 }] });
+  // Two repeating Sunday services starting next week, at overlapping times on different campuses.
+  const sunday = nextSunday(7);
+  const st = await api('admin', 'POST', '/series', { campus_id: 1, starts_on: sunday, start_time: '09:00', needs: [{ position_id: drums.id, count: 1 }, { position_id: vocals.id, count: 2 }] });
   assert.equal(st.status, 201);
-  const st2 = await api('admin', 'POST', '/service-types', { campus_id: 2, name: 'South 9:30', day_of_week: 0, start_time: '09:30', needs: [{ position_id: drums.id, count: 1 }] });
-  const gen = await api('admin', 'POST', '/services/generate', { weeks: 2, from: '2030-01-01' });
-  assert.equal(gen.data.created, 4);
-  assert.equal((await api('admin', 'POST', '/services/generate', { weeks: 2, from: '2030-01-01' })).data.created, 0);
+  const st2 = await api('admin', 'POST', '/series', { campus_id: 2, starts_on: sunday, start_time: '09:30', needs: [{ position_id: drums.id, count: 1 }] });
 
-  const services = (await api('admin', 'GET', '/services?from=2030-01-01&to=2030-01-31')).data;
+  const services = (await api('admin', 'GET', `/services?from=${sunday}&to=${addDays(sunday, 20)}`)).data;
+  assert.equal(services.filter((s) => s.service_type_id === st.data.id).length, 3);
   const north = services.find((s) => s.service_type_id === st.data.id);
   const south = services.find((s) => s.service_type_id === st2.data.id && s.starts_at.slice(0, 10) === north.starts_at.slice(0, 10));
-  assert.equal(north.starts_at, '2030-01-06T09:00');
+  assert.equal(north.starts_at, `${sunday}T09:00`);
+  assert.equal(north.needed, 3);
 
   const fill = await api('admin', 'POST', `/services/${north.id}/autofill`);
   assert.deepEqual(fill.data.added.map((a) => a.position), ['Drums']);
@@ -119,6 +127,37 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   assert.equal(items.data[1].song_key, 'E');
   const copied = await api('admin', 'POST', `/services/${later.id}/copy-plan`, { from_service_id: north.id });
   assert.equal(copied.data.length, 2);
+});
+
+test('repeating services: skip one, change the future, stop the series', async () => {
+  const start = nextSunday(70);
+  const created = await api('admin', 'POST', '/series', { campus_id: 1, starts_on: start, start_time: '18:00', every_weeks: 2, title: 'Evening' });
+  const list = async () => (await api('admin', 'GET', `/services?from=${start}&to=${addDays(start, 42)}`)).data.filter((s) => s.service_type_id === created.data.id);
+  let rows = await list();
+  assert.deepEqual(rows.map((s) => s.starts_at.slice(0, 10)), [0, 14, 28, 42].map((n) => addDays(start, n)));
+  assert.equal(rows[0].title, 'Evening');
+
+  // Deleting one service skips that date for good.
+  await api('admin', 'DELETE', `/services/${rows[1].id}`);
+  rows = await list();
+  assert.equal(rows.length, 3);
+  assert.ok(!rows.some((s) => s.starts_at.startsWith(addDays(start, 14))));
+
+  // Changing the series from the third date on moves only those services.
+  await api('admin', 'PATCH', `/series/${created.data.id}`, { from_date: addDays(start, 28), start_time: '18:30' });
+  rows = await list();
+  assert.deepEqual(rows.map((s) => s.starts_at.slice(11)), ['18:00', '18:30', '18:30']);
+
+  // One service can need different positions without changing the others.
+  const pos = (await api('admin', 'GET', '/teams')).data[0].positions[0];
+  await api('admin', 'PUT', `/services/${rows[0].id}/needs`, { needs: [{ position_id: pos.id, count: 4 }] });
+  rows = await list();
+  assert.deepEqual(rows.map((s) => s.needed), [4, 0, 0]);
+
+  // Stopping the series removes it from that date on.
+  const stop = await api('admin', 'DELETE', `/series/${created.data.id}?from=${addDays(start, 28)}`);
+  assert.equal(stop.data.removed, 2);
+  assert.equal((await list()).length, 1);
 });
 
 test('kids check-in assigns rooms, is idempotent and checks out by code', async () => {

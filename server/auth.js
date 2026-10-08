@@ -65,6 +65,7 @@ function toUser(row) {
     personId: row.person_id,
     campusIds: row.campus_ids ? JSON.parse(row.campus_ids) : null,
     name: row.first_name ? `${row.nickname || row.first_name} ${row.last_name}`.trim() : row.email,
+    theme: row.theme || 'light',
     photo: row.photo || null,
   };
 }
@@ -146,7 +147,12 @@ export function authRoutes(app, db) {
   const callbackUrl = (req) => `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`}/auth/google/callback`;
 
   app.get('/auth/options', (_req, res) => {
-    res.json({ google: Boolean(google().id && google().secret), dev: devLogin, churchName: getSetting(db, 'church_name', 'Meadowbrook Church') });
+    res.json({
+      google: Boolean(google().id && google().secret),
+      dev: devLogin,
+      churchName: getSetting(db, 'church_name', 'Meadowbrook Church'),
+      brandColor: getSetting(db, 'brand_color', '#135fd1'),
+    });
   });
 
   app.get('/auth/google', (req, res) => {

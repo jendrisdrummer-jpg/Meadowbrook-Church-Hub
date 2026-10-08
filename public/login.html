@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · Church Hub</title>
+  <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/app.css">
   <style>
     body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
@@ -37,6 +38,11 @@
     if (err) { box.textContent = err; box.classList.remove('hidden'); }
     const opts = await fetch('/auth/options').then((r) => r.json());
     document.getElementById('name').textContent = opts.churchName;
+    document.querySelector('.brand-mark').textContent = (opts.churchName || 'C').trim()[0].toUpperCase();
+    if (/^#[0-9a-f]{6}$/i.test(opts.brandColor || '')) {
+      document.documentElement.style.setProperty('--accent', opts.brandColor);
+      try { localStorage.setItem('mb.accent', opts.brandColor); } catch {}
+    }
     document.getElementById('google').classList.toggle('hidden', !opts.google);
     document.getElementById('dev').classList.toggle('hidden', !opts.dev);
     document.getElementById('none').classList.toggle('hidden', opts.google || opts.dev);

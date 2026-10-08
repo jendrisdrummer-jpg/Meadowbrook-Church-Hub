@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { requireRole, campusFilter, rank } from '../auth.js';
 import { int } from '../http.js';
+import { ensureServices } from './series.js';
 
 export default function dashboardRoutes(db) {
   const r = Router();
@@ -16,6 +17,7 @@ export default function dashboardRoutes(db) {
     out.my_pending = out.my_next.filter((a) => a.status === 'pending').length;
     if (!leader) return res.json(out);
 
+    ensureServices(db);
     const cf = campusFilter(req.user, 's.campus_id');
     const args = [...cf.args];
     let extra = '';
@@ -24,13 +26,13 @@ export default function dashboardRoutes(db) {
         (SELECT COUNT(*) FROM plan_items i WHERE i.service_id = s.id) items
       FROM services s JOIN campuses c ON c.id = s.campus_id
       WHERE s.starts_at >= date('now') AND s.starts_at < date('now', '+8 days') AND ${cf.sql}${extra} ORDER BY s.starts_at`).all(...args);
-    const needs = db.prepare(`SELECT n.position_id, n.count, ps.name, t.name team FROM service_type_needs n
-      JOIN positions ps ON ps.id = n.position_id JOIN teams t ON t.id = ps.team_id WHERE n.service_type_id = ?`);
+    const needs = db.prepare(`SELECT n.position_id, n.count, ps.name, t.name team FROM service_needs n
+      JOIN positions ps ON ps.id = n.position_id JOIN teams t ON t.id = ps.team_id WHERE n.service_id = ?`);
     const counts = db.prepare(`SELECT position_id, status, COUNT(*) n FROM assignments WHERE service_id = ? GROUP BY position_id, status`);
     out.services = services.map((s) => {
       const c = counts.all(s.id);
       const filled = (pos) => c.filter((x) => x.position_id === pos && x.status !== 'declined').reduce((a, x) => a + x.n, 0);
-      const open = needs.all(s.service_type_id ?? -1).map((n) => ({ ...n, open: n.count - filled(n.position_id) })).filter((n) => n.open > 0);
+      const open = needs.all(s.id).map((n) => ({ ...n, open: n.count - filled(n.position_id) })).filter((n) => n.open > 0);
       return {
         ...s,
         open_positions: open,

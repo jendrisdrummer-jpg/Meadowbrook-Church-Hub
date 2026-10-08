@@ -233,6 +233,32 @@ const MIGRATIONS = [
     at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 2: each person's light/dark choice.
+  `ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light';`,
+  // 3: repeating services. A service type is now a series ("every Sunday 9:00 at North") that
+  // creates its services ahead of time; each service keeps its own copy of the positions it
+  // needs, so one Sunday can differ without changing the rest.
+  `
+  ALTER TABLE service_types ADD COLUMN every_weeks INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE service_types ADD COLUMN starts_on TEXT;
+  ALTER TABLE service_types ADD COLUMN ends_on TEXT;
+  ALTER TABLE service_types ADD COLUMN default_title TEXT NOT NULL DEFAULT '';
+
+  CREATE TABLE service_skips (
+    service_type_id INTEGER NOT NULL REFERENCES service_types(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    PRIMARY KEY (service_type_id, day)
+  );
+
+  CREATE TABLE service_needs (
+    service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+    count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (service_id, position_id)
+  );
+  INSERT INTO service_needs (service_id, position_id, count)
+    SELECT s.id, n.position_id, n.count FROM services s JOIN service_type_needs n ON n.service_type_id = s.service_type_id;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

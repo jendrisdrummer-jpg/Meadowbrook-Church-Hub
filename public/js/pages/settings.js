@@ -1,51 +1,81 @@
-// Admin settings: church, campuses, kids' rooms, service times, accounts and the people import.
-import { get, post, patch, html, mount, icon, dialog, formData, options, toast, fail, DAYS, displayName, pickPerson } from '../lib.js';
-import { state, setTitle, go, campusName } from '../app.js';
+// Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
+import { get, post, patch, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips } from '../lib.js';
+import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 
-const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['rooms', 'Kids’ rooms'], ['services', 'Service times'], ['accounts', 'Accounts'], ['import', 'Import people']];
+const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people']];
 
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
   mount(el, html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div><div data-panel></div>`);
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
-  await ({ church, campuses, rooms, services, accounts, import: importPeople }[tab] || church)(panel);
+  // Old links (#/settings/rooms) land on the section that now holds them.
+  const pages = { church, campuses, checkin, rooms: checkin, accounts, import: importPeople };
+  await (pages[tab] || church)(panel);
 }
 
 const refreshCampuses = async () => { state.campuses = await get('/campuses'); };
 
 // ---------------------------------------------------------------- church
+async function save(changes) {
+  await patch('/settings', changes);
+  Object.assign(state.settings, changes);
+  toast('Saved.');
+}
+
 async function church(panel) {
   const s = await get('/settings');
   mount(panel, html`<form class="card stack" style="max-width:640px">
-    <label class="field">Church name<input type="text" name="church_name" value="${s.church_name}"></label>
-    <label class="field">Who can sign in on their own<select name="sign_in_policy">${options([
-      { value: 'anyone', label: 'Anyone with a Google account' },
-      { value: 'directory', label: 'People whose email is in the directory, and church accounts' },
-      { value: 'domain', label: 'Church Google accounts only' },
-      { value: 'invited', label: 'Only accounts an admin adds' },
-    ], s.sign_in_policy)}</select>
-      <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access in Accounts.</span></label>
-    <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="meadowbrook.church">
-      <span class="muted small">Used by the “church accounts” options above.</span></label>
-    <label class="field">Headcount areas, one per line<textarea name="headcount_areas">${s.headcount_areas.join('\n')}</textarea></label>
-    <label class="field">Name tag labels<select name="label_size">${options([
-      { value: 'brother-62x29', label: 'Brother QL — 62 × 29 mm (DK-1209)' },
-      { value: 'brother-62x100', label: 'Brother QL — 62 × 100 mm (DK-1202)' },
-      { value: 'dymo-30252', label: 'DYMO 30252 — 1⅛ × 3½ in' },
-      { value: 'dymo-30256', label: 'DYMO 30256 — 2⁵⁄₁₆ × 4 in' },
-      { value: 'letter', label: 'Plain paper (no label printer)' },
-    ], s.label_size)}</select></label>
-    <label class="check"><input type="checkbox" name="checkin_print_parent_tag" ${s.checkin_print_parent_tag ? 'checked' : ''}> Print a parent pickup tag with each check-in</label>
+    <label class="field">Church name<input type="text" name="church_name" value="${s.church_name}" required></label>
+    <div class="field"><span>Brand colour</span>
+      <div class="color-row"><input type="color" name="brand_color" value="${s.brand_color}"><code data-hex>${s.brand_color}</code>
+        <button type="button" class="btn small ghost" data-reset>Reset</button></div>
+      <span class="muted small">Used for buttons, links and highlights everywhere, including check-in and the sign-in page.</span></div>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>`);
-  panel.querySelector('form').onsubmit = async (e) => {
-    e.preventDefault();
-    const b = formData(e.target);
-    b.headcount_areas = b.headcount_areas.split('\n').map((x) => x.trim()).filter(Boolean);
-    try { await patch('/settings', b); Object.assign(state.settings, b); toast('Saved.'); } catch (err) { fail(err); }
+  const form = panel.querySelector('form');
+  const preview = () => {
+    panel.querySelector('[data-hex]').textContent = form.brand_color.value;
+    applyTheme(state.me.theme, form.brand_color.value);
   };
+  form.brand_color.oninput = preview;
+  panel.querySelector('[data-reset]').onclick = () => { form.brand_color.value = '#135fd1'; preview(); };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await save(formData(form));
+      document.querySelector('[data-church]').textContent = state.settings.church_name;
+    } catch (err) { fail(err); }
+  };
+}
+
+// ---------------------------------------------------------------- check-in & attendance
+async function checkin(panel) {
+  const s = await get('/settings');
+  mount(panel, html`<div class="stack" style="max-width:820px">
+    <form class="card stack" data-labels>
+      <h2>Name tags</h2>
+      <label class="field">Label printer and size<select name="label_size">${options([
+        { value: 'brother-62x29', label: 'Brother QL: 62 × 29 mm (DK-1209)' },
+        { value: 'brother-62x100', label: 'Brother QL: 62 × 100 mm (DK-1202)' },
+        { value: 'dymo-30252', label: 'DYMO 30252: 1⅛ × 3½ in' },
+        { value: 'dymo-30256', label: 'DYMO 30256: 2⁵⁄₁₆ × 4 in' },
+        { value: 'letter', label: 'Plain paper (no label printer)' },
+      ], s.label_size)}</select></label>
+      <label class="check"><input type="checkbox" name="checkin_print_parent_tag" ${s.checkin_print_parent_tag ? 'checked' : ''}> Print a parent pickup tag with each check-in</label>
+      <div class="row end"><button class="btn primary">Save</button></div>
+    </form>
+    <div class="card"><h2>Headcount areas</h2>
+      <p class="muted small">The rooms you count on each service’s Attendance tab.</p><div data-areas></div></div>
+    <div data-rooms></div>
+  </div>`);
+  panel.querySelector('[data-labels]').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await save(formData(e.target)); } catch (err) { fail(err); }
+  };
+  chips(panel.querySelector('[data-areas]'), s.headcount_areas, (list) => save({ headcount_areas: list }).catch(fail), { placeholder: 'e.g. Balcony', addLabel: 'Add area' });
+  await rooms(panel.querySelector('[data-rooms]'));
 }
 
 // ---------------------------------------------------------------- campuses
@@ -121,75 +151,41 @@ async function rooms(panel) {
   };
 }
 
-// ---------------------------------------------------------------- service times
-async function services(panel) {
-  const [types, teams] = await Promise.all([get('/service-types'), get('/teams')]);
-  const positions = teams.flatMap((t) => t.positions.map((p) => ({ ...p, team: t.name, campus_id: t.campus_id })));
-  mount(panel, html`<div class="card">
-    <div class="card-head"><h2>Regular service times</h2><button class="btn primary" data-add>${icon('plus')} Add service time</button></div>
-    <p class="muted small">Each service time lists the volunteer positions it needs. Use <b>Add upcoming weeks</b> on the Services page to create the actual services.</p>
-    ${state.campuses.map((c) => html`<h3 style="margin-top:14px">${c.name}</h3>${types.filter((t) => t.campus_id === c.id).length
-      ? html`<table class="list"><tbody>${types.filter((t) => t.campus_id === c.id).map((t) => html`<tr class="click" data-id="${t.id}"><td><b>${t.name}</b><div class="muted small">${t.day_of_week != null ? DAYS[t.day_of_week] : 'No regular day'} at ${t.start_time} · ${t.duration_min} min</div></td>
-        <td class="small">${t.needs.map((n) => `${n.position_name}${n.count > 1 ? ` ×${n.count}` : ''}`).join(', ') || html`<span class="muted">No positions yet</span>`}</td></tr>`)}</tbody></table>`
-      : html`<p class="muted small">None yet.</p>`}`)}
-  </div>`);
-  const edit = async (t = {}) => {
-    const campusId = t.campus_id ?? state.campusId ?? state.campuses[0]?.id;
-    const avail = positions.filter((p) => p.campus_id == null || p.campus_id === campusId);
-    const need = (pid) => t.needs?.find((n) => n.position_id === pid)?.count ?? 0;
-    const ok = await dialog({
-      title: t.id ? t.name : 'New service time', wide: true,
-      body: html`<div class="form">
-        <label class="field">Campus<select name="campus_id" ${t.id ? 'disabled' : ''}>${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), campusId)}</select></label>
-        <label class="field">Name<input type="text" name="name" value="${t.name || ''}" required placeholder="Sunday 9:00 AM"></label>
-        <label class="field">Day<select name="day_of_week">${options(DAYS.map((d, i) => ({ value: i, label: d })), t.day_of_week ?? 0, { blank: 'No regular day' })}</select></label>
-        <label class="field">Starts<input type="time" name="start_time" value="${t.start_time || '09:00'}"></label>
-        <label class="field">Length (minutes)<input type="number" name="duration_min" value="${t.duration_min ?? 75}"></label>
-        ${t.id ? html`<label class="check"><input type="checkbox" name="archived"> Stop using this service time</label>` : ''}
-      </div>
-      <h3 style="margin-top:16px">How many of each position does this service need?</h3>
-      ${avail.length ? html`<div class="grid three" style="gap:6px">${avail.map((p) => html`<label class="row small" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:4px 8px">
-        <span>${p.name} <span class="muted">${p.team}</span></span><input type="number" min="0" max="20" data-need="${p.id}" value="${need(p.id)}" style="width:64px"></label>`)}</div>`
-        : html`<p class="muted small">Create teams and positions on the Teams page first.</p>`}`,
-      onSubmit: (f) => {
-        const b = formData(f);
-        b.needs = [...f.querySelectorAll('[data-need]')].map((i) => ({ position_id: Number(i.dataset.need), count: Number(i.value) || 0 })).filter((n) => n.count > 0);
-        if (b.day_of_week === '') b.day_of_week = null;
-        return t.id ? patch(`/service-types/${t.id}`, b) : post('/service-types', b);
-      },
-    });
-    if (ok) services(panel);
-  };
-  panel.onclick = (e) => {
-    if (e.target.closest('[data-add]')) return edit();
-    const tr = e.target.closest('tr[data-id]');
-    if (tr) edit(types.find((t) => t.id === Number(tr.dataset.id)));
-  };
-}
-
 // ---------------------------------------------------------------- accounts
 async function accounts(panel) {
-  const users = await get('/users');
+  const [users, s] = await Promise.all([get('/users'), get('/settings')]);
   const roleHelp = {
     volunteer: 'Their own schedule and the services they serve at',
     leader: 'Also people, teams, scheduling their teams, check-in',
     staff: 'Also edits people, services, rooms and all scheduling',
     admin: 'Everything, including settings and accounts',
   };
-  mount(panel, html`<div class="card">
+  mount(panel, html`<form class="card stack" style="max-width:820px" data-signin>
+    <h2>Who can sign in</h2>
+    <label class="field">On their own, with Google<select name="sign_in_policy">${options([
+      { value: 'anyone', label: 'Anyone with a Google account' },
+      { value: 'directory', label: 'People whose email is in the directory, and church accounts' },
+      { value: 'domain', label: 'Church Google accounts only' },
+      { value: 'invited', label: 'Only accounts an admin adds below' },
+    ], s.sign_in_policy)}</select>
+      <span class="muted small">New sign-ins start as volunteers: they see only their own schedule until you give them more access below.</span></label>
+    <label class="field">Church Google domain<input type="text" name="workspace_domain" value="${s.workspace_domain}" placeholder="mbclife.church">
+      <span class="muted small">Used by the “church accounts” options.</span></label>
+    <div class="row end"><button class="btn primary">Save</button></div>
+  </form>
+  <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
-    <p class="muted small">People sign in with Google. ${({
-      anyone: 'Anyone can sign in and starts as a volunteer.',
-      directory: 'People in the directory (and church accounts) can sign in and start as volunteers.',
-      domain: 'Church Google accounts can sign in and start as volunteers.',
-      invited: 'Only the accounts listed here can sign in.',
-    })[state.settings.sign_in_policy] || ''} Add someone here to give them more access before they sign in.</p>
+    <p class="muted small">Add someone here to give them more access, even before their first sign-in.</p>
     <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
       <td><span class="pill">${u.role}</span></td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
     </tbody></table></div>`);
+  panel.querySelector('[data-signin]').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await save(formData(e.target)); } catch (err) { fail(err); }
+  };
   const edit = async (u = { role: 'volunteer', active: 1, campus_ids: null }) => {
     let personId = u.person_id ?? null;
     let personLabel = u.first_name ? `${u.first_name} ${u.last_name}` : '';

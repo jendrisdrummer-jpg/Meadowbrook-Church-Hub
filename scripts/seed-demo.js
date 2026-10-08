@@ -103,13 +103,14 @@ tx(db, () => {
   needs[north].push([prod[0], 1], [prod[1], 1], [prod[2], 1]);
   needs[south].push([prod[0], 1], [prod[1], 1]);
 
-  // Service times.
+  // Repeating services, starting six Sundays ago.
+  const firstSunday = daysFrom(-new Date().getDay() - 42);
   const types = [
     { campus: north, name: 'Sunday 9:00 AM', time: '09:00' },
     { campus: north, name: 'Sunday 11:00 AM', time: '11:00' },
     { campus: south, name: 'Sunday 10:00 AM', time: '10:00' },
   ].map((t) => {
-    const id = ins('service_types', { campus_id: t.campus, name: t.name, day_of_week: 0, start_time: t.time, duration_min: 75 });
+    const id = ins('service_types', { campus_id: t.campus, name: t.name, day_of_week: 0, start_time: t.time, duration_min: 75, starts_on: iso(firstSunday) });
     for (const [p, n] of needs[t.campus]) db.prepare('INSERT INTO service_type_needs (service_type_id, position_id, count) VALUES (?, ?, ?)').run(id, p.id, n);
     return { ...t, id };
   });
@@ -129,6 +130,7 @@ tx(db, () => {
     for (const t of types) {
       const starts = `${date}T${t.time}`;
       const sid = ins('services', { campus_id: t.campus, service_type_id: t.id, starts_at: starts, duration_min: 75, series: series[w + 6] || '', title: w === 0 ? 'Part 3' : '' });
+      for (const [p, n] of needs[t.campus]) ins('service_needs', { service_id: sid, position_id: p.id, count: n });
       if (w <= 2) {
         const plan = [['header', 'Pre-service', 0], ['item', 'Countdown & walk-in music', 300], ['header', 'Worship', 0],
           ['song', null, 300], ['song', null, 270], ['song', null, 330], ['item', 'Welcome & announcements', 240],
