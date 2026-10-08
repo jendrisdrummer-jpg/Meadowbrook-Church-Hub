@@ -210,11 +210,36 @@ export default function givingRoutes(db) {
       by_fund: db.prepare(`SELECT f.id, f.name, f.section, COALESCE(SUM(g.amount_cents), 0) total, COUNT(g.id) gifts FROM funds f
         LEFT JOIN gifts g ON g.fund_id = f.id AND ${where} GROUP BY f.id HAVING total > 0 OR f.active = 1 ORDER BY f.sort, f.name`).all(from, to),
       by_method: db.prepare(`SELECT method, SUM(amount_cents) total, COUNT(*) gifts FROM gifts g WHERE ${where} GROUP BY method ORDER BY total DESC`).all(from, to),
-      by_week: db.prepare(`SELECT date(given_on, 'weekday 0', '-6 days') week, SUM(amount_cents) total FROM gifts g WHERE ${where} GROUP BY week ORDER BY week`).all(from, to),
+      by_week: db.prepare(`SELECT date(given_on, '-6 days', 'weekday 0') week, SUM(amount_cents) total FROM gifts g WHERE ${where} GROUP BY week ORDER BY week`).all(from, to),
       by_campus: db.prepare(`SELECT COALESCE(c.short_name, c.name, 'No campus') campus, SUM(g.amount_cents) total FROM gifts g LEFT JOIN campuses c ON c.id = g.campus_id WHERE ${where} GROUP BY g.campus_id ORDER BY total DESC`).all(from, to),
       pending: db.prepare("SELECT COUNT(*) n, COALESCE(SUM(amount_cents), 0) total FROM gifts WHERE status = 'pending'").get(),
       recurring: db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(CASE every WHEN 'week' THEN amount_cents * 52 / 12 WHEN '2week' THEN amount_cents * 26 / 12 ELSE amount_cents END), 0) monthly
         FROM recurring_gifts WHERE status = 'active'`).get(),
+    });
+  });
+
+  // One giving week, Sunday through Saturday: what came in, by fund and by how people gave,
+  // next to the week before and the average of the four before it.
+  r.get('/finance/week', requireFinance, (req, res) => {
+    const day = isDate(req.query.start) ? req.query.start : today();
+    const start = db.prepare("SELECT date(?, '-6 days', 'weekday 0') d").get(day).d;
+    const shift = (n) => db.prepare(`SELECT date(?, '${n >= 0 ? '+' : ''}${n} days') d`).get(start).d;
+    const end = shift(6);
+    const where = "g.status = 'succeeded' AND g.given_on BETWEEN ? AND ?";
+    const totals = (a, b) => db.prepare(`SELECT COALESCE(SUM(amount_cents), 0) total, COUNT(*) gifts, COUNT(DISTINCT COALESCE(person_id, lower(email))) givers, COALESCE(SUM(fee_cents), 0) fees
+      FROM gifts g WHERE ${where}`).get(a, b);
+    const before = db.prepare(`SELECT date(given_on, '-6 days', 'weekday 0') week, SUM(amount_cents) total FROM gifts g WHERE ${where} GROUP BY week`).all(shift(-28), shift(-1));
+    const methods = db.prepare(`SELECT g.fund_id, g.method, SUM(g.amount_cents) total FROM gifts g WHERE ${where} GROUP BY g.fund_id, g.method`).all(start, end);
+    res.json({
+      start, end, today: today(), ...totals(start, end),
+      previous: { start: shift(-7), ...totals(shift(-7), shift(-1)) },
+      average: Math.round(before.reduce((n, w) => n + w.total, 0) / 4),
+      by_fund: db.prepare(`SELECT f.id, f.name, f.section, COALESCE(SUM(g.amount_cents), 0) total, COUNT(g.id) gifts FROM funds f
+        LEFT JOIN gifts g ON g.fund_id = f.id AND ${where} GROUP BY f.id HAVING total > 0 OR f.active = 1 ORDER BY f.sort, f.name`).all(start, end)
+        .map((f) => ({ ...f, methods: Object.fromEntries(methods.filter((m) => m.fund_id === f.id).map((m) => [m.method, m.total])) })),
+      by_method: db.prepare(`SELECT method, SUM(amount_cents) total, COUNT(*) gifts FROM gifts g WHERE ${where} GROUP BY method ORDER BY total DESC`).all(start, end),
+      by_day: db.prepare(`SELECT given_on day, SUM(amount_cents) total, COUNT(*) gifts FROM gifts g WHERE ${where} GROUP BY given_on ORDER BY given_on`).all(start, end),
+      weeks: db.prepare(`SELECT date(given_on, '-6 days', 'weekday 0') week, SUM(amount_cents) total, COUNT(*) gifts FROM gifts g WHERE ${where} GROUP BY week ORDER BY week DESC`).all(shift(-7 * 11), end),
     });
   });
 

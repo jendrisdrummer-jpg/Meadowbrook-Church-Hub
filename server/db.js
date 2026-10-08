@@ -624,6 +624,28 @@ const MIGRATIONS = [
     PRIMARY KEY (year, donor)
   );
   `,
+  // 19: Spiritual journey as two check marks (baptized in Jesus' name, filled with the Holy Ghost)
+  // instead of the "New birth" steps. Answers carry over; "New birth" is hidden, not deleted.
+  `
+  UPDATE profile_fields SET sort = sort * 10;
+  INSERT INTO profile_fields (section, label, type, sort)
+    SELECT 'Spiritual journey', 'Baptized in Jesus'' name', 'yesno',
+      COALESCE((SELECT sort FROM profile_fields WHERE label = 'Baptism date' AND archived = 0 ORDER BY id LIMIT 1) - 5, (SELECT COALESCE(MAX(sort), 0) + 10 FROM profile_fields));
+  INSERT INTO profile_fields (section, label, type, sort)
+    SELECT 'Spiritual journey', 'Filled with the Holy Ghost', 'yesno',
+      COALESCE((SELECT sort FROM profile_fields WHERE label = 'Holy Ghost date' AND archived = 0 ORDER BY id LIMIT 1) - 5, (SELECT COALESCE(MAX(sort), 0) + 10 FROM profile_fields));
+  INSERT OR IGNORE INTO profile_values (person_id, field_id, value)
+    SELECT pv.person_id, (SELECT id FROM profile_fields WHERE label = 'Baptized in Jesus'' name'), 'true'
+    FROM profile_values pv JOIN profile_fields f ON f.id = pv.field_id
+    WHERE (f.label = 'New birth' AND f.type = 'choice' AND pv.value IN ('"Baptized"', '"Received the Holy Ghost"'))
+       OR (f.label = 'Baptism date' AND f.type = 'date');
+  INSERT OR IGNORE INTO profile_values (person_id, field_id, value)
+    SELECT pv.person_id, (SELECT id FROM profile_fields WHERE label = 'Filled with the Holy Ghost'), 'true'
+    FROM profile_values pv JOIN profile_fields f ON f.id = pv.field_id
+    WHERE (f.label = 'New birth' AND f.type = 'choice' AND pv.value = '"Received the Holy Ghost"')
+       OR (f.label = 'Holy Ghost date' AND f.type = 'date');
+  UPDATE profile_fields SET archived = 1 WHERE label = 'New birth' AND type = 'choice';
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

@@ -736,13 +736,23 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .give-form { display: grid; gap: 14px; }
 .give-amount { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 44px; font-weight: 750; padding: 6px 0; }
 .give-amount span { color: var(--muted); }
-.give-amount input { width: 7ch; font: inherit; border: 0; border-bottom: 2px solid var(--line); border-radius: 0; background: none; text-align: center; padding: 0; }
+.give-amount input { width: 1.4ch; min-width: 1.4ch; max-width: 10ch; font: inherit; font-variant-numeric: tabular-nums; border: 0; border-bottom: 2px solid var(--line); border-radius: 0; background: none; text-align: center; padding: 0; }
 .give-amount input:focus { outline: none; border-bottom-color: var(--accent); }
-.give-presets { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-.give-presets .chip { cursor: pointer; padding: 6px 14px; font: inherit; font-weight: 650; }
-.give-every { display: flex; flex-wrap: wrap; }
-.give-every button { flex: 1; white-space: nowrap; }
-.give-cover { align-items: flex-start; }
+.give-list { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.give-pick { position: relative; display: flex; align-items: center; gap: 8px; padding: 14px 16px; min-height: 54px; cursor: pointer; margin: 0; }
+.give-pick + .give-pick { border-top: 1px solid var(--line); }
+.give-pick > span { flex: 1; min-width: 0; font-weight: 600; display: grid; gap: 2px; }
+.give-pick > span small { font-weight: 400; font-size: 13px; }
+.give-pick > b { font-weight: 600; color: var(--accent-text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.give-pick > .ic { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.give-pick > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.give-pick:focus-within { background: var(--panel-2); }
+.give-as { margin: 0; text-align: center; }
+.switch { appearance: none; -webkit-appearance: none; flex: none; width: 46px; height: 28px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; transition: background .15s; margin: 0; border: 0; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .15s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .give-go { min-height: 52px; font-size: 17px; justify-content: center; border-radius: 14px; }
 .give-secure { margin: 0; text-align: center; }
 .give-checkout { margin-top: 10px; border-radius: 14px; overflow: hidden; background: #fff; }
@@ -765,3 +775,22 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .batch-rows input, .batch-rows select { padding: 6px 8px; }
 .batch-rows td { vertical-align: middle; }
 .batch { margin-top: 14px; }
+/* Finance → Giving → Weekly */
+.week-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.week-head h2 { margin: 0; font-size: 18px; }
+.week-head .grow { flex: 1; }
+.stat em { font-style: normal; font-weight: 650; margin-left: 4px; }
+.stat em.up { color: var(--good, #1a7f37); }
+.stat em.down { color: var(--bad); }
+.week-table td.num, .week-table th.num { text-align: right; white-space: nowrap; }
+.week-table tr.sec td { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); padding-top: 12px; }
+.week-table tfoot td { border-top: 2px solid var(--line); font-weight: 700; }
+.table-scroll { overflow-x: auto; }
+.link-row { width: 100%; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: none; }
+.link-row:hover .grow { color: var(--accent-text); }
+.link-row.on { color: var(--accent-text); font-weight: 650; }
+@media print {
+  .side, .topbar, .tabs, .week-head .btn { display: none !important; }
+  .shell { display: block; }
+  .card, .stat { break-inside: avoid; border-color: #ccc; }
+}
