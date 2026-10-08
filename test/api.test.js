@@ -943,6 +943,7 @@ test('video calls: start, join with a private room, meetings, and the monthly li
   assert.equal(joined.token, `tok-${gusId}-true`);
   const room = daily.requests.find((r) => r.method === 'POST' && r.url === '/rooms');
   assert.equal(room.body.privacy, 'private');
+  assert.equal(room.body.properties.max_participants, undefined); // the free plan refuses it
   assert.ok(room.body.properties.exp > Date.now() / 1000);
   assert.equal(room.auth, 'Bearer test-key');
   assert.equal((await api('hal', 'POST', `/calls/${call.data.id}/join`)).data.token, `tok-${halId}-false`);

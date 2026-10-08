@@ -12,7 +12,6 @@ import { hooks } from '../live.js';
 import * as daily from '../daily.js';
 
 const ROOM_HOURS = 4;
-const MAX_PEOPLE = 30;
 const EARLY_MIN = 15;                 // meetings open (and remind) this long before they start
 const iso = (d = new Date()) => d.toISOString().replace('T', ' ').slice(0, 19);
 const parse = (t) => Date.parse(t.includes('T') ? t : `${t.replace(' ', 'T')}Z`);
@@ -107,7 +106,7 @@ export default function callRoutes(db) {
     try {
       if (!room.name || room.exp < now + 120) {
         const exp = now + ROOM_HOURS * 3600;
-        const made = await daily.createRoom(`mb-${c.id}-${crypto.randomBytes(4).toString('hex')}`, exp, MAX_PEOPLE);
+        const made = await daily.createRoom(`mb-${c.id}-${crypto.randomBytes(4).toString('hex')}`, exp);
         room = { name: made.name, url: made.url, exp };
         db.prepare('UPDATE calls SET room_name = ?, room_url = ?, room_exp = ?, room_created_at = COALESCE(room_created_at, ?) WHERE id = ?').run(room.name, room.url, exp, iso(), c.id);
         hooks.callChanged(c.id);
