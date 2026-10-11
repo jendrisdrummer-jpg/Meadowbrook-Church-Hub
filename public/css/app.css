@@ -938,3 +938,8 @@ code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 .md-key { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .md-key > .muted { width: 76px; }
 .md-key code { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); font-size: 13px; word-break: break-all; }
+.md-src { position: absolute; top: 8px; left: 8px; padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,.72); color: #fff; font-size: 11px; font-weight: 600; }
+.md-wait { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #fff; text-align: center; font-size: 14px; }
+.md-bulk { margin-bottom: 16px; }
+.md-bulk-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.md-bulk-row .meter { display: block; flex: none; margin: 0; }

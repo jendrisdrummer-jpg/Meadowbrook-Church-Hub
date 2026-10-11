@@ -1853,6 +1853,14 @@ test('streaming through Mux: one stream key, live in the app during services, re
         state.clips[id] = 'preparing';
         return send(201, { data: { id, status: 'preparing', playback_ids: [{ id: `${id}-pb`, policy: 'public' }] } });
       }
+      if (req.method === 'POST' && u.pathname === '/video/v1/uploads') {
+        state.uploads ||= {};
+        const id = `upl${Object.keys(state.uploads).length + 1}`;
+        state.uploads[id] = { status: 'waiting', cors: body.cors_origin };
+        return send(201, { data: { id, url: `https://storage.example/${id}`, status: 'waiting' } });
+      }
+      const upl = /^\/video\/v1\/uploads\/(\w+)$/.exec(u.pathname);
+      if (upl && req.method === 'GET') { const x = state.uploads?.[upl[1]]; return x ? send(200, { data: { id: upl[1], ...x } }) : send(404, {}); }
       const one = /^\/video\/v1\/assets\/(\w+)$/.exec(u.pathname);
       if (one && req.method === 'GET') return state.clips[one[1]] ? send(200, { data: { id: one[1], status: state.clips[one[1]], playback_ids: [{ id: `${one[1]}-pb` }] } }) : send(404, {});
       if (one && req.method === 'DELETE') { state.deleted.push(one[1]); return res.writeHead(204).end(); }
@@ -1959,4 +1967,41 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.equal(item.playback_id, 'clip2-pb');
   assert.equal((await api('admin', 'PATCH', `/media/${rec.id}`, { start: '20:00' })).status, 400);
   assert.equal((await api('admin', 'PATCH', `/media/${rec.id}`, { title: 'Living Water (Part 1)' })).status, 200);
+
+  // A past service from YouTube moves to our own player: the file goes straight to Mux, and its
+  // trim carries over as a trimmed copy.
+  const yt = db.prepare("SELECT id, start_sec FROM media WHERE video_id = 'serviceAAAA'").get();
+  assert.equal(yt.start_sec, 750);
+  const up = await api('north', 'POST', `/media/${yt.id}/upload`, {});
+  assert.equal(up.data.url, 'https://storage.example/upl1');
+  assert.match(state.uploads.upl1.cors, /^http:\/\/127\.0\.0\.1:/);
+  await api('north', 'POST', `/media/${yt.id}/upload/done`, {});
+  assert.equal((await api('admin', 'GET', `/media/${yt.id}`)).data.upload_status, 'processing');
+  // Still YouTube's player in the app until Mux has it ready.
+  assert.equal((await api(null, 'GET', `/watch/${yt.id}`)).data.source, 'youtube');
+  state.uploads.upl1 = { status: 'asset_created', asset_id: 'up1' };
+  state.clips.up1 = 'ready';
+  const madeBefore = state.made.length;
+  await muxTick(db); // the check "done" started may still be running
+  await muxTick(db);
+  item = (await api(null, 'GET', `/watch/${yt.id}`)).data;
+  assert.deepEqual([item.source, item.playback_id, item.start, item.title], ['mux', 'up1-pb', 750, 'Standing Firm (Part 3)']);
+  assert.equal(state.made.length, madeBefore + 1);
+  assert.equal(state.made.at(-1).input[0].url, 'mux://assets/up1');
+
+  // A new video by upload: not in the app until it's ready.
+  const fresh = await api('admin', 'POST', '/media/uploads', { title: 'Revival_Night.mp4' });
+  assert.equal(fresh.status, 201);
+  assert.equal((await api('admin', 'GET', `/media/${fresh.data.id}`)).data.title, 'Revival Night');
+  assert.ok(!(await api(null, 'GET', '/watch')).data.items.some((x) => x.id === fresh.data.id));
+  state.uploads.upl2 = { status: 'errored' };
+  await muxTick(db);
+  assert.equal((await api('admin', 'GET', `/media/${fresh.data.id}`)).data.upload_status, 'failed');
+
+  // Only our own player: videos still on YouTube leave the app.
+  await api('admin', 'PUT', '/media/setup', { own_player_only: true });
+  const own = (await api(null, 'GET', '/watch')).data.items;
+  assert.ok(own.length && own.every((x) => x.source === 'mux'));
+  await api('admin', 'PUT', '/media/setup', { own_player_only: false });
+  assert.ok((await api(null, 'GET', '/watch')).data.items.some((x) => x.source === 'youtube'));
 });

@@ -422,6 +422,19 @@ How it works:
 - **YouTube:** to keep streaming there too, add YouTube as a second destination in vMix, which is
   free. Or let Mux forward the stream, at about 2¢ a minute.
 
+**Past services in our own player:** to move a past service off the YouTube player, download
+it from YouTube Studio: go to **Content**, click **⋮** next to the video and choose **Download**.
+Then either:
+
+- open that video in **Media** and choose the file, or
+- use **Media → Upload videos** to send several at once. Each file is matched to the video with
+  the same title.
+
+The file goes straight from your computer to Mux. The video keeps its title, tags and trim.
+
+**Media → Setup → Only show videos that play in our own player** keeps the YouTube player out of
+the app entirely.
+
 The hub checks Mux every minute, so no webhook is needed. While Mux is set up, the YouTube
 channel is only used to bring in older videos.
 

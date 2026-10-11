@@ -4,12 +4,13 @@
 import { Router } from 'express';
 import { requireRole } from '../auth.js';
 import { setSetting } from '../db.js';
+import crypto from 'node:crypto';
 import { bad, notFound, int, str, audit } from '../http.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import {
   mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, fetchVideo, describeVideo, insertMedia, fromService, hasApiKey, TITLE_FORMATS,
 } from '../media.js';
-import { muxTick, muxConfigured, muxSettings, ensureLiveStream, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
+import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
 
 const topicsOf = (m) => { try { return JSON.parse(m.topics || '[]'); } catch { return []; } };
 
@@ -54,17 +55,21 @@ export default function mediaRoutes(db) {
   const r = Router();
 
   // ---------------------------------------------------------------- the app (public)
+  // What the app can show: published, playable, and (if the church chose so) only what plays in
+  // our own player.
+  const shown = () => `m.status = 'published' AND (m.source != 'mux' OR m.playback_id IS NOT NULL)${mediaSettings(db).own_player_only ? " AND m.source = 'mux'" : ''}`;
+
   r.get('/watch', (_req, res) => {
-    const items = db.prepare(`${LIST} WHERE m.status = 'published' ORDER BY m.day DESC, m.recorded_at DESC LIMIT 600`).all().map(publicItem);
+    const items = db.prepare(`${LIST} WHERE ${shown()} ORDER BY m.day DESC, m.recorded_at DESC LIMIT 600`).all().map(publicItem);
     const live = liveNow(db);
     res.json({ live: live && live.public !== false ? { source: live.source || 'youtube', video_id: live.video_id || null, playback_id: live.playback_id || null, title: live.title } : null, items });
   });
 
   r.get('/watch/:id', (req, res) => {
-    const m = db.prepare(`${LIST} WHERE m.id = ? AND m.status = 'published'`).get(int(req.params.id));
+    const m = db.prepare(`${LIST} WHERE m.id = ? AND ${shown()}`).get(int(req.params.id));
     if (!m) throw notFound('That video');
     const more = m.series
-      ? db.prepare(`${LIST} WHERE m.status = 'published' AND m.series = ? AND m.id != ? ORDER BY m.day DESC LIMIT 12`).all(m.series, m.id).map(publicItem)
+      ? db.prepare(`${LIST} WHERE ${shown()} AND m.series = ? AND m.id != ? ORDER BY m.day DESC LIMIT 12`).all(m.series, m.id).map(publicItem)
       : [];
     res.json({ ...publicItem(m), more });
   });
@@ -73,7 +78,7 @@ export default function mediaRoutes(db) {
   r.get('/media', requireRole('staff'), (req, res) => {
     const status = ['published', 'hidden', 'skipped'].includes(req.query.status) ? req.query.status : 'published';
     const items = db.prepare(`${LIST} WHERE m.status = ? ORDER BY m.day DESC, m.recorded_at DESC LIMIT 1000`).all(status)
-      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at), clip_status: m.clip_status }));
+      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at), clip_status: m.clip_status, upload_status: m.upload_status }));
     const counts = Object.fromEntries(db.prepare('SELECT status, COUNT(*) n FROM media GROUP BY status').all().map((x) => [x.status, x.n]));
     const all = db.prepare("SELECT speaker, series, topics FROM media WHERE status != 'skipped'").all();
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -132,6 +137,7 @@ export default function mediaRoutes(db) {
     if (b.min_minutes !== undefined) cfg.min_minutes = Math.min(180, Math.max(1, Math.round(Number(b.min_minutes) || 20)));
     if (typeof b.notify_new === 'boolean') cfg.notify_new = b.notify_new;
     if (typeof b.notify_live === 'boolean') cfg.notify_live = b.notify_live;
+    if (typeof b.own_player_only === 'boolean') cfg.own_player_only = b.own_player_only;
     if (b.keep_full_days !== undefined) cfg.keep_full_days = Math.min(3650, Math.max(0, Math.round(Number(b.keep_full_days) || 0)));
     setSetting(db, 'media', cfg);
     audit(db, req, 'media.setup', { channel: cfg.channel_id });
@@ -169,6 +175,36 @@ export default function mediaRoutes(db) {
     res.status(201).json({ id });
   });
 
+  // Uploading a video file to Mux (straight from the browser): onto a video already here (one
+  // from YouTube, so it plays in our own player), or as a new one.
+  const uploadUrl = async (req, id) => {
+    if (!muxConfigured()) throw bad('Set up streaming (Mux) first: Media → Setup.');
+    try { return await startUpload(db, id, `${req.protocol}://${req.get('host')}`); } catch (e) { throw bad(e.message); }
+  };
+  r.post('/media/uploads', requireRole('staff'), async (req, res) => {
+    if (!muxConfigured()) throw bad('Set up streaming (Mux) first: Media → Setup.');
+    const title = str(req.body?.title, 200).replace(/\.[a-z0-9]{2,4}$/i, '').replace(/[_]+/g, ' ').trim() || 'Video';
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.day || '') ? req.body.day : new Date().toISOString().slice(0, 10);
+    const id = Number(db.prepare(`INSERT INTO media (source, video_id, status, title, recorded_at, day) VALUES ('mux', ?, 'published', ?, datetime('now'), ?)`)
+      .run(`upload:${crypto.randomBytes(8).toString('hex')}`, title, day).lastInsertRowid);
+    const url = await uploadUrl(req, id);
+    audit(db, req, 'media.upload', { id });
+    res.status(201).json({ id, url });
+  });
+  r.post('/media/:id/upload', requireRole('staff'), async (req, res) => {
+    const m = db.prepare('SELECT id FROM media WHERE id = ?').get(int(req.params.id));
+    if (!m) throw notFound('That video');
+    const url = await uploadUrl(req, m.id);
+    audit(db, req, 'media.upload', { id: m.id });
+    res.json({ url });
+  });
+  // The browser finished sending it; Mux is getting it ready.
+  r.post('/media/:id/upload/done', requireRole('staff'), (req, res) => {
+    db.prepare("UPDATE media SET upload_status = 'processing' WHERE id = ? AND upload_status = 'uploading'").run(int(req.params.id));
+    muxTick(db).catch(() => {});
+    res.json({ ok: true });
+  });
+
   r.get('/media/:id', requireRole('staff'), (req, res) => {
     const m = db.prepare(`${LIST} WHERE m.id = ?`).get(int(req.params.id));
     if (!m) throw notFound('That video');
@@ -176,6 +212,7 @@ export default function mediaRoutes(db) {
     // Services that day, to link it to another one.
     const services = db.prepare('SELECT s.id, s.title, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE substr(s.starts_at, 1, 10) = ? ORDER BY s.starts_at').all(m.day);
     res.json({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
+      upload_status: m.upload_status, mux_ready: muxConfigured(),
       raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null,
       campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live) });
   });
