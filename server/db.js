@@ -845,6 +845,15 @@ const MIGRATIONS = [
   ALTER TABLE media ADD COLUMN upload_status TEXT NOT NULL DEFAULT '';    -- '' | uploading | processing | failed
   ALTER TABLE media ADD COLUMN upload_at TEXT;
   `,
+  // 29: the podcast. Each message streamed or uploaded through Mux gets an audio-only file (of
+  // its trimmed copy when trimmed), listed in the podcast feed podcast apps check on their own.
+  `
+  ALTER TABLE media ADD COLUMN podcast INTEGER NOT NULL DEFAULT 1;          -- in the podcast
+  ALTER TABLE media ADD COLUMN audio_asset_id TEXT;                         -- the Mux video the audio is made from
+  ALTER TABLE media ADD COLUMN audio_playback_id TEXT;
+  ALTER TABLE media ADD COLUMN audio_status TEXT NOT NULL DEFAULT '';       -- '' | making | ready | failed
+  ALTER TABLE media ADD COLUMN audio_size INTEGER;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

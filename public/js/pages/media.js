@@ -1,11 +1,11 @@
 // Media: the library the app's Watch tab shows. New services come in from YouTube on their own;
 // here staff fix titles and trims, tag them, and set up the channel.
-import { get, post, put, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce, confirm } from '../lib.js';
+import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce, confirm, shrinkImage } from '../lib.js';
 import { setTitle, go } from '../app.js';
 import { hms } from '../video.js';
 import { uploadToMux, looseTitle } from '../mux-upload.js';
 
-const TABS = [['published', 'Library'], ['skipped', 'Skipped'], ['hidden', 'Hidden'], ['setup', 'Setup']];
+const TABS = [['published', 'Library'], ['skipped', 'Skipped'], ['hidden', 'Hidden'], ['podcast', 'Podcast'], ['setup', 'Setup']];
 const ago = (utc) => {
   if (!utc) return 'never';
   const mins = Math.round((Date.now() - new Date(`${utc.replace(' ', 'T')}Z`)) / 60e3);
@@ -55,6 +55,7 @@ export default async function media(el, tab) {
   };
 
   if (tab === 'setup') return drawSetup(el, setup, head);
+  if (tab === 'podcast') return drawPodcast(el, head);
 
   const d = await get(`/media?status=${tab}`);
   const live = d.status.live;
@@ -248,4 +249,90 @@ async function bulkUpload(el, files, done) {
   }
   toast('Uploads finished. Each switches to our own player once Mux has it ready (a few minutes).');
   setTimeout(done, 1500);
+}
+
+// ---------------------------------------------------------------- the podcast
+const EP_STATE = {
+  ready: html`<span class="pill good">In the podcast</span>`,
+  making: html`<span class="pill warn">Making the audio…</span>`,
+  uploading: html`<span class="pill warn">Video on its way to Mux</span>`,
+  failed: html`<span class="pill bad">Audio didn’t work</span>`,
+  youtube: html`<span class="pill">Only on YouTube</span>`,
+  off: html`<span class="pill">Left out</span>`,
+};
+
+async function drawPodcast(el, head) {
+  const d = await get('/media/podcast');
+  const p = d.settings;
+  let image = p.image;
+  mount(el, html`${head(null)}
+    ${!d.mux ? html`<div class="alert">The podcast uses the audio of messages streamed or uploaded through Mux. Set up streaming in <a href="#/media/setup">Setup</a> first.</div>` : ''}
+    <div class="grid two md-setup">
+      <form class="card stack" data-pod>
+        <h2 style="margin:0">Podcast ${p.enabled ? html`<span class="pill good">${icon('check')} On</span>` : html`<span class="pill">Off</span>`}</h2>
+        <p class="small" style="margin:0">Every message in the library becomes a podcast episode on its own: the audio of its trimmed part, with its title, speaker, series and scripture. Podcast apps check for new ones every few hours.</p>
+        <label class="check"><input type="checkbox" name="enabled" ${p.enabled ? 'checked' : ''}> Turn on the podcast</label>
+        <label class="field">Podcast name<input type="text" name="title" value="${p.title}" maxlength="150" required></label>
+        <label class="field">Host or church<input type="text" name="author" value="${p.author}" maxlength="120"></label>
+        <label class="field">About the podcast<textarea name="description" rows="3" maxlength="4000" placeholder="Messages from our Sunday services…">${p.description}</textarea></label>
+        <label class="field">Owner email<input type="email" name="email" value="${p.email}" placeholder="media@yourchurch.org">
+          <span class="muted small">Podcast apps send a code here to confirm the podcast is yours. It’s in the feed, so use a church address.</span></label>
+        <label class="field">Category<select name="subcategory">${options([{ value: 'Christianity', label: 'Religion & Spirituality › Christianity' }, { value: 'Religion', label: 'Religion & Spirituality › Religion' }, { value: 'Spirituality', label: 'Religion & Spirituality › Spirituality' }], p.subcategory)}</select></label>
+        <div class="field"><span>Cover art</span>
+          <div class="row" style="gap:12px;align-items:center"><span class="pod-art" data-art style="${image ? `background-image:url('${image}')` : ''}">${image ? '' : icon('image')}</span>
+            <span class="stack" style="gap:6px"><label class="btn small" style="justify-self:start">${icon('upload')} Upload a square picture<input type="file" accept="image/jpeg,image/png" data-art-file hidden></label>
+              <span class="muted small">At least 1400 × 1400 (3000 × 3000 is best), JPG or PNG.</span></span></div></div>
+        <div class="row end"><button class="btn primary">Save</button></div>
+      </form>
+      <div class="card stack">
+        <h2 style="margin:0">Put it on Apple Podcasts and Spotify</h2>
+        <p class="small" style="margin:0">Your feed’s address. Submit it once to each app; after that they pick up new episodes on their own.</p>
+        <div class="md-key"><code>${d.feed_url}</code><button class="btn small ghost" data-copy="${d.feed_url}">${icon('copy')} Copy</button></div>
+        <ol class="small md-steps">
+          <li><b>Apple Podcasts:</b> sign in at <a href="https://podcastsconnect.apple.com" target="_blank" rel="noopener">podcastsconnect.apple.com</a> → <b>+</b> → <b>New Show</b> → <b>Add a show with an RSS feed</b>, paste the address, and submit. Apple reviews it (usually a day or two).</li>
+          <li><b>Spotify:</b> at <a href="https://creators.spotify.com" target="_blank" rel="noopener">creators.spotify.com</a> choose to add an existing podcast, paste the address, and enter the code Spotify emails to the owner email.</li>
+          <li>Others (Amazon Music, Pocket Casts, Overcast…) find it through Apple, or take the same address.</li></ol>
+        <p class="muted small" style="margin:0">Turn the podcast on and have at least one episode ready before submitting: the apps check the feed when you do.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Episodes</h2>
+      ${d.episodes.length ? html`<table class="list"><thead><tr><th>Message</th><th>Date</th><th>Podcast</th><th></th></tr></thead><tbody>
+        ${d.episodes.map((e) => html`<tr><td><a href="#/media/${e.id}"><b>${e.title}</b></a>${e.speaker ? html`<div class="muted small">${e.speaker}</div>` : ''}</td>
+          <td class="nowrap small">${fmtDate(e.day, { month: 'short', day: 'numeric', year: 'numeric' })}</td><td>${EP_STATE[e.state] || ''}</td>
+          <td style="text-align:right"><button class="btn small ghost" data-ep="${e.id}" data-on="${e.podcast ? '' : '1'}">${e.podcast ? 'Leave out' : 'Include'}</button></td></tr>`)}</tbody></table>`
+        : html`<p class="muted" style="margin:0">No messages yet.</p>`}
+      <p class="muted small" style="margin:8px 0 0">“Only on YouTube” ones can join once their video file is uploaded (open the video → Play it in our own player).</p></div>`);
+
+  const f = el.querySelector('[data-pod]');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await put('/media/podcast', { enabled: f.enabled.checked, title: f.title.value, author: f.author.value, description: f.description.value, email: f.email.value, subcategory: f.subcategory.value, image });
+      toast(f.enabled.checked ? 'Saved. Episodes appear in the feed as their audio is ready.' : 'Saved.');
+      drawPodcast(el, head);
+    } catch (err) { fail(err); }
+  };
+  el.querySelector('[data-art-file]').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const img = await createImageBitmap(file).catch(() => null);
+    if (img && (img.width < 1400 || Math.abs(img.width - img.height) > 4)) toast('Podcast apps want a square picture at least 1400 × 1400. This one may be turned down.', 'bad');
+    try {
+      image = (await api('POST', '/app/images', await shrinkImage(file, 3000))).url;
+      const art = el.querySelector('[data-art]');
+      art.style.backgroundImage = `url('${image}')`;
+      art.textContent = '';
+      toast('Cover art added. Save to keep it.');
+    } catch (err) { fail(err); }
+  };
+  el.onclick = async (e) => {
+    const t = e.target.closest('[data-tab]');
+    if (t) return go(t.dataset.tab === 'published' ? '/media' : `/media/${t.dataset.tab}`);
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.copy) { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied.'); }
+    if (b.dataset.ep) {
+      try { await patch(`/media/${b.dataset.ep}`, { podcast: Boolean(b.dataset.on) }); drawPodcast(el, head); } catch (err) { fail(err); }
+    }
+  };
 }

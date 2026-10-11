@@ -435,6 +435,12 @@ The file goes straight from your computer to Mux. The video keeps its title, tag
 **Media → Setup → Only show videos that play in our own player** keeps the YouTube player out of
 the app entirely.
 
+**Podcast:** on **Media → Podcast**, turn it on and fill in a name, an owner email and square
+cover art (at least 1400 × 1400). From then on, every message in Mux becomes an episode on its own:
+the audio of its trimmed part, with its title, speaker, series and scripture. Submit the feed
+address shown there once to Apple Podcasts Connect and to Spotify for Creators, and they pick up
+new episodes by themselves.
+
 The hub checks Mux every minute, so no webhook is needed. While Mux is set up, the YouTube
 channel is only used to bring in older videos.
 

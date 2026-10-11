@@ -79,7 +79,7 @@ const ROUTES = [
   [/^\/connect$/, 'connect'],
   [/^\/announcements$/, 'announcements'],
   [/^\/stations$/, 'stations'],
-  [/^\/media(?:\/(published|skipped|hidden|setup))?$/, 'media'],
+  [/^\/media(?:\/(published|skipped|hidden|setup|podcast))?$/, 'media'],
   [/^\/media\/(\d+)$/, 'media-item'],
   [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],

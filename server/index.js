@@ -26,6 +26,7 @@ import backupRoutes from './routes/backups.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
+import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
@@ -151,6 +152,13 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
         { src: `/app-icon/512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
     });
+  });
+
+  // The podcast feed podcast apps check (Media → Podcast).
+  app.get('/podcast.xml', (req, res) => {
+    if (!podcastSettings(db).enabled) return res.status(404).type('text').send('No podcast.');
+    res.setHeader('Cache-Control', 'public, max-age=900');
+    res.type('application/rss+xml').send(podcastXml(db, `${req.protocol}://${req.get('host')}`));
   });
 
   const pub = path.join(root, 'public');
