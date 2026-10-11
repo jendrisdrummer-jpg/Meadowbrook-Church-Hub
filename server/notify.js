@@ -6,7 +6,7 @@ import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['announcement', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'task', 'call', 'email'];
+export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'task', 'call', 'email'];
 // Notices that stay off until someone turns them on.
 export const OFF_BY_DEFAULT = new Set(['accepted']);
 

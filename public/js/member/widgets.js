@@ -114,6 +114,18 @@ export function widget(w, ctx) {
             ${c.address ? html`<a class="small" href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map', 'ic small-ic')} ${c.address}</a>` : ''}</div>`;
         })}`, { link: '' });
     }
+    case 'sermon': {
+      const watchTab = tabFor('watch');
+      if (ctx.live) {
+        return box(w, html`<span class="w-sermon-pic" style="background-image:url('https://i.ytimg.com/vi/${ctx.live.video_id}/hqdefault_live.jpg')"><span class="w-live">${icon('video')} Live now</span></span>
+          <span class="w-sermon-text"><b class="w-label">${ctx.live.title}</b><span class="w-sub">Tap to watch</span></span>`, { link: `#/${watchTab}`, cls: 'w-sermon' });
+      }
+      const m = ctx.sermon;
+      if (!m) return ctx.edit ? placeholder(w, 'Shows your newest message once Media has one') : null;
+      return box(w, html`<span class="w-sermon-pic" style="background-image:url('${m.picture}')"><span class="w-play">${icon('play')}</span></span>
+        <span class="w-sermon-text"><span class="w-sub">${w.title || 'Latest message'}</span><b class="w-label">${m.title}</b>${m.speaker && w.size !== 'T' ? html`<span class="w-sub">${m.speaker}</span>` : ''}</span>`,
+      { link: `#/${watchTab}/${m.id}`, cls: 'w-sermon' });
+    }
     case 'watch': {
       const watchUrl = app.config.watch_url;
       if (!tall) return box(w, html`<span class="w-ic">${icon('play')}</span><b class="w-label">${w.title || 'Watch live'}</b>`, { link: `#/${tabFor('watch')}` });

@@ -23,6 +23,8 @@ import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
 import searchRoutes from './routes/search.js';
 import backupRoutes from './routes/backups.js';
+import mediaRoutes from './routes/media.js';
+import { syncMedia, checkLive } from './media.js';
 import { maybeNightly } from './backup.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
@@ -78,6 +80,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));
+  api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
   api.use(taskRoutes(db));
@@ -197,4 +200,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   setInterval(() => sendDueAnnouncements(db), 60e3).unref();
   // Nightly backup (from 3 a.m. church time; see Settings → Backups).
   setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
+  // Media: new videos from the YouTube channel every hour; around service times, every two
+  // minutes, whether we're live.
+  const mediaSync = () => syncMedia(db).catch((e) => console.error('Media sync failed:', e.message));
+  setTimeout(mediaSync, 2 * 60e3).unref();
+  setInterval(mediaSync, 60 * 60e3).unref();
+  setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
 }

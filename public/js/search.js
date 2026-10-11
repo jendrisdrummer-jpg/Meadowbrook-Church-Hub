@@ -2,7 +2,7 @@
 // tasks, and the hub's own pages. Arrow keys move, Enter opens, Esc closes.
 import { get, html, mount, icon, avatar } from './lib.js';
 
-const TYPE_ICON = { person: 'user', team: 'teams', song: 'music', service: 'calendar', event: 'calendar', task: 'tasks', page: 'link' };
+const TYPE_ICON = { person: 'user', team: 'teams', song: 'music', service: 'calendar', event: 'calendar', media: 'play', task: 'tasks', page: 'link' };
 let open = null;
 
 // pages(): the hub pages this person can open, as [{ path, label, icon, external }].

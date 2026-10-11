@@ -786,6 +786,39 @@ const MIGRATIONS = [
     backed_up_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 25: the media library. Past services, picked up from the church's YouTube channel (later also
+  // the hub's own recordings), each with its own title, trim and tags for the app; YouTube's copy
+  // is never changed.
+  `
+  CREATE TABLE media (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'youtube',
+    video_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'published',          -- published | hidden | skipped (not a full service)
+    skip_reason TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,                               -- the app's title
+    yt_title TEXT NOT NULL DEFAULT '',                 -- the title on YouTube, for reference
+    description TEXT NOT NULL DEFAULT '',              -- shown under the video in the app
+    thumbnail TEXT NOT NULL DEFAULT '',                -- YouTube's picture
+    image TEXT NOT NULL DEFAULT '',                    -- our own picture instead (/uploads/app/…)
+    duration INTEGER,                                  -- seconds, the whole video
+    start_sec INTEGER NOT NULL DEFAULT 0,              -- the trim: the app plays from here…
+    end_sec INTEGER,                                   -- …to here (NULL = the end)
+    recorded_at TEXT NOT NULL,                         -- UTC, when it was streamed or uploaded
+    day TEXT NOT NULL,                                 -- the church's date for it, YYYY-MM-DD
+    service_id INTEGER REFERENCES services(id) ON DELETE SET NULL,
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    speaker TEXT NOT NULL DEFAULT '',
+    series TEXT NOT NULL DEFAULT '',
+    scripture TEXT NOT NULL DEFAULT '',
+    topics TEXT NOT NULL DEFAULT '[]',
+    was_live INTEGER NOT NULL DEFAULT 0,
+    edited_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    edited_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX media_day ON media (status, day);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

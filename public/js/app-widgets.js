@@ -24,6 +24,7 @@ export const WIDGETS = {
   serving: { label: 'My serving', hint: 'Signed-in volunteers see when they serve next, with Accept.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },
   tasks: { label: 'My tasks', hint: 'Open tasks for whoever is signed in. Hidden for guests.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },
   times: { label: 'Service times', hint: 'From your repeating services, with each campus address.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: ['title'] },
+  sermon: { label: 'Latest message', hint: 'The newest message from Media in the hub, with its picture. Says “Live now” while you’re live.', sizes: ['T', 'W', 'L', 'F'], size: 'L', style: 'card', fields: ['title'] },
   watch: { label: 'Livestream', hint: 'The player (Full), or a tile that opens Watch.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: ['title'] },
   text: { label: 'Text', hint: 'A heading and a few lines.', sizes: ['T', 'W', 'F'], size: 'F', style: 'card', fields: ['title', 'text'] },
 };

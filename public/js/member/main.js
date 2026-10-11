@@ -11,6 +11,7 @@ import { homeGrid, tickCountdowns } from './widgets.js';
 import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
+import { watchPage, videoPage } from './watch.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -106,6 +107,8 @@ async function route() {
       drawTabs(t?.on ? t.id : 'more');
       return await eventPage(el, parts[1], q, { app, setTitle, signInHref });
     }
+    const wt = app.config.tabs.find((x) => x.type === 'watch') || { id: 'watch', label: 'Watch', on: false };
+    if (parts[1] && (parts[0] === 'watch' || parts[0] === wt.id)) { drawTabs(wt.on ? wt.id : 'more'); return await videoPage(el, wt, parts[1], q, { setTitle }); }
     if (parts[0] === 'tasks') { drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
     if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
@@ -128,8 +131,9 @@ async function home(el, tab) {
   const mine = has('serving') && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
   const myTasks = has('tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
   const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
+  const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
-    const ctx = { app, mine, tasks: myTasks, events, edit: editing, signInHref, videoEmbed };
+    const ctx = { app, mine, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
     mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
@@ -307,18 +311,7 @@ async function plan(el, id, q) {
   draw();
 }
 
-// ---------------------------------------------------------------- watch, give, page, link
-function watch(el, tab) {
-  setTitle(tab.label);
-  const url = app.config.watch_url;
-  const embed = videoEmbed(url);
-  mount(el, url
-    ? html`${embed ? html`<div class="m-video"><iframe src="${embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>` : ''}
-      <div class="card m-big-action" style="margin-top:14px">${icon('play')}<p class="muted" style="margin:0">${embed ? 'Not live right now? Catch up on past services there.' : 'Watch our services online.'}</p>
-        <a class="btn ${embed ? '' : 'primary'}" href="${url}" target="_blank" rel="noopener">Open ${embed ? 'the channel' : 'the livestream'} ${icon('external')}</a></div>`
-    : html`<div class="m-empty">${icon('play')}<p>The livestream isn’t set up yet.</p></div>`);
-}
-
+// ---------------------------------------------------------------- give, page, link
 async function give(el, tab, q) {
   setTitle(tab.label);
   // Built-in giving (Stripe) when it's set up; otherwise the giving link from the App Builder.
@@ -486,6 +479,6 @@ async function inbox(el) {
   if (d.unread) post('/notifications/read', {}).catch(() => {});
 }
 
-const PAGES = { home, serve, events: (el, tab) => eventsPage(el, tab, { app, setTitle, signInHref }), watch, give, connect, page, link, more, chat: (el, tab) => chat(el, tab), tasks: (el, tab, q) => tasks(el, tab, null, q) };
+const PAGES = { home, serve, events: (el, tab) => eventsPage(el, tab, { app, setTitle, signInHref }), watch: (el, tab, q) => watchPage(el, tab, q, { app, setTitle, videoEmbed }), give, connect, page, link, more, chat: (el, tab) => chat(el, tab), tasks: (el, tab, q) => tasks(el, tab, null, q) };
 
 boot().catch((e) => { document.body.textContent = e.message; });

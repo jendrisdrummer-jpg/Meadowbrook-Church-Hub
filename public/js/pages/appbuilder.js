@@ -7,7 +7,7 @@ const TAB_INFO = {
   home: ['Home screen', 'The widgets you arrange below.'],
   events: ['Events', 'Everything coming up, from Events in the hub, on a calendar with service times. People sign up and pay right in the app.'],
   serve: ['Serving', 'Sign in to see your schedule, accept or decline, and add dates away.'],
-  watch: ['Watch', 'Your livestream. YouTube links play right in the app.'],
+  watch: ['Watch', 'Past messages from Media (search, speaker, series, topic), and the livestream when you’re live.'],
   give: ['Give', 'Opens your online giving page.'],
   connect: ['Connect card', 'Guests tell you they were here. Cards arrive under Connect cards.'],
   chat: ['Chat', 'Team chats and groups, for signed-in volunteers. Always reachable from the chat button at the top too.'],
@@ -16,7 +16,7 @@ const TAB_INFO = {
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],
 };
-const WIDGET_ICON = { countdown: 'clock', events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', text: 'edit' };
+const WIDGET_ICON = { countdown: 'clock', events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', sermon: 'video', text: 'edit' };
 const ICONS = WIDGET_ICONS;
 const MAX_TABS = 5;
 
@@ -125,7 +125,7 @@ export default async function appBuilder(el) {
 
       <div class="card"><h2>Links</h2><div class="form">
         <label class="field wide">Livestream<input type="url" data-k="watch_url" value="${cfg.watch_url}" placeholder="https://www.youtube.com/@yourchurch/live or a channel link">
-          <span class="muted small">A YouTube channel link (youtube.com/channel/…) shows your live service whenever you’re live. Facebook and other links open in the browser.</span></label>
+          <span class="muted small">Once Media in the hub has your channel, Watch shows the library and goes live on its own; this link is used until then. A YouTube channel link (youtube.com/channel/…) shows your live service whenever you’re live.</span></label>
         <label class="field wide">Online giving<input type="url" data-k="give_url" value="${cfg.give_url}" placeholder="Your Subsplash or other giving page">
           <span class="muted small">Give opens this page. Built-in giving can replace it later.</span></label></div></div>
 

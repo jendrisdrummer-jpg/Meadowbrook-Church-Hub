@@ -1678,3 +1678,139 @@ test('the last admin cannot be demoted', async () => {
   const res = await api('admin', 'PATCH', `/users/${admin.id}`, { role: 'staff' });
   assert.equal(res.status, 400);
 });
+
+test('media: YouTube sync fills in from the order of service, own titles and trims, skipped, live now', async (t) => {
+  const { splitTitle, isoSeconds, checkLive } = await import('../server/media.js');
+  assert.deepEqual(splitTitle('Unshakable | Standing Firm', 'series_title'), { series: 'Unshakable', title: 'Standing Firm' });
+  assert.deepEqual(splitTitle('Standing Firm | Pastor D', 'title_speaker'), { title: 'Standing Firm', speaker: 'Pastor D' });
+  assert.deepEqual(splitTitle('Sunday Service', 'series_title'), { title: 'Sunday Service' });
+  assert.equal(isoSeconds('PT1H2M3S'), 3723);
+
+  const saved = { ...process.env };
+  t.after(() => { for (const k of ['MB_YOUTUBE_SITE', 'MB_YOUTUBE_API', 'YOUTUBE_API_KEY']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+
+  // A past Sunday with a message in the order of service.
+  const day = addDays(nextSunday(0), -14);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${day}T10:00` })).data;
+  await api('admin', 'PATCH', `/services/${svc.id}`, { series: 'Unshakable' });
+  await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'item', category: 'Message', title: 'Standing Firm', info: 'Pastor Dallas' });
+
+  // A stand-in YouTube: the channel page, its feed, video pages and the Data API.
+  const CH = 'UCabcdefghijklmnopqrstuv';
+  const live = { on: true };
+  const yt = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const send = (body, type = 'text/html') => res.writeHead(200, { 'content-type': type }).end(typeof body === 'string' ? body : JSON.stringify(body));
+    if (u.pathname === '/@mbchurch') return send(`<link rel="canonical" href="https://www.youtube.com/channel/${CH}">`);
+    if (u.pathname === '/feeds/videos.xml') {
+      const entry = (id, title, published, shorts = false) => `<entry><yt:videoId>${id}</yt:videoId><title>${title}</title><link rel="alternate" href="https://www.youtube.com/${shorts ? `shorts/${id}` : `watch?v=${id}`}"/><published>${published}</published><media:group><media:thumbnail url="https://i.ytimg.com/vi/${id}/hqdefault.jpg" width="480" height="360"/><media:description>d</media:description></media:group></entry>`;
+      return send(`<feed><title>MB Church &amp; Friends</title>${entry('liveLLLLLLL', 'Live', `${day}T20:00:00+00:00`)}${entry('upcomingUUU', 'Next week', `${day}T18:00:00+00:00`)}${entry('shortSSSSSS', 'Clip', `${day}T17:00:00+00:00`, true)}${entry('clipCCCCCCC', 'Promo', `${addDays(day, 2)}T17:00:00+00:00`)}${entry('serviceAAAA', 'Unshakable | Week 3', `${day}T15:30:00+00:00`)}</feed>`, 'application/xml');
+    }
+    if (u.pathname === '/watch') {
+      const v = u.searchParams.get('v');
+      if (v === 'serviceAAAA') return send('"videoDetails":{"videoId":"serviceAAAA","lengthSeconds":"5400","isLiveContent":true}');
+      if (v === 'clipCCCCCCC') return send('"lengthSeconds":"180"');
+      if (v === 'upcomingUUU') return send('"lengthSeconds":"0","isUpcoming":true');
+      if (v === 'liveLLLLLLL') return send(live.on ? '"isLiveNow":true,"isLive":true' : '"lengthSeconds":"4000","isLiveContent":true');
+      return res.writeHead(404).end();
+    }
+    if (u.pathname === '/api/channels') return send({ items: [{ id: CH, snippet: { title: 'MB Church' } }] }, 'application/json');
+    if (u.pathname === '/api/playlistItems') return send({ items: ['serviceAAAA', 'liveLLLLLLL', 'oldOOOOOOOO'].map((videoId) => ({ contentDetails: { videoId } })) }, 'application/json');
+    if (u.pathname === '/api/videos') {
+      assert.equal(u.searchParams.get('key'), 'yt-key');
+      const all = {
+        serviceAAAA: { snippet: { title: 'x', liveBroadcastContent: 'none', publishedAt: `${day}T15:30:00Z` }, contentDetails: { duration: 'PT1H30M' } },
+        oldOOOOOOOO: { snippet: { title: 'Old Sunday | Faith', liveBroadcastContent: 'none', publishedAt: '2024-03-03T16:00:00Z', thumbnails: { high: { url: 'https://i.ytimg.com/vi/old/hq.jpg' } } }, contentDetails: { duration: 'PT1H5M' } },
+        liveLLLLLLL: { snippet: { title: 'Sunday Live | Revival', liveBroadcastContent: live.on ? 'live' : 'none', publishedAt: `${day}T20:00:00Z` }, contentDetails: { duration: live.on ? 'P0D' : 'PT1H10M' }, liveStreamingDetails: { actualStartTime: `${day}T20:00:00Z` } },
+      };
+      return send({ items: u.searchParams.get('id').split(',').filter((id) => all[id]).map((id) => ({ id, ...all[id] })) }, 'application/json');
+    }
+    res.writeHead(404).end();
+  }).listen(0);
+  t.after(() => yt.close());
+  await new Promise((r) => yt.once('listening', r));
+  process.env.MB_YOUTUBE_SITE = `http://127.0.0.1:${yt.address().port}`;
+  process.env.MB_YOUTUBE_API = `http://127.0.0.1:${yt.address().port}/api`;
+  delete process.env.YOUTUBE_API_KEY;
+
+  // Staff only; the app's Watch is public and empty for now.
+  assert.equal((await api('vol', 'GET', '/media')).status, 403);
+  assert.deepEqual((await api(null, 'GET', '/watch')).data, { live: null, items: [] });
+  assert.equal((await api('admin', 'POST', '/media/sync', {})).status, 400);
+
+  // Without an API key: the @handle is found from its page, the latest videos from the feed.
+  const setup = await api('north', 'PUT', '/media/setup', { channel: 'youtube.com/@mbchurch', notify_live: true });
+  assert.equal(setup.status, 200);
+  assert.equal(setup.data.settings.channel_id, CH);
+  assert.equal(setup.data.settings.channel_title, 'MB Church & Friends');
+  assert.equal((await api('admin', 'POST', '/media/sync', { deep: true })).status, 400); // needs the key
+  const first = await api('admin', 'POST', '/media/sync', {});
+  assert.deepEqual(first.data, { added: 1, skipped: 2 });
+
+  // Live now: the app shows it, and everyone hears about it once.
+  let watch = (await api(null, 'GET', '/watch')).data;
+  assert.equal(watch.live.video_id, 'liveLLLLLLL');
+  assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'media').length, 1);
+  await api('admin', 'POST', '/media/sync', {});
+  assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'media').length, 1);
+
+  // The service's details came from the order of service, not the YouTube title.
+  assert.equal(watch.items.length, 1);
+  const m = watch.items[0];
+  assert.equal(m.title, 'Standing Firm');
+  assert.equal(m.speaker, 'Pastor Dallas');
+  assert.equal(m.series, 'Unshakable');
+  assert.equal(m.campus, 'North');
+  assert.equal(m.day, day);
+  assert.equal(m.length, 5400);
+
+  // Skipped: the Short and the 3-minute clip, with why.
+  const skipped = (await api('admin', 'GET', '/media?status=skipped')).data;
+  assert.deepEqual(skipped.items.map((x) => x.skip_reason).sort(), ['A YouTube Short', 'Under 20 minutes']);
+
+  // The app's own title and trim; YouTube's title is kept for reference.
+  assert.equal((await api('admin', 'PATCH', `/media/${m.id}`, { start: '20:00', end: '10:00' })).status, 400);
+  assert.equal((await api('admin', 'PATCH', `/media/${m.id}`, { start: 'soon' })).status, 400);
+  assert.equal((await api('admin', 'PATCH', `/media/${m.id}`, { title: 'Standing Firm (Part 3)', start: '12:30', end: '1:20:00', topics: ['Faith', 'Faith', 'Prayer'], scripture: 'Eph 6:13' })).status, 200);
+  const item = (await api(null, 'GET', `/watch/${m.id}`)).data;
+  assert.equal(item.title, 'Standing Firm (Part 3)');
+  assert.equal(item.start, 750);
+  assert.equal(item.end, 4800);
+  assert.equal(item.length, 4050);
+  assert.deepEqual(item.topics, ['Faith', 'Prayer']);
+  assert.equal((await api('admin', 'GET', `/media/${m.id}`)).data.yt_title, 'Unshakable | Week 3');
+  // Trimming to the very end means "to the end".
+  await api('admin', 'PATCH', `/media/${m.id}`, { end: '1:30:00' });
+  assert.equal((await api(null, 'GET', `/watch/${m.id}`)).data.end, null);
+
+  // A skipped one can be published; a hidden one leaves the app.
+  const clip = skipped.items.find((x) => x.skip_reason.startsWith('Under'));
+  await api('admin', 'PATCH', `/media/${clip.id}`, { status: 'published' });
+  assert.equal((await api(null, 'GET', '/watch')).data.items.length, 2);
+  await api('admin', 'PATCH', `/media/${clip.id}`, { status: 'hidden' });
+  assert.equal((await api(null, 'GET', '/watch')).data.items.length, 1);
+  assert.equal((await api(null, 'GET', `/watch/${clip.id}`)).status, 404);
+
+  // Search in the hub finds it by topic.
+  const found = (await api('admin', 'GET', '/search?q=prayer')).data.groups.find((g) => g.key === 'media');
+  assert.equal(found.items[0].id, m.id);
+
+  // With an API key: the stream ends, the live check brings the recording in, with whatever else
+  // the channel has that the feed didn't show.
+  process.env.YOUTUBE_API_KEY = 'yt-key';
+  live.on = false;
+  await checkLive(db);
+  watch = (await api(null, 'GET', '/watch')).data;
+  assert.equal(watch.live, null);
+  const rec = watch.items.find((x) => x.video_id === 'liveLLLLLLL');
+  assert.equal(rec.length, 4200);
+  const deep = await api('admin', 'POST', '/media/sync', { deep: true });
+  assert.deepEqual(deep.data, { added: 0, skipped: 0 });
+  const old = (await api(null, 'GET', '/watch')).data.items.find((x) => x.video_id === 'oldOOOOOOOO');
+  assert.equal(old.title, 'Old Sunday | Faith'); // plain titles by default
+
+  // Adding one by its address: one already here just comes back.
+  const again = await api('admin', 'POST', '/media', { url: 'https://youtu.be/serviceAAAA' });
+  assert.equal(again.data.existed, true);
+  assert.equal((await api('admin', 'POST', '/media', { url: 'not a video' })).status, 400);
+});
