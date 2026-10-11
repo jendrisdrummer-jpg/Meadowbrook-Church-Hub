@@ -229,3 +229,4 @@ a.w:hover { text-decoration: none; }
 .w-play .ic path { fill: currentColor; }
 .w-live { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: #e5383b; color: #fff; font-size: 12px; font-weight: 700; }
 .w-live .ic { width: 14px; height: 14px; }
+.m-video video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }

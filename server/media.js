@@ -21,14 +21,16 @@ export const TITLE_FORMATS = {
   title_series: 'Title | Series',
 };
 
-export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true };
+export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30 };
 export const mediaSettings = (db) => ({ ...DEFAULTS, ...getSetting(db, 'media', {}) });
 const status = (db) => getSetting(db, 'media_status', {});
 const setStatus = (db, changes) => setSetting(db, 'media_status', { ...status(db), ...changes });
 export const liveNow = (db) => getSetting(db, 'media_live', null);
+// Mux is set up and has a stream key: it's where live and recordings come from.
+export const muxStreaming = (db) => Boolean(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET && getSetting(db, 'mux', {}).live_stream_id);
 
-const utc = (d) => new Date(d).toISOString().replace('T', ' ').slice(0, 19);
-const churchTz = (db) => db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC';
+export const utc = (d) => new Date(d).toISOString().replace('T', ' ').slice(0, 19);
+export const churchTz = (db) => db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC';
 
 // ---------------------------------------------------------------- talking to YouTube
 async function getText(url, { json = false } = {}) {
@@ -260,9 +262,9 @@ function skipReason(cfg, v, row) {
 }
 
 export function insertMedia(db, row, { status = 'published', skip = '' } = {}) {
-  const info = db.prepare(`INSERT INTO media (video_id, status, skip_reason, title, yt_title, description, thumbnail, duration, recorded_at, day, service_id, campus_id, speaker, series, was_live)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (video_id) DO NOTHING`).run(
-    row.video_id, status, skip, row.title, row.yt_title, row.description, row.thumbnail, row.duration ?? null, row.recorded_at, row.day,
+  const info = db.prepare(`INSERT INTO media (source, video_id, mux_asset_id, playback_id, status, skip_reason, title, yt_title, description, thumbnail, duration, recorded_at, day, service_id, campus_id, speaker, series, was_live)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(
+    row.source || 'youtube', row.video_id, row.mux_asset_id ?? null, row.playback_id ?? null, status, skip, row.title, row.yt_title || '', row.description || '', row.thumbnail, row.duration ?? null, row.recorded_at, row.day,
     row.service_id, row.campus_id, row.speaker, row.series, row.was_live);
   return info.changes ? Number(info.lastInsertRowid) : null;
 }
@@ -272,7 +274,7 @@ export { describe as describeVideo };
 // ---------------------------------------------------------------- notices
 const everyone = (db) => db.prepare('SELECT id FROM users WHERE active = 1').all().map((u) => u.id);
 
-function announce(db, msg) {
+export function announce(db, msg) {
   const church = getSetting(db, 'church_name', 'Church');
   const full = { kind: 'media', url: '/#/media', data: { from: church }, ...msg };
   notify(db, everyone(db), full);
@@ -287,7 +289,7 @@ function setLive(db, cfg, v) {
   if (!v) { setSetting(db, 'media_live', null); return true; }
   const parsed = splitTitle(v.title, cfg.title_format);
   const title = (parsed.title || v.title || 'Live').slice(0, 200);
-  setSetting(db, 'media_live', { video_id: v.video_id, title, since: utc(Date.now()) });
+  setSetting(db, 'media_live', { source: 'youtube', video_id: v.video_id, title, since: utc(Date.now()) });
   if (cfg.notify_live) announce(db, { title: `We’re live: ${title}`, body: 'Tap to watch now.', app_url: '/app/#/watch', tag: 'live' });
   return true;
 }
@@ -303,7 +305,8 @@ export function syncMedia(db, opts = {}) {
 
 async function doSync(db, { deep = false } = {}) {
   const cfg = mediaSettings(db);
-  if (!cfg.channel_id) return { added: 0, skipped: 0 };
+  // Streaming through Mux: recordings come from there, and YouTube only for older videos.
+  if (!cfg.channel_id || (muxStreaming(db) && !deep)) return { added: 0, skipped: 0 };
   const first = !db.prepare('SELECT 1 FROM media LIMIT 1').get();
   const knownIds = new Set(db.prepare('SELECT video_id FROM media').all().map((r) => r.video_id));
   let videos;
@@ -341,7 +344,7 @@ async function doSync(db, { deep = false } = {}) {
 // starts): are we live? Outside those times the hourly sync is enough.
 export async function checkLive(db) {
   const cfg = mediaSettings(db);
-  if (!cfg.channel_id) return null;
+  if (!cfg.channel_id || muxStreaming(db)) return null;
   const now = localNow(churchTz(db));
   const at = new Date(`${now.date}T${now.time}:00Z`).getTime();
   const near = db.prepare('SELECT starts_at FROM services WHERE substr(starts_at, 1, 10) BETWEEN ? AND ?')
@@ -365,4 +368,4 @@ export async function checkLive(db) {
   return live;
 }
 
-export const mediaStatus = (db) => ({ ...status(db), live: liveNow(db), api_key: hasApiKey() });
+export const mediaStatus = (db) => ({ ...status(db), live: liveNow(db), api_key: hasApiKey(), mux: muxStreaming(db) });

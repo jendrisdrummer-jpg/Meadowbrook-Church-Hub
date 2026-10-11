@@ -25,6 +25,7 @@ import searchRoutes from './routes/search.js';
 import backupRoutes from './routes/backups.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
+import { muxTick } from './mux.js';
 import { maybeNightly } from './backup.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
@@ -206,4 +207,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   setTimeout(mediaSync, 2 * 60e3).unref();
   setInterval(mediaSync, 60 * 60e3).unref();
   setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
+  // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
+  setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
 }

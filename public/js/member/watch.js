@@ -15,6 +15,8 @@ const card = (m, tab) => html`<a class="wv-card" href="#/${tab.id}/${m.id}">
   <span class="wv-thumb" style="background-image:url('${m.picture}')">${m.length ? html`<span class="wv-len">${hms(m.length)}</span>` : ''}</span>
   <span class="wv-text"><b>${m.title}</b><span class="muted small">${meta(m)}</span>${m.series ? html`<span class="wv-series">${m.series}</span>` : ''}</span></a>`;
 
+export const livePicture = (live) => (live.playback_id ? `https://image.mux.com/${live.playback_id}/thumbnail.jpg?width=960` : `https://i.ytimg.com/vi/${live.video_id}/hqdefault_live.jpg`);
+
 let player = null;
 const stop = () => { player?.destroy(); player = null; };
 window.addEventListener('hashchange', stop);
@@ -22,7 +24,7 @@ window.addEventListener('hashchange', stop);
 async function play(box, m, onEnd) {
   stop();
   box.classList.add('playing');
-  player = await mountPlayer(box, { videoId: m.video_id, start: m.start, end: m.end, autoplay: true, onEnd });
+  player = await mountPlayer(box, { videoId: m.video_id, playbackId: m.playback_id, poster: m.picture, start: m.start, end: m.end, autoplay: true, onEnd });
 }
 
 // The library. filters: { q, speaker, series, topic } from the address (#/watch?topic=Faith).
@@ -63,7 +65,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
   const pick = (name, label, list) => (list.length > 1 ? html`<select data-f="${name}" aria-label="${label}"><option value="">${label}</option>${list.map((x) => html`<option value="${x}">${x}</option>`)}</select>` : '');
 
   mount(el, html`<div data-featured>
-      ${live ? html`<div class="wv-live"><div class="m-video wv-box" data-live-box>${poster({ id: 'live', picture: `https://i.ytimg.com/vi/${live.video_id}/hqdefault_live.jpg`, title: live.title }, { big: true })}</div>
+      ${live ? html`<div class="wv-live"><div class="m-video wv-box" data-live-box>${poster({ id: 'live', picture: livePicture(live), title: live.title }, { big: true })}</div>
           <div class="wv-head"><span class="wv-badge">${icon('video')} Live</span><b>${live.title}</b></div></div>`
         : latest ? html`<div class="wv-feature"><div class="m-video wv-box" data-box="${latest.id}">${poster(latest, { big: true })}</div>
           <a class="wv-head" href="#/${tab.id}/${latest.id}"><span class="wv-kicker">Latest message</span><b>${latest.title}</b><span class="muted small">${meta(latest)}</span></a></div>` : ''}
@@ -93,7 +95,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
     const p = e.target.closest('[data-play]');
     if (p) {
       e.preventDefault();
-      if (p.dataset.play === 'live') return play(el.querySelector('[data-live-box]'), { video_id: live.video_id, start: 0, end: null });
+      if (p.dataset.play === 'live') return play(el.querySelector('[data-live-box]'), { video_id: live.video_id, playback_id: live.playback_id, picture: livePicture(live), start: 0, end: null });
       return play(p.parentElement, latest, () => { location.hash = `#/${tab.id}/${latest.id}?ended=1`; });
     }
     const s = e.target.closest('[data-series]');

@@ -4,6 +4,7 @@ import { html, raw, icon, fmtDate, fmtTime, DAYS } from '../lib.js';
 import { taskRow } from '../tasks.js';
 import { WIDGETS, SIZES, isHex } from '../app-widgets.js';
 import { whenText, badge } from './events.js';
+import { livePicture } from './watch.js';
 
 const clock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -117,7 +118,7 @@ export function widget(w, ctx) {
     case 'sermon': {
       const watchTab = tabFor('watch');
       if (ctx.live) {
-        return box(w, html`<span class="w-sermon-pic" style="background-image:url('https://i.ytimg.com/vi/${ctx.live.video_id}/hqdefault_live.jpg')"><span class="w-live">${icon('video')} Live now</span></span>
+        return box(w, html`<span class="w-sermon-pic" style="background-image:url('${livePicture(ctx.live)}')"><span class="w-live">${icon('video')} Live now</span></span>
           <span class="w-sermon-text"><b class="w-label">${ctx.live.title}</b><span class="w-sub">Tap to watch</span></span>`, { link: `#/${watchTab}`, cls: 'w-sermon' });
       }
       const m = ctx.sermon;

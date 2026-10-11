@@ -7,20 +7,29 @@ import { setSetting } from '../db.js';
 import { bad, notFound, int, str, audit } from '../http.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import {
-  mediaSettings, mediaStatus, liveNow, syncMedia, resolveChannel, fetchVideo, describeVideo, insertMedia, fromService, hasApiKey, TITLE_FORMATS,
+  mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, fetchVideo, describeVideo, insertMedia, fromService, hasApiKey, TITLE_FORMATS,
 } from '../media.js';
+import { muxTick, muxConfigured, muxSettings, ensureLiveStream, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
 
 const topicsOf = (m) => { try { return JSON.parse(m.topics || '[]'); } catch { return []; } };
 
 // What the app gets for one video: our title, picture and trim (never YouTube's title).
+// Mux: the trimmed copy once it's ready (it plays whole); until then the full recording between
+// the trim points.
+function playback(m) {
+  if (m.source !== 'mux') return { source: 'youtube', start: m.start_sec, end: m.end_sec };
+  const clip = m.clip_status === 'ready' && m.clip_playback_id && m.clip_start === m.start_sec && (m.clip_end ?? null) === (m.end_sec ?? null);
+  if (clip || m.raw_deleted) return { source: 'mux', playback_id: m.clip_playback_id || m.playback_id, start: 0, end: null };
+  return { source: 'mux', playback_id: m.playback_id, start: m.start_sec, end: m.end_sec };
+}
+
 const publicItem = (m) => ({
   id: m.id,
-  video_id: m.video_id,
+  video_id: m.source === 'mux' ? null : m.video_id,
+  ...playback(m),
   title: m.title,
   description: m.description,
-  picture: m.image || m.thumbnail,
-  start: m.start_sec,
-  end: m.end_sec,
+  picture: m.image || (m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : m.thumbnail),
   length: m.duration != null || m.end_sec != null ? Math.max(0, (m.end_sec ?? m.duration) - m.start_sec) : null,
   day: m.day,
   speaker: m.speaker,
@@ -48,7 +57,7 @@ export default function mediaRoutes(db) {
   r.get('/watch', (_req, res) => {
     const items = db.prepare(`${LIST} WHERE m.status = 'published' ORDER BY m.day DESC, m.recorded_at DESC LIMIT 600`).all().map(publicItem);
     const live = liveNow(db);
-    res.json({ live: live ? { video_id: live.video_id, title: live.title } : null, items });
+    res.json({ live: live && live.public !== false ? { source: live.source || 'youtube', video_id: live.video_id || null, playback_id: live.playback_id || null, title: live.title } : null, items });
   });
 
   r.get('/watch/:id', (req, res) => {
@@ -64,7 +73,7 @@ export default function mediaRoutes(db) {
   r.get('/media', requireRole('staff'), (req, res) => {
     const status = ['published', 'hidden', 'skipped'].includes(req.query.status) ? req.query.status : 'published';
     const items = db.prepare(`${LIST} WHERE m.status = ? ORDER BY m.day DESC, m.recorded_at DESC LIMIT 1000`).all(status)
-      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at) }));
+      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at), clip_status: m.clip_status }));
     const counts = Object.fromEntries(db.prepare('SELECT status, COUNT(*) n FROM media GROUP BY status').all().map((x) => [x.status, x.n]));
     const all = db.prepare("SELECT speaker, series, topics FROM media WHERE status != 'skipped'").all();
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -78,8 +87,34 @@ export default function mediaRoutes(db) {
     });
   });
 
+  const muxInfo = () => {
+    const m = muxSettings(db);
+    return { configured: muxConfigured(), live_stream_id: m.live_stream_id || null, server: RTMP_SERVER, stream_key: m.stream_key || '', youtube_forward: Boolean(m.simulcast_id) };
+  };
   r.get('/media/setup', requireRole('staff'), (_req, res) => {
-    res.json({ settings: mediaSettings(db), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey() });
+    res.json({ settings: mediaSettings(db), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey(), mux: muxInfo() });
+  });
+
+  // Mux: make the stream key (once), reset it, and optionally forward the stream to YouTube.
+  const muxCall = async (res, fn) => {
+    try { await fn(); } catch (e) { throw bad(e.message); }
+    res.json(muxInfo());
+  };
+  r.post('/media/mux/stream', requireRole('staff'), (req, res) => muxCall(res, async () => { await ensureLiveStream(db); audit(db, req, 'media.mux.stream'); }));
+  r.post('/media/mux/reset-key', requireRole('admin'), (req, res) => muxCall(res, async () => { await resetStreamKey(db); audit(db, req, 'media.mux.reset_key'); }));
+  r.put('/media/mux/youtube', requireRole('staff'), (req, res) => muxCall(res, async () => {
+    const key = str(req.body?.key, 200);
+    const url = str(req.body?.url, 300);
+    if (url && !/^rtmps?:\/\//.test(url)) throw new Error('The server address starts with rtmp:// or rtmps://');
+    await setYouTubeForward(db, { url, key });
+    audit(db, req, 'media.mux.youtube', { on: Boolean(key) });
+  }));
+  // A stream outside service times (a rehearsal) waits here until someone shows it.
+  r.post('/media/live/show', requireRole('staff'), (req, res) => {
+    const live = showLive(db);
+    if (!live) throw bad('Nothing is live right now.');
+    audit(db, req, 'media.live.show');
+    res.json({ live });
   });
 
   r.put('/media/setup', requireRole('staff'), async (req, res) => {
@@ -97,6 +132,7 @@ export default function mediaRoutes(db) {
     if (b.min_minutes !== undefined) cfg.min_minutes = Math.min(180, Math.max(1, Math.round(Number(b.min_minutes) || 20)));
     if (typeof b.notify_new === 'boolean') cfg.notify_new = b.notify_new;
     if (typeof b.notify_live === 'boolean') cfg.notify_live = b.notify_live;
+    if (b.keep_full_days !== undefined) cfg.keep_full_days = Math.min(3650, Math.max(0, Math.round(Number(b.keep_full_days) || 0)));
     setSetting(db, 'media', cfg);
     audit(db, req, 'media.setup', { channel: cfg.channel_id });
     res.json({ settings: cfg, status: mediaStatus(db) });
@@ -104,11 +140,18 @@ export default function mediaRoutes(db) {
 
   // Look now. deep: go back through the whole channel (with the API key).
   r.post('/media/sync', requireRole('staff'), async (req, res) => {
-    if (!mediaSettings(db).channel_id) throw bad('Add your YouTube channel first.');
+    const streaming = muxStreaming(db);
+    if (!mediaSettings(db).channel_id && !streaming) throw bad('Add your YouTube channel or set up streaming first.');
     if (req.body?.deep && !hasApiKey()) throw bad('Bringing in older videos needs a YouTube API key (see the steps under Setup).');
+    const before = db.prepare("SELECT COUNT(*) n FROM media WHERE status = 'published'").get().n;
+    if (streaming && !req.body?.deep) {
+      try { await muxTick(db); } catch (e) { throw bad(`Couldn’t reach Mux: ${e.message}`); }
+    }
+    let r = { added: 0, skipped: 0 };
     try {
-      res.json(await syncMedia(db, { deep: Boolean(req.body?.deep) }));
+      r = await syncMedia(db, { deep: Boolean(req.body?.deep) });
     } catch (e) { throw bad(`Couldn’t reach YouTube: ${e.message}`); }
+    res.json({ ...r, added: Math.max(r.added, db.prepare("SELECT COUNT(*) n FROM media WHERE status = 'published'").get().n - before) });
   });
 
   // Add one video by its address (a special, or something the sync skipped).
@@ -133,6 +176,7 @@ export default function mediaRoutes(db) {
     // Services that day, to link it to another one.
     const services = db.prepare('SELECT s.id, s.title, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE substr(s.starts_at, 1, 10) = ? ORDER BY s.starts_at').all(m.day);
     res.json({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
+      raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null,
       campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live) });
   });
 
@@ -143,7 +187,7 @@ export default function mediaRoutes(db) {
     res.json(s);
   });
 
-  r.patch('/media/:id', requireRole('staff'), (req, res) => {
+  r.patch('/media/:id', requireRole('staff'), async (req, res) => {
     const m = db.prepare('SELECT * FROM media WHERE id = ?').get(int(req.params.id));
     if (!m) throw notFound('That video');
     const b = req.body || {};
@@ -168,6 +212,8 @@ export default function mediaRoutes(db) {
     const end = b.end !== undefined ? seconds(b.end, 'End') : m.end_sec;
     if (end != null && end <= start) throw bad('The end has to come after the start.');
     if (m.duration && start >= m.duration) throw bad('The start is past the end of the video.');
+    const trimChanged = (b.start !== undefined && start !== m.start_sec) || (b.end !== undefined && (end ?? null) !== (m.end_sec ?? null));
+    if (trimChanged && m.raw_deleted) throw bad('The full recording has been removed to save storage, so this one can’t be trimmed again.');
     if (b.start !== undefined) set.start_sec = start;
     if (b.end !== undefined) set.end_sec = end != null && m.duration && end >= m.duration ? null : end;
     if (b.status !== undefined) {
@@ -179,6 +225,10 @@ export default function mediaRoutes(db) {
     if (keys.length) {
       db.prepare(`UPDATE media SET ${keys.map((k) => `${k} = ?`).join(', ')}, edited_by = ?, edited_at = datetime('now') WHERE id = ?`).run(...keys.map((k) => set[k]), req.user.id, m.id);
       audit(db, req, 'media.edit', { id: m.id, fields: keys });
+    }
+    // Streamed through Mux: a new trim makes a new trimmed copy.
+    if (trimChanged && m.source === 'mux') {
+      try { await makeClip(db, m.id); } catch (e) { return res.json({ ok: true, clip_error: e.message }); }
     }
     res.json({ ok: true });
   });

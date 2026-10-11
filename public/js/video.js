@@ -1,6 +1,6 @@
-// Playing library videos, in the hub's editor and the app. The video itself is on YouTube; the
-// app shows its own picture, title and play button, and loads the player only when someone taps
-// play, so it feels like part of the app.
+// Playing library videos, in the hub's editor and the app. Streamed through Mux (the church's own
+// host), it's a plain video player of our own. From YouTube, the app shows its own picture,
+// title and play button and loads YouTube's player only when someone taps play.
 
 // 3723 → "1:02:03", 610 → "10:10"
 export function hms(sec) {
@@ -52,9 +52,53 @@ const embedUrl = (videoId, { start = 0, end = null, autoplay = false } = {}) => 
   return `https://www.youtube-nocookie.com/embed/${videoId}?${q}`;
 };
 
+// Browsers other than Safari need hls.js to play HLS (Mux's format).
+let hlsLib;
+function loadHls() {
+  hlsLib ||= new Promise((resolve) => {
+    if (window.Hls) return resolve(window.Hls);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.6.19/dist/hls.min.js';
+    s.onload = () => resolve(window.Hls || null);
+    s.onerror = () => resolve(null);
+    document.head.append(s);
+  });
+  return hlsLib;
+}
+
+// Our own player for a Mux playback id: just the trimmed part, live or recorded.
+async function mountHls(box, { playbackId, start = 0, end = null, autoplay = false, onEnd, poster = '' }) {
+  const v = document.createElement('video');
+  Object.assign(v, { controls: true, playsInline: true, autoplay, poster, preload: 'metadata' });
+  v.setAttribute('playsinline', '');
+  box.replaceChildren(v);
+  const src = `https://stream.mux.com/${playbackId}.m3u8`;
+  let hls = null;
+  if (v.canPlayType('application/vnd.apple.mpegurl')) v.src = src;
+  else {
+    const Hls = await loadHls();
+    if (Hls?.isSupported()) { hls = new Hls({ startPosition: start || -1 }); hls.loadSource(src); hls.attachMedia(v); } else v.src = src;
+  }
+  let ended = false;
+  v.addEventListener('loadedmetadata', () => { if (start && v.currentTime < start) v.currentTime = start; }, { once: true });
+  v.addEventListener('timeupdate', () => {
+    if (end && v.currentTime >= end && !ended) { ended = true; v.pause(); onEnd?.(); }
+    if (end && v.currentTime < end - 1) ended = false;
+  });
+  v.addEventListener('ended', () => { if (!ended) { ended = true; onEnd?.(); } });
+  if (autoplay) v.play().catch(() => {});
+  return {
+    seek(sec) { ended = false; v.currentTime = sec; v.play().catch(() => {}); },
+    time: () => v.currentTime,
+    pause() { v.pause(); },
+    destroy() { hls?.destroy(); v.pause(); v.removeAttribute('src'); v.load(); box.replaceChildren(); },
+  };
+}
+
 // A player in `box` that plays just the trimmed part. onEnd runs at the trim's end.
 // Returns { seek(sec), time() → sec|null, pause(), destroy() }.
-export async function mountPlayer(box, { videoId, start = 0, end = null, autoplay = false, onEnd } = {}) {
+export async function mountPlayer(box, { videoId, playbackId, start = 0, end = null, autoplay = false, onEnd, poster } = {}) {
+  if (playbackId) return mountHls(box, { playbackId, start, end, autoplay, onEnd, poster });
   const YT = await loadPlayerApi();
   if (!YT) {
     box.innerHTML = `<iframe src="${embedUrl(videoId, { start, end, autoplay })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="Video"></iframe>`;
