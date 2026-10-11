@@ -1,6 +1,6 @@
 // Media: the library the app's Watch tab shows. New services come in from YouTube on their own;
 // here staff fix titles and trims, tag them, and set up the channel.
-import { get, post, put, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce } from '../lib.js';
+import { get, post, put, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce, confirm } from '../lib.js';
 import { setTitle, go } from '../app.js';
 import { hms } from '../video.js';
 
@@ -16,8 +16,8 @@ const ago = (utc) => {
 
 export default async function media(el, tab) {
   const setup = await get('/media/setup');
-  tab ||= setup.settings.channel_id ? 'published' : 'setup';
-  setTitle('Media', html`<button class="btn" data-sync ${setup.settings.channel_id ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
+  tab ||= setup.settings.channel_id || setup.status.mux ? 'published' : 'setup';
+  setTitle('Media', html`<button class="btn" data-sync ${setup.settings.channel_id || setup.status.mux ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
     <button class="btn primary" data-add>${icon('plus')} Add a video</button>`);
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-sync]').onclick = async (e) => {
@@ -41,9 +41,12 @@ export default async function media(el, tab) {
   };
 
   const head = (counts) => html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}${counts?.[k] ? html` <span class="muted">${counts[k]}</span>` : ''}</button>`)}</div>`;
-  el.onclick = (e) => {
+  el.onclick = async (e) => {
     const t = e.target.closest('[data-tab]');
     if (t) go(t.dataset.tab === 'published' ? '/media' : `/media/${t.dataset.tab}`);
+    if (e.target.closest('[data-show-live]')) {
+      try { await post('/media/live/show', {}); toast('It’s in the app now.'); media(el, tab); } catch (err) { fail(err); }
+    }
   };
 
   if (tab === 'setup') return drawSetup(el, setup, head);
@@ -66,14 +69,15 @@ export default async function media(el, tab) {
       : html`<div class="card empty">${d.items.length ? 'Nothing matches.' : tab === 'skipped' ? 'Nothing skipped. Short clips and Shorts land here, in case you want one in the library.' : tab === 'hidden' ? 'Nothing hidden.' : 'No videos yet. They come in on their own after each service; Check for new videos looks now.'}</div>`);
   };
   mount(el, html`${head(d.counts)}
-    ${live ? html`<div class="alert good md-live"><span class="md-dot"></span><b>Live now:</b> ${live.title}. The app’s Watch tab is showing it.</div>` : ''}
+    ${live && live.public === false ? html`<div class="alert md-live"><span class="md-dot"></span><span class="grow"><b>Receiving a stream</b> outside service times (a rehearsal?). It isn’t in the app.</span><button class="btn small primary" data-show-live>Show it in the app</button></div>`
+      : live ? html`<div class="alert good md-live"><span class="md-dot"></span><b>Live now:</b> ${live.title}. The app’s Watch tab is showing it.</div>` : ''}
     ${d.status.last_error ? html`<div class="alert bad">The last check didn’t work: ${d.status.last_error}</div>` : ''}
     ${tab === 'skipped' ? html`<p class="muted" style="margin-top:0">Videos that didn’t look like a full service (Shorts, or under ${d.settings.min_minutes} minutes). Open one and choose <b>Publish</b> to add it to the library.</p>` : ''}
     <div class="row md-tools"><input type="search" placeholder="Search titles, speakers, topics…" data-q class="grow">
       ${d.speakers.length ? html`<select data-speaker>${options(d.speakers.map((x) => ({ value: x, label: x })), '', { blank: 'Every speaker' })}</select>` : ''}
       ${d.series.length ? html`<select data-series>${options(d.series.map((x) => ({ value: x, label: x })), '', { blank: 'Every series' })}</select>` : ''}</div>
     <div data-list></div>
-    <p class="muted small">Last checked YouTube ${ago(d.status.last_sync)}${d.settings.channel_title ? ` (${d.settings.channel_title})` : ''}. New services come in on their own within the hour.</p>`);
+    <p class="muted small">${d.status.mux ? 'Streaming through Mux: each service comes in a few minutes after the stream ends.' : html`Last checked YouTube ${ago(d.status.last_sync)}${d.settings.channel_title ? ` (${d.settings.channel_title})` : ''}. New services come in on their own within the hour.`}</p>`);
   el.querySelector('[data-q]').oninput = debounce((e) => { q = e.target.value; draw(); }, 150);
   const sp = el.querySelector('[data-speaker]');
   if (sp) sp.onchange = () => { speaker = sp.value; draw(); };
@@ -82,11 +86,42 @@ export default async function media(el, tab) {
   draw();
 }
 
+function streamingCard(x, s) {
+  const steps = html`<ol class="small md-steps">
+    <li>Sign up at <a href="https://dashboard.mux.com/signup" target="_blank" rel="noopener">dashboard.mux.com/signup</a> and add a card (Billing).</li>
+    <li>In Mux: <b>Settings → Access Tokens → Generate new token</b>. Pick the <b>Production</b> environment and tick <b>Mux Video</b> with Read and Write.</li>
+    <li>In Render → your service → <b>Environment</b>, add <code>MUX_TOKEN_ID</code> and <code>MUX_TOKEN_SECRET</code> with the two values it shows, and save. (Only there, never in an email or chat.)</li>
+    <li>Come back here for your stream key.</li></ol>`;
+  if (!x.configured) {
+    return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill">Not set up</span></h2>
+      <p class="small" style="margin:0">Stream from vMix to the church’s own video host (Mux). The app plays it in its own player, with no YouTube, and every service lands here when it ends, ready to trim.</p>${steps}</div>`;
+  }
+  if (!x.live_stream_id) {
+    return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill good">${icon('check')} Mux connected</span></h2>
+      <p class="small" style="margin:0">Make your stream key. It stays the same every week, so it goes into vMix once.</p>
+      <button class="btn primary" data-make-key>${icon('video')} Make the stream key</button></div>`;
+  }
+  return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill good">${icon('check')} Ready</span></h2>
+    <p class="small" style="margin:0">In vMix: <b>Settings → Outputs / Streaming</b> (the gear next to <b>Stream</b>), Destination <b>Custom RTMP Server</b>:</p>
+    <div class="md-key"><span class="muted small">URL</span><code>${x.server}</code><button class="btn small ghost" data-copy="${x.server}">${icon('copy')} Copy</button></div>
+    <div class="md-key"><span class="muted small">Stream key</span><code data-key>${'•'.repeat(18)}</code><button class="btn small ghost" data-reveal>Show</button><button class="btn small ghost" data-copy="${x.stream_key}">${icon('copy')} Copy</button></div>
+    <p class="muted small" style="margin:0">Anyone with the key can stream to your app, so keep it to the media team. During a service (from 30 minutes before) it goes live in the app on its own; any other time it waits here until you choose <b>Show it in the app</b>.</p>
+    <h3 style="margin:6px 0 0">Also on YouTube</h3>
+    <p class="small" style="margin:0">Cheapest: in vMix, add YouTube as a second destination (vMix sends both at once). Or have Mux forward it (about 2¢ a minute):</p>
+    <form class="row" data-yt style="gap:8px;flex-wrap:wrap">${x.youtube_forward
+      ? html`<span class="pill good">${icon('check')} Forwarding to YouTube</span><button type="button" class="btn small ghost" data-yt-off>Stop</button>`
+      : html`<input type="password" name="key" placeholder="YouTube stream key (YouTube Studio → Go live → Stream)" class="grow" autocomplete="off"><button class="btn small">Forward to YouTube</button>`}</form>
+    <form class="row" data-keep style="gap:8px;align-items:flex-end;flex-wrap:wrap"><label class="field" style="margin:0">After trimming, keep the full recording<select name="keep_full_days">${options([{ value: 7, label: 'For a week' }, { value: 30, label: 'For 30 days' }, { value: 90, label: 'For 90 days' }, { value: 0, label: 'Always' }], s.keep_full_days ?? 30)}</select></label>
+      <span class="muted small grow">Then only the trimmed copy is kept, which costs less to store.</span></form>
+    <button class="btn small ghost danger" data-reset-key style="justify-self:start">Make a new stream key</button></div>`;
+}
+
 function drawSetup(el, setup, head) {
   const { settings: s, status, formats, api_key: hasKey } = setup;
-  mount(el, html`${head(null)}<div class="grid two md-setup">
+  mount(el, html`${head(null)}${streamingCard(setup.mux, s)}<div class="grid two md-setup">
     <form class="card stack" data-form>
       <h2 style="margin:0">YouTube channel</h2>
+      ${status.mux ? html`<p class="small" style="margin:0"><span class="pill">Older videos only</span> You’re streaming through Mux, so new services come from there. The channel is for bringing in past services.</p>` : ''}
       <p class="muted small" style="margin:0">Every hour the hub checks your channel. When a service is over, it lands in the app’s Watch tab with its date, campus, speaker, series and title filled in from that day’s order of service. Nothing on YouTube changes.</p>
       <label class="field">Channel address or @handle<input type="text" name="channel" value="${s.channel_input}" placeholder="youtube.com/@yourchurch">
         ${s.channel_id ? html`<span class="small"><span class="pill good">${icon('check')} ${s.channel_title || s.channel_id}</span> · last checked ${ago(status.last_sync)}</span>` : ''}</label>
@@ -132,6 +167,33 @@ function drawSetup(el, setup, head) {
       media(el, 'setup');
     } catch (err) { fail(err); b.disabled = false; }
   };
+  const card = el.querySelector('.md-stream');
+  card.onclick = async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    try {
+      if (b.matches('[data-make-key]')) { b.disabled = true; await post('/media/mux/stream', {}); toast('Your stream key is ready.'); return media(el, 'setup'); }
+      if (b.dataset.copy) { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied.'); }
+      if (b.matches('[data-reveal]')) { const k = card.querySelector('[data-key]'); const shown = b.textContent === 'Hide'; k.textContent = shown ? '•'.repeat(18) : setup.mux.stream_key; b.textContent = shown ? 'Show' : 'Hide'; }
+      if (b.matches('[data-yt-off]')) { await put('/media/mux/youtube', { key: '' }); toast('Stopped forwarding to YouTube.'); media(el, 'setup'); }
+      if (b.matches('[data-reset-key]')) {
+        if (!(await confirm('Make a new stream key?', 'The old key stops working right away, so vMix needs the new one before the next service.', 'Make a new key'))) return;
+        await post('/media/mux/reset-key', {});
+        toast('New key made. Put it in vMix.');
+        media(el, 'setup');
+      }
+    } catch (err) { fail(err); b.disabled = false; }
+  };
+  const yt = card.querySelector('[data-yt]');
+  if (yt && yt.key) {
+    yt.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!yt.key.value.trim()) return toast('Paste the stream key from YouTube Studio.');
+      try { await put('/media/mux/youtube', { key: yt.key.value.trim() }); toast('Mux will send the stream on to YouTube too.'); media(el, 'setup'); } catch (err) { fail(err); }
+    };
+  }
+  const keep = card.querySelector('[data-keep]');
+  if (keep) keep.keep_full_days.onchange = async () => { try { await put('/media/setup', { keep_full_days: Number(keep.keep_full_days.value) }); toast('Saved.'); } catch (err) { fail(err); } };
   const deep = el.querySelector('[data-deep]');
   if (deep) {
     deep.onclick = async () => {

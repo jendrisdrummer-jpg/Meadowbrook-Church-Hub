@@ -819,6 +819,20 @@ const MIGRATIONS = [
   );
   CREATE INDEX media_day ON media (status, day);
   `,
+  // 26: services streamed through Mux (the church's own video host): the recording, and the
+  // trimmed copy made from it (the full recording can go after a while to save storage).
+  `
+  ALTER TABLE media ADD COLUMN mux_asset_id TEXT;
+  ALTER TABLE media ADD COLUMN playback_id TEXT;
+  ALTER TABLE media ADD COLUMN clip_asset_id TEXT;
+  ALTER TABLE media ADD COLUMN clip_playback_id TEXT;
+  ALTER TABLE media ADD COLUMN clip_start INTEGER;
+  ALTER TABLE media ADD COLUMN clip_end INTEGER;
+  ALTER TABLE media ADD COLUMN clip_status TEXT NOT NULL DEFAULT '';   -- '' | making | ready | failed
+  ALTER TABLE media ADD COLUMN clip_ready_at TEXT;
+  ALTER TABLE media ADD COLUMN raw_deleted INTEGER NOT NULL DEFAULT 0;
+  CREATE UNIQUE INDEX media_mux_asset ON media (mux_asset_id) WHERE mux_asset_id IS NOT NULL;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

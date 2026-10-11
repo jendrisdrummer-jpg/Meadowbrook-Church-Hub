@@ -1814,3 +1814,140 @@ test('media: YouTube sync fills in from the order of service, own titles and tri
   assert.equal(again.data.existed, true);
   assert.equal((await api('admin', 'POST', '/media', { url: 'not a video' })).status, 400);
 });
+
+test('streaming through Mux: one stream key, live in the app during services, recordings, trimmed copies', async (t) => {
+  const { muxTick } = await import('../server/mux.js');
+  const saved = { ...process.env };
+  t.after(() => { for (const k of ['MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MB_MUX_API']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+
+  // A stand-in Mux.
+  const state = { status: 'idle', assets: [], clips: {}, deleted: [], simulcast: [], made: [] };
+  let n = 0;
+  const muxApi = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const u = new URL(req.url, 'http://x');
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : null;
+      const send = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data));
+      assert.equal(req.headers.authorization, `Basic ${Buffer.from('tok:sec').toString('base64')}`);
+      if (req.method === 'POST' && u.pathname === '/video/v1/live-streams') {
+        assert.deepEqual(body.playback_policy, ['public']);
+        return send(201, { data: { id: 'ls1', stream_key: 'key-1', status: 'idle', playback_ids: [{ id: 'live-pb', policy: 'public' }] } });
+      }
+      if (req.method === 'POST' && u.pathname === '/video/v1/live-streams/ls1/reset-stream-key') return send(201, { data: { id: 'ls1', stream_key: 'key-2' } });
+      if (req.method === 'POST' && u.pathname === '/video/v1/live-streams/ls1/simulcast-targets') { state.simulcast.push(body); return send(201, { data: { id: 'sim1', status: 'idle' } }); }
+      if (req.method === 'DELETE' && u.pathname.startsWith('/video/v1/live-streams/ls1/simulcast-targets/')) return res.writeHead(204).end();
+      if (req.method === 'GET' && u.pathname === '/video/v1/live-streams/ls1') return send(200, { data: { id: 'ls1', status: state.status, active_asset_id: state.status === 'active' ? 'rec1' : null, playback_ids: [{ id: 'live-pb', policy: 'public' }] } });
+      if (req.method === 'GET' && u.pathname === '/video/v1/assets') { assert.equal(u.searchParams.get('live_stream_id'), 'ls1'); return send(200, { data: state.assets }); }
+      if (req.method === 'POST' && u.pathname === '/video/v1/assets') {
+        const id = `clip${++n}`;
+        state.made.push(body);
+        state.clips[id] = 'preparing';
+        return send(201, { data: { id, status: 'preparing', playback_ids: [{ id: `${id}-pb`, policy: 'public' }] } });
+      }
+      const one = /^\/video\/v1\/assets\/(\w+)$/.exec(u.pathname);
+      if (one && req.method === 'GET') return state.clips[one[1]] ? send(200, { data: { id: one[1], status: state.clips[one[1]], playback_ids: [{ id: `${one[1]}-pb` }] } }) : send(404, {});
+      if (one && req.method === 'DELETE') { state.deleted.push(one[1]); return res.writeHead(204).end(); }
+      send(404, { error: { messages: ['nope'] } });
+    });
+  }).listen(0);
+  t.after(() => muxApi.close());
+  await new Promise((r) => muxApi.once('listening', r));
+  process.env.MB_MUX_API = `http://127.0.0.1:${muxApi.address().port}`;
+
+  // Not set up: the hub says how.
+  delete process.env.MUX_TOKEN_ID;
+  assert.equal((await api('admin', 'GET', '/media/setup')).data.mux.configured, false);
+  assert.match((await api('admin', 'POST', '/media/mux/stream', {})).data.error, /MUX_TOKEN_ID/);
+  process.env.MUX_TOKEN_ID = 'tok';
+  process.env.MUX_TOKEN_SECRET = 'sec';
+
+  // One stream key, made once; resetting is for admins.
+  const made = await api('north', 'POST', '/media/mux/stream', {});
+  assert.equal(made.data.stream_key, 'key-1');
+  assert.equal(made.data.server, 'rtmps://global-live.mux.com:443/app');
+  assert.equal((await api('north', 'POST', '/media/mux/stream', {})).data.stream_key, 'key-1');
+  assert.equal((await api('north', 'POST', '/media/mux/reset-key', {})).status, 403);
+  assert.equal((await api('admin', 'POST', '/media/mux/reset-key', {})).data.stream_key, 'key-2');
+  assert.equal((await api('vol', 'GET', '/media/setup')).status, 403);
+
+  // Forwarding to YouTube, and stopping.
+  assert.equal((await api('admin', 'PUT', '/media/mux/youtube', { key: 'yt-abc' })).data.youtube_forward, true);
+  assert.equal(state.simulcast[0].stream_key, 'yt-abc');
+  assert.equal((await api('admin', 'PUT', '/media/mux/youtube', { key: '' })).data.youtube_forward, false);
+
+  // A stream outside service times waits in the hub; showing it puts it in the app.
+  db.prepare("DELETE FROM settings WHERE key = 'media_live'").run();
+  const beforeNotes = (await api('vol', 'GET', '/notifications')).data.items.filter((x) => x.kind === 'media').length;
+  db.prepare("DELETE FROM services WHERE starts_at >= date('now', '-1 day') AND starts_at <= date('now', '+1 day')").run();
+  state.status = 'active';
+  await muxTick(db);
+  assert.equal((await api(null, 'GET', '/watch')).data.live, null);
+  assert.equal((await api('admin', 'GET', '/media')).data.status.live.public, false);
+  await api('admin', 'POST', '/media/live/show', {});
+  const live = (await api(null, 'GET', '/watch')).data.live;
+  assert.deepEqual([live.source, live.playback_id], ['mux', 'live-pb']);
+  assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((x) => x.kind === 'media').length, beforeNotes + 1);
+
+  // During a service it's live straight away, titled from the order of service.
+  state.status = 'idle';
+  await muxTick(db);
+  assert.equal((await api(null, 'GET', '/watch')).data.live, null);
+  const tz = 'America/Chicago';
+  const nowLocal = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const p = Object.fromEntries(nowLocal.map((x) => [x.type, x.value]));
+  const startsAt = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: startsAt })).data;
+  await api('admin', 'POST', `/services/${svc.id}/items`, { kind: 'item', category: 'Message', title: 'Living Water', info: 'Pastor Dallas' });
+  state.status = 'active';
+  await muxTick(db);
+  const live2 = (await api(null, 'GET', '/watch')).data.live;
+  assert.equal(live2.title, 'Living Water');
+
+  // When it ends, the recording comes into the library from the service; YouTube stays out of it.
+  state.status = 'idle';
+  state.assets = [{ id: 'rec1', status: 'ready', duration: 5400.4, created_at: String(Math.floor(Date.now() / 1000)), playback_ids: [{ id: 'rec1-pb', policy: 'public' }] },
+    { id: 'rec0', status: 'ready', duration: 300, created_at: String(Math.floor(Date.now() / 1000) - 3 * 86400), playback_ids: [{ id: 'rec0-pb', policy: 'public' }] }];
+  const sync = await api('admin', 'POST', '/media/sync', {});
+  assert.equal(sync.status, 200);
+  const watch = (await api(null, 'GET', '/watch')).data;
+  assert.equal(watch.live, null);
+  const rec = watch.items.find((x) => x.source === 'mux');
+  assert.equal(rec.title, 'Living Water');
+  assert.equal(rec.speaker, 'Pastor Dallas');
+  assert.equal(rec.playback_id, 'rec1-pb');
+  assert.equal(rec.video_id, null);
+  assert.equal(rec.length, 5400);
+  assert.match(rec.picture, /^https:\/\/image\.mux\.com\/rec1-pb\/thumbnail\.jpg/);
+  assert.equal((await api('admin', 'GET', '/media?status=skipped')).data.items.find((x) => x.source === 'mux').skip_reason, 'Under 20 minutes');
+  await muxTick(db);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM media WHERE source = 'mux'").get().n, 2); // not twice
+
+  // Trimming makes a trimmed copy; until it's ready the full recording plays between the points.
+  assert.equal((await api('admin', 'PATCH', `/media/${rec.id}`, { start: '15:00', end: '1:20:00' })).status, 200);
+  assert.deepEqual(state.made[0].input, [{ url: 'mux://assets/rec1', start_time: 900, end_time: 4800 }]);
+  assert.equal(state.made[0].video_quality, 'basic');
+  let item = (await api(null, 'GET', `/watch/${rec.id}`)).data;
+  assert.deepEqual([item.playback_id, item.start, item.end, item.length], ['rec1-pb', 900, 4800, 3900]);
+  state.clips.clip1 = 'ready';
+  await muxTick(db);
+  item = (await api(null, 'GET', `/watch/${rec.id}`)).data;
+  assert.deepEqual([item.playback_id, item.start, item.end, item.length], ['clip1-pb', 0, null, 3900]);
+
+  // A new trim replaces the old copy.
+  await api('admin', 'PATCH', `/media/${rec.id}`, { start: '16:00' });
+  assert.ok(state.deleted.includes('clip1'));
+  assert.equal(state.made[1].input[0].start_time, 960);
+
+  // After the set time, the full recording goes and the trim can't change any more.
+  state.clips.clip2 = 'ready';
+  await muxTick(db);
+  db.prepare("UPDATE media SET clip_ready_at = datetime('now', '-31 days') WHERE id = ?").run(rec.id);
+  await muxTick(db);
+  assert.ok(state.deleted.includes('rec1'));
+  item = (await api(null, 'GET', `/watch/${rec.id}`)).data;
+  assert.equal(item.playback_id, 'clip2-pb');
+  assert.equal((await api('admin', 'PATCH', `/media/${rec.id}`, { start: '20:00' })).status, 400);
+  assert.equal((await api('admin', 'PATCH', `/media/${rec.id}`, { title: 'Living Water (Part 1)' })).status, 200);
+});

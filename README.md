@@ -394,6 +394,37 @@ Optional: a free YouTube Data API key lets the hub see your whole channel, not j
 Once the key is in place, **Media → Setup → Bring in older videos** imports the rest of the
 channel.
 
+#### Live streaming through Mux
+
+Mux is the church's own video host, at roughly $15–55 a month. With it, the app plays the live
+service and the library in its own player, with no YouTube.
+
+To set it up:
+
+1. Sign up at dashboard.mux.com and add a card.
+2. Go to **Settings → Access Tokens → Generate new token**. Choose the Production environment and
+   tick Mux Video with Read and Write.
+3. In Render, add `MUX_TOKEN_ID` and `MUX_TOKEN_SECRET`.
+4. In the hub, go to **Media → Setup** and click **Make the stream key**. Put the URL and key into
+   vMix once, under Custom RTMP Server. The key stays the same every week.
+
+How it works:
+
+- **During a service:** from 30 minutes before it starts, the stream goes live in the app on its
+  own. The title comes from the order of service, and people can get a "We're live"
+  notification.
+- **At other times,** such as a rehearsal, the stream waits in Media until someone clicks
+  **Show it in the app**.
+- **About a minute after the stream ends,** the recording lands in the library, filled in from
+  the service.
+- **Trimming** makes a real trimmed copy. After a while (30 days by default), the full recording
+  is deleted to save storage.
+- **YouTube:** to keep streaming there too, add YouTube as a second destination in vMix, which is
+  free. Or let Mux forward the stream, at about 2¢ a minute.
+
+The hub checks Mux every minute, so no webhook is needed. While Mux is set up, the YouTube
+channel is only used to bring in older videos.
+
 ### Giving (Stripe)
 
 Stripe has no setup or monthly fee: it keeps a small part of each gift (2.2% + 30¢ on cards with the

@@ -19,24 +19,27 @@ export default async function mediaItem(el, id) {
     <div class="stack">
       <div class="card md-player-card"><div class="m-video md-player" data-player></div>
         <div class="md-trim">
-          <div class="md-trim-row"><label class="field">Starts at<input type="text" name="start" value="${m.start ? hms(m.start) : ''}" placeholder="0:00" inputmode="numeric"></label>
+          <div class="md-trim-row"><label class="field">Starts at<input type="text" name="start" value="${m.raw_deleted ? '' : m.start ? hms(m.start) : ''}" placeholder="0:00" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
             <button type="button" class="btn small" data-mark="start">${icon('clock')} Set to now</button>
             <button type="button" class="btn small ghost" data-jump="start">${icon('play')} Play from here</button></div>
-          <div class="md-trim-row"><label class="field">Ends at<input type="text" name="end" value="${m.end ? hms(m.end) : ''}" placeholder="${m.duration ? hms(m.duration) : 'The end'}" inputmode="numeric"></label>
+          <div class="md-trim-row"><label class="field">Ends at<input type="text" name="end" value="${m.raw_deleted ? '' : m.end ? hms(m.end) : ''}" placeholder="${m.duration ? hms(m.duration) : 'The end'}" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
             <button type="button" class="btn small" data-mark="end">${icon('clock')} Set to now</button>
             <button type="button" class="btn small ghost" data-jump="end">${icon('play')} Play the last 10 s</button></div>
           <p class="muted small" data-plays style="margin:0"></p>
-          <p class="muted small" style="margin:0">Skip the pre-service and announcements: play to where it should start, pause, and click <b>Set to now</b>. The app plays only this part. The video on YouTube doesn’t change.</p>
+          <p class="muted small" style="margin:0">${m.source === 'mux'
+            ? (m.raw_deleted ? 'This is the trimmed copy; the full recording was removed to save storage, so it can’t be trimmed again.'
+              : html`Skip the pre-service and announcements: play to where it should start, pause, and click <b>Set to now</b>. Saving makes a trimmed copy (a few minutes); the app plays just this part right away. ${m.clip_status === 'making' ? html`<span class="pill warn">Making the trimmed copy…</span>` : m.clip_status === 'ready' ? html`<span class="pill good">Trimmed copy ready</span>` : m.clip_status === 'failed' ? html`<span class="pill bad">The trimmed copy didn’t work; save again to retry</span>` : ''}`)
+            : html`Skip the pre-service and announcements: play to where it should start, pause, and click <b>Set to now</b>. The app plays only this part. The video on YouTube doesn’t change.`}</p>
         </div></div>
       <div class="card stack"><h2 style="margin:0">Picture</h2>
-        <div class="md-pic md-pic-big" data-pic style="background-image:url('${m.image || m.thumbnail}')"></div>
+        <div class="md-pic md-pic-big" data-pic style="background-image:url('${m.image || m.mux_thumb || m.thumbnail}')"></div>
         <div class="row"><label class="btn small">${icon('upload')} Use my own picture<input type="file" accept="image/*" data-upload hidden></label>
           <button type="button" class="btn small ghost" data-yt-pic ${m.image ? '' : 'hidden'}>Use the picture from the video</button></div>
         <span class="muted small">Shown on the library card and before it plays. A 16:9 picture works best, like a sermon series graphic.</span></div>
     </div>
     <form class="card stack" data-form>
       <label class="field">Title in the app<input type="text" name="title" value="${m.title}" maxlength="200" required>
-        <span class="muted small">On YouTube: ${m.yt_title || '—'} <a href="https://www.youtube.com/watch?v=${m.video_id}" target="_blank" rel="noopener">${icon('external', 'ic small-ic')}</a></span></label>
+        ${m.source === 'mux' ? '' : html`<span class="muted small">On YouTube: ${m.yt_title || '—'} <a href="https://www.youtube.com/watch?v=${m.video_id}" target="_blank" rel="noopener">${icon('external', 'ic small-ic')}</a></span>`}</label>
       <div class="form">
         <label class="field">Speaker<input type="text" name="speaker" value="${m.speaker}" list="md-speakers" maxlength="120"></label>
         <label class="field">Series<input type="text" name="series" value="${m.series}" list="md-series" maxlength="120"></label>
@@ -67,7 +70,9 @@ export default async function mediaItem(el, id) {
   startIn.oninput = plays;
   endIn.oninput = plays;
   plays();
-  mountPlayer(el.querySelector('[data-player]'), { videoId: m.video_id, start: m.start || 0 }).then((p) => { player = p; });
+  // Trims are set against the full recording.
+  const src = m.source === 'mux' ? { playbackId: m.raw_playback_id || m.playback_id, poster: m.mux_thumb || m.picture } : { videoId: m.video_id };
+  mountPlayer(el.querySelector('[data-player]'), { ...src, start: m.raw_deleted ? 0 : m.start || 0 }).then((p) => { player = p; });
 
   let dirty = false;
   el.addEventListener('input', () => { dirty = true; });
@@ -100,7 +105,7 @@ export default async function mediaItem(el, id) {
         toast(s.title || s.speaker ? 'Filled in. Save to keep it.' : 'That order of service doesn’t name a message or speaker yet.');
       } catch (err) { fail(err); }
     }
-    if (b.matches('[data-yt-pic]')) { image = ''; dirty = true; el.querySelector('[data-pic]').style.backgroundImage = `url('${m.thumbnail}')`; b.hidden = true; }
+    if (b.matches('[data-yt-pic]')) { image = ''; dirty = true; el.querySelector('[data-pic]').style.backgroundImage = `url('${m.mux_thumb || m.thumbnail}')`; b.hidden = true; }
   };
   f.service_id.onchange = () => { el.querySelector('[data-refill]').disabled = !f.service_id.value; };
   el.querySelector('[data-upload]').onchange = async (e) => {
@@ -123,7 +128,12 @@ export default async function mediaItem(el, id) {
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-save]').onclick = async () => {
     if (!f.reportValidity()) return;
-    try { await patch(`/media/${m.id}`, body()); toast(m.status === 'published' ? 'Saved. The app shows it now.' : 'Saved.'); reload(); } catch (err) { fail(err); }
+    try {
+      const r = await patch(`/media/${m.id}`, body());
+      if (r.clip_error) toast(`Saved, but the trimmed copy couldn’t be made: ${r.clip_error}`, 'bad');
+      else toast(m.status === 'published' ? 'Saved. The app shows it now.' : 'Saved.');
+      reload();
+    } catch (err) { fail(err); }
   };
   actions.querySelector('[data-status]').onclick = async (e) => {
     const status = e.currentTarget.dataset.status;
