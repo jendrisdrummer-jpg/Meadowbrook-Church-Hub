@@ -38,7 +38,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
     const url = app.config.watch_url;
     const embed = videoEmbed(url);
     mount(el, url
-      ? html`${embed ? html`<div class="m-video"><iframe src="${embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>` : ''}
+      ? html`${embed ? html`<div class="m-video"><iframe src="${embed}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>` : ''}
         <div class="card m-big-action" style="margin-top:14px">${icon('play')}<a class="btn primary" href="${url}" target="_blank" rel="noopener">Watch ${icon('external')}</a></div>`
       : html`<div class="m-empty">${icon('play')}<p>Past services will show here.</p></div>`);
     return;

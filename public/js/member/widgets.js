@@ -132,7 +132,7 @@ export function widget(w, ctx) {
       if (!tall) return box(w, html`<span class="w-ic">${icon('play')}</span><b class="w-label">${w.title || 'Watch live'}</b>`, { link: `#/${tabFor('watch')}` });
       if (!watchUrl) return ctx.edit ? placeholder(w, 'Add your livestream link below') : null;
       const embed = ctx.videoEmbed(watchUrl);
-      return box(w, html`${w.title ? html`<h2>${w.title}</h2>` : ''}${embed ? html`<div class="m-video"><iframe src="${embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>`
+      return box(w, html`${w.title ? html`<h2>${w.title}</h2>` : ''}${embed ? html`<div class="m-video"><iframe src="${embed}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Livestream"></iframe></div>`
         : html`<a class="btn primary" href="${watchUrl}" target="_blank" rel="noopener">${icon('play')} Watch</a>`}`, { link: '' });
     }
     default:

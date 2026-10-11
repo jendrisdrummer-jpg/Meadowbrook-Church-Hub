@@ -833,6 +833,11 @@ const MIGRATIONS = [
   ALTER TABLE media ADD COLUMN raw_deleted INTEGER NOT NULL DEFAULT 0;
   CREATE UNIQUE INDEX media_mux_asset ON media (mux_asset_id) WHERE mux_asset_id IS NOT NULL;
   `,
+  // 27: videos skipped only because YouTube didn't show their length go into the library after all.
+  `
+  UPDATE media SET status = 'published', skip_reason = ''
+    WHERE status = 'skipped' AND skip_reason LIKE 'Not on a service day%' AND edited_at IS NULL;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

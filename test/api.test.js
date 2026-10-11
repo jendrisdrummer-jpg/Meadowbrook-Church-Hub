@@ -57,6 +57,8 @@ test('requires sign-in and the app header', async () => {
   assert.equal((await api(null, 'GET', '/people')).status, 401);
   const res = await fetch(base + '/api/people', { method: 'POST', headers: { cookie: cookies.admin, 'content-type': 'application/json' }, body: '{}' });
   assert.equal(res.status, 403);
+  // Other sites (YouTube's player) see our address, never a page.
+  assert.equal((await fetch(`${base}/healthz`)).headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
 });
 
 test('people, households and duplicate detection', async () => {
