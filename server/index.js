@@ -45,7 +45,9 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'same-origin');
+    // Other sites see only our address (never a page or link), which YouTube needs to play
+    // embedded videos (without it: "Error 153").
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // the App Builder previews the app in a frame
     next();
   });

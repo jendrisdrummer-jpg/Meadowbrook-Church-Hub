@@ -101,7 +101,7 @@ export async function mountPlayer(box, { videoId, playbackId, start = 0, end = n
   if (playbackId) return mountHls(box, { playbackId, start, end, autoplay, onEnd, poster });
   const YT = await loadPlayerApi();
   if (!YT) {
-    box.innerHTML = `<iframe src="${embedUrl(videoId, { start, end, autoplay })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="Video"></iframe>`;
+    box.innerHTML = `<iframe src="${embedUrl(videoId, { start, end, autoplay })}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="Video"></iframe>`;
     return { seek() {}, time: () => null, pause() {}, destroy() { box.innerHTML = ''; } };
   }
   const slot = document.createElement('div');
@@ -111,7 +111,7 @@ export async function mountPlayer(box, { videoId, playbackId, start = 0, end = n
   const player = new YT.Player(slot, {
     videoId,
     host: 'https://www.youtube-nocookie.com',
-    playerVars: { rel: 0, playsinline: 1, modestbranding: 1, iv_load_policy: 3, start: start || 0, autoplay: autoplay ? 1 : 0 },
+    playerVars: { rel: 0, playsinline: 1, modestbranding: 1, iv_load_policy: 3, start: start || 0, autoplay: autoplay ? 1 : 0, origin: location.origin },
     events: {
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED && !ended) { ended = true; onEnd?.(); }

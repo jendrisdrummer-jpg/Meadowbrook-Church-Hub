@@ -254,11 +254,13 @@ function describe(db, cfg, v) {
   };
 }
 
-// Is it a full service? Shorts and short clips stay out (in Skipped, where they can be added).
+// Is it a full service? Shorts and short clips stay out (in Skipped, where they can be published).
 function skipReason(cfg, v, row) {
   if (v.short) return 'A YouTube Short';
   if (v.duration != null) return v.duration < cfg.min_minutes * 60 ? `Under ${cfg.min_minutes} minutes` : '';
-  return row.service_id ? '' : 'Not on a service day, and its length couldn’t be read';
+  // Its length couldn't be read (YouTube doesn't always show it to servers): keep it, since
+  // most of a church's channel is services. Hide any that aren't; a YouTube API key avoids this.
+  return '';
 }
 
 export function insertMedia(db, row, { status = 'published', skip = '' } = {}) {
