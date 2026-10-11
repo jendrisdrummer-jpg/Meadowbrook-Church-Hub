@@ -165,7 +165,7 @@ async function latestVideos(db, cfg, { deep = false, knownIds = new Set() } = {}
   const out = [];
   for (const e of feed.entries.filter((x) => !knownIds.has(x.video_id))) {
     if (e.short) { out.push({ ...e, duration: null, state: 'none', was_live: false, started: null }); continue; }
-    let page = { duration: null, state: 'none', was_live: false, started: null };
+    let page = { duration: null, state: 'none', was_live: false, started: null, unread: true };
     try { page = await readWatchPage(e.video_id); } catch { /* the page couldn't be read: decide from the schedule */ }
     out.push({ ...e, ...page });
   }
@@ -283,16 +283,31 @@ export function announce(db, msg) {
   pushGuests(db, db.prepare('SELECT * FROM guest_push').all(), full);
 }
 
+// "We're live" goes out once per service: never again within 4 hours of the last one, however
+// often the stream drops and comes back (or YouTube is briefly unsure whether it's live).
+const LIVE_NOTICE_GAP = 4 * 3600e3;
+export function announceLive(db, title) {
+  if (!mediaSettings(db).notify_live) return false;
+  const last = getSetting(db, 'media_live_notified', null);
+  if (last && Date.now() - last.at < LIVE_NOTICE_GAP) return false;
+  setSetting(db, 'media_live_notified', { at: Date.now(), title });
+  announce(db, { title: `We’re live: ${title}`, body: 'Tap to watch now.', app_url: '/app/#/watch', tag: 'live' });
+  return true;
+}
+
 // Live now (or not any more). Returns true when this changed.
 function setLive(db, cfg, v) {
   const was = liveNow(db);
-  if (v && was?.video_id === v.video_id) return false;
+  if (v && was?.video_id === v.video_id) {
+    if (was.misses) setSetting(db, 'media_live', { ...was, misses: 0 });
+    return false;
+  }
   if (!v && !was) return false;
   if (!v) { setSetting(db, 'media_live', null); return true; }
   const parsed = splitTitle(v.title, cfg.title_format);
   const title = (parsed.title || v.title || 'Live').slice(0, 200);
   setSetting(db, 'media_live', { source: 'youtube', video_id: v.video_id, title, since: utc(Date.now()) });
-  if (cfg.notify_live) announce(db, { title: `We’re live: ${title}`, body: 'Tap to watch now.', app_url: '/app/#/watch', tag: 'live' });
+  announceLive(db, title);
   return true;
 }
 
@@ -322,8 +337,10 @@ async function doSync(db, { deep = false } = {}) {
   let skipped = 0;
   const fresh = [];
   const live = videos.find((v) => v.state === 'live');
-  // Upcoming and live ones come in once they're over.
-  for (const v of videos.filter((x) => x.state === 'none').reverse()) {
+  const liveId = liveNow(db)?.video_id;
+  // Upcoming and live ones come in once they're over (a page that couldn't be read doesn't say
+  // the stream on now is over).
+  for (const v of videos.filter((x) => x.state === 'none' && !(x.unread && x.video_id === liveId)).reverse()) {
     const row = describe(db, cfg, v);
     const why = skipReason(cfg, v, row);
     const id = insertMedia(db, row, why ? { status: 'skipped', skip: why } : {});
@@ -331,7 +348,10 @@ async function doSync(db, { deep = false } = {}) {
     if (why) skipped++;
     else { added++; fresh.push({ id, ...row }); }
   }
-  setLive(db, cfg, live || null);
+  // Live now: set it. It's only over when the live check says so, or when that video itself now
+  // reads as finished.
+  if (live) setLive(db, cfg, live);
+  else if (liveId && videos.some((v) => v.video_id === liveId && v.state === 'none' && !v.unread)) setLive(db, cfg, null);
   setStatus(db, { last_sync: utc(Date.now()), last_error: '', deep_done: deep || status(db).deep_done || false });
   // Only brand-new messages (not a first import or a look back) get a notice.
   const recent = fresh.filter((m) => Date.now() - new Date(`${m.recorded_at.replace(' ', 'T')}Z`) < 3 * 86400e3);
@@ -360,9 +380,15 @@ export async function checkLive(db) {
     const ids = [...new Set([...feed.entries.slice(0, 5).map((e) => e.video_id), ...(was ? [was.video_id] : [])])];
     if (ids.length) live = (await videoDetails(ids)).find((v) => v.state === 'live') || null;
   } else {
-    const page = await getText(`${SITE()}/channel/${cfg.channel_id}/live`).catch(() => '');
+    const page = await getText(`${SITE()}/channel/${cfg.channel_id}/live`).catch(() => null);
+    if (page == null) return was; // couldn't ask: nothing changes
     const id = (/"videoDetails":\{"videoId":"([\w-]{11})"/.exec(page) || [])[1];
     if (id && /"isLiveNow":true/.test(page)) live = { video_id: id, title: decode((/"videoDetails":\{[^}]*?"title":"((?:[^"\\]|\\.)*)"/.exec(page) || [])[1] || '').replace(/\\(.)/g, '$1') };
+    // The channel page doesn't always say so: it's over after three checks in a row (6 minutes).
+    if (!live && was && (was.misses || 0) < 2) {
+      setSetting(db, 'media_live', { ...was, misses: (was.misses || 0) + 1 });
+      return was;
+    }
   }
   const changed = setLive(db, cfg, live);
   // Just ended: bring the recording in.

@@ -1755,6 +1755,11 @@ test('media: YouTube sync fills in from the order of service, own titles and tri
   assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'media').length, 1);
   await api('admin', 'POST', '/media/sync', {});
   assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'media').length, 1);
+  // The stream drops out and comes back (or YouTube is briefly unsure): still just the one notice.
+  db.prepare("UPDATE settings SET value = 'null' WHERE key = 'media_live'").run();
+  await api('admin', 'POST', '/media/sync', {});
+  assert.equal((await api(null, 'GET', '/watch')).data.live.video_id, 'liveLLLLLLL');
+  assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((n) => n.kind === 'media').length, 1);
 
   // The service's details came from the order of service, not the YouTube title.
   assert.equal(watch.items.length, 1);
@@ -1880,7 +1885,7 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.equal((await api('admin', 'PUT', '/media/mux/youtube', { key: '' })).data.youtube_forward, false);
 
   // A stream outside service times waits in the hub; showing it puts it in the app.
-  db.prepare("DELETE FROM settings WHERE key = 'media_live'").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('media_live', 'media_live_notified')").run();
   const beforeNotes = (await api('vol', 'GET', '/notifications')).data.items.filter((x) => x.kind === 'media').length;
   db.prepare("DELETE FROM services WHERE starts_at >= date('now', '-1 day') AND starts_at <= date('now', '+1 day')").run();
   state.status = 'active';
@@ -1906,6 +1911,8 @@ test('streaming through Mux: one stream key, live in the app during services, re
   await muxTick(db);
   const live2 = (await api(null, 'GET', '/watch')).data.live;
   assert.equal(live2.title, 'Living Water');
+  // Live again within a few hours of the last notice: nobody gets a second one.
+  assert.equal((await api('vol', 'GET', '/notifications')).data.items.filter((x) => x.kind === 'media').length, beforeNotes + 1);
 
   // When it ends, the recording comes into the library from the service; YouTube stays out of it.
   state.status = 'idle';

@@ -4,7 +4,7 @@
 // Access Tokens, Mux Video read + write). The hub checks Mux every minute, so no webhook is needed.
 import { getSetting, setSetting } from './db.js';
 import { localNow } from './http.js';
-import { mediaSettings, liveNow, describeVideo, insertMedia, fromService, announce, utc, churchTz } from './media.js';
+import { mediaSettings, liveNow, describeVideo, insertMedia, fromService, announce, announceLive, utc, churchTz } from './media.js';
 
 const API = () => (process.env.MB_MUX_API || 'https://api.mux.com').replace(/\/+$/, '');
 export const muxConfigured = () => Boolean(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET);
@@ -97,7 +97,7 @@ function startLive(db, ls) {
   const title = info?.title || defaultTitle(localNow(churchTz(db)).date);
   const live = { source: 'mux', playback_id: ls.playback_ids?.[0]?.id || muxSettings(db).playback_id, title, since: utc(Date.now()), public: Boolean(svc), service_id: svc?.id ?? null };
   setSetting(db, 'media_live', live);
-  if (live.public && mediaSettings(db).notify_live) announce(db, { title: `We’re live: ${title}`, body: 'Tap to watch now.', app_url: '/app/#/watch', tag: 'live' });
+  if (live.public) announceLive(db, title);
   return live;
 }
 
@@ -106,7 +106,7 @@ export function showLive(db) {
   const live = liveNow(db);
   if (!live || live.public !== false) return live;
   setSetting(db, 'media_live', { ...live, public: true });
-  if (mediaSettings(db).notify_live) announce(db, { title: `We’re live: ${live.title}`, body: 'Tap to watch now.', app_url: '/app/#/watch', tag: 'live' });
+  announceLive(db, live.title);
   return liveNow(db);
 }
 
