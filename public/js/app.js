@@ -27,6 +27,9 @@ const NAV = [
   { group: 'Finance', items: [
     { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
   ] },
+  { group: 'Media', items: [
+    { path: '/media', label: 'Media', icon: 'play', min: 'staff' },
+  ] },
   { group: 'Church app', items: [
     { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader' },
     { path: '/announcements', label: 'Announcements', icon: 'bell', min: 'volunteer', announce: true },
@@ -76,6 +79,8 @@ const ROUTES = [
   [/^\/connect$/, 'connect'],
   [/^\/announcements$/, 'announcements'],
   [/^\/stations$/, 'stations'],
+  [/^\/media(?:\/(published|skipped|hidden|setup))?$/, 'media'],
+  [/^\/media\/(\d+)$/, 'media-item'],
   [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],
 ];

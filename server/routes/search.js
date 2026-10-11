@@ -1,4 +1,4 @@
-// One search box for the hub: people, teams, songs, services, events and your tasks, each only
+// One search box for the hub: people, teams, songs, services, events, media and your tasks, each only
 // as far as the person searching can already see them (role, campus).
 import { Router } from 'express';
 import { requireRole, campusFilter, rank } from '../auth.js';
@@ -52,6 +52,11 @@ export default function searchRoutes(db) {
       add('events', 'Events', db.prepare(`SELECT e.id, e.title, e.starts_at, e.location FROM events e WHERE e.archived = 0 AND ${ef.sql} AND lower(e.title) LIKE ? ESCAPE '\\'
         ORDER BY substr(COALESCE(e.ends_at, e.starts_at), 1, 10) < date('now'), e.starts_at LIMIT ?`).all(...ef.args, like, LIMIT)
         .map((e) => ({ type: 'event', id: e.id, title: e.title, sub: [e.starts_at.replace('T', ' '), e.location].filter(Boolean).join(' · '), when: e.starts_at, href: `/events/${e.id}` })));
+
+      add('media', 'Media', db.prepare(`SELECT id, title, speaker, series, day FROM media WHERE status != 'skipped'
+        AND (lower(title) LIKE ? ESCAPE '\\' OR lower(speaker) LIKE ? ESCAPE '\\' OR lower(series) LIKE ? ESCAPE '\\' OR lower(topics) LIKE ? ESCAPE '\\' OR lower(scripture) LIKE ? ESCAPE '\\')
+        ORDER BY day DESC LIMIT ?`).all(like, like, like, like, like, LIMIT)
+        .map((m) => ({ type: 'media', id: m.id, title: m.title, sub: [m.day, m.speaker, m.series].filter(Boolean).join(' · '), href: `/media/${m.id}` })));
     }
 
     // Tasks given to me or that I gave, still open.

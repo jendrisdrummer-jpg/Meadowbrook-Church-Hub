@@ -366,6 +366,34 @@ a month (one person on a call for one minute), and the hub stops calls at its ow
 Keep the API key secret: only in Render's Environment, never in chat or in the code. If it's ever
 exposed, delete it in Daily's dashboard and make a new one.
 
+### Media (past services and live)
+
+Media in the hub is the library the app's **Watch** tab shows. Put your YouTube channel in
+**Media → Setup** once. After that the hub checks the channel every hour, and around service
+times it checks every two minutes whether you're live:
+
+- **Live:** the app's Watch tab shows the live service at the top, and people can get a
+  "We're live" notification.
+- **After a service:** the video comes into the library on its own. The date, campus, speaker,
+  series and title are filled in from that day's order of service (the **Message** item: its
+  title, and the person or "who's leading" text on it).
+- **Short clips and Shorts** go to **Skipped** instead, and you can publish any of them.
+- **Your own title, picture and trim:** each video gets these for the app, plus scripture,
+  topics and notes. The video and its title on YouTube don't change.
+
+The app shows its own pictures, titles and play button. The YouTube player only loads when
+someone taps play, and it uses YouTube's privacy-enhanced mode.
+
+Optional: a free YouTube Data API key lets the hub see your whole channel, not just the latest
+15 videos, and read exact lengths and live status. To set one up:
+
+1. In Google Cloud (the same project as Google sign-in), enable **YouTube Data API v3**.
+2. Create an **API key** and restrict it to that API.
+3. Add the key in Render as `YOUTUBE_API_KEY`.
+
+Once the key is in place, **Media → Setup → Bring in older videos** imports the rest of the
+channel.
+
 ### Giving (Stripe)
 
 Stripe has no setup or monthly fee: it keeps a small part of each gift (2.2% + 30¢ on cards with the
