@@ -167,7 +167,7 @@ async function doBackup(db, { uploadDir, reason }) {
           sent += 1;
         }
       }
-      await prune(db, token);
+      await prune(db, token, id);
     } else {
       pruneLocal(db);
     }
@@ -191,8 +191,9 @@ function keepers(rows) {
   return keep;
 }
 
-async function prune(db, token) {
-  const rows = db.prepare("SELECT * FROM backups WHERE status = 'ok' AND drive_id IS NOT NULL ORDER BY created_at DESC, id DESC").all();
+// current: the copy this run just made (not marked finished yet, but it counts as the newest).
+async function prune(db, token, current) {
+  const rows = db.prepare("SELECT * FROM backups WHERE (status = 'ok' OR id = ?) AND drive_id IS NOT NULL ORDER BY created_at DESC, id DESC").all(current);
   const keep = keepers(rows);
   for (const r of rows.filter((x) => !keep.has(x.id))) {
     if (await api(token, 'DELETE', `/drive/v3/files/${r.drive_id}`).catch(() => false)) db.prepare('UPDATE backups SET drive_id = NULL WHERE id = ?').run(r.id);
