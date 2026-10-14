@@ -3,6 +3,7 @@
 import { get, post, put, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce, confirm } from '../lib.js';
 import { setTitle, go } from '../app.js';
 import { hms } from '../video.js';
+import { uploadToMux, looseTitle } from '../mux-upload.js';
 
 const TABS = [['published', 'Library'], ['skipped', 'Skipped'], ['hidden', 'Hidden'], ['setup', 'Setup']];
 const ago = (utc) => {
@@ -16,8 +17,9 @@ const ago = (utc) => {
 
 export default async function media(el, tab) {
   const setup = await get('/media/setup');
-  tab ||= setup.settings.channel_id || setup.status.mux ? 'published' : 'setup';
+  tab ||= setup.settings.channel_id || setup.mux.configured ? 'published' : 'setup';
   setTitle('Media', html`<button class="btn" data-sync ${setup.settings.channel_id || setup.status.mux ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
+    ${setup.mux.configured ? html`<label class="btn">${icon('upload')} Upload videos<input type="file" accept="video/*" multiple data-bulk hidden></label>` : ''}
     <button class="btn primary" data-add>${icon('plus')} Add a video</button>`);
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-sync]').onclick = async (e) => {
@@ -40,6 +42,9 @@ export default async function media(el, tab) {
     if (ok && made) go(`/media/${made.id}`);
   };
 
+  const bulk = actions.querySelector('[data-bulk]');
+  if (bulk) bulk.onchange = () => { const files = [...bulk.files]; bulk.value = ''; if (files.length) bulkUpload(el, files, () => media(el, tab)); };
+
   const head = (counts) => html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}${counts?.[k] ? html` <span class="muted">${counts[k]}</span>` : ''}</button>`)}</div>`;
   el.onclick = async (e) => {
     const t = e.target.closest('[data-tab]');
@@ -61,7 +66,7 @@ export default async function media(el, tab) {
     const shown = d.items.filter((m) => (!speaker || m.speaker === speaker) && (!series || m.series === series)
       && (!needle || [m.title, m.speaker, m.series, m.scripture, m.yt_title, ...m.topics].join(' ').toLowerCase().includes(needle)));
     mount(el.querySelector('[data-list]'), shown.length ? html`<div class="md-grid">${shown.map((m) => html`<a class="md-card" href="#/media/${m.id}">
-        <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}</span>
+        <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}${m.source !== 'mux' ? html`<span class="md-src">YouTube player</span>` : m.upload_status ? html`<span class="md-src">Getting ready…</span>` : ''}</span>
         <span class="md-body"><b>${m.title}</b>
           <span class="muted small">${[fmtDate(m.day, { month: 'short', day: 'numeric', year: 'numeric' }), m.speaker].filter(Boolean).join(' · ')}</span>
           ${m.series ? html`<span class="pill">${m.series}</span>` : ''}
@@ -130,6 +135,8 @@ function drawSetup(el, setup, head) {
         <span class="muted small">Used when the order of service doesn’t name the message. With “Series | Title”, a video called <i>Unshakable | Standing Firm</i> becomes the title “Standing Firm” in the series “Unshakable”.</span></label>
       <label class="field">Full services are at least<span class="row" style="gap:8px"><input type="number" name="min_minutes" min="1" max="180" value="${s.min_minutes}" style="width:90px"> minutes</span>
         <span class="muted small">Shorter videos (and Shorts) go to Skipped instead of the app.</span></label>
+      <label class="check"><input type="checkbox" name="own_player_only" ${s.own_player_only ? 'checked' : ''}> Only show videos that play in our own player</label>
+      <span class="muted small" style="margin-top:-6px">Hides ones still on YouTube until their video file is uploaded (Upload videos).</span>
       <label class="check"><input type="checkbox" name="notify_live" ${s.notify_live ? 'checked' : ''}> Notify the app when we go live</label>
       <label class="check"><input type="checkbox" name="notify_new" ${s.notify_new ? 'checked' : ''}> Notify the app when a new message is added</label>
       <span class="muted small" style="margin-top:-6px">Goes to everyone with notifications on, including guests who turned on announcements. People can turn these off for themselves.</span>
@@ -156,7 +163,7 @@ function drawSetup(el, setup, head) {
     const b = f.querySelector('button.primary');
     b.disabled = true;
     try {
-      const r = await put('/media/setup', { channel: f.channel.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked });
+      const r = await put('/media/setup', { channel: f.channel.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked, own_player_only: f.own_player_only.checked });
       const first = r.settings.channel_id && !s.channel_id;
       if (first) {
         toast(`Connected to ${r.settings.channel_title || 'your channel'}. Looking for videos…`);
@@ -206,4 +213,39 @@ function drawSetup(el, setup, head) {
       } catch (err) { fail(err); deep.disabled = false; }
     };
   }
+}
+
+// Several video files at once (downloaded from YouTube Studio, or anything else). Each one goes
+// onto the library video with the same title, so it switches to our own player; any other file
+// becomes a new video.
+async function bulkUpload(el, files, done) {
+  const lists = await Promise.all(['published', 'hidden', 'skipped'].map((st) => get(`/media?status=${st}`)));
+  const all = lists.flatMap((d) => d.items);
+  const box = document.createElement('div');
+  box.className = 'card stack md-bulk';
+  el.prepend(box);
+  const rows = files.map((f) => {
+    const key = looseTitle(f.name);
+    const match = all.find((m) => looseTitle(m.yt_title) === key || looseTitle(m.title) === key);
+    return { file: f, match, state: 'Waiting', pct: 0 };
+  });
+  const draw = () => mount(box, html`<h2 style="margin:0">Uploading ${files.length} ${files.length === 1 ? 'video' : 'videos'} <span class="muted small">Keep this page open</span></h2>
+    ${rows.map((r) => html`<div class="md-bulk-row"><span class="grow"><b>${r.file.name}</b><br><span class="muted small">${r.match ? `Onto “${r.match.title}”` : 'A new video'} · ${r.state}</span></span>
+      <span class="meter" style="width:160px"><span style="width:${r.pct}%"></span></span></div>`)}`);
+  draw();
+  for (const r of rows) {
+    try {
+      if (r.match?.source === 'mux' && !r.match.upload_status) { r.state = 'Already in our player'; r.pct = 100; draw(); continue; }
+      r.state = 'Uploading';
+      draw();
+      const { id, url } = r.match ? { id: r.match.id, ...(await post(`/media/${r.match.id}/upload`, {})) } : await post('/media/uploads', { title: r.file.name });
+      let last = 0;
+      await uploadToMux(url, r.file, (f) => { r.pct = Math.round(f * 100); if (r.pct !== last) { last = r.pct; draw(); } });
+      await post(`/media/${id}/upload/done`, {});
+      r.state = 'Uploaded; Mux is getting it ready';
+    } catch (err) { r.state = `Didn’t work: ${err.message}`; }
+    draw();
+  }
+  toast('Uploads finished. Each switches to our own player once Mux has it ready (a few minutes).');
+  setTimeout(done, 1500);
 }

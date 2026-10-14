@@ -838,6 +838,13 @@ const MIGRATIONS = [
   UPDATE media SET status = 'published', skip_reason = ''
     WHERE status = 'skipped' AND skip_reason LIKE 'Not on a service day%' AND edited_at IS NULL;
   `,
+  // 28: video files uploaded from the hub to Mux (a past service downloaded from YouTube, or any
+  // video), so it plays in our own player.
+  `
+  ALTER TABLE media ADD COLUMN upload_id TEXT;
+  ALTER TABLE media ADD COLUMN upload_status TEXT NOT NULL DEFAULT '';    -- '' | uploading | processing | failed
+  ALTER TABLE media ADD COLUMN upload_at TEXT;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

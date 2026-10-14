@@ -1,8 +1,9 @@
 // One video in the library: the app's own title, trim, picture and tags. YouTube's copy and title
 // stay as they are.
-import { api, get, patch, html, mount, icon, toast, fail, fmtDate, fmtTime, options, chips, shrinkImage } from '../lib.js';
+import { api, get, post, patch, html, mount, icon, toast, fail, fmtDate, fmtTime, options, chips, shrinkImage } from '../lib.js';
 import { setTitle, go, state } from '../app.js';
 import { hms, parseHms, mountPlayer } from '../video.js';
+import { uploadToMux } from '../mux-upload.js';
 
 export default async function mediaItem(el, id) {
   const [m, lib] = await Promise.all([get(`/media/${id}`), get('/media?status=published')]);
@@ -36,6 +37,7 @@ export default async function mediaItem(el, id) {
         <div class="row"><label class="btn small">${icon('upload')} Use my own picture<input type="file" accept="image/*" data-upload hidden></label>
           <button type="button" class="btn small ghost" data-yt-pic ${m.image ? '' : 'hidden'}>Use the picture from the video</button></div>
         <span class="muted small">Shown on the library card and before it plays. A 16:9 picture works best, like a sermon series graphic.</span></div>
+      ${ownPlayerCard(m)}
     </div>
     <form class="card stack" data-form>
       <label class="field">Title in the app<input type="text" name="title" value="${m.title}" maxlength="200" required>
@@ -72,7 +74,30 @@ export default async function mediaItem(el, id) {
   plays();
   // Trims are set against the full recording.
   const src = m.source === 'mux' ? { playbackId: m.raw_playback_id || m.playback_id, poster: m.mux_thumb || m.picture } : { videoId: m.video_id };
-  mountPlayer(el.querySelector('[data-player]'), { ...src, start: m.raw_deleted ? 0 : m.start || 0 }).then((p) => { player = p; });
+  if (m.source === 'mux' && !src.playbackId) {
+    el.querySelector('[data-player]').innerHTML = '<div class="md-wait">The video is on its way to Mux. It plays here once it’s ready.</div>';
+  } else mountPlayer(el.querySelector('[data-player]'), { ...src, start: m.raw_deleted ? 0 : m.start || 0 }).then((p) => { player = p; });
+
+  // Uploading the video file so it plays in our own player.
+  const own = el.querySelector('[data-own]');
+  const fileIn = own?.querySelector('[data-file]');
+  if (fileIn) {
+    fileIn.onchange = async () => {
+      const file = fileIn.files[0];
+      if (!file) return;
+      const meter = own.querySelector('[data-meter]');
+      const note = own.querySelector('[data-up-note]');
+      fileIn.disabled = true;
+      meter.hidden = false;
+      try {
+        const { url } = await post(`/media/${m.id}/upload`, {});
+        await uploadToMux(url, file, (f) => { meter.firstElementChild.style.width = `${Math.round(f * 100)}%`; note.textContent = `Uploading… ${Math.round(f * 100)}% (keep this page open)`; });
+        await post(`/media/${m.id}/upload/done`, {});
+        toast('Uploaded. Mux is getting it ready; it switches to our own player in a few minutes.');
+        reload();
+      } catch (err) { fail(err); fileIn.disabled = false; note.textContent = ''; }
+    };
+  }
 
   let dirty = false;
   el.addEventListener('input', () => { dirty = true; });
@@ -148,4 +173,22 @@ export default async function mediaItem(el, id) {
   function off() { player?.destroy(); window.removeEventListener('hashchange', off); }
   function reload() { off(); mediaItem(el, id); }
   window.addEventListener('hashchange', off);
+}
+
+// For a video still on YouTube (or one on its way to Mux): moving it to our own player.
+function ownPlayerCard(m) {
+  if (m.source === 'mux' && !m.upload_status) return '';
+  const head = html`<h2 style="margin:0">Play it in our own player</h2>`;
+  if (m.upload_status === 'uploading' || m.upload_status === 'processing') {
+    return html`<div class="card stack" data-own>${head}<p class="small" style="margin:0"><span class="pill warn">Getting it ready</span> Mux has the file and is preparing it (a few minutes for a long service). It switches over on its own; until then the app keeps playing it as before.</p></div>`;
+  }
+  if (!m.mux_ready) {
+    return html`<div class="card stack" data-own>${head}<p class="small" style="margin:0">This plays in YouTube’s player. To play it in our own, set up streaming (Mux) in <a href="#/media/setup">Media → Setup</a> first.</p></div>`;
+  }
+  return html`<div class="card stack" data-own>${head}
+    ${m.upload_status === 'failed' ? html`<div class="alert bad">The last upload didn’t work. Try again.</div>` : ''}
+    <p class="small" style="margin:0">This plays in YouTube’s player. To play it in our own, upload the video file: in <b>YouTube Studio → Content</b>, point at the video, click <b>⋮ → Download</b>, then choose that file here. Its title, tags and trim stay as they are.</p>
+    <label class="btn" style="justify-self:start">${icon('upload')} Choose the video file<input type="file" accept="video/*" data-file hidden></label>
+    <div class="meter" data-meter hidden><span style="width:0%"></span></div>
+    <span class="muted small" data-up-note></span></div>`;
 }

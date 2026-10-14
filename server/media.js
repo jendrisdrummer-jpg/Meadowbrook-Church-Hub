@@ -21,7 +21,7 @@ export const TITLE_FORMATS = {
   title_series: 'Title | Series',
 };
 
-export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30 };
+export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30, own_player_only: false };
 export const mediaSettings = (db) => ({ ...DEFAULTS, ...getSetting(db, 'media', {}) });
 const status = (db) => getSetting(db, 'media_status', {});
 const setStatus = (db, changes) => setSetting(db, 'media_status', { ...status(db), ...changes });

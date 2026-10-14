@@ -153,6 +153,51 @@ export async function makeClip(db, mediaId) {
   if (old) await mux('DELETE', `/video/v1/assets/${old}`).catch(() => {});
 }
 
+// ---------------------------------------------------------------- uploads from the hub
+// A place for the browser to send a video file straight to Mux (it never goes through our
+// server). origin: the hub's address, which Mux lets upload.
+export async function startUpload(db, mediaId, origin) {
+  const { data } = await mux('POST', '/video/v1/uploads', {
+    cors_origin: origin || '*',
+    new_asset_settings: { playback_policy: ['public'], video_quality: 'basic' },
+  });
+  db.prepare("UPDATE media SET upload_id = ?, upload_status = 'uploading', upload_at = datetime('now') WHERE id = ?").run(data.id, mediaId);
+  return data.url;
+}
+
+// The file is in Mux and ready: the video now plays in our own player. Its trim (made on the
+// YouTube copy, the same video) carries over.
+async function finishUpload(db, row, a) {
+  const pid = a.playback_ids?.find((p) => p.policy === 'public')?.id || a.playback_ids?.[0]?.id;
+  if (!pid) return;
+  const old = row.mux_asset_id && row.mux_asset_id !== a.id ? row.mux_asset_id : null;
+  db.prepare(`UPDATE media SET source = 'mux', mux_asset_id = ?, playback_id = ?, duration = COALESCE(?, duration), upload_status = '', upload_id = NULL,
+      clip_asset_id = NULL, clip_playback_id = NULL, clip_start = NULL, clip_end = NULL, clip_status = '', clip_ready_at = NULL, raw_deleted = 0
+    WHERE id = ?`).run(a.id, pid, a.duration != null ? Math.round(a.duration) : null, row.id);
+  if (old) await mux('DELETE', `/video/v1/assets/${old}`).catch(() => {});
+  if (row.start_sec || row.end_sec != null) await makeClip(db, row.id).catch(() => {});
+}
+
+async function checkUploads(db) {
+  const rows = db.prepare("SELECT * FROM media WHERE upload_status IN ('uploading', 'processing') AND upload_id IS NOT NULL").all();
+  for (const row of rows) {
+    try {
+      const { data: up } = await mux('GET', `/video/v1/uploads/${row.upload_id}`);
+      if (['errored', 'cancelled', 'timed_out'].includes(up.status)) {
+        db.prepare("UPDATE media SET upload_status = 'failed' WHERE id = ?").run(row.id);
+        continue;
+      }
+      if (!up.asset_id) continue;
+      const { data: a } = await mux('GET', `/video/v1/assets/${up.asset_id}`);
+      if (a.status === 'ready') await finishUpload(db, row, a);
+      else if (a.status === 'errored') db.prepare("UPDATE media SET upload_status = 'failed' WHERE id = ?").run(row.id);
+      else if (row.upload_status !== 'processing') db.prepare("UPDATE media SET upload_status = 'processing' WHERE id = ?").run(row.id);
+    } catch (e) {
+      if (e.status === 404) db.prepare("UPDATE media SET upload_status = 'failed' WHERE id = ?").run(row.id);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- every minute
 let ticking = null;
 export function muxTick(db) {
@@ -162,8 +207,9 @@ export function muxTick(db) {
 
 async function tick(db) {
   if (!muxConfigured()) return null;
+  await checkUploads(db);
   const m = muxSettings(db);
-  if (!m.live_stream_id) return null;
+  if (!m.live_stream_id) { await clipsAndCleanup(db); return { active: false }; }
   const { data: ls } = await mux('GET', `/video/v1/live-streams/${m.live_stream_id}`);
   const active = ls.status === 'active';
   const live = liveNow(db);
@@ -178,6 +224,12 @@ async function tick(db) {
     importRecording(db, a);
   }
 
+  await clipsAndCleanup(db);
+  return { active };
+}
+
+// Trimmed copies being made, and full recordings that can go.
+async function clipsAndCleanup(db) {
   // Trimmed copies being made.
   for (const row of db.prepare("SELECT id, clip_asset_id FROM media WHERE clip_status = 'making'").all()) {
     try {
@@ -200,5 +252,4 @@ async function tick(db) {
       db.prepare('UPDATE media SET raw_deleted = 1 WHERE id = ?').run(row.id);
     }
   }
-  return { active };
 }
