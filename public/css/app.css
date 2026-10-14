@@ -943,3 +943,4 @@ code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 .md-bulk { margin-bottom: 16px; }
 .md-bulk-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .md-bulk-row .meter { display: block; flex: none; margin: 0; }
+.pod-art { display: grid; place-items: center; width: 96px; height: 96px; flex: none; border-radius: 12px; background: var(--panel-2) center / cover no-repeat; color: var(--muted); border: 1px solid var(--line); }

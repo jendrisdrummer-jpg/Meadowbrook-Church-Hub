@@ -1862,7 +1862,13 @@ test('streaming through Mux: one stream key, live in the app during services, re
       const upl = /^\/video\/v1\/uploads\/(\w+)$/.exec(u.pathname);
       if (upl && req.method === 'GET') { const x = state.uploads?.[upl[1]]; return x ? send(200, { data: { id: upl[1], ...x } }) : send(404, {}); }
       const one = /^\/video\/v1\/assets\/(\w+)$/.exec(u.pathname);
-      if (one && req.method === 'GET') return state.clips[one[1]] ? send(200, { data: { id: one[1], status: state.clips[one[1]], playback_ids: [{ id: `${one[1]}-pb` }] } }) : send(404, {});
+      const sr = /^\/video\/v1\/assets\/(\w+)\/static-renditions$/.exec(u.pathname);
+      if (sr && req.method === 'POST') { (state.renditions ||= []).push({ asset: sr[1], ...body }); return send(201, { data: { id: `sr-${sr[1]}`, status: 'preparing' } }); }
+      if (one && req.method === 'GET') {
+        const audio = state.audio?.[one[1]];
+        return state.clips[one[1]] ? send(200, { data: { id: one[1], status: state.clips[one[1]], playback_ids: [{ id: `${one[1]}-pb` }],
+          static_renditions: { files: audio ? [{ name: 'audio.m4a', resolution: 'audio-only', status: audio, filesize: '12345' }] : [] } } }) : send(404, {});
+      }
       if (one && req.method === 'DELETE') { state.deleted.push(one[1]); return res.writeHead(204).end(); }
       send(404, { error: { messages: ['nope'] } });
     });
@@ -2004,4 +2010,32 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.ok(own.length && own.every((x) => x.source === 'mux'));
   await api('admin', 'PUT', '/media/setup', { own_player_only: false });
   assert.ok((await api(null, 'GET', '/watch')).data.items.some((x) => x.source === 'youtube'));
+
+  // The podcast: off until it's turned on, which needs an owner email.
+  assert.equal((await fetch(`${base}/podcast.xml`)).status, 404);
+  assert.equal((await api('vol', 'GET', '/media/podcast')).status, 403);
+  assert.equal((await api('admin', 'PUT', '/media/podcast', { enabled: true })).status, 400);
+  assert.equal((await api('admin', 'PUT', '/media/podcast', { enabled: true, email: 'Media@MB.org', description: 'Sunday & more' })).status, 200);
+  // Audio is made from the trimmed copy (not while a trimmed copy is still being made).
+  await muxTick(db);
+  await muxTick(db);
+  assert.ok(state.renditions.some((x) => x.asset === 'clip2' && x.resolution === 'audio-only'));
+  assert.ok(!state.renditions.some((x) => x.asset === 'up1'));
+  let pod = (await api('admin', 'GET', '/media/podcast')).data;
+  assert.equal(pod.episodes.find((x) => x.id === rec.id).state, 'making');
+  assert.match(pod.feed_url, /\/podcast\.xml$/);
+  let feed = await (await fetch(`${base}/podcast.xml`)).text();
+  assert.ok(!feed.includes('<item>'));
+  state.audio = { clip2: 'ready' };
+  await muxTick(db);
+  feed = await (await fetch(`${base}/podcast.xml`)).text();
+  assert.match(feed, /<itunes:email>media@mb\.org<\/itunes:email>/);
+  assert.match(feed, /<description>Sunday &amp; more<\/description>/);
+  assert.match(feed, /<title>Living Water \(Part 1\)<\/title>/);
+  assert.match(feed, /<enclosure url="https:\/\/stream\.mux\.com\/clip2-pb\/audio\.m4a" length="12345" type="audio\/x-m4a"\/>/);
+  assert.match(feed, /<itunes:duration>3840<\/itunes:duration>/);
+  assert.equal((await api('admin', 'GET', '/media/podcast')).data.episodes.find((x) => x.id === rec.id).state, 'ready');
+  // Left out of the podcast: gone from the feed.
+  await api('admin', 'PATCH', `/media/${rec.id}`, { podcast: false });
+  assert.ok(!(await (await fetch(`${base}/podcast.xml`)).text()).includes('<item>'));
 });

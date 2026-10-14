@@ -52,6 +52,8 @@ export default async function mediaItem(el, id) {
       <label class="field">Service<select name="service_id">${options(m.services.map((s) => ({ value: s.id, label: `${fmtTime(s.starts_at)} · ${s.campus}${s.title ? ` · ${s.title}` : ''}` })), m.service_id ?? '', { blank: m.services.length ? 'Not linked' : 'No services that day' })}</select>
         <span class="row small" style="gap:8px"><button type="button" class="btn small ghost" data-refill ${m.service_id ? '' : 'disabled'}>${icon('wand')} Fill in from the order of service</button></span></label>
       <label class="field">Campus<select name="campus_id">${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), m.campus_id ?? '', { blank: 'All campuses' })}</select></label>
+      ${m.podcast_on ? html`<label class="check"><input type="checkbox" name="podcast" ${m.podcast ? 'checked' : ''}> In the podcast
+        ${m.podcast ? (m.audio_ready ? html`<span class="pill good">Audio ready</span>` : m.source === 'mux' ? html`<span class="pill warn">Audio on its way</span>` : html`<span class="pill">Needs the video file (below)</span>`) : ''}</label>` : ''}
       <label class="field">Notes under the video<textarea name="description" rows="4" maxlength="4000" placeholder="Sermon notes, a link to the series, next steps…">${m.description}</textarea></label>
       <datalist id="md-speakers">${lib.speakers.map((x) => html`<option value="${x}">`)}</datalist>
       <datalist id="md-series">${lib.series.map((x) => html`<option value="${x}">`)}</datalist>
@@ -149,6 +151,7 @@ export default async function mediaItem(el, id) {
     title: f.title.value, speaker: f.speaker.value, series: f.series.value, scripture: f.scripture.value, day: f.day.value,
     service_id: f.service_id.value || null, campus_id: f.campus_id.value || null, description: f.description.value,
     topics, image, start: startIn.value.trim() || 0, end: endIn.value.trim() || null,
+    ...(f.podcast ? { podcast: f.podcast.checked } : {}),
   });
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-save]').onclick = async () => {

@@ -4,6 +4,7 @@
 // Access Tokens, Mux Video read + write). The hub checks Mux every minute, so no webhook is needed.
 import { getSetting, setSetting } from './db.js';
 import { localNow } from './http.js';
+import { podcastAudio } from './podcast.js';
 import { mediaSettings, liveNow, describeVideo, insertMedia, fromService, announce, announceLive, utc, churchTz } from './media.js';
 
 const API = () => (process.env.MB_MUX_API || 'https://api.mux.com').replace(/\/+$/, '');
@@ -228,8 +229,9 @@ async function tick(db) {
   return { active };
 }
 
-// Trimmed copies being made, and full recordings that can go.
+// Trimmed copies being made, full recordings that can go, and the podcast's audio files.
 async function clipsAndCleanup(db) {
+  await podcastAudio(db, mux).catch((e) => console.error('Podcast audio:', e.message));
   // Trimmed copies being made.
   for (const row of db.prepare("SELECT id, clip_asset_id FROM media WHERE clip_status = 'making'").all()) {
     try {

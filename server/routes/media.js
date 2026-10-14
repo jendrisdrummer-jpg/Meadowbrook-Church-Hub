@@ -10,6 +10,7 @@ import { isAppImage } from '../../public/js/app-widgets.js';
 import {
   mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, fetchVideo, describeVideo, insertMedia, fromService, hasApiKey, TITLE_FORMATS,
 } from '../media.js';
+import { podcastSettings, savePodcast, audioSource } from '../podcast.js';
 import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
 
 const topicsOf = (m) => { try { return JSON.parse(m.topics || '[]'); } catch { return []; } };
@@ -175,6 +176,42 @@ export default function mediaRoutes(db) {
     res.status(201).json({ id });
   });
 
+  // ---------------------------------------------------------------- the podcast
+  r.get('/media/podcast', requireRole('staff'), (req, res) => {
+    const rows = db.prepare("SELECT * FROM media WHERE status = 'published' ORDER BY day DESC LIMIT 60").all();
+    res.json({
+      settings: podcastSettings(db),
+      feed_url: `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`}/podcast.xml`,
+      mux: muxConfigured(),
+      episodes: rows.map((m) => ({
+        id: m.id, title: m.title, day: m.day, speaker: m.speaker, podcast: Boolean(m.podcast),
+        state: !m.podcast ? 'off' : m.source !== 'mux' ? 'youtube' : m.upload_status ? 'uploading'
+          : m.audio_status === 'ready' && audioSource(m)?.asset === m.audio_asset_id ? 'ready' : m.audio_status === 'failed' ? 'failed' : 'making',
+      })),
+    });
+  });
+  r.put('/media/podcast', requireRole('staff'), (req, res) => {
+    const b = req.body || {};
+    const changes = {};
+    if (typeof b.enabled === 'boolean') changes.enabled = b.enabled;
+    for (const [k, max] of [['title', 150], ['author', 120], ['description', 4000], ['subcategory', 60]]) if (b[k] !== undefined) changes[k] = str(b[k], max);
+    if (b.email !== undefined) {
+      const email = str(b.email, 200).toLowerCase();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw bad('That email doesn’t look right.');
+      changes.email = email;
+    }
+    if (b.image !== undefined) {
+      if (b.image && !isAppImage(b.image)) throw bad('Upload the cover art here.');
+      changes.image = b.image || '';
+    }
+    const next = { ...podcastSettings(db), ...changes };
+    if (next.enabled && !next.email) throw bad('Podcast apps need a contact email for the owner.');
+    savePodcast(db, changes);
+    audit(db, req, 'media.podcast', changes);
+    if (next.enabled) muxTick(db).catch(() => {});
+    res.json({ settings: podcastSettings(db) });
+  });
+
   // Uploading a video file to Mux (straight from the browser): onto a video already here (one
   // from YouTube, so it plays in our own player), or as a new one.
   const uploadUrl = async (req, id) => {
@@ -212,7 +249,7 @@ export default function mediaRoutes(db) {
     // Services that day, to link it to another one.
     const services = db.prepare('SELECT s.id, s.title, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE substr(s.starts_at, 1, 10) = ? ORDER BY s.starts_at').all(m.day);
     res.json({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
-      upload_status: m.upload_status, mux_ready: muxConfigured(),
+      upload_status: m.upload_status, mux_ready: muxConfigured(), podcast: Boolean(m.podcast), podcast_on: podcastSettings(db).enabled, audio_ready: m.audio_status === 'ready' && audioSource(m)?.asset === m.audio_asset_id,
       raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null,
       campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live) });
   });
@@ -253,6 +290,7 @@ export default function mediaRoutes(db) {
     if (trimChanged && m.raw_deleted) throw bad('The full recording has been removed to save storage, so this one can’t be trimmed again.');
     if (b.start !== undefined) set.start_sec = start;
     if (b.end !== undefined) set.end_sec = end != null && m.duration && end >= m.duration ? null : end;
+    if (typeof b.podcast === 'boolean') set.podcast = b.podcast ? 1 : 0;
     if (b.status !== undefined) {
       if (!['published', 'hidden'].includes(b.status)) throw bad('Publish or hide it.');
       set.status = b.status;
