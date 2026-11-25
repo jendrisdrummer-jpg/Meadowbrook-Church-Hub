@@ -14,6 +14,9 @@ export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
 const PERSON_FIELDS = ['first_name', 'last_name', 'nickname', 'email', 'phone', 'birthdate', 'gender', 'grade', 'campus_id',
   'status', 'allergies', 'medical_notes', 'notes', 'household_id', 'household_role'];
 const HOUSEHOLD_FIELDS = ['name', 'campus_id', 'address', 'city', 'state', 'zip', 'phone', 'notes'];
+// Health information and private notes: staff and up only (see GET /people/:id).
+const PRIVATE_PERSON_FIELDS = ['allergies', 'medical_notes', 'notes'];
+const withoutKeys = (row, keys) => Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 
 export function digits(s) {
   return String(s || '').replace(/\D/g, '');
@@ -105,15 +108,20 @@ export default function peopleRoutes(db, { uploadDir }) {
   });
 
   // ---------------------------------------------------------------- one person
+  // Leaders (including people who get leader access just by leading a team) see contact and
+  // serving details here, but not health information, private notes or the pickup list: those
+  // are for staff and up. Check-in has its own, narrower roster for kids' safety.
   r.get('/people/:id', requireRole('leader'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
+    const staff = rank(req.user.role) >= rank('staff');
     const household = p.household_id ? getHousehold(p.household_id) : null;
+    const person = staff ? p : withoutKeys(p, PRIVATE_PERSON_FIELDS);
     res.json({
-      ...p,
+      ...person,
       household: household && {
-        ...household,
+        ...(staff ? household : withoutKeys(household, ['notes'])),
         members: db.prepare('SELECT id, first_name, last_name, nickname, household_role, birthdate, photo FROM people WHERE household_id = ? AND archived = 0 ORDER BY household_role, birthdate').all(household.id),
-        pickups: db.prepare('SELECT * FROM household_pickups WHERE household_id = ?').all(household.id),
+        ...(staff ? { pickups: db.prepare('SELECT * FROM household_pickups WHERE household_id = ?').all(household.id) } : {}),
       },
       teams: db.prepare(`SELECT t.id, t.name, t.color, tm.is_leader, ps.name position FROM team_members tm
         JOIN teams t ON t.id = tm.team_id LEFT JOIN positions ps ON ps.id = tm.position_id

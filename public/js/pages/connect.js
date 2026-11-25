@@ -29,6 +29,7 @@ export default async function connect(el) {
         <div class="row small" style="margin-top:6px">${c.email ? html`<a href="mailto:${c.email}">${c.email}</a>` : ''}${c.phone ? html`<a href="tel:${c.phone}">${c.phone}</a>` : ''}</div>
         ${c.interests.length ? html`<div class="row" style="margin-top:8px">${c.interests.map((x) => html`<span class="pill">${x}</span>`)}</div>` : ''}
         ${c.message ? html`<p class="small" style="white-space:pre-line;margin:10px 0 0">“${c.message}”</p>` : ''}
+        ${c.has_message ? html`<p class="small muted" style="margin:10px 0 0">They left a message; staff can read it.</p>` : ''}
         <div class="row" style="margin-top:12px">
           ${c.person_id ? html`<a class="btn small ghost" href="#/people/${c.person_id}">${icon('user')} ${c.person_first} ${c.person_last}</a>`
             : html`<button class="btn small" data-add="${c.id}">${icon('plus')} Add to People</button><button class="btn small ghost" data-link="${c.id}">Already in People…</button>`}

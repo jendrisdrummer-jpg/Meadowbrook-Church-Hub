@@ -67,7 +67,49 @@ same way.
 ## Field-level visibility
 
 - Custom profile fields have `visibility` leader or staff.
-- Children's allergies and medical notes are shown for check-in and to leaders and up.
+- Allergies, medical notes, a person's private `notes`, household notes and the household pickup list
+  are **staff and up** on a person's page (`GET /people/:id`). Leaders, including anyone with leader
+  access only because they lead a team, see contact and serving details but not those fields.
+- **Kids' check-in** (`/checkin/roster`, `/checkin/checkins`, `/checkin/active`, `/checkin/checkout`,
+  deleting a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
+  authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
+  `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
+  **children's** allergies and medical notes, never an adult's. Every route checks the campus.
+- **The check-in roster** for a campus holds that campus's families **plus families with no campus
+  set**, and never a family assigned to another campus. The rule uses the **family's** (household's)
+  campus. Checking in and the list of who's checked in follow the same rule, so a check-in can't pull
+  another campus's child into this campus's lists. A family visiting another campus can't be checked
+  in there yet; that's a later child-safety item. Unassigned families are included on purpose,
+  because Faith Teams has no campuses, so many imported households have none. Leaving them out would
+  hide real children from check-in. Unassigned families are therefore visible at every campus's
+  check-in to authorised people. Staff can assign a household's campus at any time (People → the
+  household → edit; `PATCH /households/:id`), and from then on the family appears only at that
+  campus. Assigning campuses to imported households before kids' check-in goes live (Subsplash
+  cutover) narrows this further.
+
+### Moving the interim check-in authorisation to the permanent permissions
+
+The `checkin_user_ids` setting is temporary. Child-safety V1, PR 3 ("Access"), replaces it with the
+permanent check-in access, stored as the first row type of a grants table (`user, capability =
+'checkin', scope = campus`). That table was approved as part of the child-safety plan. The switch is
+done in one PR:
+
+1. **Copy the grants.** A migration creates one `checkin` grant per account in `checkin_user_ids`,
+   scoped to that account's campuses (all campuses if it has no campus limit). Nobody gains or loses
+   access on the day of the switch.
+2. **Read from the new place.** `canCheckin` reads the grant instead of the setting. Staff, admins
+   and paired stations keep access as now (or get grants by role, as V1 decides).
+3. **Move the admin control.** The "Kids' check-in" checkbox writes the grant.
+4. **Remove the old setting.** `checkin_user_ids` is deleted, and the tests in this PR run unchanged
+   against the new storage.
+
+Check-in authorisation is removed when the account is deleted or stops being a leader (by hand or
+because it no longer leads a team), so it never comes back silently.
+
+Until then, review the authorised list in Settings → Sign-in & accounts (accounts show a
+"Check-in" tag).
+- **Connect-card messages** (often prayer requests) are staff only; leaders see the card without it.
+- Automatic leader access from leading a team is written to the audit log (`user.leader_auto`).
 - Chats: only members (team chats follow the team roster).
 - Private tasks: only the person; team tasks: the team.
 

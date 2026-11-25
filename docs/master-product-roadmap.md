@@ -1,0 +1,333 @@
+# Master Product Roadmap: Meadowbrook Church Hub
+
+Revision 3 (execution) · 2026-11-25. A planning document: nothing here is implemented or approved until the owner says
+so.
+
+This page sets the **order, stages, release gates and adoption plan**. [roadmap.md](roadmap.md) remains the
+**backlog** (item IDs, sizes, gap analysis). [feedback.md](feedback.md) holds the leaders' feedback list and the
+"You said, we did" record. Where these pages differ on order or stage, this page governs.
+
+**Revision 3** moves from planning to execution. It records:
+- what is **already built and verified**
+- the **first development milestone** as small, reviewable PRs
+- the **beta plan**
+- **kids' check-in as a separate release** that replaces Subsplash check-in
+
+The three-stage strategy is unchanged.
+
+---
+
+## 1. Summary
+- **The replacement is mostly built.** About 260 server endpoints, 27 hub pages, a member app, and 42 automated tests
+  (32 of them large end-to-end scenarios), all passing.
+- **QA verified the core workflows in a real browser.** Each one worked start to finish:
+  - scheduling and sending requests
+  - volunteer accept and decline, in the app and by signed email link
+  - leader decline notices
+  - order of service from a template
+  - team chat
+  - announcements
+  - roll call
+  - events with capacity limits
+  - connect cards
+  - kids' check-in and check-out, including offline sync
+
+  The remaining work is to **finish and improve**, plus testing on real devices and real data.
+- **The initial migration replaces three things:**
+  - Faith Teams, for church management
+  - Google Chat, for team communication
+  - **Subsplash children's check-in**, as its own safety-critical release
+
+  The Subsplash media replacement stays in Stage 3.
+- **First milestone ("Staff and leaders, safely"):** about **140–220 agent-assisted hours** across about ten small PRs,
+  including basic small groups and the forms Meadowbrook uses. About a third of it is testing, setup and people work.
+- **Kids' check-in cutover:** **about 200–300 hours**, with a pilot from about 21 February and Subsplash check-in
+  switched off around mid-June 2027 (§8).
+- **Expected timeline:**
+
+  | Who starts | When |
+  |---|---|
+  | Staff | mid-December |
+  | Worship and production | late January |
+  | Other ministry leaders | February to March, then after Easter |
+
+  Ministries leave Faith Teams one at a time, by workflow (§10).
+
+## 2. Approval boundaries
+- **PR #49** approves the child-safety V1 plan and the Subsplash cutover plan, **plans only**.
+- **PR #50 (this page)** approves the **planning direction** only.
+- **PR #51** (interim privacy fix) is code awaiting approval.
+- **Every PR in the milestone below:**
+  - is opened only after its summary (what changes, why, security and data implications, acceptance criteria, tests)
+    has been shown
+  - is merged and deployed only with the owner's approval
+- **No paid service or recurring cost** without the owner's approval.
+- **Execution authority (owner, 25 Nov 2026).** The agent team builds and merges approved Milestone 1 work
+  without per-PR approval, once tests, browser checks and security checks pass. Merges go into the
+  **`milestone-1` integration branch**, never into `main`. **Merging to `main` deploys to production and runs
+  migrations, so it needs the owner's explicit approval.** So do anything that could damage production
+  data, any paid service, and major decisions outside the roadmap. Merges are recorded in the
+  [merge log](merge-log.md).
+
+## 3. The three stages
+1. **Stage 1, Better Faith Teams:** staff and ministry leaders use the Hub for the workflows Meadowbrook uses today,
+   done better. Their volunteers answer requests in the app or by email link. Kids' check-in moves from Subsplash as
+   its own release. Reliability, security and confidence come first.
+2. **Stage 2, Better Meadowbrook:** shaped by leaders' and members' feedback (§9). Members join, behind the member
+   tier and team-scoped leader access.
+3. **Stage 3, Planning Center alternative:** expand only where there is a clear reason and a sustainable plan.
+   Includes the Subsplash media replacement.
+
+---
+
+## 4. What is already built
+
+**Verified** means seen working in a browser by QA, or covered by passing tests.
+
+| Area | Status | What remains (type of work) |
+|---|---|---|
+| People, households, search, custom fields, CSV import | **Built, verified** | Import the real Faith Teams export onto a copy and fix the mapping (testing, fix) |
+| Accounts, sign-in, roles, campuses | **Built, needs refinement** | Unlinked accounts hit a dead end (fix). Sign-in set to invited (setting) |
+| Teams and positions | **Built, verified** | Audit automatic leader grants (security) |
+| Scheduling: requests, accept/decline, email links, reminders, conflicts, away dates, autofill, month grid | **Built, verified** | Per-volunteer campus eligibility (**new**). Leader "Remind" button (**small new**). Recurring availability if worship uses it (new) |
+| Service planning, songs, templates | **Built, verified** | Printable run sheet can wait |
+| Team chat, tasks | **Built, verified** | "Message team" button (small UI). Volunteer DMs and search wait for Stage 2 |
+| Announcements, notifications | **Built, verified** | Push and email on real phones (testing) |
+| Attendance, roll call | **Built, verified** | Trends can wait |
+| Events and sign-ups | **Built, verified** | "Duplicate event" (small). Repeating events can wait |
+| Connect cards, follow-up | **Built, verified** | Messages visible to leaders (security). Owner and due date can wait |
+| Member app | **Built, verified** | Pending requests first (small UI) |
+| Giving | **Built, never tested with live payments** | Only in scope if Faith Teams runs giving |
+| Backups | **Built, needs setup** | Password, Drive, restore drill (ops) |
+| Small groups | **Missing** | Basic groups (**new**: milestone) |
+| Forms | **Partial** (event sign-ups with questions) | Only the forms Meadowbrook uses (**new**: milestone, scope from the owner's list) |
+| Member directory, member tier, adult DMs, church-wide email | **Missing** | Stage 2 |
+| Kids' check-in | **Flow built and verified; safety requirements not built** | Separate release (§8) |
+| Media, Mux, podcast | Built | Not in this migration |
+
+## 5. Privacy first
+**Today, in Settings (no code):**
+- Sign-in: "Only accounts an admin adds below" (invited).
+- Review every leader account:
+  - Set a campus limit, or untick "Can sign in".
+  - Deleting an account or demoting it to volunteer doesn't stick.
+- Team "leader" ticks: only where the person truly schedules that team.
+- Profile-field visibility: check each field.
+- Pastoral matters: don't keep them in People notes.
+- `MB_DEV_LOGIN`: must not be set.
+
+**A read-only production check:** run in Render's Shell. It prints counts only, never names or contents. It shows how
+many real children, allergies, medical notes, pickups and connect-card messages are exposed, plus account roles and the
+sign-in policy.
+
+**Code, each needing approval:**
+1. **PR #51:** person pages hide health data, private notes and pickups from leaders. Check-in never sends an adult's
+   health data.
+2. **Milestone PR 2:** the check-in roster and active list go to staff, paired stations and leaders of teams chosen in
+   Settings (`checkin_team_ids`) only. Connect-card messages become staff only. Automatic leader grants are audited.
+
+**Still exposed after both:**
+- leaders see contact details church-wide
+- any signed-in account sees who serves at each service (no member tier yet: Stage 2)
+- staff see everything, by design
+
+Child-safety V1 PR 3 later replaces the roster rule with the check-in access flag.
+
+---
+
+## 6. First milestone: "Staff and leaders, safely"
+Each PR is small and reviewable. Before it is opened, its summary is shown (what changes, why, security and data
+implications, acceptance criteria, tests). Hours are agent-assisted.
+
+| # | PR | Type | Why | Security and data | Acceptance (summary) | h |
+|---|---|---|---|---|---|---|
+| 1 | **#51 Interim privacy fix** (ready) | Security | Live exposure of health and pastoral data | Staff and admin views unchanged | Canary test fails before, passes after; leader page checked in a browser | done |
+| 2 | **Check-in roster guard, connect-card privacy, leader-grant audit** | Security | Remaining exposures (Security F1, F3, F5) | **Permission change (approval).** New setting `checkin_team_ids` | Parking leader gets 403, kids'-team leader gets 200, station gets 200. Leader gets no card message. Audit row on a team-leader change | 10–16 |
+| 3 | **Automated tests on every PR** (GitHub Actions, `npm test`) | Ops | Merging deploys; nothing runs tests today | Free tier: approval needed | A PR shows a check; a failing test is visible | 3–5 |
+| 4 | **Account onboarding** | Fix | Unlinked accounts hit a dead end | No change to who can sign in | Unlinked account sees "We've let the office know"; admins see a list of unlinked accounts with one-click linking | 6–10 |
+| 5 | **Per-volunteer campus eligibility** | New | Teams are shared across campuses; autofill must never request someone for a campus they don't serve | New table `serving_campuses`. Default: home campus (owner decision) | Ineligible volunteers excluded from candidates and autofill; a manual pick warns; tests across two campuses | 14–24 |
+| 6 | **Scheduling loop** | Small new + UI | Leaders' weekly chores | Remind is rate-limited; it reaches only people with pending requests | "Remind N who haven't replied" on a service; volunteer app shows pending requests first; "Message team" on team and service pages; leader notified | 10–16 |
+| 7 | **Feedback link** in hub and app | Small UI | Leaders must shape Stage 2 | Goes to a "Hub feedback" chat; nothing public | One tap from every page; captures page, role and campus | 2–4 |
+| 8 | **Basic small groups** | New | Owner listed it for the first milestone | Separate model from teams; **never grants leader access**; adults only in Stage 1 | Group with leaders and members, a group chat, members see their groups in the app; group leaders see only their group; permission tests | 30–45 |
+| 9 | **The forms Meadowbrook uses** | New | Owner listed it for the first milestone | One forms model; sensitive answers staff-only; never links to a person by a typed email | Each named form works end to end on a phone; responses listed for staff; rate-limited | 20–35 (scope from the owner's list) |
+| 10 | **Recurring availability** (only if worship uses it) | New | Avoid re-entering the same blockouts monthly | — | "Not on the first Sunday" respected by autofill; tests | 10–14 |
+
+**Not PRs, but part of the milestone:**
+
+| Work | Type | h |
+|---|---|---|
+| **Backup restore drill** on a scratch copy, result recorded | Ops | 3–4, plus owner |
+| **Real-device testing:** push on iPhone home-screen app and Android; email codes and reply links in Gmail and Outlook; camera upload | Testing | 6–8, plus people |
+| **Faith Teams import rehearsal** on a copy | Testing | 4–8 |
+| **Leader and campus permission tests** | Testing | 8–10 |
+| **How-to pages** for leader tasks | Ops | 6–8 |
+| **Bug reserve** for real use | Fix | 12–15 |
+
+**Total:** about **140–220 agent-assisted hours**. Small groups and forms are about 50–80 of it.
+
+**Not rebuilt:** scheduling, planning, chat, announcements, roll call, events and connect cards stay as they are. They
+are verified.
+
+**Order and hot files:**
+- PR 1, then PRs 2, 3, 4 and 7 in December.
+- PR 5, then PR 6, in January, after child-safety PR 2 (both touch `services.js`).
+- PRs 8 and 9 alongside (new files).
+- PR 10 if needed.
+
+Migrations are numbered in merge order and rehearsed on a restored backup.
+
+## 7. Beta plan
+| Group | What they use | Must be complete first | Onboarding |
+|---|---|---|---|
+| **Staff** (about 8), **mid-December** | Chat, tasks, planning, people, announcements | §5 settings. PRs 1–4 and 7. Restore drill done. Feedback chat set up. A named person for problems | In person. Accounts added by an admin. Notifications switched on together. One-page how-to |
+| **Freeze 19 Dec – 3 Jan** | — | — | — |
+| **Worship and production**, **late January** | Scheduling, plans, songs, team chat | PRs 5 and 6. Real-device push and email tested. Leader permission tests pass. Recurring availability if they use it | Team leader invites their team personally. A 20-minute walkthrough. Phone card: install, notifications, accept your first request. Volunteers can stay on email links |
+| **Other ministry leaders**, **February to early March** (then after Easter) | Their teams; small groups; their forms | PRs 8 and 9. No open "blocks Sunday" bugs from the previous group | Same as above. One champion per ministry |
+| **Children's ministry** | Kids' check-in | Separate release (§8). Not in the same month as their scheduling move | Training per campus |
+
+**Rules:**
+- No onboarding during freezes:
+  - Christmas: 19 Dec – 3 Jan
+  - Holy Week and Easter: about 14 Mar – 11 Apr
+- No onboarding in a check-in pilot week.
+- Each team has one source of truth for each job.
+
+## 8. Kids' check-in: separate release (replacing Subsplash check-in)
+**Full plan:** [subsplash-cutover.md](plans/child-safety/subsplash-cutover.md), with
+[v1-strategy.md](plans/child-safety/v1-strategy.md).
+
+- **Safety requirements:** every V1 requirement stays. Subsplash check-in continues until all of them are implemented
+  and verified and the exit criteria are met.
+- **Estimate:** about **200–300 agent-assisted hours**.
+  - The Senior Developer says about 170; the Chief Architect about 310.
+  - The difference is device, training and rollout work, and it is fixed once the number of campuses, iPads and
+    printers and the export format are known.
+- **Calendar:**
+  - V1 PRs in December and January
+  - pilot campus from about 21 February
+  - other campuses after Easter
+  - Subsplash check-in off around mid-June 2027
+- **Biggest unknowns:**
+  - **Label printers:** they must support AirPrint. Replacing them is a purchase needing approval.
+  - **The Subsplash export format.**
+
+## 9. Feedback process
+- **Where leaders send it:** the feedback link in the hub and app, or the "Hub feedback" chat. One per ministry if it
+  gets busy.
+- **What they send:**
+  - bugs and frustrations
+  - missing functionality
+  - workflow improvements
+  - feature requests
+  - ministry-specific ideas
+- **Severity:** Blocks Sunday · Slows me down · Nice to have.
+- **Cadence:**
+  - daily 10-minute sweep
+  - weekly 20–30-minute triage (owner or a named deputy, plus the developer)
+  - monthly "You said, we did" message to leaders
+- **Record:** [feedback.md](feedback.md) holds the prioritised list (with who asked) and the "You said, we did"
+  record.
+- **What enters the backlog:** an item that:
+  - blocks a ministry's move off Faith Teams
+  - has several requesters
+  - affects safety, security or reliability
+  - is cheap
+
+  Anything else is "heard, not now", with a reason.
+- **Bugs:** a failing test first, then the fix. Closed when the reporter confirms on their phone. Privacy, children's
+  data and giving jump the queue.
+- **Advisory groups:** worship, production, children's, hospitality and office (2–4 people each, including a sceptic).
+
+## 10. Retirement: per ministry, by workflow
+A ministry stops using Faith Teams only when all of these hold:
+- its own workflows work in the Hub, in real use, by its own people
+- one full cycle has run in parallel
+- there are no open "blocks Sunday" bugs
+- its leader confirms in plain words
+
+| Ministry | Must work, in real use |
+|---|---|
+| **Worship** | Plan from a template with songs, keys and charts. Scheduling with campus eligibility. Reminders and nudges. Same-morning replacement. Players open plans on phones. Four consecutive Sundays |
+| **Production** | Run sheet and call times. Cross-campus scheduling. Quick swaps. Two consecutive Sundays |
+| **Hospitality and welcome** | Spotter roll call on phones. Headcounts match. Connect cards followed up |
+| **Groups** | Their groups and members in the Hub. Group chat in use |
+| **Office** | People and households imported and checked. Weekly events and the forms in use working |
+| **Children's** | Separate release and exit criteria (§8) |
+
+**Retirement of each system:**
+- **Faith Teams as a whole:** switched off when every ministry has signed off, an encrypted export is archived, and
+  access is revoked.
+- **Google Chat:** retires team by team as each chat is active in the Hub for 4+ weeks. The final switch-off waits for
+  an archived export.
+- **Subsplash check-in:** per §8. **Subsplash media:** Stage 3.
+
+## 11. Effort and calendar
+
+| | Agent-assisted hours | Owner time |
+|---|---|---|
+| First milestone | 140–220 | 3–5 h/week of review |
+| Kids' check-in cutover | 200–300 | 15–30 h review in total; staff 15–30 h verifying data |
+| **Peak (December–January)** | both streams running | 6–8 h/week |
+
+- **Human-pace equivalent:** about 2.25 times the agent-assisted hours.
+- **What sets the calendar:** review time, freezes, real Sundays and parallel cycles. Not coding.
+- **Assumptions:**
+  - owner facts arrive by mid-December
+  - reviews are turned around in 2–3 days
+  - the freezes in §7
+
+| Milestone | Expected | Pessimistic |
+|---|---|---|
+| Staff using it | mid-December | January |
+| Worship and production | late January | February |
+| Other ministry leaders | Feb – early March, then April | after Easter |
+| Ministries off Faith Teams | from March, one by one | summer |
+| Kids' check-in pilot | 21 February | March |
+| Subsplash check-in off | mid-June 2027 | late summer |
+
+## 12. Stage 2 and Stage 3
+- **Stage 2 (from leader and member feedback):**
+  - **Members:** the member tier and team-scoped leader access, then invitations, the member directory (opt-in,
+    adults), adult DMs with safeguarding, and message search.
+  - **Communication:** church-wide email.
+  - **Scheduling:** swaps.
+  - **Care:** full follow-up and prayer.
+  - **Reporting:** attendance trends.
+  - **Then:** whatever leaders ask for most.
+- **Stage 3:**
+  - a Planning Center-level breadth only with a clear reason
+  - the Subsplash media replacement (Mux verification first, with the owner's cost approval)
+  - multi-church only by owner decision
+
+  **Avoid:** fund accounting, approval chains, a reporting engine, a website builder, native store apps (unless web
+  push fails).
+
+## 13. Decisions and facts needed before implementation
+1. **Approve PR #51.** Run the production check (§5) and share the counts.
+2. **Approve milestone PR 2** (permission change), and name the teams for `checkin_team_ids`. Decide whether
+   connect-card messages are staff only.
+3. **Approve GitHub Actions** (free tier) for automated tests.
+4. **Campus eligibility:** does an empty list mean "home campus only"? (Recommended.)
+5. **Small groups:** what "basic" must include. Recommended: roster, leaders, group chat, member view. Meeting
+   attendance later.
+6. **Forms:** the list of Faith Teams forms in use, with their fields.
+7. **Recurring availability:** do worship volunteers use recurring blockouts?
+8. **Minors:** will any have accounts in Stage 1? (Recommended: no.)
+9. **Beta:**
+   - staff names for the first group
+   - an advisory member per ministry
+   - a triage deputy
+   - a Sunday contact
+10. **Kids' check-in facts** (subsplash-cutover.md §6), including printers and AirPrint, and the Subsplash export and
+    contract.
+
+## 14. How the agent reviews settled the main questions
+| Question | Outcome |
+|---|---|
+| Rebuild or finish? | **Finish.** Earlier estimates priced setup, testing and small buttons as new building and double-counted safety work |
+| Members in Stage 1? | No. Volunteers use the app or email links. The member tier is the Stage 2 entry gate |
+| Sign-in policy | Invited. "Directory" would let anyone in People see kids' team rosters |
+| Roster exposure | Fix now (milestone PR 2), not at child-safety PR 3 |
+| Campus eligibility | Required before worship and production, because teams are shared across campuses |
+| UX | The scheduling loop and feedback first; polish by feedback |
+| Kids' check-in | Separate release; requirements unchanged; estimates differ only on rollout work |

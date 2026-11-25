@@ -26,7 +26,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Scheduling: candidates, conflicts, away dates, autofill, month matrix, drafts → send requests | ✅ | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
 | Accept/decline in app, push, email links; reminders; leaders hear declines | ✅ | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
 
-## Attendance and kids' check-in (FT)
+## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Roll call by spotters; attendance reports; headcounts | ✅ | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |

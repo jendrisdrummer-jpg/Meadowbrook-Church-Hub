@@ -6,6 +6,7 @@ import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
+import { revokeCheckin } from './checkin.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -173,12 +174,13 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       FROM users u LEFT JOIN people p ON p.id = u.person_id
       WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
+    const checkinIds = getSetting(db, 'checkin_user_ids', []);
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
     // Active accounts not linked to anyone in People: an admin links each one by hand.
     const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT 200`).all();
-    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })), volunteers, people_with_email: withEmail, unlinked });
+    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })), volunteers, people_with_email: withEmail, unlinked });
   });
 
   // Removes the sign-in (and its sessions and devices). The person stays in People.
@@ -190,6 +192,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       throw bad('This is the only admin. Make someone else an admin first.');
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
     res.json({ ok: true });
   });
@@ -204,15 +207,31 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     return pid;
   }
 
+  // Kids' check-in access for a leader account (staff and admins always have it). Kept as a
+  // setting until the child-safety plan's check-in access flag replaces it.
+  function setCheckin(userId, on) {
+    const ids = new Set(getSetting(db, 'checkin_user_ids', []));
+    if (on) ids.add(userId); else ids.delete(userId);
+    setSetting(db, 'checkin_user_ids', [...ids]);
+  }
+
   r.post('/users', requireRole('admin'), (req, res) => {
     const b = req.body || {};
     const email = required(b.email, 'Email').toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
-    const person = int(b.person_id) ?? db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
+    // The person the admin chose, checked like any link. With none chosen, the existing behaviour stays
+    // (the person in People with exactly this email), but never one who already has an account.
+    let person;
+    if (b.person_id != null && b.person_id !== '') person = linkablePerson(b.person_id, null);
+    else {
+      const match = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
+      person = match && !db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(match) ? match : null;
+    }
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
-    audit(db, req, 'user.create', `${email} as ${b.role}`);
+    if (b.checkin) setCheckin(Number(info.lastInsertRowid), true);
+    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -232,6 +251,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
+    if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
+    if (b.role === 'volunteer') revokeCheckin(db, u.id);
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
