@@ -194,7 +194,8 @@ async function serve(el, tab, q) {
   const switcher = html`<div class="seg m-seg" role="tablist"><a href="#/${tab.id}" class="${all ? '' : 'on'}">My schedule</a><a href="#/${tab.id}?view=all" class="${all ? 'on' : ''}">All services</a></div>`;
   if (all) return allServices(el, tab, switcher);
   if (!app.user.linked) {
-    mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>, but your account isn’t linked to the church directory yet, so there’s no schedule to show.</p><p class="muted small">Ask a church admin to link your account. You can still look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
+    mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>. Your account isn’t connected to your record in the church directory yet, so there’s no schedule to show.</p><p>We’ve let the church office know. They’ll connect your account and you’ll see your schedule here; there’s nothing else you need to do.</p><p class="muted small">In the meantime you can look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
+    post('/me/link-request', {}).catch(() => {});
     return;
   }
   const decline = q.get('decline');

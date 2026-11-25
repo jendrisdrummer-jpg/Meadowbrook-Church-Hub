@@ -35,7 +35,7 @@ Arrows show the main references.
 | `households` → campuses | Families: address, phone, notes. |
 | `people` → households, campuses | Everyone in the directory: contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. |
-| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme`. |
+| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme`, `link_requested_at` (an unlinked account last asked the office to link it). |
 | `sessions` → users | Session tokens. |
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |

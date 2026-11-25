@@ -15,6 +15,19 @@ and the owner's approval (see [agent-workflow.md](agent-workflow.md)). Code: `se
 All non-GET API requests need `x-mb: 1` (`requireAppHeader`), which stops other sites from
 posting on a signed-in person's behalf.
 
+## Linking accounts to people
+
+An account is linked to one person in People (`users.person_id`); that's how it sees its schedule,
+teams and chats. **Only an admin links an account,** by choosing the person (Settings → Sign-in &
+accounts → "Accounts not linked to a person", or the account's "Link to person…"). New code never
+links by name, email or any other guess. One person can have only one account (409 otherwise).
+An unlinked account sees "We've let the church office know", which calls `POST /me/link-request`;
+admins get one notification per account per week.
+
+Existing behaviour, unchanged: signing in for the first time links an account to the person in
+People with exactly that email address, and an admin adding an account with no person chosen does
+the same. That is how volunteers in People get their schedule without an admin step.
+
 ## Roles (ranked)
 
 `volunteer` < `leader` < `staff` < `admin`. A route guarded with `requireRole('leader')` lets
