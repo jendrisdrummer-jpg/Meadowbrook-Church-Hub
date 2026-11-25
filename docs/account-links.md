@@ -29,7 +29,6 @@ It prints:
 
 By default it prints **no emails or names**, so the output can be shared. Add `--show` to see them
 (`... audit-account-links.js --show`); keep that output private.
-section (ids and counts only).
 
 ## If there are duplicates (one person, two or more accounts)
 
@@ -61,3 +60,12 @@ more than one account:
 It is not a migration on purpose: a migration that fails on duplicates would stop the deploy. The step also
 runs again when an admin unlinks or deletes an account, so resolving the last duplicate turns the rule on
 without a restart. It is safe to run repeatedly.
+
+## Notes
+- Unlink in Settings → Accounts with **Unlink**, then **Save**. Leader access that came only from
+  leading a team (not set by hand) is taken back, and kids' check-in access goes with it.
+- Linking applies the usual team-leader rule: someone who leads a team gets leader access, unless
+  you choose a role by hand in the same save.
+- A campus-limited admin can link accounts only to people at their own campuses.
+- Merging two people moves the duplicate's account to the kept person (an admin's explicit choice,
+  audited as `user.link` with `via: merge`); if both have an account, unlink one first.

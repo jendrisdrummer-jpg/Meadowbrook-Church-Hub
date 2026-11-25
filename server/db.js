@@ -985,6 +985,24 @@ export function duplicateAccountLinks(db) {
 }
 
 export function ensureAccountLinkIndex(db, { log = false } = {}) {
+  // Count and create under one write lock; never stops the server from starting.
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = linkIndexStep(db, log);
+      db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  } catch (e) {
+    console.warn(`One-account-per-person index not created this time (${e.code || e.message}). No data was changed.`);
+    return { indexed: false, error: true };
+  }
+}
+
+function linkIndexStep(db, log) {
   const dupes = db.prepare('SELECT COUNT(*) n FROM (SELECT 1 FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1)').get().n;
   if (dupes) {
     if (log) {

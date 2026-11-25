@@ -7,6 +7,7 @@ import path from 'node:path';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { closeStreams } from '../live.js';
+import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
@@ -217,7 +218,8 @@ export default function peopleRoutes(db, { uploadDir }) {
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
     // One person, one account: merging two people who both have accounts would leave two on one person.
-    const dupUser = db.prepare('SELECT id, email FROM users WHERE person_id = ?').get(dup.id);
+    const dupUsers = db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id);
+    const dupUser = dupUsers[0];
     if (dupUser && db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(keep.id)) {
       throw new HttpError(409, 'Both of these people have an account. In Settings → Accounts, unlink one of them first, then merge.');
     }
@@ -252,7 +254,8 @@ export default function peopleRoutes(db, { uploadDir }) {
     for (const id of movedUsers) closeStreams({ userId: id });
     audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
     // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
-    if (dupUser) audit(db, req, 'user.link', { user_id: dupUser.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
+    for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
+    if (dupUsers.length) syncLeaderAccessFor(db, keep.id, req); // leadership may have moved with the merge
     res.json(getPerson(keep.id));
   });
 
@@ -416,7 +419,7 @@ export default function peopleRoutes(db, { uploadDir }) {
         const first = val(rec, 'first_name');
         if (!first) { summary.skipped.push({ row: i + 2, reason: 'no first name' }); return; }
         const last = val(rec, 'last_name');
-        const email = val(rec, 'email').toLowerCase();
+        const email = val(rec, 'email').trim().toLowerCase();
         const ext = val(rec, 'external_id');
         const birth = parseDate(val(rec, 'birthdate'));
         const campusId = campusFor(val(rec, 'campus'));

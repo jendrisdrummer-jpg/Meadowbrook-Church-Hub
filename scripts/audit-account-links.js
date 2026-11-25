@@ -42,6 +42,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   const file = process.env.MB_DB || 'data/meadowbrook.db';
   if (!fs.existsSync(file)) { console.error(`No database at ${file}. Set MB_DB to its path.`); process.exit(2); }
   const db = new DatabaseSync(file, { readOnly: true });
+  db.exec('PRAGMA busy_timeout = 5000'); // wait briefly if the live server is busy; still read-only
   try {
     console.log(auditAccountLinks(db, { show: process.argv.includes('--show') }).lines.join('\n'));
   } finally { db.close(); }

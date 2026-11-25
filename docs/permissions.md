@@ -41,7 +41,7 @@ admins get one notification per account per week.
 | Workspace domain | Only the church's Google Workspace domain | Created as a volunteer, **unlinked** |
 | Invited only | Only accounts an admin added | n/a |
 
-`MB_ADMIN_EMAILS` and the first admin on a fresh install also start unlinked. The only account that
+`MB_ADMIN_EMAILS` and the first admin on a fresh install also start unlinked when their email is in People (otherwise they are a brand-new person, below). The only account that
 is born linked is someone brand new to the church (their email is not in People, sign-ups are open):
 the app adds them to People as a new person flagged "signed up from the app", and links the account to
 that new person. It never attaches to an existing person, and a matching email or name only means a

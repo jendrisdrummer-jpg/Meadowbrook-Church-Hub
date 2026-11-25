@@ -138,7 +138,7 @@ export function userForEmail(db, email, profile = {}) {
   const policy = getSetting(db, 'sign_in_policy', 'anyone');
   // Only used to decide whether sign-in is allowed ("directory") and to avoid adding a second
   // person for the same email. It is never used to link the account.
-  const inDirectory = Boolean(db.prepare("SELECT 1 FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email));
+  const inDirectory = Boolean(db.prepare("SELECT 1 FROM people WHERE lower(trim(email)) = ? AND archived = 0 LIMIT 1").get(email));
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.

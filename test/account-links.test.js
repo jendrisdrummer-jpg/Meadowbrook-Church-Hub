@@ -283,3 +283,44 @@ test('admin linking applies the usual team-leader rule; unlinking takes back onl
   assert.equal(made.status, 201);
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(made.data.id).role, 'leader');
 });
+
+test('unlink through the Settings dialog (it always sends the role) takes back automatic leader and check-in access', async () => {
+  const team = Number(db.prepare("INSERT INTO teams (name) VALUES ('Dialog Crew')").run().lastInsertRowid);
+  const p = addPerson(db, 'Dina', 'dina@gmail.com');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, p);
+  const u = addUser(db, 'dina@gmail.com');
+  const ui = (extra) => ({ role: db.prepare('SELECT role FROM users WHERE id = ?').get(u).role, checkin: true, finance: false, announce: false, campus_ids: 'all', active: true, ...extra });
+  // Linking through the dialog body (role sent unchanged) applies the team-leader rule.
+  assert.equal((await s.api('PATCH', `/users/${u}`, ui({ person_id: p, checkin: false }))).status, 200);
+  assert.deepEqual({ ...db.prepare('SELECT role, role_auto FROM users WHERE id = ?').get(u) }, { role: 'leader', role_auto: 1 });
+  assert.equal((await s.api('PATCH', `/users/${u}`, ui({ checkin: true }))).status, 200);
+  // Unlink + Save, as docs/account-links.md says.
+  assert.equal((await s.api('PATCH', `/users/${u}`, ui({ person_id: null }))).status, 200);
+  assert.deepEqual({ ...db.prepare('SELECT role, role_auto FROM users WHERE id = ?').get(u) }, { role: 'volunteer', role_auto: 0 });
+  const users = (await s.api('GET', '/users?q=dina')).data.users;
+  assert.equal(users.find((x) => x.id === u).checkin, false);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.leader_auto' AND detail LIKE ? AND detail LIKE '%\"granted\":false%'").get(`%"user_id":${u}%`));
+});
+
+test('a campus-limited admin links accounts only to people at their campuses', async () => {
+  db.exec("INSERT OR IGNORE INTO campuses (id, name, short_name, timezone) VALUES (1, 'North', 'N', 'America/Chicago'), (2, 'South', 'S', 'America/Chicago')");
+  const south = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id) VALUES ('Sam', 'South', 2)").run().lastInsertRowid);
+  const north = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id) VALUES ('Nia', 'North', 1)").run().lastInsertRowid);
+  const limited = Number(db.prepare("INSERT INTO users (email, role, campus_ids) VALUES ('northadmin@church.test', 'admin', '[1]')").run().lastInsertRowid);
+  let cookie;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookie = v.split(';')[0]; } }, limited);
+  const call = (method, url, body) => fetch(`${s.base}/api${url}`, { method, headers: { 'content-type': 'application/json', 'x-mb': '1', cookie }, body: JSON.stringify(body) });
+  const acct = addUser(db, 'someone-new@gmail.com');
+  assert.equal((await call('PATCH', `/users/${acct}`, { person_id: south })).status, 403);
+  assert.equal((await call('PATCH', `/users/${acct}`, { person_id: north })).status, 200);
+});
+
+test('People emails with stray spaces still count as in People (never attached, no duplicate person)', () => {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('sign_in_policy', '\"anyone\"') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  const p = addPerson(db, 'Kim', ' Kim@Spaces.org ');
+  const before = db.prepare('SELECT COUNT(*) n FROM people').get().n;
+  const u = userForEmail(db, 'kim@spaces.org', { first_name: 'Kim' });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM people').get().n, before, 'no second Kim');
+  assert.equal(u.person_id ?? null, null, 'not linked');
+  assert.equal(linkedTo(db, p).length, 0);
+});

@@ -204,10 +204,12 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   // The person an admin chose to link an account to: must exist, not be archived, and not already
   // have another account (one person, one sign-in). null unlinks. Every write that sets a user's
   // person goes through this (or the merge check in people.js), so the rule holds on every path.
-  function linkablePerson(value, userId) {
+  function linkablePerson(value, userId, req) {
     const pid = int(value);
     if (pid == null) return null;
-    if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(pid)) throw notFound('Person');
+    const p = db.prepare('SELECT campus_id FROM people WHERE id = ? AND archived = 0').get(pid);
+    if (!p) throw notFound('Person');
+    if (!canCampus(req.user, p.campus_id)) throw forbidden(); // a campus-limited admin links only their campuses' people
     if (db.prepare('SELECT 1 FROM users WHERE person_id = ? AND id != ?').get(pid, userId ?? 0)) throw new HttpError(409, 'That person already has an account. Unlink it there first.');
     return pid;
   }
@@ -226,7 +228,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
     // Only the person the admin chose, checked like any link. Never guessed from the email.
-    const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null) : null;
+    const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
     if (b.checkin) setCheckin(Number(info.lastInsertRowid), true);
@@ -243,10 +245,13 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (!u) throw notFound('Account');
     const b = { ...req.body };
     if (b.role !== undefined) b.role = oneOf(b.role, ROLES, u.role);
+    // The account dialog always sends the current role: an unchanged role isn't a hand change, so
+    // automatic (team-leader) access stays automatic and can still be taken back on unlink.
+    if (b.role !== undefined && b.role === u.role) delete b.role;
     if (b.campus_ids !== undefined) b.campus_ids = campusList(b.campus_ids);
     // Only a changed person is checked, so an account that already shares a person (see docs/account-links.md)
     // can still be edited, and unlinked.
-    if (b.person_id !== undefined) b.person_id = int(b.person_id) === u.person_id ? u.person_id : linkablePerson(b.person_id, u.id);
+    if (b.person_id !== undefined) b.person_id = int(b.person_id) === u.person_id ? u.person_id : linkablePerson(b.person_id, u.id, req);
     // Never let the last admin lock everyone out.
     if (u.role === 'admin' && ((b.role && b.role !== 'admin') || b.active === false || b.active === 0)) {
       const admins = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n;
@@ -261,7 +266,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (b.person_id == null) ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     }
     if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
-    if (b.role === 'volunteer') revokeCheckin(db, u.id);
+    if ((b.role ?? u.role) === 'volunteer') revokeCheckin(db, u.id); // volunteers never keep kids' check-in access
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     // Linking (an admin's choice): a team leader gets leader access, the usual team-leader rule.
