@@ -965,8 +965,57 @@ export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   migrate(db);
   hashSessionTokens(db);
+  ensureAccountLinkIndex(db, { log: true });
   return db;
 }
+
+// One person, one account. A unique index on users.person_id enforces it, but only when no person
+// already has two accounts: creating it over duplicates would fail, and a migration that fails
+// would stop the deploy. So this runs after the migrations, changes no data, and when it finds
+// duplicates it skips the index and warns (Settings → Accounts shows the same list to admins).
+// Safe to call repeatedly; docs/account-links.md explains how to resolve duplicates.
+export function duplicateAccountLinks(db) {
+  const people = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 100').all();
+  const accounts = db.prepare(`SELECT u.id, u.email, u.role, u.active, u.last_login, u.created_at FROM users u WHERE u.person_id = ? ORDER BY u.id`);
+  const person = db.prepare('SELECT first_name, last_name FROM people WHERE id = ?');
+  return people.map(({ person_id }) => {
+    const p = person.get(person_id);
+    return { person_id, name: p ? `${p.first_name} ${p.last_name}`.trim() : null, accounts: accounts.all(person_id) };
+  });
+}
+
+export function ensureAccountLinkIndex(db, { log = false } = {}) {
+  // Count and create under one write lock; never stops the server from starting.
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = linkIndexStep(db, log);
+      db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  } catch (e) {
+    console.warn(`One-account-per-person index not created this time (${e.code || e.message}). No data was changed.`);
+    return { indexed: false, error: true };
+  }
+}
+
+function linkIndexStep(db, log) {
+  const dupes = db.prepare('SELECT COUNT(*) n FROM (SELECT 1 FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1)').get().n;
+  if (dupes) {
+    if (log) {
+      const ids = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 50').all().map((r) => r.person_id);
+      console.warn(`WARNING: ${dupes} ${dupes === 1 ? 'person has' : 'people have'} more than one account (person ids: ${ids.join(', ')}). `
+        + 'The one-account-per-person rule is not enforced by the database until this is fixed. See Settings → Accounts and docs/account-links.md. No data was changed.');
+    }
+    return { indexed: false, duplicates: dupes };
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_person_unique ON users (person_id) WHERE person_id IS NOT NULL');
+  return { indexed: true, duplicates: 0 };
+}
+
 
 // Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
 export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');

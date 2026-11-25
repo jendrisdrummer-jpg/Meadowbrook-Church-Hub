@@ -12,6 +12,7 @@ how it's built and how to change it.
 | [permissions.md](permissions.md) | Roles, flags, campus limits, stations, guests, rules for new routes |
 | [design-system.md](design-system.md) | Tokens, components, patterns, writing style, accessibility and mobile checklists |
 | [api.md](api.md) | API conventions, endpoint map, integrations and their settings |
+| [account-links.md](account-links.md) | How accounts are linked to people, the audit script, resolving duplicate accounts |
 | [security.md](security.md) | Security and privacy standards, severity scale, review checklist |
 | [development.md](development.md) | Coding standards, commands, git/PR flow, keeping docs current, efficient Claude use |
 | [restore-drill.md](restore-drill.md) | Backup restore drill on a laptop (offline mode), and its record |

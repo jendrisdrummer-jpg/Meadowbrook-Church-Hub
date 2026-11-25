@@ -123,13 +123,14 @@ export function requireAppHeader(req, res, next) {
 }
 
 // What a new sign-in for this email would be: the role it would get (null: not allowed to create an
-// account) and the person already in People with that email. userForEmail and the code route share it.
+// account) and whether that email is already in People (only to decide whether sign-in is allowed, and
+// to avoid adding a second person; never to link). userForEmail and the code route share it.
 function signUpRole(db, email) {
   const adminEmails = (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
   const domain = getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || '');
   const policy = getSetting(db, 'sign_in_policy', 'anyone');
-  const person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
+  const inDirectory = Boolean(db.prepare("SELECT 1 FROM people WHERE lower(trim(email)) = ? AND archived = 0 LIMIT 1").get(email));
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
@@ -137,8 +138,8 @@ function signUpRole(db, email) {
   const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
-  else if (canJoin(policy, { inDomain, inDirectory: Boolean(person) })) role = 'volunteer';
-  return { role, person };
+  else if (canJoin(policy, { inDomain, inDirectory })) role = 'volunteer';
+  return { role, inDirectory };
 }
 
 // True when this email has an active account, or the sign-in policy would let it create one.
@@ -148,26 +149,27 @@ export function mayHaveAccount(db, email) {
   return existing ? Boolean(existing.active) : Boolean(signUpRole(db, email).role);
 }
 
-// Finds the account for a verified email, creating one when the church allows it:
-// - anyone in People with that email gets a volunteer account the first time they sign in;
-// - someone not in People yet (when sign-ups are open) is added to People, flagged as new from
-//   the app, if we know their name (Google tells us; the email sign-up form asks).
+// Finds the account for a verified email, creating one when the church allows it.
+// The sign-in policy decides WHO MAY SIGN IN; it never decides WHO THEY ARE. A new account is
+// always created unlinked, and an admin links it to a person by hand (Settings → Accounts).
+// The one exception is someone brand new to the church (not in People, sign-ups open), who is
+// added to People as a new person, flagged as new from the app, when we know their name
+// (Google tells us; the email sign-up form asks). That never attaches to an existing person.
 export function userForEmail(db, email, profile = {}) {
   email = String(email).trim().toLowerCase();
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (existing) return existing.active ? existing : null;
 
-  const found = signUpRole(db, email);
-  const { role } = found;
-  let { person } = found;
+  const { role, inDirectory } = signUpRole(db, email);
   if (!role) return null;
 
   const first = String(profile.first_name || '').trim().slice(0, 60);
-  if (!person && role === 'volunteer' && !first) return { needsName: true };
-  if (!person && first) {
+  if (!inDirectory && role === 'volunteer' && !first) return { needsName: true };
+  let personId = null;
+  if (!inDirectory && first) {
     const info = db.prepare("INSERT INTO people (first_name, last_name, email, status, signed_up_at) VALUES (?, ?, ?, 'guest', datetime('now'))")
       .run(first, String(profile.last_name || '').trim().slice(0, 60), email);
-    person = { id: Number(info.lastInsertRowid) };
+    personId = Number(info.lastInsertRowid);
     const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('staff', 'admin')").all().map((u) => u.id);
     notify(db, staff, {
       kind: 'connect',
@@ -178,9 +180,7 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  // Someone who already leads a team starts with leader access (see teams: syncLeaderAccess).
-  const leads = role === 'volunteer' && person && db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(person.id);
-  const info = db.prepare('INSERT INTO users (email, role, person_id, role_auto) VALUES (?, ?, ?, ?)').run(email, leads ? 'leader' : role, person?.id ?? null, leads ? 1 : 0);
+  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, personId);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 
