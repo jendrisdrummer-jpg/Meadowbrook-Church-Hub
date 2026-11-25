@@ -28,7 +28,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff) | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |
-| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill | volunteer+ read, leader+ write |
+| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill, `POST /services/:id/remind` | volunteer+ read, leader+ write |
 | `series.js`, `templates.js` | repeating services, templates | leader+/staff |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
 | `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance | leader+ (or station) |

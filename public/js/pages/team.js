@@ -1,13 +1,15 @@
 // One team: its positions (chips) and a roster grid of who serves in which position.
 import { get, post, patch, put, del, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, confirm, pickPeople, debounce } from '../lib.js';
 import { can, setTitle, campusName } from '../app.js';
+import { teamChats } from '../scheduling.js';
 
 // opts.adding: reopen the new-position box (after saving one); opts.added: highlight that person.
 export default async function team(el, id, opts = {}) {
   const t = await get(`/teams/${id}`);
   const manage = t.can_manage;
   const staff = can('staff');
-  setTitle(t.name, manage ? html`<button class="btn" data-edit>${icon('edit')} Edit team</button>` : '');
+  const chatId = (await teamChats()).get(t.id);
+  setTitle(t.name, html`${chatId ? html`<a class="btn" href="#/chat/${chatId}" data-message-team>${icon('chat')} Message team</a>` : ''}${manage ? html` <button class="btn" data-edit>${icon('edit')} Edit team</button>` : ''}`);
 
   // One row per person, with the set of positions they serve in.
   const people = new Map();

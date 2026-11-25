@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (33 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (34 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -54,7 +54,7 @@ Arrows show the main references.
 | `plan_items` → services, songs, people | Order of service (headers, songs, items; `category`, `info`, `is_start`, `placeholder`). |
 | `service_templates`, `template_items`, `template_needs` | Reusable orders of service with fill-in slots. |
 | `songs`, `song_files` → songs | Song library and charts/lyrics/audio files. |
-| `assignments` → services, positions, people | Who serves where; `status` pending/accepted/declined; draft until `sent_at`. |
+| `assignments` → services, positions, people | Who serves where; `status` pending/accepted/declined; draft until `sent_at`; `reminded_at` = automatic reminder sent, `nudged_at` = leader’s manual “Remind” (kept apart so a nudge never cancels the automatic one; migration 34). |
 
 ### Attendance and check-in
 | Table | Purpose |

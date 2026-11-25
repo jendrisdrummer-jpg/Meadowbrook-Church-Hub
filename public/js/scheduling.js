@@ -86,3 +86,19 @@ export async function sendRequests(serviceIds, teamId = null) {
   if (result) toast(`Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`);
   return Boolean(result);
 }
+
+// Team id -> the id of that team's chat, for the chats this person can see (so "Message team"
+// only shows when it will open). Empty if chat can't be loaded.
+export async function teamChats() {
+  try {
+    return new Map((await get('/chats')).chats.filter((c) => c.kind === 'team' && c.team_id).map((c) => [c.team_id, c.id]));
+  } catch { return new Map(); }
+}
+
+// Asks, then re-sends the request to people on this service who were asked but haven't replied.
+export async function remindUnanswered(serviceId, count, teamId = null) {
+  if (!(await confirm('Remind people?', `Send a friendly reminder to ${count} ${count === 1 ? 'person' : 'people'} who haven’t replied yet? Anyone reminded in the last 12 hours is skipped.`, 'Send reminder'))) return false;
+  const r = await post(`/services/${serviceId}/remind`, teamId ? { team_id: teamId } : {});
+  toast(r.reminded ? `Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'}${r.skipped ? ` (${r.skipped} reminded recently, skipped)` : ''}.` : 'Everyone was already reminded in the last 12 hours.');
+  return true;
+}
