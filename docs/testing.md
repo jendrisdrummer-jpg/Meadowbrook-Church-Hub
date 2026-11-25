@@ -55,6 +55,9 @@ Run the affected ones for every change, and all of them before a significant rel
 | 14 | Sign in by Google / email code / password; sign out | Anyone | Correct role and campuses; policy respected |
 | 15 | Permissions sweep | Volunteer, campus staff | Staff-only pages refused; other campus invisible (`npm run test:ui` covers page level) |
 
+Campus eligibility tests (`campus eligibility:` in `test/api.test.js`) build two campuses, a church-wide
+team and volunteers with a home campus, a list and no campus at all. Dates come from `nextSunday()`.
+
 ## Mobile and browser checks
 
 - `npm run test:ui` must pass (it fails on any sideways scroll at 390px).

@@ -6,6 +6,7 @@ import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } 
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
+import { campusEligibility } from '../eligibility.js';
 import { notifyScheduled, notifyResponse, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
@@ -337,6 +338,13 @@ export default function serviceRoutes(db) {
     res.json(candidates(s, pos));
   });
 
+  // eligible = may serve at this service's campus; eligibility_reason is the short why-not (or
+  // 'Campus not set' for someone with no home campus and no list, who counts as eligible anywhere).
+  function eligibility(personId, s) {
+    const e = campusEligibility(db, personId, s.campus_id);
+    return { eligible: e.eligible, eligibility_reason: e.reason };
+  }
+
   function candidates(s, pos) {
     const rows = db.prepare(`SELECT DISTINCT p.id, p.first_name, p.last_name, p.nickname, p.photo, p.campus_id,
         MAX(tm.position_id = ?) plays_position,
@@ -349,8 +357,9 @@ export default function serviceRoutes(db) {
       FROM team_members tm JOIN people p ON p.id = tm.person_id
       WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id`).all(pos.id, s.starts_at, s.id, s.starts_at, s.starts_at, pos.id, s.id, s.starts_at, s.starts_at, pos.team_id);
     return rows
-      .map((p) => ({ ...p, plays_position: Boolean(p.plays_position), conflicts: conflictsFor(p.id, s, pos.id) }))
-      .sort((a, b) => (a.conflicts.some((c) => c.level === 'block') - b.conflicts.some((c) => c.level === 'block'))
+      .map((p) => ({ ...p, plays_position: Boolean(p.plays_position), conflicts: conflictsFor(p.id, s, pos.id), ...eligibility(p.id, s) }))
+      .sort((a, b) => (a.eligible === b.eligible ? 0 : a.eligible ? -1 : 1)
+        || (a.conflicts.some((c) => c.level === 'block') - b.conflicts.some((c) => c.level === 'block'))
         || (b.plays_position - a.plays_position)
         // Doing the same job the week before or after counts extra, so people get weeks off.
         || ((a.recent_count + 2 * a.nearby) - (b.recent_count + 2 * b.nearby))
@@ -363,6 +372,11 @@ export default function serviceRoutes(db) {
     const personId = int(req.body?.person_id, 'Person');
     requireSchedule(req, s, positionId);
     if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(personId)) throw notFound('Person');
+    // Enforced here, not just in the screen: someone who doesn't serve at this campus needs an explicit override.
+    const elig = eligibility(personId, s);
+    if (!elig.eligible && !req.body?.allow_other_campus) {
+      return res.status(409).json({ error: elig.eligibility_reason, other_campus: true });
+    }
     const conflicts = conflictsFor(personId, s, positionId);
     if (conflicts.some((c) => c.level === 'block') && !req.body?.force) {
       return res.status(409).json({ error: conflicts.filter((c) => c.level === 'block').map((c) => c.text).join('; '), conflicts });
@@ -378,7 +392,7 @@ export default function serviceRoutes(db) {
     res.status(201).json({ ok: true, id: a.id, conflicts });
   });
 
-  // Fills open spots with the best available people (no blockouts or double-booking),
+  // Fills open spots with the best available people (no blockouts, double-booking or other-campus people),
   // optionally only one team's positions.
   function autofill(req, s, teamId = null) {
     const needs = db.prepare(`SELECT n.position_id, n.count FROM service_needs n JOIN positions ps ON ps.id = n.position_id
@@ -390,7 +404,7 @@ export default function serviceRoutes(db) {
       let filled = db.prepare("SELECT COUNT(*) n FROM assignments WHERE service_id = ? AND position_id = ? AND status != 'declined'").get(s.id, pos.id).n;
       for (const c of candidates(s, pos)) {
         if (filled >= n.count) break;
-        if (!c.plays_position || c.conflicts.length) continue;
+        if (!c.plays_position || c.conflicts.length || !c.eligible) continue;
         const info = db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
         if (!info.changes) continue;
         added.push({ id: Number(info.lastInsertRowid), service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });

@@ -58,6 +58,14 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 record and `campusFilter(user, column)` for lists. Any new campus-owned data must be filtered the
 same way.
 
+**Serving campuses** (which campuses a volunteer may be scheduled at, `PUT /people/:id/serving-campuses`):
+staff and admins only; leaders and volunteers can't change them. Campus-limited staff can only add or
+remove campuses they can access (other campuses already on the list are left alone), and every change
+is audited (`person.serving_campuses`). The list is shown on `GET /people/:id` (not sensitive).
+Scheduling honours it on the server: candidates are marked `eligible`, autofill skips ineligible people,
+and a manual assignment for one is refused with 409 unless the request sends `allow_other_campus: true`
+(the screen sends that only after the scheduler confirms a warning).
+
 ## Field-level visibility
 
 - Custom profile fields have `visibility` leader or staff.
