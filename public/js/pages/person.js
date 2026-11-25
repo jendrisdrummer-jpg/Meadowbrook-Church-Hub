@@ -52,7 +52,8 @@ export default async function person(el, id) {
             <span class="muted">${p.account
               ? html`Account: <b>${ROLE_LABEL[p.account.role]}</b>${p.account.finance ? ' + Finance' : ''}${p.account.announce ? ' + Announcements' : ''}${p.account.role_auto ? ' (team leader)' : ''} · ${p.account.email}${p.account.active ? '' : ' · can’t sign in'} · ${p.account.last_login ? `last signed in ${fmtDate(p.account.last_login.slice(0, 10))}` : 'hasn’t signed in yet'}`
               : p.email ? 'No account yet; they get a volunteer account by signing in.' : 'No account (needs an email to sign in).'}</span>
-            ${can('admin') && (p.account || p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
+            ${can('admin') && p.account && p.account.editable === false ? html`<span class="muted small">${p.account.id === state.me?.id ? 'You can’t change your own access. Ask an admin who covers every campus.' : 'Only an admin who covers every campus can change this account.'}</span>` : ''}
+            ${can('admin') && (p.account ? p.account.editable !== false : p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
         </div>
 
         <div class="stack" data-profile></div>
@@ -242,23 +243,29 @@ export async function personDialog(p = {}) {
 async function accessDialog(p) {
   const a = p.account || { role: 'volunteer', active: 1, campus_ids: null };
   const camps = a.campus_ids ? JSON.parse(a.campus_ids) : null;
+  const limited = Boolean(state.me.campusIds);
+  const mine = state.me.campusIds || [];
+  let touched = false; // a limited admin sends the campus list only if they changed it
   return dialog({
+    onOpen: (d) => d.querySelectorAll('[data-campus]').forEach((c) => c.addEventListener('change', () => { touched = true; })),
     title: `${displayName(p)}’s access`,
     body: html`<div class="stack">
       ${p.account ? html`<p class="muted small" style="margin:0">Signs in as ${a.email}${a.has_password ? ' (email and password, or Google)' : ''}.</p>`
         : html`<label class="field">Email they’ll sign in with<input type="email" name="email" value="${p.email}" required></label>`}
-      <label class="field">Access<select name="role">${options(Object.keys(ROLE_HELP).map((r) => ({ value: r, label: `${ROLE_LABEL[r]}: ${ROLE_HELP[r]}` })), a.role)}</select></label>
+      <label class="field">Access<select name="role">${options(Object.keys(ROLE_HELP).filter((r) => !limited || r !== 'admin').map((r) => ({ value: r, label: `${ROLE_LABEL[r]}: ${ROLE_HELP[r]}` })), a.role)}</select></label>
       ${a.role_auto ? html`<p class="muted small" style="margin:0">They have leader access because they lead a team, so it ends if they stop leading or the account is unlinked. To keep it regardless, choose another access level, save, then choose Leader and save again.</p>` : ''}
       <div class="field"><span>Campuses</span>
-        <label class="check"><input type="checkbox" name="all" ${!camps ? 'checked' : ''}> All campuses</label>
-        ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${camps?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
-      <label class="check"><input type="checkbox" name="finance" ${a.finance ? 'checked' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
-      <label class="check"><input type="checkbox" name="announce" ${a.announce ? 'checked' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
+        <label class="check"><input type="checkbox" name="all" ${!camps && !(limited && !p.account) ? 'checked' : ''} ${limited ? 'disabled' : ''}> All campuses</label>
+        ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${camps?.includes(c.id) || (limited && !p.account && mine.includes(c.id)) ? 'checked' : ''} ${limited && !mine.includes(c.id) ? 'disabled' : ''}> ${c.name}</label>`)}</div>
+      ${limited ? html`<p class="muted small" style="margin:0">Some options are for admins who cover every campus.</p>` : ''}
+      <label class="check"><input type="checkbox" name="finance" ${a.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
+      <label class="check"><input type="checkbox" name="announce" ${a.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
       ${p.account ? html`<label class="check"><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> Can sign in</label>` : ''}
     </div>`,
     onSubmit: (f) => {
       const b = formData(f);
       const body = { role: b.role, person_id: p.id, finance: b.finance, announce: b.announce, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+      if (limited) { delete body.finance; delete body.announce; if (p.account && !camps && !touched) delete body.campus_ids; } // the server refuses those changes for them
       if (p.account) return patch(`/users/${a.id}`, { ...body, active: b.active });
       return post('/users', { ...body, email: b.email });
     },
