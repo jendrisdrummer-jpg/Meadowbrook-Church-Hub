@@ -19,5 +19,6 @@ how it's built and how to change it.
 | [tech-debt.md](tech-debt.md) | Known bugs and technical debt |
 | [roadmap.md](roadmap.md) | Product roadmap, gap analysis, backlog |
 | [agent-workflow.md](agent-workflow.md) | The seven agents, who does what, approvals, efficient use |
+| [plans/](plans/child-safety/README.md) | Implementation plans awaiting or after owner approval (child safety) |
 
 Screenshots used by the root README also live here (`*.png`).

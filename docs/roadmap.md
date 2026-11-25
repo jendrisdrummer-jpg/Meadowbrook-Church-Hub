@@ -32,7 +32,7 @@ reviewed and approved in direction by the owner.
 
 | ID | Item | Status |
 |---|---|---|
-| CS | Child-safety program: unique pickup codes, child-by-child check-out, custody / do-not-release alerts, authorized pickup verification, kids'-area permissions, check-in audit (covers C1, C2) | Chief Architect implementation plan with Security, QA and Church Operations reviews; awaiting owner approval |
+| CS | Child-safety program: unique pickup codes, child-by-child check-out, custody / do-not-release alerts, authorized pickup verification, kids'-area permissions, check-in audit (covers C1, C2) | Plan in [plans/child-safety/plan.md](plans/child-safety/plan.md) with Security, QA and Church Operations reviews; awaiting owner approval |
 
 ## Prioritized backlog
 
