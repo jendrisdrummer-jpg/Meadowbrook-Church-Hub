@@ -9,6 +9,7 @@ the checklist) are asked for one at a time, when each phase is ready.
 
 | File | What it is |
 |---|---|
+| [subsplash-cutover.md](subsplash-cutover.md) | **Read with v1-strategy.md.** Moving kids' check-in from Subsplash to the Hub as a separate safety-critical release: what changes because the Hub isn't live at the desk, the import and device work, estimates (Architect and Senior Developer), calendar, exit criteria |
 | [v1-strategy.md](v1-strategy.md) | **Read first.** The Version 1 / 2 / 3 strategy: the smallest safe first release, what stays manual, what is postponed and its real risk, effort, calendar, and the rest of Church Hub. Reviewed independently by all five agents, who then challenged each other's positions. Sets the scope of the first release |
 | [revision-3.2.md](revision-3.2.md) | The full design (now the Version 2/3 reference). Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |
 | [schedule-review.md](schedule-review.md) | Independent Chief Architect and Senior Developer review of the effort and calendar: hours per phase, safe combinations, parallel work, dependencies, and the recommended and accelerated timelines |
