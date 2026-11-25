@@ -39,6 +39,8 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Own schedule, accept/decline, away dates | ✓ | ✓ | ✓ | ✓ |
 | Order of service for services they serve at; all services in the app | ✓ | ✓ | ✓ | ✓ |
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
+| See their own small groups: names and photos of the roster, and the group chat | ✓ | ✓ | ✓ | ✓ |
+| Create, edit, archive small groups and set their leaders (at their campuses) | | | ✓ | ✓ |
 | See people, teams, attendance; run check-in; add families; connect cards | | ✓ | ✓ | ✓ |
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
@@ -104,7 +106,21 @@ Until then, review the authorised list in Settings → Sign-in & accounts (accou
 "Check-in" tag).
 - **Connect-card messages** (often prayer requests) are staff only; leaders see the card without it.
 - Automatic leader access from leading a team is written to the audit log (`user.leader_auto`).
-- Chats: only members (team chats follow the team roster).
+- Chats: only members (team chats follow the team roster; small-group chats follow the group roster).
+- **Small groups** (`routes/groups.js`) are their own model and **never grant leader access**: no
+  `role_auto`, no change to `users.role`, nothing in scheduling. Who can do what:
+
+  | Action | Volunteer, not in the group | Group member | Group leader (any role) | Staff at the group's campus | Staff at another campus |
+  |---|:-:|:-:|:-:|:-:|:-:|
+  | List groups | none shown | own groups | own groups | all at their campuses | only theirs |
+  | Open a group, its roster and chat | 403 | ✓ names + photos | ✓ plus email and phone | ✓ plus email and phone | 403 |
+  | Add or remove members (and find people to add) | 403 | 403 (may leave) | ✓ that group only | ✓ | 403 |
+  | Make or remove a leader | 403 | 403 | step down only | ✓ | 403 |
+  | Create, rename, move, archive | 403 | 403 | 403 | ✓ | 403 |
+
+  Group rosters never include health data, notes, birthdate or household. Adults only for now
+  (children can't be added). Archived groups are hidden from everyone but staff, with their chat.
+  Audited: `group.create`, `group.archive`/`unarchive`, `group.leader_add`/`leader_remove`.
 - Private tasks: only the person; team tasks: the team.
 
 ## When you add a route

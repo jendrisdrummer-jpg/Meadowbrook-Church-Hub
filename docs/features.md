@@ -37,6 +37,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Team chats and groups: replies, @mentions, reactions, files, live updates | ✅ | `routes/chat.js`, `live.js` | `js/chat.js`, `pages/chat.js` |
+| Small groups: roster, leaders, group chat that follows the roster, members see "My groups" (adults only; no finder, attendance or join requests yet) | ✅ | `routes/groups.js` (+ `chat.js`) | `pages/groups.js`, `pages/group.js`, `member/main.js` (More) |
 | Tasks: personal/team/chat, checklists, comments, repeats, reminders | ✅ | `routes/tasks.js` | `js/tasks.js`, `pages/tasks.js` |
 | Video calls and meetings in chats (Daily, monthly minute limit) | 🟡 | `routes/calls.js`, `daily.js` | `js/chat.js` |
 | Notifications inbox, push (accounts and guests), email, preferences | ✅ | `notify.js`, `push.js`, `mail.js` | bell, `js/push.js` |
@@ -72,6 +73,6 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Demo data | ✅ | `scripts/seed-demo.js` | `npm run demo` |
 
 ## Not built yet (see [roadmap.md](roadmap.md))
-💤 Discipleship (growth pathway, mentors, small groups with attendance) · 💤 Classes/training with
+💤 Discipleship (growth pathway, mentors) · 💤 Small-group meetings with attendance, finder and join requests · 💤 Classes/training with
 watch-to-the-end and quizzes · 💤 Public website · 💤 Website embed for the Watch library ·
 💤 Multi-church (SaaS).

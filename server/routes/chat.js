@@ -1,5 +1,5 @@
-// Chat: one for every team (its members come from the team roster) plus groups that leaders
-// and staff put together. Messages can reply to another, @mention people, carry photos and
+// Chat: one for every team (its members come from the team roster), one for every small group
+// (members come from the group roster), plus groups that leaders and staff put together. Messages can reply to another, @mention people, carry photos and
 // files, and get emoji reactions. Open chats update live over a server-sent event stream;
 // everyone else gets a push notification.
 import express, { Router } from 'express';
@@ -43,8 +43,12 @@ export default function chatRoutes(db, { uploadDir }) {
   const ensureTeamChats = () => db.prepare(`INSERT INTO chats (kind, team_id) SELECT 'team', t.id FROM teams t
     WHERE t.archived = 0 AND NOT EXISTS (SELECT 1 FROM chats c WHERE c.team_id = t.id)`).run();
 
-  const getChat = (id) => db.prepare(`SELECT c.*, t.name team_name, t.color team_color, t.campus_id, t.archived team_archived
-    FROM chats c LEFT JOIN teams t ON t.id = c.team_id WHERE c.id = ?`).get(id);
+  // Team and small-group chats take their name, campus and archived state from the team or group.
+  const CHAT_SELECT = `SELECT c.*, t.name team_name, t.color team_color, COALESCE(t.campus_id, g.campus_id) campus_id,
+      t.archived team_archived, g.name group_name, g.archived group_archived
+    FROM chats c LEFT JOIN teams t ON t.id = c.team_id LEFT JOIN groups g ON g.id = c.group_id`;
+  const getChat = (id) => db.prepare(`${CHAT_SELECT} WHERE c.id = ?`).get(id);
+  const chatName = (c) => (c.kind === 'team' ? c.team_name : c.kind === 'smallgroup' ? c.group_name : c.name);
 
   // The people in a chat (people without an account are listed, but can't read it yet).
   function members(c) {
@@ -53,6 +57,13 @@ export default function chatRoutes(db, { uploadDir }) {
           (SELECT u.id FROM users u WHERE u.person_id = p.id AND u.active = 1) user_id
         FROM team_members tm JOIN people p ON p.id = tm.person_id WHERE tm.team_id = ? AND p.archived = 0
         GROUP BY p.id ORDER BY is_admin DESC, p.first_name, p.last_name`).all(c.team_id);
+    }
+    // A small group's chat follows its roster, so leaving the group leaves the chat.
+    if (c.kind === 'smallgroup') {
+      return db.prepare(`SELECT p.id person_id, p.first_name, p.last_name, p.nickname, p.photo, gm.is_leader is_admin,
+          (SELECT u.id FROM users u WHERE u.person_id = p.id AND u.active = 1) user_id
+        FROM group_members gm JOIN people p ON p.id = gm.person_id WHERE gm.group_id = ? AND p.archived = 0
+        ORDER BY gm.is_leader DESC, p.first_name, p.last_name`).all(c.group_id);
     }
     return db.prepare(`SELECT p.id person_id, p.first_name, p.last_name, p.nickname, p.photo, cm.is_admin,
         (SELECT u.id FROM users u WHERE u.person_id = p.id AND u.active = 1) user_id
@@ -78,6 +89,13 @@ export default function chatRoutes(db, { uploadDir }) {
       const staff = rank(me.role) >= rank('staff') && canCampus(me, c.campus_id);
       if (!member && !staff) return null;
       return { member, manage: staff || Boolean(row?.leader) };
+    }
+    if (c.kind === 'smallgroup') {
+      if (c.group_archived) return null;
+      const row = me.personId && db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(c.group_id, me.personId);
+      const staff = rank(me.role) >= rank('staff') && canCampus(me, c.campus_id);
+      if (!row && !staff) return null;
+      return { member: Boolean(row), manage: staff || Boolean(row?.is_leader) };
     }
     const row = me.personId && db.prepare('SELECT is_admin FROM chat_members WHERE chat_id = ? AND person_id = ?').get(c.id, me.personId);
     const ownerWithoutPerson = c.created_by === me.id && !me.personId;
@@ -166,7 +184,7 @@ export default function chatRoutes(db, { uploadDir }) {
       id: c.id,
       kind: c.kind,
       team_id: c.team_id,
-      name: c.kind === 'team' ? c.team_name : c.name,
+      name: chatName(c),
       color: c.team_color || null,
       member: a.member,
       manage: a.manage,
@@ -179,8 +197,7 @@ export default function chatRoutes(db, { uploadDir }) {
 
   function myChats(req) {
     ensureTeamChats();
-    const rows = db.prepare(`SELECT c.*, t.name team_name, t.color team_color, t.campus_id, t.archived team_archived
-      FROM chats c LEFT JOIN teams t ON t.id = c.team_id WHERE c.kind = 'group' OR t.archived = 0`).all();
+    const rows = db.prepare(`${CHAT_SELECT} WHERE c.kind = 'group' OR t.archived = 0 OR g.archived = 0`).all();
     return rows.map((c) => [c, access(req, c)]).filter(([, a]) => a);
   }
 
@@ -269,14 +286,14 @@ export default function chatRoutes(db, { uploadDir }) {
   function notifyMembers(c, msg, people, skip = new Set()) {
     const watching = viewers(c.id);
     const mentioned = new Set(people.filter((p) => msg.mentions.includes(p.person_id)).map((p) => p.user_id));
-    const chatName = c.kind === 'team' ? c.team_name : c.name;
+    const name = chatName(c);
     const preview = msg.task ? `New task: ${msg.task.title}${msg.task.assignee ? ` → ${msg.task.assignee.nickname || msg.task.assignee.first_name}` : ''}`
       : msg.body ? msg.body.slice(0, 140) : msg.files.some((f) => f.mime.startsWith('image/')) ? 'Sent a photo' : 'Sent a file';
     const quiet = new Set(db.prepare('SELECT user_id FROM chat_reads WHERE chat_id = ? AND muted = 1').all(c.id).map((x) => x.user_id));
     const to = memberUserIds(c).filter((u) => u !== msg.user_id && !watching.has(u) && !skip.has(u));
     const base = { kind: 'chat', url: `/#/chat/${c.id}`, app_url: `/app/#/chat/${c.id}`, tag: `chat-${c.id}`, renotify: true, data: { chat_id: c.id } };
-    pushOnly(db, to.filter((u) => mentioned.has(u)), { ...base, title: `${msg.name} mentioned you in ${chatName}`, body: preview });
-    pushOnly(db, to.filter((u) => !mentioned.has(u) && !quiet.has(u)), { ...base, title: chatName, body: `${msg.name}: ${preview}` });
+    pushOnly(db, to.filter((u) => mentioned.has(u)), { ...base, title: `${msg.name} mentioned you in ${name}`, body: preview });
+    pushOnly(db, to.filter((u) => !mentioned.has(u) && !quiet.has(u)), { ...base, title: name, body: `${msg.name}: ${preview}` });
   }
 
   const ownMessage = (req, id) => {
@@ -385,7 +402,7 @@ export default function chatRoutes(db, { uploadDir }) {
   hooks.taskPosted = (taskId, req) => {
     const t = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     const c = t && chatForTask(t);
-    if (!c || c.team_archived) return;
+    if (!c || c.team_archived || c.group_archived) return;
     const id = Number(db.prepare("INSERT INTO messages (chat_id, user_id, kind, task_id) VALUES (?, ?, 'task', ?)").run(c.id, req.user.id, taskId).lastInsertRowid);
     db.prepare("UPDATE chats SET last_message_at = datetime('now') WHERE id = ?").run(c.id);
     markRead(c.id, req.user.id, id);
@@ -398,7 +415,7 @@ export default function chatRoutes(db, { uploadDir }) {
   // Ticked off, reassigned, renamed…: every card for it, and its chat's Tasks tab, update.
   // ---------------------------------------------------------------- calls in chats
   hooks.chatUsers = (chatId) => { const c = getChat(chatId); return c ? memberUserIds(c) : []; };
-  hooks.chatName = (chatId) => { const c = getChat(chatId); return c ? (c.kind === 'team' ? c.team_name : c.name) : ''; };
+  hooks.chatName = (chatId) => { const c = getChat(chatId); return c ? chatName(c) : ''; };
   // Posts a call or meeting card in its chat.
   hooks.callPosted = (callId, chatId, userId) => {
     const c = getChat(chatId);
@@ -461,6 +478,7 @@ export default function chatRoutes(db, { uploadDir }) {
 
   const group = (req, id) => {
     const { c, a } = chat(req, id);
+    if (c.kind === 'smallgroup') throw bad('This chat follows the small group’s roster. Add or remove people on the group’s page.');
     if (c.kind !== 'group') throw bad('Team chats follow the team roster. Add or remove people on the team’s page.');
     return { c, a };
   };
