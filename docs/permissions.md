@@ -31,7 +31,7 @@ the same. That is how volunteers in People get their schedule without an admin s
 ## Feedback
 
 Anyone signed in can send feedback (rate-limited) and see what they sent and what happened to it.
-Admins see all of it, with who sent it, and set the status and notes. The "You said, we did" list
+Admins see all of it from their campuses (and feedback with no campus), with who sent it, and set the status and notes. A sender can only tag a campus they belong to. Admin notifications say who sent it and what kind, never the text. The "You said, we did" list
 (`GET /feedback/done`) shows only admins' notes on finished items: no names and no original text.
 
 ## Roles (ranked)

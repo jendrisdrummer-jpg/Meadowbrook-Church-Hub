@@ -2,7 +2,7 @@
 // one with a status and, when it's done (or decided against), write what happened. Those notes are
 // the "You said, we did" record everyone can read. Deliberately small: not a project tracker.
 import { Router } from 'express';
-import { requireRole, rank } from '../auth.js';
+import { requireRole, rank, canCampus, campusFilter } from '../auth.js';
 import { bad, notFound, int, str, required, oneOf, audit } from '../http.js';
 import { notify } from '../notify.js';
 
@@ -32,7 +32,8 @@ export default function feedbackRoutes(db) {
     const category = oneOf(b.category, CATEGORIES, 'idea');
     const severity = oneOf(b.severity, SEVERITIES, 'nice_to_have');
     if (!allowed(req.user.id)) throw bad('Thanks! You’ve sent a lot of feedback this hour. Please try again a little later.');
-    const campusId = int(b.campus_id);
+    // Only a campus the sender belongs to (it decides which campus-limited admins see it).
+    const campusId = int(b.campus_id) != null && canCampus(req.user, int(b.campus_id)) ? int(b.campus_id) : null;
     const info = db.prepare('INSERT INTO feedback (user_id, role, campus_id, page, category, severity, body) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(req.user.id, req.user.role, campusId && db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId) ? campusId : null,
         str(b.page, 200), category, severity, body);
@@ -40,7 +41,7 @@ export default function feedbackRoutes(db) {
     notify(db, admins, {
       kind: 'feedback',
       title: `${severity === 'blocks_sunday' ? 'Blocks Sunday: ' : ''}${LABEL[category]} from ${req.user.name}`,
-      body: body.slice(0, 120),
+      body: 'Open Feedback in the Hub to read it.', // the text itself may be personal: never on a lock screen
       url: '/#/feedback',
     });
     res.status(201).json({ id: Number(info.lastInsertRowid) });
@@ -50,7 +51,11 @@ export default function feedbackRoutes(db) {
   r.get('/feedback', requireRole('volunteer'), (req, res) => {
     const where = [];
     const args = [];
-    if (!isAdmin(req)) { where.push('f.user_id = ?'); args.push(req.user.id); }
+    if (!isAdmin(req)) { where.push('f.user_id = ?'); args.push(req.user.id); } else {
+      // A campus-limited admin sees feedback from their campuses (and feedback with no campus).
+      const cf = campusFilter(req.user, 'f.campus_id');
+      where.push(cf.sql); args.push(...cf.args);
+    }
     if (STATUSES.includes(req.query.status)) { where.push('f.status = ?'); args.push(req.query.status); }
     const rows = db.prepare(`SELECT f.*, u.email sender_email, COALESCE(p.nickname, p.first_name) sender_first, p.last_name sender_last
       FROM feedback f LEFT JOIN users u ON u.id = f.user_id LEFT JOIN people p ON p.id = u.person_id

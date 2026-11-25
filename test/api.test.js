@@ -925,6 +925,7 @@ test('feedback: anyone signed in sends it, admins triage it, and "You said, we d
   assert.equal(sent.status, 201);
   const note = db.prepare("SELECT title, body, url FROM notifications WHERE user_id = ? AND kind = 'feedback' ORDER BY id DESC LIMIT 1").get(adminId);
   assert.match(note.title, /^Blocks Sunday: Bug from /);
+  assert.ok(!note.body.includes('VOL-CANARY'), 'the feedback text never goes into a notification');
   assert.equal(note.url, '/#/feedback');
   await api('north', 'POST', '/feedback', { category: 'idea', severity: 'nice_to_have', body: 'NORTH-CANARY a ministry idea' });
 
@@ -955,6 +956,16 @@ test('feedback: anyone signed in sends it, admins triage it, and "You said, we d
   const record = (await api('north', 'GET', '/feedback/done')).data;
   assert.ok(record.some((d) => d.done_note === 'Accept now works from the notification'));
   assert.ok(!JSON.stringify(record).match(/VOL-CANARY|vol@mb\.org|ADMIN-ONLY-CANARY/));
+  // A campus-limited admin sees only their campuses' feedback (and feedback with no campus); a sender
+  // can only tag a campus they belong to.
+  const southAdminId = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES ('southadmin@mb.org', 'admin', '[2]')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.southadmin = v.split(';')[0]; } }, southAdminId);
+  const southView = (await api('southadmin', 'GET', '/feedback')).data;
+  assert.equal(southView.some((f) => f.id === sent.data.id), false, 'campus 1 feedback hidden from a campus 2 admin');
+  assert.ok(southView.some((f) => /NORTH-CANARY/.test(f.body)), 'feedback with no campus is shown');
+  const tagged = await api('north', 'POST', '/feedback', { category: 'idea', body: 'tag test', campus_id: 2 });
+  assert.equal(db.prepare('SELECT campus_id FROM feedback WHERE id = ?').get(tagged.data.id).campus_id, null);
+  db.prepare('DELETE FROM users WHERE id = ?').run(southAdminId); // later tests count admins
   // Re-opening clears the done date.
   assert.equal((await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'looking' })).data.done_at, null);
 });
