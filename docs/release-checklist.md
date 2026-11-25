@@ -6,7 +6,7 @@ sign-in, notifications to the congregation, or the database schema). Copy it int
 description and tick each item with evidence. An unticked item needs a written reason.
 
 ## 1. Purpose and scope
-- [ ] The problem and who it helps are stated (Product Innovation / Church Operations notes for large features).
+- [ ] The problem and who it helps are stated (Product Manager brief / Church Operations notes for large features).
 - [ ] Checked [features.md](features.md): this doesn't duplicate something that exists.
 - [ ] Scope agreed with the owner; anything deferred is listed in [roadmap.md](roadmap.md).
 

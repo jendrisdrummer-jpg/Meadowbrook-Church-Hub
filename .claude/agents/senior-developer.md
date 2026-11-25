@@ -50,4 +50,5 @@ plan from `chief-architect`, follow it; if reality differs from the plan, stop a
 ## Output
 What changed (files), why, how it was tested (commands and actual results), docs updated, anything
 the owner must do after merging, and the handoff block from `docs/agent-workflow.md`
-(usually to `qa-engineer`).
+(usually to `qa-engineer`; also to `devops-engineer` when the change adds a migration, an env var
+or anything the deploy must know about).
