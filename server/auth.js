@@ -108,6 +108,27 @@ export function canCampus(user, campusId) {
   return user.campusIds.includes(Number(campusId));
 }
 
+// A campus-limited admin (campusIds is a list, not null) may run their own campuses but must not
+// reach across the church. Church-wide admin routes use this guard after requireRole('admin').
+export const ALL_CAMPUSES_MESSAGE = 'That’s for admins who cover every campus. Ask one of them to make this change.';
+export function requireAllCampuses(req, res, next) {
+  if (req.user?.campusIds) return res.status(403).json({ error: ALL_CAMPUSES_MESSAGE });
+  next();
+}
+
+// Can this campus-limited admin manage this account? `t` is a users row plus person_campus_id (the
+// campus of the person it's linked to, or null). Never themselves, never an admin. A volunteer is in
+// reach when linked to a person at one of their campuses, or not linked at all. A leader or staff
+// account is in reach only when its own campus list is set and sits wholly inside theirs.
+// Unrestricted admins (campusIds null) reach every account.
+export function accountInReach(user, t) {
+  if (!user.campusIds) return true;
+  if (t.id === user.id || t.role === 'admin') return false;
+  if (t.role === 'volunteer') return t.person_id == null || (t.person_campus_id != null && user.campusIds.includes(Number(t.person_campus_id)));
+  const ids = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
+  return Array.isArray(ids) && ids.every((c) => user.campusIds.includes(Number(c)));
+}
+
 // SQL fragment limiting a campus column to the user's campuses.
 export function campusFilter(user, column) {
   if (!user.campusIds) return { sql: '1 = 1', args: [] };
@@ -274,6 +295,7 @@ export function authRoutes(app, db) {
   app.get('/auth/google/drive', (req, res) => {
     const g = google();
     if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (req.user.campusIds) return res.redirect(`/#/settings/backups?drive_error=${encodeURIComponent(ALL_CAMPUSES_MESSAGE)}`); // backups are church-wide
     if (!g.id) return res.status(500).send('Google sign-in is not set up yet. See README → Google sign-in.');
     const state = crypto.randomBytes(16).toString('base64url');
     res.setHeader('Set-Cookie', `mb_drive=${state}; Max-Age=600; ${cookieFlags(req)}`);
@@ -286,6 +308,7 @@ export function authRoutes(app, db) {
   async function finishDrive(req, res) {
     const back = (msg) => res.redirect(`/#/settings/backups${msg ? `?drive_error=${encodeURIComponent(msg)}` : '?drive=connected'}`);
     if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (req.user.campusIds) return back(ALL_CAMPUSES_MESSAGE);
     if (req.query.error) return back('Google Drive wasn’t connected.');
     const g = google();
     const r = await fetch(process.env.MB_GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {

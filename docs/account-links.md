@@ -67,6 +67,6 @@ without a restart. It is safe to run repeatedly.
 - Linking applies the usual team-leader rule: someone who leads a team gets leader access, unless
   you change their access to something else in the same save. That leader access ends if they stop
   leading or are unlinked; to keep it regardless, choose another level, save, then choose Leader again.
-- A campus-limited admin can link accounts only to people at their own campuses, or with no campus.
+- A campus-limited admin can link accounts only to people at their own campuses, or with no campus, and only accounts in their reach; they can't link or unlink their own account. See [permissions.md](permissions.md#campus-limited-admins).
 - Merging two people moves the duplicate's account to the kept person (an admin's explicit choice,
   audited as `user.link` with `via: merge`); if both have an account, unlink one first.

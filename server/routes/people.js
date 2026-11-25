@@ -4,7 +4,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAllCampuses, accountInReach, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { closeStreams } from '../live.js';
 import { syncLeaderAccessFor } from './teams.js';
@@ -110,6 +110,16 @@ export default function peopleRoutes(db, { uploadDir }) {
   });
 
   // ---------------------------------------------------------------- one person
+  // The account linked to a person, as shown on their page. For an admin it says whether they may
+  // change it (`editable`): a campus-limited admin can't touch their own, an admin's or another campus's.
+  function accountFor(req, personId) {
+    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.person_id,
+        u.password_hash IS NOT NULL has_password, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?`).get(personId);
+    if (!u) return null;
+    const { person_id: _p, person_campus_id: campusId, ...account } = u;
+    return req.user.role === 'admin' ? { ...account, editable: accountInReach(req.user, { ...u, person_campus_id: campusId }) } : account;
+  }
+
   // Leaders (including people who get leader access just by leading a team) see contact and
   // serving details here, but not health information, private notes or the pickup list: those
   // are for staff and up. Check-in has its own, narrower roster for kids' safety.
@@ -137,8 +147,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
         WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
-      account: db.prepare(`SELECT id, role, email, active, last_login, campus_ids, role_auto, finance, announce, password_hash IS NOT NULL has_password
-        FROM users WHERE person_id = ?`).get(p.id) || null,
+      account: accountFor(req, p.id),
     });
   });
 
@@ -220,6 +229,11 @@ export default function peopleRoutes(db, { uploadDir }) {
     // One person, one account: merging two people who both have accounts would leave two on one person.
     const dupUsers = db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id);
     const dupUser = dupUsers[0];
+    // Merging re-links the duplicate's account, so a campus-limited admin may only do it for accounts they could edit.
+    if (req.user.campusIds) {
+      const out = db.prepare('SELECT u.*, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?').all(dup.id).some((u) => !accountInReach(req.user, u));
+      if (out) throw new HttpError(403, 'That person’s account is outside your campuses. Ask an admin who covers every campus to merge them.');
+    }
     if (dupUser && db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(keep.id)) {
       throw new HttpError(409, 'Both of these people have an account. In Settings → Accounts, unlink one of them first, then merge.');
     }
@@ -374,7 +388,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     return map;
   }
 
-  r.post('/import/preview', requireRole('admin'), express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
+  r.post('/import/preview', requireRole('admin'), requireAllCampuses, express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
     const { headers, records } = csvRecords(req.body);
     if (!headers.length) throw bad('That file looks empty.');
     const custom = visibleFields(db, req.user);
@@ -391,7 +405,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     });
   });
 
-  r.post('/import/people', requireRole('admin'), express.json({ limit: '25mb' }), (req, res) => {
+  r.post('/import/people', requireRole('admin'), requireAllCampuses, express.json({ limit: '25mb' }), (req, res) => {
     const { csv, mapping = {}, campus_id: defaultCampus = null, dry_run: dryRun = false } = req.body || {};
     const { records } = csvRecords(csv || '');
     if (!records.length) throw bad('Nothing to import.');

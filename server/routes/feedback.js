@@ -3,7 +3,7 @@
 // the "You said, we did" record everyone can read. Deliberately small: not a project tracker.
 import { Router } from 'express';
 import { requireRole, rank, canCampus, campusFilter } from '../auth.js';
-import { bad, notFound, int, str, required, oneOf, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
 import { notify } from '../notify.js';
 
 export const CATEGORIES = ['bug', 'frustration', 'missing', 'workflow', 'request', 'idea'];
@@ -73,6 +73,7 @@ export default function feedbackRoutes(db) {
   r.patch('/feedback/:id', requireRole('admin'), (req, res) => {
     const f = db.prepare('SELECT * FROM feedback WHERE id = ?').get(int(req.params.id));
     if (!f) throw notFound('Feedback');
+    if (!canCampus(req.user, f.campus_id)) throw forbidden(); // the list already limits a campus-limited admin; so does this
     const b = req.body || {};
     const status = b.status === undefined ? f.status : oneOf(b.status, STATUSES, f.status);
     const closing = ['done', 'not_now'].includes(status);

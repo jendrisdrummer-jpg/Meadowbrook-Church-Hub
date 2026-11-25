@@ -6,9 +6,16 @@ import { backups } from './settings-backups.js';
 
 const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
 
+// An admin limited to some campuses (state.me.campusIds is a list) can't change church-wide things;
+// the server refuses them, so these tabs are left out rather than shown as dead ends.
+const limitedAdmin = () => Boolean(state.me?.campusIds);
+const CHURCH_WIDE_TABS = ['church', 'fields', 'import', 'backups'];
+export const SCOPE_NOTE = 'Some options are for admins who cover every campus.';
+
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
-  mount(el, html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div><div data-panel></div>`);
+  if (limitedAdmin() && CHURCH_WIDE_TABS.includes(tab)) tab = 'accounts';
+  mount(el, html`<div class="tabs">${TABS.filter(([k]) => !limitedAdmin() || !CHURCH_WIDE_TABS.includes(k)).map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div><div data-panel></div>`);
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
   // Old links (#/settings/rooms) land on the section that now holds them.
@@ -302,7 +309,9 @@ async function accounts(panel, q = '') {
     staff: 'Also edits people, services, rooms and all scheduling',
     admin: 'Everything, including settings and accounts',
   };
-  mount(panel, html`<form class="card stack" style="max-width:820px" data-signin>
+  const limited = limitedAdmin();
+  const mine = state.me.campusIds || [];
+  mount(panel, html`${limited ? html`<div class="alert small" data-scope-note>${SCOPE_NOTE} You can manage accounts for your own campuses.</div>` : html`<form class="card stack" style="max-width:820px" data-signin>
     <h2>Who can sign in</h2>
     ${auth.email === false ? html`<div class="alert warn small">Email sign-in (codes and passwords) isn’t set up yet, so people can only use Google. Add <code>MB_SMTP_USER</code> and <code>MB_SMTP_PASS</code> in your host’s settings (see README → Email).</div>` : ''}
     <label class="field">On their own, with Google or their email<select name="sign_in_policy">${options([
@@ -327,7 +336,7 @@ async function accounts(panel, q = '') {
     ], s.schedule_role)}</select>
       <span class="muted small">Staff can also <b>Lock</b> a single service so only admins can change it.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
-  </form>
+  </form>`}
   ${list.duplicate_links?.length ? html`<div class="card" style="margin-top:14px" data-duplicates>
     <h2>${list.duplicate_links.length === 1 ? 'One person has' : `${list.duplicate_links.length} people have`} more than one account</h2>
     <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
@@ -356,23 +365,26 @@ async function accounts(panel, q = '') {
         <td><button class="btn small" data-link-account="${u.id}">Link to person…</button></td></tr>`)}
     </tbody></table>` : html`<p class="muted">Every account is linked to a person.</p>`}
   </div>`);
-  panel.querySelector('[data-signin]').onsubmit = async (e) => {
+  const signin = panel.querySelector('[data-signin]');
+  if (signin) signin.onsubmit = async (e) => {
     e.preventDefault();
     try { await save(formData(e.target)); } catch (err) { fail(err); }
   };
-  const edit = async (u = { role: 'volunteer', active: 1, campus_ids: null }) => {
+  const edit = async (u = { role: 'volunteer', active: 1, campus_ids: limited ? [...mine] : null }) => {
+    let campusTouched = !u.id; // a limited admin sends the campus list only when it was changed
     let personId = u.person_id ?? null;
     let personLabel = u.first_name ? `${u.first_name} ${u.last_name}` : '';
     const ok = await dialog({
       title: u.id ? u.email : 'Add account',
       body: html`<div class="stack">
         ${u.id ? '' : html`<label class="field">Email<input type="email" name="email" required></label>`}
-        <label class="field">Access<select name="role">${options(Object.keys(roleHelp).map((r) => ({ value: r, label: `${r[0].toUpperCase()}${r.slice(1)} — ${roleHelp[r]}` })), u.role)}</select></label>
+        <label class="field">Access<select name="role">${options(Object.keys(roleHelp).filter((r) => !limited || r !== 'admin').map((r) => ({ value: r, label: `${r[0].toUpperCase()}${r.slice(1)} — ${roleHelp[r]}` })), u.role)}</select></label>
         <div class="field"><span>Campuses</span>
-          <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''}> All campuses</label>
-          ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
-        <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
-        <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
+          <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''} ${limited ? 'disabled' : ''}> All campuses</label>
+          ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''} ${limited && !mine.includes(c.id) ? 'disabled' : ''}> ${c.name}</label>`)}</div>
+        ${limited ? html`<p class="muted small" style="margin:0">${SCOPE_NOTE}</p>` : ''}
+        <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
+        <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
         <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
@@ -380,6 +392,7 @@ async function accounts(panel, q = '') {
           <div><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete account</button></div>` : ''}
       </div>`,
       onOpen: (d, close) => {
+        d.querySelectorAll('[data-campus]').forEach((c) => c.addEventListener('change', () => { campusTouched = true; }));
         d.querySelector('[data-delete]')?.addEventListener('click', async () => {
           if (!(await confirm('Delete this account?', `${u.email} can’t sign in until they set up again (as a volunteer, if they’re in People). Their record in People, attendance and serving history stay.`))) return;
           try { await del(`/users/${u.id}`); toast('Account deleted.'); close('deleted'); } catch (err) { fail(err); }
@@ -395,6 +408,7 @@ async function accounts(panel, q = '') {
       onSubmit: (f) => {
         const b = formData(f);
         const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        if (limited) { delete body.finance; delete body.announce; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
         if (u.id) body.active = b.active;
         else body.email = b.email;
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);
