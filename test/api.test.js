@@ -739,6 +739,9 @@ test('unlinked accounts: the office is told once, only an admin links them, and 
   const dup = await api('admin', 'PATCH', `/users/${other}`, { person_id: person.id });
   assert.equal(dup.status, 409);
   assert.match(dup.data.error, /already has an account/);
+  // The same checks apply when an admin creates an account for a chosen person.
+  assert.equal((await api('admin', 'POST', '/users', { email: 'third@example.org', role: 'volunteer', person_id: person.id })).status, 409);
+  assert.equal((await api('admin', 'POST', '/users', { email: 'fourth@example.org', role: 'volunteer', person_id: 999999 })).status, 404);
 });
 
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {

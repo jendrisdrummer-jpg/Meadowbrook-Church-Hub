@@ -209,7 +209,14 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const email = required(b.email, 'Email').toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
-    const person = int(b.person_id) ?? db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
+    // The person the admin chose, checked like any link. With none chosen, the existing behaviour stays
+    // (the person in People with exactly this email), but never one who already has an account.
+    let person;
+    if (b.person_id != null && b.person_id !== '') person = linkablePerson(b.person_id, null);
+    else {
+      const match = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
+      person = match && !db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(match) ? match : null;
+    }
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
     audit(db, req, 'user.create', `${email} as ${b.role}`);
