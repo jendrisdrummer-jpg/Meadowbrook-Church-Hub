@@ -747,6 +747,17 @@ test('leaders see contact details but not health information, private notes or p
   assert.equal(adult.medical_notes, null);
   assert.ok(!JSON.stringify(roster).includes('PARENT-'), 'no adult health information anywhere in the roster');
   assert.ok(!JSON.stringify(roster).includes('PASTORAL-CANARY'));
+
+  // The same on the list of who is checked in today: the child's notes, never an adult's.
+  const today = roster.today;
+  const ins = db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES (?, 1, ?, ?, ?, datetime('now'))");
+  ins.run('privacy-kid', child.id, 'kid', today);
+  ins.run('privacy-adult', parent.id, 'volunteer', today);
+  const active = (await api('lee', 'GET', `/checkin/active?campus_id=1&day=${today}`)).data;
+  assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(active.find((c) => c.id === 'privacy-adult').allergies, null);
+  assert.ok(!JSON.stringify(active).includes('PARENT-'), 'no adult health information in the active list');
+  db.prepare("DELETE FROM checkins WHERE id LIKE 'privacy-%'").run();
 });
 
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {

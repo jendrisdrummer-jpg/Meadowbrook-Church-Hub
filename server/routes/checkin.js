@@ -85,7 +85,11 @@ export default function checkinRoutes(db) {
     const args = [c.id, day];
     let extra = '';
     if (req.query.room_id) { extra = ' AND ci.room_id = ?'; args.push(int(req.query.room_id)); }
-    res.json(db.prepare(`SELECT ci.*, p.first_name, p.last_name, p.nickname, p.allergies, p.medical_notes, p.photo, p.birthdate, p.grade,
+    // Children's allergies and medical notes are for kids' safety; an adult's (a volunteer or a
+    // parent checked in) are never sent.
+    res.json(db.prepare(`SELECT ci.*, p.first_name, p.last_name, p.nickname,
+        CASE WHEN p.household_role = 'child' THEN p.allergies END allergies,
+        CASE WHEN p.household_role = 'child' THEN p.medical_notes END medical_notes, p.photo, p.birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
