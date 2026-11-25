@@ -67,7 +67,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use(requireAppHeader);
 
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
-  authRoutes(app, db);
+  const auth = authRoutes(app, db);
 
   const api = express.Router();
   // Paired iPads (no one signed in) may use check-in, and nothing else.
@@ -89,7 +89,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));
-  api.use(checkRoutes(db));
+  api.use(checkRoutes(db, { codeCapHitAt: auth.codeCapHitAt }));
   api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));

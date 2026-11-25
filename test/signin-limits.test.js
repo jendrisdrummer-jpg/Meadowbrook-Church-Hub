@@ -2,6 +2,7 @@
 // apps (fresh limiters each time) and X-Forwarded-For (trusted from loopback in tests) for addresses.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import express from 'express';
 import { openDb, setSetting } from '../server/db.js';
 import { authRoutes } from '../server/auth.js';
@@ -94,19 +95,133 @@ test('code emails: unknown emails under “invited” get the usual answer and n
   } finally { t.close(); }
 });
 
-test('code emails: a server-wide hourly ceiling (max_code_emails_per_hour) answers 429', async () => {
+// A stand-in mail server that accepts connections and never answers, or a closed port.
+async function stalledSmtp() {
+  const socks = new Set();
+  const srv = net.createServer((s) => { socks.add(s); s.on('error', () => {}); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return { port: srv.address().port, close: () => { for (const s of socks) s.destroy(); srv.close(); } };
+}
+async function withSmtp(port, fn) {
+  const keys = ['MB_SMTP_USER', 'MB_SMTP_PASS', 'MB_SMTP_HOST', 'MB_SMTP_PORT'];
+  const keep = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  Object.assign(process.env, { MB_SMTP_USER: 'web@example.com', MB_SMTP_PASS: 'not-a-real-password', MB_SMTP_HOST: '127.0.0.1', MB_SMTP_PORT: String(port) });
+  try { return await fn(); } finally { for (const k of keys) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; } }
+}
+
+test('code emails: a known and an unknown email answer the same, fast, even when the mail server stalls', async () => {
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'invited');
+  db.prepare("INSERT INTO users (email, role) VALUES ('known@example.com', 'volunteer')").run();
+  const smtp = await stalledSmtp();
+  const t = await authApp(db);
+  try {
+    await withSmtp(smtp.port, async () => {
+      const timed = async (email) => { const t0 = performance.now(); const r = await t.post('/auth/code', { email }); return { r, ms: performance.now() - t0 }; };
+      const known = await timed('known@example.com'); // would wait on the stalled server if it sent first
+      const unknown = await timed('stranger@example.com');
+      for (const x of [known, unknown]) {
+        assert.deepEqual([x.r.status, x.r.data], [200, { ok: true }]);
+        assert.ok(x.ms < 150, `answered in ${Math.round(x.ms)} ms`);
+      }
+      assert.equal(db.prepare("SELECT COUNT(*) n FROM login_codes WHERE email = 'known@example.com'").get().n, 1, 'the code is stored');
+    });
+  } finally { t.close(); smtp.close(); }
+});
+
+test('code emails: a failing send still answers 200 and is logged, with no unhandled rejection', async () => {
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO users (email, role) VALUES ('known@example.com', 'volunteer')").run();
+  const dead = await stalledSmtp();
+  const port = dead.port;
+  dead.close(); // nothing listens there now: connection refused
+  const t = await authApp(db);
+  const logged = [];
+  const orig = console.error;
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  console.error = (...a) => logged.push(a.join(' '));
+  try {
+    await withSmtp(port, async () => {
+      const r = await t.post('/auth/code', { email: 'known@example.com' });
+      assert.deepEqual([r.status, r.data], [200, { ok: true }]);
+      for (let i = 0; i < 50 && !logged.length; i++) await new Promise((res) => setTimeout(res, 20));
+    });
+    assert.ok(logged.some((l) => l.includes('Sending the sign-in code failed')), 'the failure is logged');
+    await new Promise((res) => setTimeout(res, 20));
+    assert.deepEqual(unhandled, []);
+  } finally { console.error = orig; process.off('unhandledRejection', onUnhandled); t.close(); }
+});
+
+test('code emails: the server-wide cap counts only new accounts and never answers 429', async () => {
   const db = openDb(':memory:');
   setSetting(db, 'max_code_emails_per_hour', 3);
+  db.prepare("INSERT INTO users (email, role) VALUES ('member@example.com', 'volunteer')").run();
+  const t = await authApp(db);
+  const warned = [];
+  const origWarn = console.warn;
+  console.warn = (...a) => warned.push(a.join(' '));
+  try {
+    const n = outbox.length;
+    assert.equal(t.limiters.codeCapHitAt(), 0);
+    // Under “anyone”: three new addresses use the cap up, from different connections.
+    for (let i = 0; i < 3; i++) assert.equal((await t.post('/auth/code', { email: `p${i}@example.com` }, `203.0.113.${10 + i}`)).status, 200);
+    assert.equal(outbox.length, n + 3);
+    assert.deepEqual(productionChecks(db, {}, { codeCapHitAt: t.limiters.codeCapHitAt() }).checks.filter((c) => c.id === 'code_cap'), [], 'no row yet');
+    // A 4th and 5th new address: same answer, no mail, and the warning is logged once.
+    for (const e of ['p8@example.com', 'p9@example.com']) {
+      const r = await t.post('/auth/code', { email: e }, '203.0.113.99');
+      assert.deepEqual([r.status, r.data], [200, { ok: true }]);
+    }
+    assert.equal(outbox.length, n + 3, 'nothing more was sent');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM login_codes WHERE email IN ('p8@example.com', 'p9@example.com')").get().n, 0);
+    assert.equal(warned.length, 1, 'one warning, not one per request');
+    // Someone with an account, from a fresh address, still gets their code.
+    const k = await t.post('/auth/code', { email: 'member@example.com' }, '203.0.113.150');
+    assert.deepEqual([k.status, k.data], [200, { ok: true }]);
+    assert.equal(outbox.at(-1).to, 'member@example.com');
+    assert.equal(outbox.length, n + 4);
+    // Settings → Checks says so.
+    const row = productionChecks(db, {}, { codeCapHitAt: t.limiters.codeCapHitAt() }).checks.find((c) => c.id === 'code_cap');
+    assert.equal(row.status, 'warn');
+    assert.equal(row.label, 'Sign-in code limit for new accounts reached in the last hour');
+    assert.ok(!productionChecks(db, {}, { codeCapHitAt: Date.now() - 2 * 3600e3 }).checks.some((c) => c.id === 'code_cap'), 'clears after an hour');
+  } finally { console.warn = origWarn; t.close(); }
+});
+
+test('code emails: under “invited” existing members all get mail even with a cap of 3', async () => {
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'invited');
+  setSetting(db, 'max_code_emails_per_hour', 3);
+  for (let i = 0; i < 4; i++) db.prepare('INSERT INTO users (email, role) VALUES (?, ?)').run(`m${i}@example.com`, 'volunteer');
   const t = await authApp(db);
   try {
     const n = outbox.length;
-    // Different addresses and emails, so only the ceiling can stop it.
-    for (let i = 0; i < 3; i++) assert.equal((await t.post('/auth/code', { email: `p${i}@example.com` }, `203.0.113.${10 + i}`)).status, 200);
-    const r = await t.post('/auth/code', { email: 'p9@example.com' }, '203.0.113.99');
-    assert.equal(r.status, 429);
-    assert.match(r.data.error, /sent several codes already/);
-    assert.equal(outbox.length, n + 3);
+    for (let i = 0; i < 4; i++) assert.equal((await t.post('/auth/code', { email: `m${i}@example.com` }, `203.0.113.${20 + i}`)).status, 200);
+    assert.deepEqual(outbox.slice(n).map((m) => m.to), ['m0@example.com', 'm1@example.com', 'm2@example.com', 'm3@example.com']);
+    assert.equal(t.limiters.codeCapHitAt(), 0, 'the cap was never touched');
   } finally { t.close(); }
+});
+
+test('settings: the code-email cap is shown to admins only', async () => {
+  const db = openDb(':memory:');
+  const server = createApp({ db, uploadDir: '/tmp' }).listen(0);
+  await new Promise((r) => server.once('listening', r));
+  try {
+    const get = async (role) => {
+      const id = db.prepare('INSERT INTO users (email, role) VALUES (?, ?)').run(`${role}@example.com`, role).lastInsertRowid;
+      let cookie;
+      startSession(db, { secure: false }, { setHeader: (_k, v) => { cookie = v.split(';')[0]; } }, id);
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/api/settings`, { headers: { cookie } });
+      assert.equal(res.status, 200);
+      return res.json();
+    };
+    const vol = await get('volunteer');
+    assert.ok(!('max_code_emails_per_hour' in vol));
+    assert.equal(vol.church_name, 'Meadowbrook Church', 'other settings still come back');
+    assert.equal((await get('admin')).max_code_emails_per_hour, 200);
+  } finally { server.close(); }
 });
 
 // ---------------------------------------------------------------- the wide (/48) factors

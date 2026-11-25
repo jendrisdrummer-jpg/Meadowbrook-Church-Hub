@@ -70,6 +70,12 @@ regularly, ask for automatic deletion first.
 Admins only (`GET /admin/production-checks`). Shows whether this server is set up safely for real use; never
 shows a secret, only yes/no and non-secret values such as `MB_TRUST_PROXY`. It also shows the signed-in admin's own
 address as the server sees it (so they can compare it with a “what is my IP” site); that is returned only to that admin and isn't stored.
+It warns for an hour after the sign-in code limit for new accounts (`max_code_emails_per_hour`) was reached.
+
+**Sign-in policy in production:** use `invited` (or `directory`). Under `anyone`, sending a code to a new
+address is by design, up to `max_code_emails_per_hour` an hour server-wide; past that, new addresses get the
+usual “code sent” answer and no email (people who already have accounts are never held back by it).
+`GET /settings` leaves that cap out for everyone but admins.
 
 ## Roles (ranked)
 

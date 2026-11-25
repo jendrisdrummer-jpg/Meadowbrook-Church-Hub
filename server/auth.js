@@ -221,6 +221,8 @@ export function authRoutes(app, db) {
   const limits = createLimiter();
   const emailLimits = createLimiter();
   const codeCeiling = createLimiter({ cap: 10 });
+  let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
+  let capWarnedAt = 0;
   const devLogin = process.env.MB_DEV_LOGIN === '1';
   const google = () => ({
     // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
@@ -370,37 +372,44 @@ export function authRoutes(app, db) {
 
   // Emails a 6-digit code to prove the address belongs to them: for signing in the first time,
   // a forgotten password, or creating an account.
-  app.post('/auth/code', async (req, res) => {
+  app.post('/auth/code', (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (!validEmail(email)) return res.status(400).json({ error: 'Enter your email address.' });
     if (!canSendMail()) return res.status(503).json({ error: 'Email sign-in isn’t set up yet. Use Google, or ask the church office.' });
     const tooMany = () => res.status(429).json({ error: 'We’ve sent several codes already. Check your inbox (and spam), or try again in an hour.' });
     // The address first, then the email: a refused client creates no new keys.
     if (!ipAllowed(limits, 'codeip', req.ip, 20, 60 * 60e3, { wide: 8 }) || !emailLimits.hit(`code:${email}`, 5, 60 * 60e3)) return tooMany();
-    // A server-wide ceiling on code emails, so nobody can use this form to flood outside inboxes.
-    const ceiling = Number(getSetting(db, 'max_code_emails_per_hour', 200));
-    const maxPerHour = Number.isInteger(ceiling) && ceiling > 0 ? ceiling : 200;
-    if (!codeCeiling.allowed('codes', maxPerHour, 60 * 60e3)) return tooMany();
     // No account, and the sign-in policy wouldn't let this email make one: say the same as always,
     // but send nothing, so the form can't be used to mail strangers or to learn who has an account.
     if (!mayHaveAccount(db, email)) return res.json({ ok: true });
-    codeCeiling.record('codes', maxPerHour, 60 * 60e3);
+    // A server-wide ceiling, for emails that would create a new account only: people who already
+    // have one are limited per address and per connection above, so a flood of made-up addresses
+    // under “anyone” can't use up the ceiling and lock them out. When it's full the answer is the
+    // same as ever and nothing is sent, so no one can tell a full ceiling from a sent code.
+    if (!db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+      const ceiling = Number(getSetting(db, 'max_code_emails_per_hour', 200));
+      const maxPerHour = Number.isInteger(ceiling) && ceiling > 0 ? ceiling : 200;
+      if (!codeCeiling.allowed('codes', maxPerHour, 60 * 60e3)) {
+        const now = Date.now();
+        if (!capWarnedAt || now - capWarnedAt >= 60 * 60e3) console.warn(`Sign-in codes to new addresses reached the limit of ${maxPerHour} an hour (max_code_emails_per_hour); not sending more until it clears.`);
+        capWarnedAt = capHitAt = now;
+        return res.json({ ok: true });
+      }
+      codeCeiling.record('codes', maxPerHour, 60 * 60e3);
+    }
     const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
     db.prepare('UPDATE login_codes SET used_at = datetime(\'now\') WHERE email = ? AND used_at IS NULL').run(email);
     db.prepare("INSERT INTO login_codes (email, code_hash, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))").run(email, codeHash(email, code));
     const church = getSetting(db, 'church_name', 'Church');
-    try {
-      await sendMail({
-        to: email,
-        subject: `${code} is your ${church} sign-in code`,
-        text: `Your code is ${code}\n\nEnter it to sign in or create your ${church} account. It works for 15 minutes.\n\nDidn’t ask for this? You can ignore this email.`,
-        html: `<div style="font-family:system-ui,sans-serif;max-width:420px"><p>Your ${church} sign-in code:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:12px 0">${code}</p><p>Enter it to sign in or create your account. It works for 15 minutes.</p><p style="color:#777;font-size:13px">Didn’t ask for this? You can ignore this email.</p></div>`,
-      });
-    } catch (e) {
-      console.error('Sending the sign-in code failed:', e.message);
-      return res.status(502).json({ error: 'We couldn’t send the email right now. Please try again in a minute.' });
-    }
+    // Answer first and send in the background, so how long the email takes (or that it was never
+    // sent) can't tell anyone whether an address has an account. A failed send is only logged.
     res.json({ ok: true });
+    sendMail({
+      to: email,
+      subject: `${code} is your ${church} sign-in code`,
+      text: `Your code is ${code}\n\nEnter it to sign in or create your ${church} account. It works for 15 minutes.\n\nDidn’t ask for this? You can ignore this email.`,
+      html: `<div style="font-family:system-ui,sans-serif;max-width:420px"><p>Your ${church} sign-in code:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:12px 0">${code}</p><p>Enter it to sign in or create your account. It works for 15 minutes.</p><p style="color:#777;font-size:13px">Didn’t ask for this? You can ignore this email.</p></div>`,
+    }).catch((e) => console.error('Sending the sign-in code failed:', e.message));
   });
 
   // Checks the code, then signs them in. Asks for a name (new to the church) or a password (first
@@ -438,7 +447,7 @@ export function authRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  return { limits, emailLimits }; // handed back so tests can look at them
+  return { limits, emailLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
 }
 
 const SIGN_IN_HINTS = {

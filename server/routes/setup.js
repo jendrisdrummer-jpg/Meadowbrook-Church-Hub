@@ -109,9 +109,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     video_minutes_limit: 9000,                 // Daily's free plan is 10,000 participant-minutes a month
   };
 
-  r.get('/settings', requireRole('volunteer'), (_req, res) => {
+  // Only admins see the server-wide code-email cap; knowing it helps no one else.
+  const ADMIN_ONLY = ['max_code_emails_per_hour'];
+  r.get('/settings', requireRole('volunteer'), (req, res) => {
     res.json({
-      ...Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])),
+      ...Object.fromEntries(Object.entries(SETTINGS).filter(([k]) => req.user.role === 'admin' || !ADMIN_ONLY.includes(k)).map(([k, v]) => [k, getSetting(db, k, v)])),
       app_icon_version: getSetting(db, 'app_icon_version', 0),
       custom_app_icon: fs.existsSync(path.join(uploadDir, 'app-icon', '512.png')),
       app_url: `${(process.env.MB_APP_URL || '').trim().replace(/\/+$/, '')}/app/`,

@@ -10,7 +10,8 @@ import { backupStatus } from '../backup.js';
 import { isOffline } from '../offline.js';
 
 // `ip` is the requesting admin's own address as this server sees it; it is shown to them and not stored.
-export function productionChecks(db, env = process.env, { ip } = {}) {
+// `codeCapHitAt` is when the sign-in code limit for new accounts last refused someone (ms; 0 = never).
+export function productionChecks(db, env = process.env, { ip, codeCapHitAt = 0 } = {}) {
   const hosted = Boolean(env.RENDER);
   const out = [];
   const add = (id, label, status, detail) => out.push({ id, label, status, detail }); // status: ok | warn | bad | info
@@ -36,6 +37,11 @@ export function productionChecks(db, env = process.env, { ip } = {}) {
   add('sign_in_policy', 'Only invited people can create accounts', policy === 'invited' ? 'ok' : 'warn',
     policy === 'invited' ? 'Sign-in is set to “invited”.' : `Sign-in is set to “${policy}”. For the staff beta, “invited” is recommended (Settings → Sign-in & accounts).`);
 
+  if (codeCapHitAt && Date.now() - codeCapHitAt < 3600e3) {
+    add('code_cap', 'Sign-in code limit for new accounts reached in the last hour', 'warn',
+      'New addresses asked for more codes than max_code_emails_per_hour allows, so some got none. People who already have accounts are not affected. If this wasn’t a real rush of sign-ups, someone may be flooding the form: set the sign-in policy to “invited”.');
+  }
+
   const google = Boolean((env.GOOGLE_CLIENT_ID || '').trim() && (env.GOOGLE_CLIENT_SECRET || '').trim());
   add('email', 'Email can be sent', mailConfigured() ? 'ok' : 'bad',
     mailConfigured() ? 'Email settings are present (MB_SMTP_USER and MB_SMTP_PASS).' : 'No email settings: no sign-in codes, schedule requests, reminders or receipts by email.');
@@ -60,8 +66,8 @@ export function productionChecks(db, env = process.env, { ip } = {}) {
   return { hosted, checks: out, ready: !out.some((c) => c.status === 'bad') };
 }
 
-export default function checkRoutes(db) {
+export default function checkRoutes(db, { codeCapHitAt = () => 0 } = {}) {
   const r = Router();
-  r.get('/admin/production-checks', requireRole('admin'), (req, res) => res.json(productionChecks(db, process.env, { ip: req.ip })));
+  r.get('/admin/production-checks', requireRole('admin'), (req, res) => res.json(productionChecks(db, process.env, { ip: req.ip, codeCapHitAt: codeCapHitAt() })));
   return r;
 }

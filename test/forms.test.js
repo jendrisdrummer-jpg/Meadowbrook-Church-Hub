@@ -453,3 +453,16 @@ test('a public submission returns no response id', async () => {
   assert.equal(res.status, 201);
   assert.deepEqual(res.data, { ok: true });
 });
+
+plainTest('the forms limiter keeps an address that is at its limit while a flood of others comes through', async () => {
+  const { limiter } = await import('../server/routes/forms.js');
+  const l = limiter(100);
+  for (let i = 0; i < 30; i++) { assert.ok(l.canAttempt('locked', 30)); l.attempt('locked', 30); }
+  assert.equal(l.canAttempt('locked', 30), false);
+  for (let i = 0; i < 500; i++) { l.attempt(`flood${i}`, 30); l.win(`flood${i}`, 10); }
+  assert.equal(l.canAttempt('locked', 30), false, 'still refused after 500 other addresses');
+  assert.ok(l.canAttempt('flood499', 30), 'recent addresses are still tracked');
+  // Wins are limited the same way.
+  for (let i = 0; i < 10; i++) l.win('winner', 10);
+  assert.equal(l.canWin('winner', 10), false);
+});
