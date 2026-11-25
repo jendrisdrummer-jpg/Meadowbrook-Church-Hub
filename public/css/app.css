@@ -833,6 +833,7 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 /* Forms: the question text gets its own full row, so it stays readable on a phone. */
 .q-wide .q-row { grid-template-columns: minmax(0, 1fr) auto auto; }
 .q-wide .q-row [data-qk=label] { grid-column: 1 / -1; }
+@media (max-width: 640px) { .q-wide .q-row [data-qk=type] { grid-column: 1 / -1; } } /* full width so “Long answer” isn’t cut off */
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--panel-2); }
 /* Song files */

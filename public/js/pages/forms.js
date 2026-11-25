@@ -42,17 +42,18 @@ async function list(el) {
 // ---------------------------------------------------------------- the editor
 async function editor(el, e) {
   const limited = Boolean(state.me.campusIds);
-  const staff = await get('/admin/forms/notify-options');
+  // Only people who could be told about this campus's responses (the server decides who).
+  const loadStaff = (campusId) => get(`/admin/forms/notify-options${campusId ? `?campus_id=${campusId}` : ''}`);
   const f = e ? structuredClone(e) : {
     title: '', intro: '', campus_id: limited ? state.campusId || state.me.campusIds[0] : null, audience: 'public', active: true, notify_user_id: null,
     ask_contact: { name: 'required', email: 'optional', phone: 'off' }, questions: [],
   };
   const editable = !e || e.can_manage;
+  let staff = await loadStaff(f.campus_id);
   let dirty = false;
   setTitle(e ? e.title : 'New form', html`${e ? html`<a class="btn ghost" href="#/forms/${e.id}/responses">Responses</a>` : ''}${editable ? html`<button class="btn primary" data-save>${e ? 'Save' : 'Create form'}</button>` : ''}`);
 
   function draw() {
-    const campusOk = (u) => (f.campus_id == null ? !u.campus_ids : !u.campus_ids || u.campus_ids.includes(Number(f.campus_id)));
     mount(el, html`${!editable ? html`<div class="alert">This form is for the whole church, so only staff who aren’t limited to one campus can change it.</div>` : ''}
       <form class="grid two" data-form novalidate><fieldset class="stack" style="border:0;padding:0;margin:0;min-width:0" ${editable ? '' : 'disabled'}>
         <div class="card stack"><h2 style="margin:0">The form</h2>
@@ -61,7 +62,7 @@ async function editor(el, e) {
           <label class="field">Campus<select name="campus_id">${options(visibleCampuses().map((c) => ({ value: c.id, label: c.name })), f.campus_id, limited ? {} : { blank: 'All campuses (church-wide)' })}</select></label>
           <label class="field">Who can fill it in<select name="audience">${options([{ value: 'public', label: 'Anyone with the link' }, { value: 'signed_in', label: 'Only people signed in to the app' }], f.audience)}</select></label>
           <div class="form">${['name', 'email', 'phone'].map((k) => html`<label class="field">${{ name: 'Their name', email: 'Their email', phone: 'Their phone' }[k]}<select name="c_${k}">${options(MODES, f.ask_contact[k])}</select></label>`)}</div>
-          <label class="field">Tell this person about new responses<select name="notify_user_id">${options(staff.filter(campusOk).map((u) => ({ value: u.id, label: u.name })), f.notify_user_id, { blank: 'No one' })}</select>
+          <label class="field">Tell this person about new responses<select name="notify_user_id">${options(staff.map((u) => ({ value: u.id, label: u.name })), f.notify_user_id, { blank: 'No one' })}</select>
             <span class="muted small">They get a notice, never the answers. They read those here.</span></label>
           <label class="toggle-row"><span><b>Open for responses</b><br><span class="muted small">Turn off to close the form. The link stops working; responses stay here.</span></span><input type="checkbox" class="switch" name="active" ${f.active ? 'checked' : ''}></label>
           ${e ? html`<div class="field"><span>Link to share</span><div class="row"><input type="text" readonly value="${publicLink(e)}" style="flex:1" data-link><button type="button" class="btn small" data-copy>${icon('copy')} Copy link</button></div></div>` : html`<p class="muted small" style="margin:0">You’ll get a link to share once it’s created.</p>`}
@@ -74,6 +75,7 @@ async function editor(el, e) {
             <span class="row" style="gap:2px;flex-wrap:nowrap"><button type="button" class="icon-btn" data-qup="${i}" title="Move up" ${i ? '' : 'disabled'}>${icon('up')}</button><button type="button" class="icon-btn" data-qdown="${i}" title="Move down" ${i < f.questions.length - 1 ? '' : 'disabled'}>${icon('down')}</button><button type="button" class="icon-btn danger" data-qdel="${i}" title="Remove">${icon('x')}</button></span>
             ${['choice', 'multichoice'].includes(q.type) ? html`<input type="text" data-qk="options" class="q-opts" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Kids, Music, Welcome team">` : ''}
           </div>`)}</div>
+          <p class="muted small" style="margin:0">Please don’t use forms to collect children’s medical or safeguarding details. Use check-in for that.</p>
           ${f.questions.length < 30 ? html`<div><button type="button" class="btn small ghost" data-qadd>${icon('plus')} Add a question</button></div>` : ''}
           ${f.questions.length ? '' : html`<p class="muted small" style="margin:0">No questions yet. Name and contact details above are enough for a simple “get in touch” form.</p>`}
         </div></fieldset></form>`);
@@ -99,12 +101,15 @@ async function editor(el, e) {
 
   draw();
   el.oninput = () => { dirty = true; };
-  el.onchange = (x) => { dirty = true; if (x.target.dataset.qk === 'type' || x.target.name === 'campus_id') { read(); draw(); } };
+  el.onchange = async (x) => {
+    dirty = true;
+    if (x.target.name === 'campus_id') { read(); staff = await loadStaff(f.campus_id); if (!staff.some((u) => u.id === f.notify_user_id)) f.notify_user_id = null; draw(); }
+    else if (x.target.dataset.qk === 'type') { read(); draw(); }
+  };
   el.onclick = (x) => {
     const b = x.target.closest('button');
     if (!b) return;
     if (b.matches('[data-copy]')) return copy(publicLink(e));
-    if (b.matches('[data-save]')) return save();
     const at = (k) => Number(b.dataset[k]);
     if (b.matches('[data-qadd]')) { read(); f.questions.push({ id: `q${Date.now().toString(36)}`, label: '', type: 'text', required: false }); dirty = true; return draw(); }
     if (b.dataset.qdel !== undefined) { read(); f.questions.splice(at('qdel'), 1); dirty = true; return draw(); }
@@ -113,6 +118,7 @@ async function editor(el, e) {
   };
   async function save() {
     read();
+    if (!f.title.trim()) return toast('Please give your form a title.', 'bad');
     try {
       const saved = e ? await patch(`/admin/forms/${e.id}`, f) : await post('/admin/forms', f);
       dirty = false;
@@ -120,6 +126,8 @@ async function editor(el, e) {
       if (!e) go(`/forms/${saved.id}`); else editor(el, { ...saved, can_manage: true });
     } catch (err) { fail(err); }
   }
+  // The Save button lives in the page header, outside `el`, so it's bound here (as on the other editors).
+  document.querySelector('[data-actions] [data-save]')?.addEventListener('click', save);
   window.onbeforeunload = () => (dirty ? true : undefined);
 }
 

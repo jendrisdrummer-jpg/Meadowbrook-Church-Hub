@@ -16,17 +16,52 @@ const MODES = ['off', 'optional', 'required'];
 const CONTACT = ['name', 'email', 'phone'];
 const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
-// Small in-memory limiter, one per app so a test (or a restart) starts clean.
+// IPv6 addresses are bucketed by /64 (one household or Wi-Fi gets a whole /64), v4-mapped ones as IPv4.
+export function ipBucket(ip = '') {
+  ip = String(ip).replace(/%.*$/, '');
+  const v4 = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4) return v4[1];
+  if (!ip.includes(':')) return ip;
+  const [head, tail = ''] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const groups = ip.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h;
+  return `v6:${groups.slice(0, 4).map((g) => (parseInt(g || '0', 16) || 0).toString(16)).join(':')}`;
+}
+
+// Small in-memory limiter, one per app so a test (or a restart) starts clean. Addresses are
+// swept when stale and capped (oldest dropped first); per-form counters live in their own map
+// that is never wiped, so a flood of addresses can't reset a form's hourly limit.
+const IP_WINDOW = 10 * 60e3;
+const IP_CAP = 5000;
 function limiter() {
-  const recent = new Map();
-  return (key, max, windowMs) => {
-    const now = Date.now();
-    const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-    if (hits.length >= max) return false;
-    hits.push(now);
-    recent.set(key, hits);
-    if (recent.size > 5000) recent.clear();
-    return true;
+  const ips = new Map(); // bucket -> { tries: [t], wins: [t] }
+  const forms = new Map(); // form id -> [t]
+  let swept = 0;
+  const recent = (list, now, windowMs) => list.filter((t) => now - t < windowMs);
+  const sweep = (now) => {
+    if (ips.size <= IP_CAP && now - swept < 60e3) return;
+    swept = now;
+    for (const [k, v] of ips) if (!recent(v.tries, now, IP_WINDOW).length) ips.delete(k);
+    for (const k of ips.keys()) { if (ips.size <= IP_CAP) break; ips.delete(k); } // still flooded: oldest go first
+  };
+  return {
+    // Counts an attempt (even one that fails validation); false when this address is over its tries.
+    attempt(ip, max) {
+      const now = Date.now();
+      sweep(now);
+      const e = ips.get(ip) || { tries: [], wins: [] };
+      e.tries = recent(e.tries, now, IP_WINDOW);
+      e.wins = recent(e.wins, now, IP_WINDOW);
+      if (e.tries.length >= max) return false;
+      e.tries.push(now);
+      ips.set(ip, e);
+      return true;
+    },
+    canWin: (ip, max) => (recent(ips.get(ip)?.wins || [], Date.now(), IP_WINDOW).length < max),
+    win(ip) { ips.get(ip)?.wins.push(Date.now()); },
+    formFull(id, max) { const now = Date.now(); const l = recent(forms.get(id) || [], now, 3600e3); forms.set(id, l); return l.length >= max; },
+    formWin(id) { forms.get(id).push(Date.now()); },
   };
 }
 
@@ -34,7 +69,7 @@ const slugify = (t) => t.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]
 
 export default function formRoutes(db) {
   const r = Router();
-  const allow = limiter();
+  const limits = limiter();
 
   const parse = (f) => ({ ...f, active: Boolean(f.active), questions: JSON.parse(f.questions || '[]'), ask_contact: JSON.parse(f.ask_contact || '{}') });
 
@@ -66,11 +101,22 @@ export default function formRoutes(db) {
     }));
   });
 
-  // Staff who can be told about new responses (names only).
-  r.get('/admin/forms/notify-options', requireRole('staff'), (_req, res) => {
-    res.json(db.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(COALESCE(p.nickname, p.first_name, '') || ' ' || COALESCE(p.last_name, '')), ''), u.email) name, u.campus_ids
-      FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.active = 1 AND u.role IN ('staff', 'admin') ORDER BY name LIMIT 200`).all()
-      .map(({ campus_ids, ...u }) => ({ ...u, campus_ids: campus_ids ? JSON.parse(campus_ids) : null })));
+  // Who can be told about new responses: active staff or admins who can read them (campus_id of
+  // the form, none = church-wide: only staff with no campus limit).
+  const canBeTold = (u, campusId) => {
+    if (!u || !u.active || rank(u.role) < rank('staff')) return false;
+    const ids = u.campus_ids ? JSON.parse(u.campus_ids) : null;
+    return campusId == null ? !ids : !ids || ids.includes(campusId);
+  };
+
+  // Names only, and only people who could be chosen for the campus asked about.
+  r.get('/admin/forms/notify-options', requireRole('staff'), (req, res) => {
+    const campusId = req.query.campus_id ? int(req.query.campus_id, 'Campus') : null;
+    if (campusId != null && !canCampus(req.user, campusId)) return res.json([]);
+    if (campusId == null && req.user.campusIds) return res.json([]); // limited staff can't manage church-wide forms
+    res.json(db.prepare(`SELECT u.id, u.active, u.role, u.campus_ids, COALESCE(NULLIF(TRIM(COALESCE(p.nickname, p.first_name, '') || ' ' || COALESCE(p.last_name, '')), ''), u.email) name
+      FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.active = 1 AND u.role IN ('staff', 'admin') ORDER BY name`).all()
+      .filter((u) => canBeTold(u, campusId)).slice(0, 200).map(({ id, name }) => ({ id, name })));
   });
 
   r.get('/admin/forms/:id', requireRole('staff'), (req, res) => {
@@ -78,13 +124,11 @@ export default function formRoutes(db) {
     res.json({ ...parse(f), can_manage: manages(req.user, f) });
   });
 
-  // Who can be told about new responses: active staff or admins who can read them.
   function notifyUser(id, campusId) {
     if (id == null) return null;
-    const u = db.prepare("SELECT id, role, campus_ids FROM users WHERE id = ? AND active = 1").get(id);
+    const u = db.prepare('SELECT id, role, active, campus_ids FROM users WHERE id = ? AND active = 1').get(id);
     if (!u || rank(u.role) < rank('staff')) throw bad('Choose someone on staff to be told about new responses.');
-    const ids = u.campus_ids ? JSON.parse(u.campus_ids) : null;
-    if (campusId == null ? ids : ids && !ids.includes(campusId)) throw bad('That person can’t see this form’s responses, so they can’t be told about them.');
+    if (!canBeTold(u, campusId)) throw bad('That person can’t see this form’s responses, so they can’t be told about them.');
     return u.id;
   }
 
@@ -154,6 +198,7 @@ export default function formRoutes(db) {
     const header = ['Name', 'Email', 'Phone', 'Signed-in person', ...f.questions.map((q) => q.label), 'Status', 'Received'];
     const rows = responseRows(f.id).map((x) => [x.name, x.email, x.phone, x.person_first ? `${x.person_first} ${x.person_last}` : '',
       ...f.questions.map((q) => answerText(x.answers[q.id])), x.status === 'done' ? 'Done' : 'New', x.created_at]);
+    audit(db, req, 'form.export', `${f.title} (${rows.length} responses)`); // never the answers
     res.setHeader('Content-Disposition', `attachment; filename="${f.slug}-responses.csv"`);
     res.type('text/csv').send(toCsv([header, ...rows]));
   });
@@ -197,6 +242,7 @@ export default function formRoutes(db) {
     const f = findActive(req.params.slug);
     const base = { slug: f.slug, title: f.title, church_name: getSetting(db, 'church_name', 'Church'), audience: f.audience };
     if (f.audience === 'signed_in' && !req.user) return res.json({ ...base, needs_sign_in: true });
+    if (f.audience === 'signed_in' && !canCampus(req.user, f.campus_id)) throw notFound('Form'); // same as the More tab
     res.json({ ...base, intro: f.intro, ask_contact: f.ask_contact, questions: f.questions.map(({ id, label, type, options, required: req }) => ({ id, label, type, options, required: req })) });
   });
 
@@ -204,10 +250,13 @@ export default function formRoutes(db) {
   r.post('/public/forms/:slug', (req, res) => {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
-    if (!allow(`ip:${req.ip}`, 10, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    const ip = ipBucket(req.ip);
+    if (!limits.attempt(ip, 30)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const f = findActive(req.params.slug);
-    if (!allow(`form:${f.id}`, 200, 60 * 60e3)) throw new HttpError(429, 'This form is getting a lot of responses. Please try again a little later.');
+    if (limits.formFull(f.id, 200)) throw new HttpError(429, 'This form is getting a lot of responses. Please try again a little later.');
     if (f.audience === 'signed_in' && !req.user) throw new HttpError(401, 'Please sign in to fill this in.');
+    if (f.audience === 'signed_in' && !canCampus(req.user, f.campus_id)) throw notFound('Form');
+    if (!limits.canWin(ip, 10)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const who = { name: str(b.name, 120), email: str(b.email, 200).toLowerCase(), phone: str(b.phone, 40) };
     for (const k of CONTACT) {
       if (f.ask_contact[k] !== 'required' || who[k]) continue;
@@ -217,17 +266,24 @@ export default function formRoutes(db) {
     // Fields the form doesn't ask for are ignored.
     for (const k of CONTACT) if (f.ask_contact[k] === 'off') who[k] = '';
     const answers = cleanAnswers(f.questions, b.answers && typeof b.answers === 'object' ? b.answers : {});
-    const id = db.prepare('INSERT INTO form_responses (form_id, user_id, person_id, name, email, phone, answers) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(f.id, req.user?.id ?? null, req.user?.personId ?? null, who.name, who.email, who.phone, JSON.stringify(answers)).lastInsertRowid;
-    if (f.notify_user_id) {
-      notify(db, [f.notify_user_id], {
+    db.prepare('INSERT INTO form_responses (form_id, user_id, person_id, name, email, phone, answers) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(f.id, req.user?.id ?? null, req.user?.personId ?? null, who.name, who.email, who.phone, JSON.stringify(answers));
+    limits.win(ip);
+    limits.formWin(f.id);
+    // Checked now, not just when the form was saved: the person may have been demoted since. At most
+    // one notice per form per person every 15 minutes, so a busy form doesn't flood their inbox.
+    const url = `/#/forms/${f.id}/responses`;
+    const target = f.notify_user_id && db.prepare('SELECT id, role, active, campus_ids FROM users WHERE id = ?').get(f.notify_user_id);
+    if (canBeTold(target, f.campus_id)
+      && !db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND kind = 'form' AND url = ? AND created_at > datetime('now', '-15 minutes')").get(target.id, url)) {
+      notify(db, [target.id], {
         kind: 'form',
         title: `New response: ${f.title}`,
         body: 'Open Forms in the Hub to read it.', // answers can be personal: never on a lock screen
-        url: `/#/forms/${f.id}/responses`,
+        url,
       });
     }
-    res.status(201).json({ ok: true, id: Number(id) });
+    res.status(201).json({ ok: true });
   });
 
   return r;

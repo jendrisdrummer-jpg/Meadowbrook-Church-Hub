@@ -10,6 +10,7 @@ import { HttpError, bad, notFound, forbidden, int, str, required, oneOf, isDateT
 import { stripe, stripeConfigured, publishableKey } from '../stripe.js';
 import { sendMail, canSendMail } from '../mail.js';
 import { notify } from '../notify.js';
+import { toCsv } from '../csv.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import { cleanQuestions, cleanAnswers, EVENT_TYPES } from '../questions.js';
 
@@ -289,10 +290,9 @@ export default function eventRoutes(db) {
 
   r.get('/admin/events/:id/signups.csv', requireRole('staff'), (req, res) => {
     const e = parse(getEvent(req, req.params.id));
-    const cell = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => s.answers[q.id] || ''), (s.amount_cents / 100).toFixed(2), s.created_at].map(cell).join(','));
+    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => s.answers[q.id] || ''), (s.amount_cents / 100).toFixed(2), s.created_at]);
     res.setHeader('Content-Disposition', `attachment; filename="${e.title.replace(/[^\w -]/g, '').slice(0, 60) || 'event'} sign-ups.csv"`);
-    res.type('text/csv').send([['Name', 'Email', 'Phone', 'People', ...e.questions.map((q) => q.label), 'Paid', 'Signed up'].map(cell).join(','), ...rows].join('\n'));
+    res.type('text/csv').send(toCsv([['Name', 'Email', 'Phone', 'People', ...e.questions.map((q) => q.label), 'Paid', 'Signed up'], ...rows]));
   });
 
   // Staff add someone who signed up in person or by phone (paid at the door, or free).

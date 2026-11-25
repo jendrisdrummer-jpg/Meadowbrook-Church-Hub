@@ -99,6 +99,21 @@ async function main() {
           await page.screenshot({ path: path.join(out, name), fullPage: true });
           results.push({ area, page: p, who, size, ok: !problems.length, denied: state.broken && denied, problems, screenshot: name });
         }
+        // The forms editor's Save lives in the page header; once it silently did nothing. Click it for real.
+        if (who === 'admin' && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/forms/new`);
+          await page.waitForSelector('[data-actions] [data-save]');
+          await page.click('[data-actions] [data-save]');
+          const kind = await page.waitForSelector('.toast.bad', { timeout: 3000 }).then((t) => t.textContent()).catch(() => '');
+          if (!/title/i.test(kind)) problems.push(`Create form with no title showed no kind message (saw "${kind}")`);
+          await page.fill('input[name=title]', 'Smoke test form');
+          const sent = page.waitForResponse((r) => r.url().endsWith('/api/admin/forms') && r.request().method() === 'POST', { timeout: 3000 }).catch(() => null);
+          await page.click('[data-actions] [data-save]');
+          const res = await sent;
+          if (!res || res.status() !== 201) problems.push(`Create form did not POST /api/admin/forms (got ${res ? res.status() : 'no request'})`);
+          results.push({ area: 'hub', page: '/forms/new (click Save)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
         await ctx.close();
       }
     }

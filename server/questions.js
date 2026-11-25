@@ -5,6 +5,7 @@ import { bad, str, required, oneOf, isDate } from './http.js';
 
 export const EVENT_TYPES = ['text', 'choice', 'yesno'];
 export const FORM_TYPES = ['text', 'longtext', 'choice', 'multichoice', 'yesno', 'date'];
+const RESERVED = ['__proto__', 'constructor', 'prototype'];
 const HAS_OPTIONS = ['choice', 'multichoice'];
 
 // Cleans the list staff send; returns plain objects ready to store as JSON.
@@ -12,7 +13,9 @@ export function cleanQuestions(list, types, max = 12) {
   if (!Array.isArray(list)) throw bad('Questions must be a list.');
   const out = list.slice(0, max).map((q, i) => {
     const type = oneOf(q.type, types, 'text');
-    const clean = { id: str(q.id, 20).replace(/[^\w-]/g, '') || `q${i + 1}`, label: required(q.label, 'Question').slice(0, 200), type, required: Boolean(q.required) };
+    let id = str(q.id, 20).replace(/[^\w-]/g, '') || `q${i + 1}`;
+    if (RESERVED.includes(id)) id = `q${i + 1}`; // would read inherited object properties
+    const clean = { id, label: required(q.label, 'Question').slice(0, 200), type, required: Boolean(q.required) };
     if (HAS_OPTIONS.includes(type)) {
       clean.options = [...new Set((Array.isArray(q.options) ? q.options : []).map((o) => str(o, 80)).filter(Boolean))].slice(0, 20);
       if (!clean.options.length) throw bad(`Add choices for “${clean.label}”.`);
@@ -28,7 +31,7 @@ export function cleanQuestions(list, types, max = 12) {
 export function cleanAnswers(questions, given) {
   const out = {};
   for (const q of questions) {
-    let v = given[q.id];
+    let v = Object.hasOwn(given, q.id) ? given[q.id] : undefined;
     if (q.type === 'multichoice') {
       v = [...new Set((Array.isArray(v) ? v : []).map((x) => str(x, 80)).filter(Boolean))];
       if (v.some((x) => !q.options.includes(x))) throw bad(`Pick only from the choices for “${q.label}”.`);

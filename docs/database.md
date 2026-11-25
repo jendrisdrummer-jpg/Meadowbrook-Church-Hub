@@ -113,8 +113,8 @@ Where the sensitive data lives, so reviews know where to look (standards in
 | Class | Tables / columns |
 |---|---|
 | Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code` |
-| Contact details | `people`, `households`, `connect_cards`, `event_signups` |
-| Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message` |
+| Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
+| Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
 | Private communication | `messages`, `message_files`, `task_comments`, `notifications` |
 | Credentials | `users.password_hash`, `sessions`, `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |

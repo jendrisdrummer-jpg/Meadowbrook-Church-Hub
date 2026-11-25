@@ -42,9 +42,13 @@ staff-only.** For a campus form they are readable by staff who can access that c
 form only by staff with no campus limit (campus-limited staff see the form in the list but no counts or
 answers). Marking a response done is staff; deleting one is admin and audited. Anyone can fill in a
 public form without an account (rate-limited, with a hidden honeypot field); a signed-in form needs a
-session of any role. A response is linked to a person **only** through the signed-in account's own linked
+session of any role, and for a campus form the account must be able to access that campus (otherwise 404,
+the same rule as the app's More tab). A response is linked to a person **only** through the signed-in account's own linked
 person: a typed email or name never links to anyone. The "tell this person" notice carries no answers
-("Open Forms in the Hub to read it."), and the person chosen must be staff who can see that form's responses.
+("Open Forms in the Hub to read it."), and the person chosen must be staff who can see that form's responses. That is checked again when a response
+arrives, so someone demoted, switched off or limited since is simply not told; a person gets at most one notice
+per form every 15 minutes. Exporting responses to CSV is audited (`form.export`: title and row count, never
+answers). Don't collect children's medical or safeguarding details in forms; check-in is the place for that.
 
 ## Roles (ranked)
 
