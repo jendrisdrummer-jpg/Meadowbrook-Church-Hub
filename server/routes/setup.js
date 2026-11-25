@@ -106,12 +106,15 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
     reminder_hours: 48,
     app_short_name: '',
+    max_code_emails_per_hour: 200,             // server-wide ceiling on sign-in code emails
     video_minutes_limit: 9000,                 // Daily's free plan is 10,000 participant-minutes a month
   };
 
-  r.get('/settings', requireRole('volunteer'), (_req, res) => {
+  // Only admins see the server-wide code-email cap; knowing it helps no one else.
+  const ADMIN_ONLY = ['max_code_emails_per_hour'];
+  r.get('/settings', requireRole('volunteer'), (req, res) => {
     res.json({
-      ...Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])),
+      ...Object.fromEntries(Object.entries(SETTINGS).filter(([k]) => req.user.role === 'admin' || !ADMIN_ONLY.includes(k)).map(([k, v]) => [k, getSetting(db, k, v)])),
       app_icon_version: getSetting(db, 'app_icon_version', 0),
       custom_app_icon: fs.existsSync(path.join(uploadDir, 'app-icon', '512.png')),
       app_url: `${(process.env.MB_APP_URL || '').trim().replace(/\/+$/, '')}/app/`,
@@ -127,6 +130,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (k === 'plan_edit_role' && !['leader', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
       if (k === 'reminder_hours' && !(Number.isInteger(v) && v >= 0 && v <= 168)) throw bad('Reminders can go out up to 168 hours (a week) ahead, or 0 for none.');
       if (k === 'schedule_role' && !['team_leaders', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
+      if (k === 'max_code_emails_per_hour' && !(Number.isInteger(v) && v >= 1 && v <= 100_000)) throw bad('Use a whole number from 1 to 100,000.');
       if (k === 'video_minutes_limit' && !(Number.isInteger(v) && v >= 0 && v <= 10_000_000)) throw bad('The limit is a number of minutes (0 turns video calls off).');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }

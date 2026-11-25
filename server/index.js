@@ -23,6 +23,7 @@ import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
 import searchRoutes from './routes/search.js';
 import backupRoutes from './routes/backups.js';
+import checkRoutes from './routes/checks.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
@@ -66,7 +67,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use(requireAppHeader);
 
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
-  authRoutes(app, db);
+  const auth = authRoutes(app, db);
 
   const api = express.Router();
   // Paired iPads (no one signed in) may use check-in, and nothing else.
@@ -88,6 +89,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));
+  api.use(checkRoutes(db, { codeCapHitAt: auth.codeCapHitAt }));
   api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
@@ -190,7 +192,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 }
 
 // MB_TRUST_PROXY: a number of proxy hops ("1" on Render, Railway or Fly), "true", or a list of addresses.
-function trustProxy(v) {
+export function trustProxy(v) {
+  v = String(v ?? '').trim(); // pasted values often pick up stray spaces; the Checks page trims too
   if (!v) return 'loopback, linklocal, uniquelocal';
   if (/^\d+$/.test(v)) return Number(v);
   if (v === 'true' || v === 'false') return v === 'true';

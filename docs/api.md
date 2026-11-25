@@ -43,6 +43,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `giving.js`, `finance.js` | checkout (public), my giving, `/finance/*` | `requireFinance` |
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
+| `checks.js` | `GET /admin/production-checks` (includes an info row with the admin's own address as the server sees it) | admin |
 | `search.js`, `dashboard.js` | global search, home | volunteer+ (results filtered by role/campus) |
 
 ### Forms (`routes/forms.js`)
@@ -50,7 +51,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | Route | Who | Notes |
 |---|---|---|
 | `GET /public/forms/:slug` | guest (signed-in forms: needs a session) | Active forms only (else 404). Returns title, intro, which contact fields to ask and the questions (`id, label, type, options, required`); nothing else. A signed-in form seen by a guest returns `needs_sign_in: true` and no questions. |
-| `POST /public/forms/:slug` | guest (signed-in forms: 401 without a session) | Body `{name, email, phone, answers, website}`. A filled `website` (honeypot) is dropped silently. Rate-limited per address (IPv6 by /64): 30 tries and 10 successful submissions per 10 minutes, and per form 200 per hour: 429. Signed-in forms at another campus than the account's: 404. Returns `{ok: true}` only (no response id). Required fields, choices, dates and lengths are checked: 400. Records `user_id`/`person_id` only from the session. Notifies `notify_user_id` (if still eligible; at most one notice per form per person per 15 minutes) with no answer text. |
+| `POST /public/forms/:slug` | guest (signed-in forms: 401 without a session) | Body `{name, email, phone, answers, website}`. A filled `website` (honeypot) is dropped silently. Rate-limited per address (IPv6 by /64, and per /48 at 16 times these numbers): 30 tries and 10 successful submissions per 10 minutes, and per form 200 per hour: 429. Signed-in forms at another campus than the account's: 404. Returns `{ok: true}` only (no response id). Required fields, choices, dates and lengths are checked: 400. Records `user_id`/`person_id` only from the session. Notifies `notify_user_id` (if still eligible; at most one notice per form per person per 15 minutes) with no answer text. |
 | `GET /forms` | volunteer+ | Active signed-in forms (titles) for the app's More tab, campus-filtered. |
 | `GET /admin/forms`, `GET /admin/forms/:id` | staff | Forms at the account's campuses plus church-wide ones; `can_manage` and response counts only where the account may read responses. |
 | `GET /admin/forms/notify-options` | staff | `?campus_id=` (none = church-wide). Names (`id`, `name`) of active staff/admins who could be told about that form's responses; nothing else. Empty for a campus the account can't access. |
