@@ -306,3 +306,25 @@ test('MB_TRUST_PROXY is trimmed, and the Checks page agrees', () => {
   const tp = productionChecks(db, { RENDER: 'true', MB_TRUST_PROXY: ' 1 ' }).checks.find((c) => c.id === 'trust_proxy');
   assert.equal(tp.status, 'ok');
 });
+
+test('code emails: every valid request takes a slot from the cap, so filling it shows nothing about who has an account', async () => {
+  // Cap 2: one member and one stranger each take a slot; a fresh new address then gets nothing,
+  // exactly as if two strangers had asked. Members still get their code.
+  for (const first of ['member2@example.com', 'stranger0@example.com']) {
+    const db = openDb(':memory:');
+    setSetting(db, 'max_code_emails_per_hour', 2);
+    db.prepare("INSERT INTO users (email, role) VALUES ('member2@example.com', 'volunteer')").run();
+    const t = await authApp(db);
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      await t.post('/auth/code', { email: first }, '203.0.113.201');
+      await t.post('/auth/code', { email: 'stranger1@example.com' }, '203.0.113.202');
+      const n = outbox.length;
+      assert.deepEqual((await t.post('/auth/code', { email: 'fresh@example.com' }, '203.0.113.203')).data, { ok: true });
+      assert.equal(outbox.length, n, `no code for a new address once two slots are taken (first: ${first})`);
+      await t.post('/auth/code', { email: 'member2@example.com' }, '203.0.113.204');
+      assert.equal(outbox.at(-1).to, 'member2@example.com', 'members are never held back');
+    } finally { console.warn = origWarn; t.close(); }
+  }
+});
