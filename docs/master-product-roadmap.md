@@ -152,6 +152,23 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 | 9 | **The forms Meadowbrook uses** | New | Owner listed it for the first milestone | One forms model; sensitive answers staff-only; never links to a person by a typed email | Each named form works end to end on a phone; responses listed for staff; rate-limited | 20–35 (scope from the owner's list) |
 | 10 | **Recurring availability** (only if worship uses it) | New | Avoid re-entering the same blockouts monthly | — | "Not on the first Sunday" respected by autofill; tests | 10–14 |
 
+**Status, 25 November 2026** (all merged into `milestone-1`, **nothing deployed**; see [merge-log.md](merge-log.md)):
+
+| # | PR | Status |
+|---|---|---|
+| 1 | Interim privacy fix | Merged (#51) |
+| 2 | Check-in access, connect-card privacy, leader-grant audit | Merged (#52) |
+| 3 | Tests on every PR | Merged (#53) |
+| 4 | Account onboarding | Merged (#54) |
+| 5 | Campus eligibility | Merged (#56) |
+| 6 | Scheduling loop | Merged (#58) |
+| 7 | Feedback | Merged (#55): a Feedback page with triage and "You said, we did", not just a chat link |
+| 8 | Basic small groups | Merged (#57), after a security review (1 High, 3 Medium fixed) and a re-review |
+| 9 | Forms | PR #60 open: built, security-reviewed (no High); fixes and one blocking editor bug in progress. The named forms are set up in the hub once the owner's list arrives, with no new code |
+| 10 | Recurring availability | Not started: only if worship needs it (owner fact) |
+| – | Backup restore drill | Tools and runbook merged (#59, [restore-drill.md](restore-drill.md)); the drill itself is the owner's |
+| – | Polish from browser click-through | Merged (#61) |
+
 **Not PRs, but part of the milestone:**
 
 | Work | Type | h |
@@ -164,6 +181,23 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 | **Bug reserve** for real use | Fix | 12–15 |
 
 **Total:** about **140–220 agent-assisted hours**. Small groups and forms are about 50–80 of it.
+
+**Remaining, as of 25 November:** about **40–70 agent-assisted hours**, plus owner and volunteer time:
+- forms fixes and merge: 2–4
+- real-device testing: 6–8
+- Faith Teams import rehearsal: 4–8
+- extra leader and campus permission tests: 3–4 (most are in the PRs already)
+- how-to pages: 6–8
+- bug reserve: 12–15
+- small follow-ups: 3–6 (Tasks place picker for small groups; per-person reminder grouping)
+- running the restore drill with the developer: 1
+
+**Only if approved or needed:**
+- recurring availability: 10–14
+- hashing session tokens: 4–6
+- closing live chat streams on sign-out: 2–3
+- the exact-email auto-link decision: 1–3
+- a unique account-per-person index: 1–2
 
 **Not rebuilt:** scheduling, planning, chat, announcements, roll call, events and connect cards stay as they are. They
 are verified.
