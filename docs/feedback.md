@@ -4,8 +4,9 @@ The record of what staff and ministry leaders tell us, and what we did about it.
 from guesses. The process is in [master-product-roadmap.md](master-product-roadmap.md) §9.
 
 ## How feedback arrives
-- The **feedback link** in the hub and app, which opens the **"Hub feedback"** chat with the page, role and campus
-  filled in.
+- **The hub's Feedback page** (sidebar → Admin → Feedback) and **the app's More → Send feedback**. These record the
+  page, role and campus, and notify admins. Admins triage on the same page: status, an admin-only note, and "what
+  we did", which feeds the "You said, we did" list in the hub.
 - Messages in the "Hub feedback" chat, or a ministry's own feedback chat.
 - The monthly huddle with each ministry's advisory group.
 - **Blocks Sunday:** contact the named on-call person directly. Don't wait for triage.

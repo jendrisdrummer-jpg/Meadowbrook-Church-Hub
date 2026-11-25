@@ -917,6 +917,59 @@ test('unlinked accounts: the office is told once, only an admin links them, and 
   assert.equal((await api('admin', 'POST', '/users', { email: 'fourth@example.org', role: 'volunteer', person_id: 999999 })).status, 404);
 });
 
+test('feedback: anyone signed in sends it, admins triage it, and "You said, we did" shows what was done', async () => {
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  assert.equal((await api(null, 'POST', '/feedback', { body: 'hi' })).status, 401);
+  assert.equal((await api('vol', 'POST', '/feedback', { category: 'bug' })).status, 400, 'needs the text');
+  const sent = await api('vol', 'POST', '/feedback', { category: 'bug', severity: 'blocks_sunday', body: 'VOL-CANARY The accept button did nothing', page: '/services/3', campus_id: 1 });
+  assert.equal(sent.status, 201);
+  const note = db.prepare("SELECT title, body, url FROM notifications WHERE user_id = ? AND kind = 'feedback' ORDER BY id DESC LIMIT 1").get(adminId);
+  assert.match(note.title, /^Blocks Sunday: Bug from /);
+  assert.ok(!note.body.includes('VOL-CANARY'), 'the feedback text never goes into a notification');
+  assert.equal(note.url, '/#/feedback');
+  await api('north', 'POST', '/feedback', { category: 'idea', severity: 'nice_to_have', body: 'NORTH-CANARY a ministry idea' });
+
+  // Each person sees only their own; admins see everything, with who sent it and where from.
+  const volList = (await api('vol', 'GET', '/feedback')).data;
+  assert.equal(volList.length, 1);
+  assert.equal(volList[0].page, '/services/3');
+  assert.ok(!JSON.stringify(volList).includes('NORTH-CANARY'));
+  assert.equal('admin_note' in volList[0], false);
+  const all = (await api('admin', 'GET', '/feedback')).data;
+  const mine = all.find((f) => f.id === sent.data.id);
+  assert.equal(mine.sender_email, 'vol@mb.org');
+  assert.equal(mine.role, 'volunteer');
+  assert.ok(all.some((f) => /NORTH-CANARY/.test(f.body)));
+
+  // Only admins triage.
+  for (const role of ['vol', 'north']) assert.equal((await api(role, 'PATCH', `/feedback/${sent.data.id}`, { status: 'done' })).status, 403);
+  await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'planned', admin_note: 'ADMIN-ONLY-CANARY repro on iPhone' });
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].status, 'planned');
+  assert.ok(!JSON.stringify((await api('vol', 'GET', '/feedback')).data).includes('ADMIN-ONLY-CANARY'));
+  assert.equal((await api('admin', 'GET', '/feedback?status=planned')).data.every((f) => f.status === 'planned'), true);
+
+  // Done, with a note: the sender sees what happened, and everyone sees it under "You said, we did",
+  // without the sender's name or their original words.
+  const done = await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'done', done_note: 'Accept now works from the notification' });
+  assert.ok(done.data.done_at);
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].done_note, 'Accept now works from the notification');
+  const record = (await api('north', 'GET', '/feedback/done')).data;
+  assert.ok(record.some((d) => d.done_note === 'Accept now works from the notification'));
+  assert.ok(!JSON.stringify(record).match(/VOL-CANARY|vol@mb\.org|ADMIN-ONLY-CANARY/));
+  // A campus-limited admin sees only their campuses' feedback (and feedback with no campus); a sender
+  // can only tag a campus they belong to.
+  const southAdminId = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES ('southadmin@mb.org', 'admin', '[2]')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.southadmin = v.split(';')[0]; } }, southAdminId);
+  const southView = (await api('southadmin', 'GET', '/feedback')).data;
+  assert.equal(southView.some((f) => f.id === sent.data.id), false, 'campus 1 feedback hidden from a campus 2 admin');
+  assert.ok(southView.some((f) => /NORTH-CANARY/.test(f.body)), 'feedback with no campus is shown');
+  const tagged = await api('north', 'POST', '/feedback', { category: 'idea', body: 'tag test', campus_id: 2 });
+  assert.equal(db.prepare('SELECT campus_id FROM feedback WHERE id = ?').get(tagged.data.id).campus_id, null);
+  db.prepare('DELETE FROM users WHERE id = ?').run(southAdminId); // later tests count admins
+  // Re-opening clears the done date.
+  assert.equal((await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'looking' })).data.done_at, null);
+});
+
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
   // People with accounts: a team leader, two team members, and someone not on the team.
   const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Chat', campus_id: 1, email: `${first.toLowerCase()}@chat.org` })).data;
