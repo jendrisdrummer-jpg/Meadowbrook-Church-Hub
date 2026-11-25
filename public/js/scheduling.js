@@ -97,7 +97,7 @@ export async function teamChats() {
 
 // Asks, then re-sends the request to people on this service who were asked but haven't replied.
 export async function remindUnanswered(serviceId, count, teamId = null) {
-  if (!(await confirm('Remind people?', `Send a friendly reminder to ${count} ${count === 1 ? 'person' : 'people'} who haven’t replied yet? Anyone reminded in the last 12 hours is skipped.`, 'Send reminder'))) return false;
+  if (!(await confirm('Remind people?', `Send a friendly reminder to ${count} ${count === 1 ? 'person' : 'people'} who haven’t replied yet? Anyone reminded in the last 12 hours is skipped.`, 'Send reminder', { danger: false }))) return false;
   const r = await post(`/services/${serviceId}/remind`, teamId ? { team_id: teamId } : {});
   toast(r.reminded ? `Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'}${r.skipped ? ` (${r.skipped} reminded recently, skipped)` : ''}.` : 'Everyone was already reminded in the last 12 hours.');
   return true;

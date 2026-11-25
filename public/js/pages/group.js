@@ -52,7 +52,13 @@ export default async function group(el, id) {
     const hide = () => list.classList.add('hidden');
     const search = debounce(async () => {
       const v = q.value.trim();
-      if (v.length < 2) return hide();
+      // Staff can search from two letters; group leaders need three (the server's rule).
+      const min = g.can_staff ? 2 : 3;
+      if (v.length < min) {
+        if (!v) return hide();
+        mount(list, html`<div class="muted small" style="padding:8px 10px">Keep typing… (${min} letters or more)</div>`);
+        return list.classList.remove('hidden');
+      }
       rows = (await get(`/groups/${g.id}/candidates?q=${encodeURIComponent(v)}`)).filter((p) => !inGroup.has(p.id));
       mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-pick="${i}">${avatar(p)}<span><b>${displayName(p)}</b></span></button>`)
         : html`<div class="muted small" style="padding:8px 10px">No one found. Add them in People first.</div>`);

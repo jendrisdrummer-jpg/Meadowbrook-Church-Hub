@@ -205,7 +205,8 @@ export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger
   });
 }
 
-export const confirm = (title, message, submit = 'Delete') => dialog({ title, body: html`<p>${message}</p>`, submit, danger: true });
+// danger: false for a confirm that isn't destructive (e.g. sending a reminder), so it isn't red.
+export const confirm = (title, message, submit = 'Delete', { danger = true } = {}) => dialog({ title, body: html`<p>${message}</p>`, submit, danger });
 
 export function formData(form) {
   const out = {};
