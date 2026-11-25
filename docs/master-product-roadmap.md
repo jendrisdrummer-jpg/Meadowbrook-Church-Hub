@@ -62,6 +62,12 @@ The three-stage strategy is unchanged.
     has been shown
   - is merged and deployed only with the owner's approval
 - **No paid service or recurring cost** without the owner's approval.
+- **Execution authority (owner, 25 Nov 2026).** The agent team builds and merges approved Milestone 1 work
+  without per-PR approval, once tests, browser checks and security checks pass. Merges go into the
+  **`milestone-1` integration branch**, never into `main`. **Merging to `main` deploys to production and runs
+  migrations, so it needs the owner's explicit approval.** So do anything that could damage production
+  data, any paid service, and major decisions outside the roadmap. Merges are recorded in the
+  [merge log](merge-log.md).
 
 ## 3. The three stages
 1. **Stage 1, Better Faith Teams:** staff and ministry leaders use the Hub for the workflows Meadowbrook uses today,
