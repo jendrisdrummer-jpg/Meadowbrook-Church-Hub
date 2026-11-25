@@ -4,3 +4,4 @@ data/*.db-*
 data/uploads/
 data/backups/
 .env
+data/ui-smoke/

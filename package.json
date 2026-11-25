@@ -11,7 +11,8 @@
     "demo": "MB_DEV_LOGIN=1 MB_DB=data/demo.db node --disable-warning=ExperimentalWarning scripts/seed-demo.js && MB_DEV_LOGIN=1 MB_DB=data/demo.db node --disable-warning=ExperimentalWarning server/index.js",
     "backup": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/backup.js",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
-    "restore": "node --disable-warning=ExperimentalWarning scripts/restore-backup.js"
+    "restore": "node --disable-warning=ExperimentalWarning scripts/restore-backup.js",
+    "test:ui": "node --disable-warning=ExperimentalWarning scripts/ui-smoke.mjs"
   },
   "engines": {
     "node": ">=22.13"
