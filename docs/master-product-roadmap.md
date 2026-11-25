@@ -183,7 +183,7 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 
 **Total:** about **140–220 agent-assisted hours**. Small groups and forms are about 50–80 of it.
 
-**Remaining, as of 25 November:** about **30–55 agent-assisted hours**, plus owner and volunteer time:
+**Remaining, as of 25 November:** about **30–45 agent-assisted hours**, plus owner and volunteer time:
 - real-device testing: 6–8
 - Faith Teams import rehearsal: 4–8
 - extra leader and campus permission tests: 3–4 (most are in the PRs already)
