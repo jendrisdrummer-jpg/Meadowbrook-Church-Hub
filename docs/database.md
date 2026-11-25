@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (29 migrations, 59 tables). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (33 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -69,6 +69,7 @@ Arrows show the main references.
 | Table | Purpose |
 |---|---|
 | `chats`, `chat_members`, `chat_reads` | Team chats (members follow the roster) and groups. |
+| `groups`, `group_members` → people | **Small groups** (Bible study, home groups), separate from serving teams. `groups.campus_id` NULL = church-wide; `group_members.is_leader` marks the people who run the roster. A group never touches `users.role`. Each group has one chat: `chats.group_id` (unique), `chats.kind = 'smallgroup'`; its members are read live from `group_members` (no copy), so leaving the group leaves the chat. `chats.name` mirrors the group name for task and call cards. Migration 33. |
 | `messages` (+ `message_files`, `message_reactions`) | Messages with replies, mentions, files, reactions, task and call cards. **Private.** |
 | `calls` → chats | Video calls/meetings (Daily rooms). |
 | `tasks`, `task_items`, `task_comments` | Personal, team and chat tasks with checklists, comments, repeats. |

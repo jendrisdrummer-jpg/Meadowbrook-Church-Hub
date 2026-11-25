@@ -889,6 +889,29 @@ const MIGRATIONS = [
     PRIMARY KEY (person_id, campus_id)
   );
   `,
+  // 33: small groups (Bible study, home groups, men's/women's ministry). Their own model, apart from
+  // serving teams: a group never grants leader access and is never scheduled. Each group has a chat
+  // (chats.group_id, kind 'smallgroup') whose members are the roster. campus_id NULL = church-wide.
+  `
+  CREATE TABLE groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE group_members (
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    is_leader INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (group_id, person_id)
+  );
+  CREATE INDEX group_members_person ON group_members (person_id);
+  ALTER TABLE chats ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE;
+  CREATE UNIQUE INDEX chats_group ON chats (group_id) WHERE group_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS audit_log_action_user ON audit_log (action, user_id, at);
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

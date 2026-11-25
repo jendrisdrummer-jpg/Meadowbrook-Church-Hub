@@ -37,7 +37,7 @@ const freePort = () => new Promise((resolve) => {
   const s = net.createServer().listen(0, () => { const { port } = s.address(); s.close(() => resolve(port)); });
 });
 
-const HUB = ['/', '/my', '/chat', '/tasks', '/people', '/teams', '/attendance', '/services', '/schedule', '/songs',
+const HUB = ['/', '/my', '/chat', '/tasks', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
   '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/announcements', '/app-builder', '/stations', '/settings'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/tasks', '/chat'];
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church']];

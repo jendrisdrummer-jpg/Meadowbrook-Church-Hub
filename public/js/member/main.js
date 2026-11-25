@@ -415,6 +415,7 @@ async function more(el, tab, q) {
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
+      <div data-groups style="display:contents"></div>
       ${app.user && !tasksTab()?.on ? html`<a href="#/tasks">${icon('check')}<span class="grow">Tasks</span><span class="nav-badge hidden" data-badge="tasks"></span></a>` : ''}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
@@ -422,6 +423,7 @@ async function more(el, tab, q) {
       ${app.user ? html`<button data-feedback>${icon('chat')}<span class="grow">Send feedback</span></button>` : ''}
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
+  if (app.user) myGroups(el.querySelector('[data-groups]'));
   if (app.user) drawNotifyCard(el.querySelector('[data-notify]'), { ui: 'app', role: app.user.role }).catch(() => {});
   else guestPushCard(el.querySelector('[data-guest-push]')).catch(() => {});
   el.onclick = async (e) => {
@@ -453,6 +455,15 @@ async function more(el, tab, q) {
       more(el, tab, q);
     }
   };
+}
+
+// My small groups, each opening its chat. Quietly absent when you're in none.
+async function myGroups(box) {
+  try {
+    const { groups } = await get('/groups');
+    if (!groups.length || !box.isConnected) return;
+    mount(box, html`<div class="m-list-head muted small" style="padding:10px 4px 2px">My groups</div>${groups.map((g) => html`<a href="#/chat/${g.chat_id}">${icon('people')}<span class="grow">${g.name}<br><span class="muted small">${g.members} ${g.members === 1 ? 'person' : 'people'} · Group chat</span></span></a>`)}`);
+  } catch { /* the rest of More still works */ }
 }
 
 // ---------------------------------------------------------------- tasks

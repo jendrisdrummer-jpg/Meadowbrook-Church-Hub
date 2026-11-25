@@ -103,6 +103,12 @@ tx(db, () => {
   needs[north].push([prod[0], 1], [prod[1], 1], [prod[2], 1]);
   needs[south].push([prod[0], 1], [prod[1], 1]);
 
+  // A small group at North (its chat is made too); the demo volunteer is a member.
+  const grp = ins('groups', { name: 'Tuesday Bible Study', description: 'Romans, Tuesdays at 7 pm', campus_id: north });
+  ins('chats', { kind: 'smallgroup', group_id: grp, name: 'Tuesday Bible Study' });
+  adults.filter((p) => p.campus === north).slice(0, 5).forEach((p, i) => ins('group_members', { group_id: grp, person_id: p.id, is_leader: i === 0 ? 1 : 0 }));
+  db.prepare('INSERT OR IGNORE INTO group_members (group_id, person_id) VALUES (?, ?)').run(grp, volunteer.id);
+
   // Repeating services, starting six Sundays ago.
   const firstSunday = daysFrom(-new Date().getDay() - 42);
   const types = [
