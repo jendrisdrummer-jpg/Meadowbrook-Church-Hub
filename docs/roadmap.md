@@ -19,20 +19,23 @@ migration plan, and when each old system retires. This page stays the **backlog*
 gap analysis. Where the two differ on order or phase, the master roadmap governs. The "Critical / High / Medium" groups
 below describe importance, not sequence.
 
-**New items from the master roadmap (Nov 2026):**
+**New items from the master roadmap (Nov 2026, revision 2: "better Faith Teams first"):**
 
-| ID | Item | Size | Release |
+| ID | Item | Size | Stage |
 |---|---|---|---|
-| N1 | Interim privacy fix: medical and pastoral notes hidden from anyone below staff; auto-leader accounts get their team's campus (Security H1, live today) | S | R1a |
-| N2 | Member tier below volunteer, plus sign-up default, designed with C4 and the check-in access flag as one permission change | M | R1b |
-| N3 | Per-volunteer campus serving eligibility (`serving_campuses`), honoured by candidates and autofill | M | R1a |
-| N4 | Platform readiness: restore drill, deploy window, uptime and error alerting (CI is H12) | S | R0 |
-| N5 | Push hardening: batched, queued fan-out with retries and delivery counts; sign-out removes the device; hidden previews | S–M | R0 / R1a |
-| N6 | Invitations and safe account linking (bulk invite, exact-match linking, admin queue, merge guard) | M | R1b |
-| N7 | First-run flow, Chat reachable on phones, More page tidy-up, accessibility pass | S–M | R1a / R1b |
-| N8 | Adult direct messages with minimal chat safeguarding (kept originals, report and block) | M | R1b |
-| N9 | Security Mediums: campus-scoped announcement audiences, offboarding and sign-out everywhere, per-account chat and upload limits, audit of role grants and sign-ins | M | R1a / R1b |
-| N10 | Adoption view (signed in, push on, unlinked) and in-app feedback link | S | R1a / R1b |
+| N1 | Interim privacy fix: health data, private notes, household notes and pickups staff-only on person pages; no adult health data at check-in (PR #51) | S | Stage 1, now |
+| N2 | Member tier below volunteer, plus team-scoped leader access (C4), on one grants table | M | Stage 2 entry gate |
+| N3 | Per-volunteer campus serving eligibility (`serving_campuses`), honoured by candidates and autofill | M | Stage 1 (A) |
+| N4 | Platform readiness: restore drill, deploy window, uptime and error alerting (CI is H12) | S | Stage 1 (A) |
+| N5 | Push: sign-out removes the device; batched fan-out (Stage 1 if many devices); retries and delivery log | S–M | Stage 1 / 2 |
+| N6 | Invitations and safe account linking (leaders in Stage 1; members in Stage 2) | M | Stage 1 / 2 |
+| N7 | First-run flow, accessibility pass, "Needs attention" on Home, other UX polish | S–M | Stage 1 (B) / 2 |
+| N8 | Adult direct messages with minimal chat safeguarding; message search | M | Stage 2 |
+| N9 | Security Mediums: leader-grant audit (Stage 1), connect-card visibility, offboarding, chat and upload limits, announcement campus scope | M | Stage 1 / 2 |
+| N10 | Adoption view and in-app feedback link with a "you said, we did" status list | S | Stage 1 (A) |
+| N11 | Interim check-in roster guard: staff, stations and leaders of teams in `checkin_team_ids` only (Security F1) | S | Stage 1, with child-safety V1 |
+| N12 | Weekly scheduling loop: remind non-responders, "Message team", volunteer app shows pending requests first | S–M | Stage 1 (A) |
+| N13 | Kids' teams and photos hidden from plain accounts; no group with a minor without two adults (if minors have accounts) | S | Stage 1 |
 
 ## Product vision
 
