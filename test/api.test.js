@@ -685,9 +685,9 @@ test('leading a team gives leader access, and takes it back only if it came from
   // Made a leader before having an account: no account is made from her email.
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
   assert.equal(role(), undefined);
-  // An admin adds her account and links it by hand; the next team change gives leader access.
+  // An admin adds her account and links it by hand: the team-leader rule applies at that moment.
   assert.equal((await api('admin', 'POST', '/users', { email: 'mia@example.com', role: 'volunteer', person_id: mia.id })).status, 201);
-  assert.deepEqual({ ...role() }, { role: 'volunteer', role_auto: 0 });
+  assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
   assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
   assert.equal((await api('admin', 'GET', `/people/${mia.id}`)).data.account.role, 'leader');

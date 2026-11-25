@@ -248,7 +248,7 @@ async function accessDialog(p) {
       ${p.account ? html`<p class="muted small" style="margin:0">Signs in as ${a.email}${a.has_password ? ' (email and password, or Google)' : ''}.</p>`
         : html`<label class="field">Email they’ll sign in with<input type="email" name="email" value="${p.email}" required></label>`}
       <label class="field">Access<select name="role">${options(Object.keys(ROLE_HELP).map((r) => ({ value: r, label: `${ROLE_LABEL[r]}: ${ROLE_HELP[r]}` })), a.role)}</select></label>
-      ${a.role_auto ? html`<p class="muted small" style="margin:0">They have leader access because they lead a team. Choosing access here keeps it, even if they stop leading.</p>` : ''}
+      ${a.role_auto ? html`<p class="muted small" style="margin:0">They have leader access because they lead a team, so it ends if they stop leading or the account is unlinked. To keep it regardless, choose another access level, save, then choose Leader and save again.</p>` : ''}
       <div class="field"><span>Campuses</span>
         <label class="check"><input type="checkbox" name="all" ${!camps ? 'checked' : ''}> All campuses</label>
         ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${camps?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
