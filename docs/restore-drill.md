@@ -20,9 +20,16 @@ A backup only counts if it can be restored. This drill proves it on a laptop, us
   Treat it like the church's keys: never copy, share or upload it, and delete it the same day.
 - **A drill folder outside the code folder:** `mkdir -m 700 ~/restore-drill`. The restore script
   refuses to write inside the code folder, so a copy can't be committed by mistake.
-- **The code** at the **same version as production**: a fresh clone of the repository on `main`.
-  If the code is newer, the hub adds its newer database changes to the *copy* when it starts. That
-  is harmless, but the check reports it.
+- **The code:** a fresh clone of the repository.
+  - **Until `milestone-1` is deployed, check out `milestone-1`** (`git checkout milestone-1`), not
+    `main`. The `--check` option and offline mode exist only in `milestone-1`: on `main`'s code,
+    `MB_OFFLINE` is ignored, so starting the hub on a real copy would run its background jobs
+    (push to members' phones, reminders). Starting it in step 4 also takes the copy through the
+    next deploy's database changes (migrations 30–35, session hashing, the one-account index):
+    this is the real-data rehearsal for that deploy ([deploy-runbook.md](deploy-runbook.md)).
+  - After that, use the code at the **same version as production** (`main`), or the next release
+    to rehearse it. If the code is newer, the hub adds its newer database changes to the *copy*
+    when it starts. That is harmless, but the check reports it.
 - **The backup password:** it is `MB_BACKUP_PASSWORD` in Render → the service → Environment.
   - The restore script asks for it without showing what you type.
   - Don't put it on the command line: it would be saved in your shell history.
@@ -53,7 +60,13 @@ A backup only counts if it can be restored. This drill proves it on a laptop, us
    MB_OFFLINE=1 MB_DEV_LOGIN=1 MB_DB=~/restore-drill/drill.db PORT=8197 node --disable-warning=ExperimentalWarning server/index.js
    ```
    - **Check it's offline:** the terminal must say **OFFLINE MODE**. If it doesn't, stop (Ctrl+C) and
-     check the command.
+     check the command (and that you're on `milestone-1` or later).
+   - **Before a release with migrations,** copy the start-up lines into the drill record (they hold
+     no names or emails): whether a `WARNING: … more than one account` line appeared and how many,
+     and any `Session conversion failed` line. In a second terminal, also run the read-only audit
+     on the copy and note its summary line:
+     `MB_DB=~/restore-drill/drill.db node --disable-warning=ExperimentalWarning scripts/audit-account-links.js`
+     (this is checklist item 1.7; no Render Shell needed).
    - **What offline mode blocks:**
      - every outgoing call: push to phones, Google Drive, payments, video and media
      - all background jobs: reminders, announcements, backups
@@ -95,6 +108,6 @@ The developer writes the step-by-step for that day. This drill is what makes it 
 
 ## Drill record
 
-| Date | Backup | Check | People / assignments / check-ins | Looked around | Who | Notes |
-|---|---|---|---|---|---|---|
-| | | | | | | First drill: before the staff beta |
+| Date | Code | Backup | Check | People / assignments / check-ins | Start-up log and audit | Looked around | Who | Notes |
+|---|---|---|---|---|---|---|---|---|
+| | `milestone-1` | | | | | | | First drill: before the staff beta and the first deploy |
