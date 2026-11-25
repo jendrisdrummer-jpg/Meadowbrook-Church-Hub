@@ -1,0 +1,28 @@
+# Runs the test suite on every pull request and every push to main, so a failing test is seen
+# before anything is merged (merging to main deploys). Free GitHub Actions minutes; no secrets.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'          # matches the Docker image (node:22)
+          cache: npm
+      - run: npm ci
+      - run: npm test
