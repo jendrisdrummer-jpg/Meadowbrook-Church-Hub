@@ -28,11 +28,12 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff) | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |
-| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill | volunteer+ read, leader+ write |
+| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill, `POST /services/:id/remind` | volunteer+ read, leader+ write |
 | `series.js`, `templates.js` | repeating services, templates | leader+/staff |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
 | `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance | leader+ (or station) |
 | `stations.js` | `/checkin/pair`, `/checkin/station`, `/checkin/devices` | public pairing; staff devices |
+| `groups.js` | `/groups`, `/groups/:id`, `/groups/:id/candidates`, `/groups/:id/members/:personId` | volunteer+; staff manage, a group's leaders run its roster (campus-bound finder, 30 adds/day, no contact details) |
 | `chat.js`, `calls.js`, `tasks.js` | chats, messages, files, SSE stream, calls, tasks | volunteer+ and membership |
 | `notifications.js` | inbox, preferences, push subscriptions | volunteer+ |
 | `announcements.js` | announcements, guest push | `announce` flag |

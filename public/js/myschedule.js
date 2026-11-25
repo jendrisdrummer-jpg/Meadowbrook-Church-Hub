@@ -20,11 +20,10 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
     declined: html`<span class="pill bad">Declined</span>`,
   })[a.status];
 
-  mount(el, html`${notifyCard ? html`<div class="card app-card" data-app-card style="margin-bottom:16px"></div>` : ''}
-  <div class="grid two">
-    <div class="stack">
-      <h2>Coming up</h2>
-      ${d.assignments.length ? d.assignments.map((a) => html`<div class="card">
+  // Requests still waiting for a reply come first; accepted (and declined) ones follow by date.
+  const waiting = d.assignments.filter((a) => a.status === 'pending');
+  const rest = d.assignments.filter((a) => a.status !== 'pending');
+  const card = (a) => html`<div class="card" data-assignment="${a.id}">
         <div class="row"><span class="dot" style="background:${a.team_color}"></span><b>${fmtDate(a.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })}</b><span class="spacer"></span>${status(a)}</div>
         <div style="margin-top:6px"><b>${a.position}</b> <span class="muted">· ${a.team}</span></div>
         <div class="muted small">${fmtTime(a.starts_at)} at ${a.campus}${a.title ? ` · ${a.title}` : ''}</div>
@@ -34,7 +33,16 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
           ${a.status !== 'declined' ? html`<button class="btn small" data-decline="${a.id}">Can’t make it</button>` : ''}
           <a class="btn small ghost" href="${planHref(a)}">Order of service</a>
         </div>
-      </div>`) : html`<div class="card empty">Nothing scheduled yet.</div>`}
+      </div>`;
+
+  mount(el, html`${notifyCard ? html`<div class="card app-card" data-app-card style="margin-bottom:16px"></div>` : ''}
+  <div class="grid two">
+    <div class="stack">
+      ${waiting.length ? html`<h2 data-please-reply>Please reply</h2>
+        <p class="muted small" style="margin:-6px 0 0">${waiting.length === 1 ? 'Someone is waiting to hear if you can serve.' : 'Your team is waiting to hear if you can serve.'}</p>
+        ${waiting.map(card)}` : ''}
+      <h2>Coming up</h2>
+      ${rest.length ? rest.map(card) : html`<div class="card empty">${waiting.length ? 'Nothing else yet. Once you reply, it shows up here.' : 'Nothing scheduled yet.'}</div>`}
     </div>
     <div class="stack">
       <div class="card"><div class="card-head"><h2>Dates I’m away</h2><button class="btn small" data-away>${icon('plus')} I’ll be away…</button></div>

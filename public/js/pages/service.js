@@ -4,7 +4,7 @@ import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
 import { drawRollCall } from '../rollcall.js';
 import { drawPlan } from '../plan.js';
-import { assignDialog, sendRequests } from '../scheduling.js';
+import { assignDialog, sendRequests, remindUnanswered, teamChats } from '../scheduling.js';
 
 const taken = (s, positionId) => new Set(s.positions.find((p) => p.id === positionId)?.assignments.filter((a) => a.status !== 'declined').map((a) => a.person_id) || []);
 
@@ -52,14 +52,18 @@ export default async function service(el, id) {
 }
 
 // ---------------------------------------------------------------- who's serving
-function drawPeople(panel, s) {
-  const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s); };
+async function drawPeople(panel, s, chats) {
+  chats ||= await teamChats();
+  const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s, chats); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   // Drafts haven't been sent yet; the volunteer doesn't know about them.
   const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
   const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;
   // A team is "in" this service when it needs someone or has someone scheduled; the rest can be shown on demand.
   const active = (teamId) => s.positions.some((p) => p.team_id === teamId && (p.needed || p.assignments.length));
+  // Asked but not answered yet, in positions this person can schedule.
+  const past = s.starts_at <= new Date(Date.now() - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+  const waiting = past ? 0 : s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => a.sent_at && a.status === 'pending').length;
   const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color, active: active(p.team_id) }])).values()]
     .sort((a, b) => (b.active - a.active));
   // The scheduler's team filter, remembered across services.
@@ -78,10 +82,12 @@ function drawPeople(panel, s) {
     </div>` : ''}
     <div class="card-head"><h2>Who’s serving</h2>
       ${drafts ? html`<button class="btn small primary" data-send title="Let everyone you've scheduled know, all at once">${icon('bell')} Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}</button>` : ''}
+      ${waiting ? html`<button class="btn small" data-remind title="Send a reminder to people who were asked but haven't replied">${icon('bell')} Remind ${waiting} who ${waiting === 1 ? 'hasn’t' : 'haven’t'} replied</button>` : ''}
       ${anyScheduling && s.positions.some((p) => p.needed) ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
       ${can('staff') && (!s.locked || can('admin')) ? html`<button class="btn small" data-needs>${icon('edit')} Positions needed</button>` : ''}
       ${anyScheduling ? html`<button class="btn small ghost" data-add-position title="Schedule someone in a position this service doesn't usually need">${icon('plus')} Extra position</button>` : ''}</div>
-    ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px"><span class="dot" style="background:${team.color}"></span> ${team.name}</h3>
+    ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px"><span class="dot" style="background:${team.color}"></span> ${team.name}
+        ${chats.has(team.id) ? html`<a class="btn small ghost" href="#/chat/${chats.get(team.id)}" data-message-team style="margin-left:8px">${icon('chat')} Message team</a>` : ''}</h3>
       ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
       <div class="grid three">
       ${s.positions.filter((p) => p.team_id === team.id).map((p) => {
@@ -109,11 +115,12 @@ function drawPeople(panel, s) {
         only = only.includes(id) ? only.filter((x) => x !== id) : [...only, id];
       }
       localStorage.setItem('mb.serving.teams', JSON.stringify(only));
-      return drawPeople(panel, s);
+      return drawPeople(panel, s, chats);
     }
     try {
       if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
+      if (b.matches('[data-remind]') && (await remindUnanswered(s.id, waiting))) reload();
       if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();
       if (b.matches('[data-autofill]')) {
         const r = await post(`/services/${s.id}/autofill`);

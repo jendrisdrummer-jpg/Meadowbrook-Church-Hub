@@ -6,7 +6,16 @@ export const streams = new Set();
 export function send(userIds, chatId, event) {
   const ids = new Set(userIds);
   const data = `data: ${JSON.stringify(event)}\n\n`;
-  for (const s of streams) if (ids.has(s.userId) || (chatId && s.viewing === chatId)) s.res.write(data);
+  for (const s of streams) {
+    if (ids.has(s.userId)) { s.res.write(data); continue; }
+    if (!chatId || s.viewing !== chatId) continue;
+    // Matched only because they're looking at this chat: check they still may (removed from the
+    // roster, group archived…), and stop sending if not.
+    let ok = true;
+    if (s.req) { try { ok = Boolean(hooks.chatAccess(s.req, chatId)); } catch { ok = false; } } // fail closed
+    if (!ok) { s.viewing = null; continue; }
+    s.res.write(data);
+  }
 }
 
 // Filled in by the chat routes:

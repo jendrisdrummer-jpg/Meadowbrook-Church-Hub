@@ -57,6 +57,8 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Own schedule, accept/decline, away dates | ✓ | ✓ | ✓ | ✓ |
 | Order of service for services they serve at; all services in the app | ✓ | ✓ | ✓ | ✓ |
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
+| See their own small groups: names and photos of the roster, and the group chat (members only) | ✓ | ✓ | ✓ | ✓ |
+| Create, edit, archive small groups and set their leaders (at their campuses) | | | ✓ | ✓ |
 | See people, teams, attendance; run check-in; add families; connect cards | | ✓ | ✓ | ✓ |
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
@@ -130,7 +132,41 @@ Until then, review the authorised list in Settings → Sign-in & accounts (accou
 "Check-in" tag).
 - **Connect-card messages** (often prayer requests) are staff only; leaders see the card without it.
 - Automatic leader access from leading a team is written to the audit log (`user.leader_auto`).
-- Chats: only members (team chats follow the team roster).
+- Chats: only members (team chats follow the team roster; small-group chats follow the group roster).
+  **Small-group chats are private to the group's current members, staff and admins included**
+  (they often hold prayer and pastoral content); staff manage the roster from the group page. A live
+  chat stream re-checks access on each message, so a removed member or an archived group stops
+  receiving at once.
+- **Small groups** (`routes/groups.js`) are their own model and **never grant leader access**: no
+  `role_auto`, no change to `users.role`, nothing in scheduling. Who can do what:
+
+  | Action | Volunteer, not in the group | Group member | Group leader (any role) | Staff with power over the group | Other staff |
+  |---|:-:|:-:|:-:|:-:|:-:|
+  | List groups | none shown | own groups | own groups | all they manage | only groups they're in |
+  | Open a group and its roster | 403 | ✓ names + photos | ✓ names + photos | ✓ plus email and phone | 403 (unless a member) |
+  | Group chat | no | ✓ | ✓ | only if they're a member | no |
+  | Add or remove members (and find people to add) | 403 | 403 (may leave) | ✓ that group only, max 30 adds/day | ✓ | 403 |
+  | Make or remove a leader | 403 | 403 | step down themselves only (stay a member) | ✓ | 403 |
+  | Create, rename, move, archive | 403 | 403 | 403 | ✓ | 403 |
+
+  "Staff with power over the group": staff at the group's campus; for a church-wide group (no
+  campus), only staff with no campus limit. Campus-limited staff are ordinary members of church-wide
+  groups. Only staff see members' email and phone; leaders do not. A campus group's finder and
+  adds offer only people at that campus (or with no campus); church-wide groups use the viewer's
+  campuses. Group rosters never include health data, notes, birthdate or household. Adults only for
+  now (a child, anyone with a school grade, or under 18 by birthdate can't be added). Archived
+  groups are hidden from everyone but staff, with their chat. Audited: `group.create`,
+  `group.archive`/`unarchive`, `group.member_add`/`member_remove` (including leaving),
+  `group.leader_add`/`leader_remove`. A leader who adds more than 30 people in 24 hours gets a
+  kind 429 (counted from the audit log). Merging two people moves group memberships (keeping
+  leadership) and serving campuses to the kept person. Leaders who aren't staff need three letters
+  to search the finder and get at most 60 searches an hour. Campus and adult checks apply when
+  someone joins, not to existing members (so a leader can still step down after moving campus).
+  Push notifications for small-group chats never include the message text ("New message. Open the
+  chat to read it."), since these chats carry prayer and pastoral news. Open chat pages stop
+  receiving a small-group chat's messages as soon as the viewer is removed or the group archived;
+  if that check fails, it fails closed. Not done yet (owner decision): closing open live streams
+  when someone signs out, is deactivated, or has their role changed.
 - Private tasks: only the person; team tasks: the team.
 
 ## When you add a route

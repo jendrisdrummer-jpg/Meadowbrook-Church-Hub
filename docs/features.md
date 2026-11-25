@@ -23,8 +23,8 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Repeating services (series), skips, per-service needs | ✅ | `routes/series.js`, `services.js` | `pages/services.js` |
 | Order of service (Faith Teams style), locking, templates with fill-in slots | ✅ | `routes/services.js`, `templates.js` | `pages/service.js`, `templates.js`, `js/plan.js` |
 | Songs with keys; charts, lyrics and audio files | ✅ | `routes/services.js`, `songfiles.js` | `pages/songs.js`, `js/songfiles.js` |
-| Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill, month matrix, drafts → send requests | ✅ | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
-| Accept/decline in app, push, email links; reminders; leaders hear declines | ✅ | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
+| Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill, month matrix, drafts → send requests, “Remind N who haven’t replied” (12-hour limit; upcoming services only; the automatic reminder skips anyone nudged in the last 6 hours), Message team | ✅ | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
+| Accept/decline in app, push, email links; reminders; leaders hear declines; “Please reply” requests listed first | ✅ | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
 
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
@@ -37,6 +37,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Team chats and groups: replies, @mentions, reactions, files, live updates | ✅ | `routes/chat.js`, `live.js` | `js/chat.js`, `pages/chat.js` |
+| Small groups: roster, leaders, group chat that follows the roster and is private to members, members see "My groups" (adults only; no finder, attendance or join requests yet) | ✅ | `routes/groups.js` (+ `chat.js`) | `pages/groups.js`, `pages/group.js`, `member/main.js` (More) |
 | Tasks: personal/team/chat, checklists, comments, repeats, reminders | ✅ | `routes/tasks.js` | `js/tasks.js`, `pages/tasks.js` |
 | Video calls and meetings in chats (Daily, monthly minute limit) | 🟡 | `routes/calls.js`, `daily.js` | `js/chat.js` |
 | Notifications inbox, push (accounts and guests), email, preferences | ✅ | `notify.js`, `push.js`, `mail.js` | bell, `js/push.js` |
@@ -75,6 +76,6 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Demo data | ✅ | `scripts/seed-demo.js` | `npm run demo` |
 
 ## Not built yet (see [roadmap.md](roadmap.md))
-💤 Discipleship (growth pathway, mentors, small groups with attendance) · 💤 Classes/training with
+💤 Discipleship (growth pathway, mentors) · 💤 Small-group meetings with attendance, finder and join requests · 💤 Classes/training with
 watch-to-the-end and quizzes · 💤 Public website · 💤 Website embed for the Watch library ·
 💤 Multi-church (SaaS).

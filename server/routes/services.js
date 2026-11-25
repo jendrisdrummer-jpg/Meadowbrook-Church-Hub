@@ -2,12 +2,12 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
 import { campusEligibility } from '../eligibility.js';
-import { notifyScheduled, notifyResponse, notifyUnscheduled, assignmentRow } from '../notify.js';
+import { notifyScheduled, notifyResponse, remindPending, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -523,6 +523,26 @@ export default function serviceRoutes(db) {
     notifyScheduled(db, list.map((a) => a.id)); // including the sender, if they scheduled themselves
     audit(db, req, 'schedule.send', `${list.length} requests`);
     res.json({ sent: list.length, people: new Set(list.map((a) => a.person_id)).size });
+  });
+
+  // Body: { team_id? } — nudges people who were asked but haven't replied, for the positions
+  // this person may schedule. Skips anyone nudged or auto-reminded in the last 12 hours.
+  r.post('/services/:id/remind', requireRole('leader'), (req, res) => {
+    const s = service(req, req.params.id);
+    const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(s.campus_id)?.timezone || 'UTC';
+    const now = localNow(tz);
+    if (s.starts_at <= `${now.date}T${now.time}`) throw bad('This service has already happened.');
+    const teamId = int(req.body?.team_id);
+    const all = db.prepare(`SELECT a.id, ps.team_id, a.nudged_at, a.reminded_at FROM assignments a JOIN positions ps ON ps.id = a.position_id
+      WHERE a.service_id = ? AND a.status = 'pending' AND a.sent_at IS NOT NULL AND (? IS NULL OR ps.team_id = ?) LIMIT 500`).all(s.id, teamId, teamId);
+    const list = all.filter((a) => canSchedule(req, s, a.team_id));
+    if (teamId ? !canSchedule(req, s, teamId) : all.length && !list.length) throw forbidden();
+    const cutoff = Date.now() - 12 * 3600e3;
+    const recent = (v) => v && Date.parse(`${v.replace(' ', 'T')}Z`) > cutoff;
+    const due = list.filter((a) => !recent(a.nudged_at) && !recent(a.reminded_at));
+    if (due.length) remindPending(db, due.map((a) => a.id));
+    audit(db, req, 'schedule.remind', `service ${s.id}: ${due.length} reminded, ${list.length - due.length} skipped`);
+    res.json({ reminded: due.length, skipped: list.length - due.length });
   });
 
   r.patch('/assignments/:id', requireRole('volunteer'), (req, res) => {

@@ -2317,6 +2317,71 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.ok(!(await (await fetch(`${base}/podcast.xml`)).text()).includes('<item>'));
 });
 
+test('remind people who haven’t replied: pending only, once per 12 hours, scoped to who may schedule', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Remind Crew', campus_id: 2, positions: ['Greeter'] })).data;
+  const other = (await api('admin', 'POST', '/teams', { name: 'Other Crew', campus_id: 2, positions: ['Parker'] })).data;
+  const [greeter] = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions;
+  const person = (first, role, key) => {
+    const p = Number(db.prepare('INSERT INTO people (first_name, last_name, campus_id) VALUES (?, ?, 2)').run(first, 'Remind').lastInsertRowid);
+    const u = Number(db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(`${first.toLowerCase()}@remind.org`, role, p).lastInsertRowid);
+    if (key) startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, u);
+    return { p, u };
+  };
+  const pend = person('Pia', 'volunteer'), acc = person('Abe', 'volunteer'), dec = person('Dee', 'volunteer'), draft = person('Dru', 'volunteer');
+  const lead = person('Lea', 'leader', 'remindLead'), otherLead = person('Olu', 'leader', 'remindOther'), vol = person('Vic', 'volunteer', 'remindVol');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team.id, lead.p);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(other.id, otherLead.p);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: `${nextSunday(49)}T10:00` })).data;
+  const add = async (who) => (await api('admin', 'POST', `/services/${svc.id}/assignments`, { position_id: greeter.id, person_id: who.p, force: true })).data;
+  const [aPend, aAcc, aDec] = [await add(pend), await add(acc), await add(dec)];
+  await api('admin', 'POST', '/assignments/send', { service_ids: [svc.id] });
+  await api('admin', 'PATCH', `/assignments/${aAcc.id}`, { status: 'accepted' });
+  await api('admin', 'PATCH', `/assignments/${aDec.id}`, { status: 'declined' });
+  await add(draft); // never sent
+  const inbox = (who) => db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND kind = 'reminder'").get(who.u).n;
+
+  // Not for volunteers, or a leader of a different team; a campus-limited scheduler can't reach another campus.
+  assert.equal((await api('remindVol', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  assert.equal((await api('remindOther', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  assert.equal((await api('remindOther', 'POST', `/services/${svc.id}/remind`, { team_id: team.id })).status, 403);
+  assert.equal((await api('north', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  assert.equal(inbox(pend), 0);
+
+  // The team's leader reminds: only the pending, sent request hears about it.
+  const r1 = await api('remindLead', 'POST', `/services/${svc.id}/remind`, { team_id: team.id });
+  assert.deepEqual([r1.status, r1.data.reminded, r1.data.skipped], [200, 1, 0]);
+  assert.deepEqual([inbox(pend), inbox(acc), inbox(dec), inbox(draft)], [1, 0, 0, 0]);
+  assert.match(db.prepare("SELECT title FROM notifications WHERE user_id = ? AND kind = 'reminder'").get(pend.u).title, /Can you serve/);
+
+  // Again straight away: skipped, nothing new sent.
+  const r2 = await api('remindLead', 'POST', `/services/${svc.id}/remind`);
+  assert.deepEqual([r2.data.reminded, r2.data.skipped], [0, 1]);
+  assert.equal(inbox(pend), 1);
+
+  // Twelve hours later it can go again, and the automatic reminder is unaffected (reminded_at untouched).
+  assert.equal(db.prepare('SELECT reminded_at FROM assignments WHERE id = ?').get(aPend.id).reminded_at, null);
+  db.prepare("UPDATE assignments SET nudged_at = datetime('now', '-13 hours') WHERE id = ?").run(aPend.id);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/remind`)).data.reminded, 1);
+  assert.equal(inbox(pend), 2);
+
+  // A service that has already happened: refused, nothing sent.
+  const tz = db.prepare('SELECT timezone FROM campuses WHERE id = 2').get().timezone || 'UTC';
+  const localAt = (h) => new Date(Date.now() + h * 3600e3).toLocaleString('sv-SE', { timeZone: tz, hour12: false }).replace(' ', 'T').slice(0, 16);
+  const pastSvc = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: localAt(-30) })).data;
+  db.prepare("INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, 'pending', datetime('now', '-3 days'))").run(pastSvc.id, greeter.id, pend.p);
+  assert.equal((await api('admin', 'POST', `/services/${pastSvc.id}/remind`)).status, 400);
+  assert.equal(inbox(pend), 2);
+
+  // Nudged a moment ago, then the automatic reminder window opens: no second message, but it is marked done.
+  const soon = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: localAt(20) })).data;
+  const aSoon = Number(db.prepare("INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, 'pending', datetime('now', '-3 days'))").run(soon.id, greeter.id, pend.p).lastInsertRowid);
+  assert.equal((await api('admin', 'POST', `/services/${soon.id}/remind`)).data.reminded, 1);
+  assert.equal(inbox(pend), 3);
+  sendReminders(db);
+  assert.equal(inbox(pend), 3);
+  assert.ok(db.prepare('SELECT reminded_at FROM assignments WHERE id = ?').get(aSoon).reminded_at);
+});
+
 test('campus eligibility: shared team, per-volunteer campuses, autofill and manual overrides', async () => {
   const team = (await api('admin', 'POST', '/teams', { name: 'Shared Hosts', campus_id: null, positions: ['Host'] })).data;
   const host = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];

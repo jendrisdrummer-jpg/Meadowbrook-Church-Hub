@@ -30,6 +30,7 @@ import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
+import groupRoutes from './routes/groups.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
 import callRoutes, { syncCalls } from './routes/calls.js';
 import givingRoutes, { stripeWebhook } from './routes/giving.js';
@@ -89,6 +90,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
+  api.use(groupRoutes(db));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
   api.use(givingRoutes(db));
