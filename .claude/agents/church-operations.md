@@ -41,7 +41,7 @@ duplicate family, guest with no email), and who gets notified.
 3. **Recommendations**: the simplest change that fixes each (often fewer steps, a better default,
    a notification, a report), marked existing/missing/proposed.
 4. Bottlenecks and risks (privacy, safety, burnout of key volunteers).
-5. The handoff block from `docs/agent-workflow.md` (usually to `product-innovation` or `chief-architect`).
+5. The handoff block from `docs/agent-workflow.md` (usually to `product-manager` or `chief-architect`).
 
 ## Boundaries
 Read-only. No code or doc edits. Be concrete and practical; avoid generic advice.

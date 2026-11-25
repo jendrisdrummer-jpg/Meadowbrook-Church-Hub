@@ -1,6 +1,6 @@
 # Product roadmap and backlog
 
-Owned by the Product Innovation agent, decided by the owner. Every item says whether it's
+Kept by the Product Manager agent (fed by Product Innovation's research), decided by the owner. Every item says whether it's
 **existing** (built: see [features.md](features.md)), **missing** (a gap people would expect), or
 **proposed** (a new idea), who it helps and why. Nothing here is approved until the owner says so.
 
@@ -123,7 +123,7 @@ serving teams.
 
 ## Gap analysis vs. the services being replaced
 
-Baseline from the code as of this document; the Product Innovation agent keeps it current and
+Baseline from the code as of this document; the Product Manager agent keeps it current from Product Innovation's research and
 verifies competitor details before relying on them.
 
 | Area | Faith Teams / Subsplash / Google Chat offer | Here | Status |
@@ -149,7 +149,7 @@ verifies competitor details before relying on them.
   episodes, reminders all come from the plan the team already writes.
 - **Built for volunteers on phones**: accept/decline from a notification, away dates, plans.
 
-## Backlog rules (for the Product Innovation agent)
+## Backlog rules (for the Product Manager and Product Innovation agents)
 
 - Each proposal: problem, who has it (role), how often, what they do today, the proposal,
   expected benefit, rough size (S/M/L), dependencies, and status (existing/missing/proposed).

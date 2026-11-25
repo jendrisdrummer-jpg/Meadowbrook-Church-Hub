@@ -24,7 +24,7 @@ how it's built and how to change it.
 | [merge-log.md](merge-log.md) | What was merged into the `milestone-1` integration branch, and why (deploying to `main` needs the owner's approval) |
 | [feedback.md](feedback.md) | Leaders' prioritised feedback list and the "You said, we did" record |
 | [roadmap.md](roadmap.md) | The backlog: item IDs, sizes, gap analysis (order is set by the master roadmap) |
-| [agent-workflow.md](agent-workflow.md) | The seven agents, who does what, approvals, efficient use |
+| [agent-workflow.md](agent-workflow.md) | The nine agents, who owns what, hand-offs, which agent for which task, approvals |
 | [plans/](plans/child-safety/README.md) | Implementation plans awaiting or after owner approval (child safety) |
 
 Screenshots used by the root README also live here (`*.png`).
