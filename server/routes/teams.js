@@ -149,16 +149,20 @@ export default function teamRoutes(db) {
 // lead no team any more, but only if it came from here. Access set by hand never changes.
 export function syncLeaderAccessFor(db, personId, req) {
   const leads = db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(personId);
-  const user = db.prepare('SELECT * FROM users WHERE person_id = ?').get(personId);
+  // Normally one account per person; while old duplicates remain, each is treated the same way.
+  for (const user of db.prepare('SELECT * FROM users WHERE person_id = ?').all(personId)) syncOne(db, user, personId, leads, req);
+}
+
+function syncOne(db, user, personId, leads, req) {
   if (leads) {
-    if (user?.role === 'volunteer') {
+    if (user.role === 'volunteer') {
       db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
       closeStreams({ userId: user.id });
       audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true });
     }
     // No account yet: nothing is created here. People get an account by signing in, and an admin
     // links it to them by hand (we never connect an account to a person by matching email).
-  } else if (user?.role_auto && user.role === 'leader') {
+  } else if (user.role_auto && user.role === 'leader') {
     db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(user.id);
     revokeCheckin(db, user.id);
     closeStreams({ userId: user.id });

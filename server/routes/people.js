@@ -255,7 +255,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
     // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
     for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
-    if (dupUsers.length) syncLeaderAccessFor(db, keep.id, req); // leadership may have moved with the merge
+    syncLeaderAccessFor(db, keep.id, req); // leadership may have moved with the merge (no-op without an account)
     res.json(getPerson(keep.id));
   });
 

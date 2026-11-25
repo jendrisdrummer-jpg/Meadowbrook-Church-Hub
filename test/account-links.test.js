@@ -324,3 +324,24 @@ test('People emails with stray spaces still count as in People (never attached, 
   assert.equal(u.person_id ?? null, null, 'not linked');
   assert.equal(linkedTo(db, p).length, 0);
 });
+
+test('linking a team leader with kids’ check-in ticked keeps the tick; merges apply the team-leader rule', async () => {
+  const team = Number(db.prepare("INSERT INTO teams (name) VALUES ('Tick Crew')").run().lastInsertRowid);
+  const p = addPerson(db, 'Tia', 'tia@gmail.com');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, p);
+  const u = addUser(db, 'tia@gmail.com');
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: p, role: 'volunteer', checkin: true })).status, 200);
+  assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(u).role, 'leader');
+  assert.equal((await s.api('GET', '/users?q=tia')).data.users.find((x) => x.id === u).checkin, true);
+  // A volunteer account never keeps it.
+  const v = addUser(db, 'vic@gmail.com');
+  await s.api('PATCH', `/users/${v}`, { checkin: true });
+  assert.equal((await s.api('GET', '/users?q=vic')).data.users.find((x) => x.id === v).checkin, false);
+  // Merge: the duplicate leads a team, the kept person's account is a volunteer: leader access follows.
+  const keep = addPerson(db, 'Max', 'max@gmail.com');
+  const dup = addPerson(db, 'Max', 'max.dup@gmail.com');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, dup);
+  const mu = addUser(db, 'max@gmail.com', 'volunteer', keep);
+  assert.ok((await s.api('POST', `/people/${keep}/merge`, { duplicate_id: dup })).status < 300);
+  assert.deepEqual({ ...db.prepare('SELECT role, role_auto FROM users WHERE id = ?').get(mu) }, { role: 'leader', role_auto: 1 });
+});

@@ -231,12 +231,14 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
-    if (b.checkin) setCheckin(Number(info.lastInsertRowid), true);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
     if (person) {
       audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
-      if (b.role === undefined) syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
+      // The dialogs always send a role; Volunteer (the default) isn't a hand choice of more access.
+      if (b.role === undefined || b.role === 'volunteer') syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
     }
+    // Kids' check-in against the final access (after the team-leader rule); volunteers never have it.
+    if (b.checkin && db.prepare('SELECT role FROM users WHERE id = ?').get(Number(info.lastInsertRowid)).role !== 'volunteer') setCheckin(Number(info.lastInsertRowid), true);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -263,10 +265,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
     if (b.person_id !== undefined && b.person_id !== u.person_id) {
       audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
-      if (b.person_id == null) ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     }
-    if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
-    if ((b.role ?? u.role) === 'volunteer') revokeCheckin(db, u.id); // volunteers never keep kids' check-in access
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     // Linking (an admin's choice): a team leader gets leader access, the usual team-leader rule.
@@ -279,6 +278,12 @@ export default function setupRoutes(db, { uploadDir } = {}) {
         audit(db, req, 'user.leader_auto', { user_id: u.id, person_id: u.person_id, granted: false });
       }
     }
+    // Kids' check-in last, against the final access (the team-leader rule above may have changed it):
+    // volunteers never keep it.
+    if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
+    if (db.prepare('SELECT role FROM users WHERE id = ?').get(u.id).role === 'volunteer') revokeCheckin(db, u.id);
+    // A link moved off a person can resolve a duplicate, so try the one-account rule again.
+    if (b.person_id !== undefined && b.person_id !== u.person_id && u.person_id != null) ensureAccountLinkIndex(db);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     // Open live pages end now; they reconnect with the new access, or fail if signed out.
     if (['role', 'campus_ids', 'person_id', 'active'].some((k) => b[k] !== undefined)) closeStreams({ userId: u.id });
