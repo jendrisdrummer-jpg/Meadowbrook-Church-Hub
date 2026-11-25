@@ -48,7 +48,11 @@ How changes are made, tested and shipped. Applies to people and to every agent.
   must set up after merging.
 - Before pushing: `npm test` passes; for UI changes `npm run test:ui` passes and screenshots were
   looked at; for significant features the [release checklist](release-checklist.md) is done.
-- There's no CI yet; the person or agent pushing is responsible for running the tests.
+- **CI:** GitHub Actions (`.github/workflows/test.yml`) runs `npm test` on Node 22 for every pull
+  request and every push to `main`. A red "Tests" check means don't merge. Still run the tests yourself
+  before pushing; `npm run test:ui` isn't in CI yet (it needs a browser), so run it locally for UI
+  changes. The free tier's minutes cover this (about a minute per run). To block merging on a red
+  check, the owner turns on branch protection for `main` in GitHub (Settings → Branches).
 - Merging to `main` deploys to Render.
 
 ## Keeping the docs current
