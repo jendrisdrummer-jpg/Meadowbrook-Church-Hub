@@ -794,6 +794,29 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 200);
   assert.equal((await api('gwen', 'GET', '/checkin/active?campus_id=1')).status, 200);
   assert.equal((await api('admin', 'GET', '/users')).data.users.find((u) => u.id === user.id).checkin, true);
+  // Campus limits hold on every check-in route, asked directly through the API.
+  const southHh = (await api('admin', 'POST', '/households', { name: 'South Household', campus_id: 2 })).data;
+  const southKid = (await api('admin', 'POST', '/people', { first_name: 'Sam', last_name: 'South', household_id: southHh.id, household_role: 'child',
+    campus_id: 2, birthdate: '2019-03-01', medical_notes: 'SOUTH-MEDICAL-CANARY', force: true })).data;
+  const southDay = (await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.today;
+  db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES ('south-guard-1', 2, ?, 'kid', ?, datetime('now'))").run(southKid.id, southDay);
+  await api('admin', 'PATCH', `/users/${user.id}`, { campus_ids: [1] });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=2')).status, 403);
+  assert.equal((await api('gwen', 'GET', '/checkin/active?campus_id=2')).status, 403);
+  assert.equal((await api('gwen', 'POST', '/checkin/checkins', { campus_id: 2, records: [{ id: 'south-guard-2', person_id: southKid.id, checked_in_at: new Date().toISOString() }] })).status, 403);
+  assert.equal((await api('gwen', 'POST', '/checkin/checkout', { campus_id: 2, ids: ['south-guard-1'] })).status, 403);
+  assert.equal((await api('gwen', 'DELETE', '/checkin/checkins/south-guard-1')).status, 403);
+  assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null, 'nothing changed');
+  // Their own campus's roster holds only that campus's families: no South child, even by accident.
+  const northRoster = (await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data;
+  assert.equal(northRoster.households.some((h) => h.id === southHh.id), false);
+  assert.ok(!JSON.stringify(northRoster).includes('SOUTH-MEDICAL-CANARY'));
+  // A checkout by ids at their own campus can't reach another campus's child either.
+  await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['south-guard-1'] });
+  assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null);
+  db.prepare("DELETE FROM checkins WHERE id LIKE 'south-guard-%'").run();
+  await api('admin', 'PATCH', `/users/${user.id}`, { campus_ids: 'all' });
+
   // Taken away again: refused at once.
   await api('admin', 'PATCH', `/users/${user.id}`, { checkin: false });
   assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 403);

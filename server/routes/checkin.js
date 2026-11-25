@@ -38,8 +38,10 @@ export default function checkinRoutes(db) {
   r.get('/checkin/roster', requireCheckin, (req, res) => {
     const c = campus(req, req.query.campus_id);
     const today = localNow(c.timezone).date;
-    // Every household is included: families sometimes visit the other campus.
-    const households = db.prepare('SELECT id, name, phone, campus_id FROM households').all();
+    // Only this campus's families (and families with no campus set), so a campus-limited account
+    // never receives another campus's children. A family visiting another campus is looked up
+    // online or added as a guest (an all-campus online search is a later child-safety item).
+    const households = db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
     const people = db.prepare(`SELECT id, household_id, household_role, first_name, last_name, nickname, birthdate, grade,
         allergies, medical_notes, phone, photo FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
     const pickups = db.prepare('SELECT * FROM household_pickups').all();
