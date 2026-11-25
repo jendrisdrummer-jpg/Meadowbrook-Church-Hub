@@ -820,6 +820,14 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   assert.equal((await api('admin', 'PATCH', `/households/${looseHh.id}`, { campus_id: 2 })).status, 200);
   assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data.households.some((h) => h.id === looseHh.id), false);
   assert.equal((await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.households.some((h) => h.id === looseHh.id), true);
+  // Checking a South child in at North (by guessing their id) is skipped, so they never appear in
+  // North's list of who's checked in, with or without their notes.
+  const sneaky = await api('gwen', 'POST', '/checkin/checkins', { campus_id: 1, records: [{ id: 'south-guard-3', person_id: southKid.id, checked_in_at: new Date().toISOString() }] });
+  assert.equal(sneaky.status, 201);
+  assert.deepEqual(sneaky.data, []);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM checkins WHERE id = 'south-guard-3'").get().n, 0);
+  db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES ('south-guard-4', 1, ?, 'kid', ?, datetime('now'))").run(southKid.id, southDay);
+  assert.ok(!JSON.stringify((await api('gwen', 'GET', `/checkin/active?campus_id=1&day=${southDay}`)).data).includes('SOUTH-MEDICAL-CANARY'), 'even a stray row never shows another campus\'s child');
   // A checkout by ids at their own campus can't reach another campus's child either.
   await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['south-guard-1'] });
   assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null);
@@ -849,6 +857,15 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   await api('admin', 'DELETE', `/teams/${team.data.id}/members/${gwen.id}`);
   const revoked = db.prepare("SELECT detail FROM audit_log WHERE action = 'user.leader_auto' ORDER BY id DESC LIMIT 1").get();
   assert.deepEqual(JSON.parse(revoked.detail), { user_id: user.id, person_id: gwen.id, granted: false });
+  // Authorisation never lingers: dropping to volunteer or deleting the account removes it.
+  await api('admin', 'PATCH', `/users/${user.id}`, { checkin: true });
+  await api('admin', 'PATCH', `/users/${user.id}`, { role: 'volunteer' });
+  assert.equal((await api('admin', 'GET', '/users?q=gwen')).data.users.find((u) => u.id === user.id).checkin, false);
+  await api('admin', 'PATCH', `/users/${user.id}`, { role: 'leader' });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 403, 'it does not come back by itself');
+  const temp = (await api('admin', 'POST', '/users', { email: 'temp-checkin@example.org', role: 'leader', checkin: true })).data.id;
+  await api('admin', 'DELETE', `/users/${temp}`);
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'checkin_user_ids'").get().value.includes(String(temp)), false);
 });
 
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {

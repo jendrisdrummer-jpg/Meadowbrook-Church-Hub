@@ -5,7 +5,7 @@
 // idempotent: re-sending a batch after a dropped connection never double-counts anyone.
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
-import { getSetting, tx } from '../db.js';
+import { getSetting, setSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow } from '../http.js';
 import { roomFor, securityCode } from '../../public/js/checkin-rules.js';
 
@@ -17,6 +17,13 @@ export function canCheckin(db, user) {
   if (!user) return false;
   if (user.station || rank(user.role) >= rank('staff')) return true;
   return rank(user.role) >= rank('leader') && getSetting(db, 'checkin_user_ids', []).includes(user.id);
+}
+
+// Takes an account's check-in authorisation away (account deleted or no longer a leader), so a
+// grant never lingers to come back silently or pass to a reused account id.
+export function revokeCheckin(db, userId) {
+  const ids = getSetting(db, 'checkin_user_ids', []);
+  if (ids.includes(userId)) setSetting(db, 'checkin_user_ids', ids.filter((id) => id !== userId));
 }
 
 export default function checkinRoutes(db) {
@@ -82,8 +89,12 @@ export default function checkinRoutes(db) {
     const out = tx(db, () => records.map((rec) => {
       const id = str(rec.id, 64);
       if (!/^[\w-]{8,64}$/.test(id)) throw bad('Each check-in needs an id.');
-      const person = db.prepare('SELECT id, birthdate, grade FROM people WHERE id = ?').get(int(rec.person_id, 'Person'));
+      const person = db.prepare(`SELECT p.id, p.birthdate, p.grade, h.campus_id household_campus
+        FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?`).get(int(rec.person_id, 'Person'));
       if (!person) return null;
+      // Same rule as the roster: never a family assigned to another campus, so check-in can't be used
+      // to pull another campus's child into this campus's lists. (Visiting families: later item.)
+      if (person.household_campus != null && person.household_campus !== c.id) return null;
       const at = Number.isNaN(Date.parse(rec.checked_in_at)) ? new Date() : new Date(rec.checked_in_at);
       const day = localNow(c.timezone, at).date;
       const kind = oneOf(rec.kind, ['kid', 'adult', 'volunteer'], 'kid');
@@ -113,7 +124,8 @@ export default function checkinRoutes(db) {
         p.household_id, rm.name room_name, h.name household_name
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
-      WHERE ci.campus_id = ? AND ci.day = ?${extra} ORDER BY rm.sort, rm.name, p.first_name`).all(...args));
+      WHERE ci.campus_id = ? AND ci.day = ? AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
+      ORDER BY rm.sort, rm.name, p.first_name`).all(...args));
   });
 
   // Check out by pickup code (every child on that code) or by check-in ids.

@@ -57,7 +57,10 @@ same way.
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
   **children's** allergies and medical notes, never an adult's. Every route checks the campus.
 - **The check-in roster** for a campus holds that campus's families **plus families with no campus
-  set**, and never a family assigned to another campus. Unassigned families are included on purpose,
+  set**, and never a family assigned to another campus. The rule uses the **family's** (household's)
+  campus. Checking in and the list of who's checked in follow the same rule, so a check-in can't pull
+  another campus's child into this campus's lists. A family visiting another campus can't be checked
+  in there yet; that's a later child-safety item. Unassigned families are included on purpose,
   because Faith Teams has no campuses, so many imported households have none. Leaving them out would
   hide real children from check-in. Unassigned families are therefore visible at every campus's
   check-in to authorised people. Staff can assign a household's campus at any time (People → the
@@ -80,6 +83,9 @@ done in one PR:
 3. **Move the admin control.** The "Kids' check-in" checkbox writes the grant.
 4. **Remove the old setting.** `checkin_user_ids` is deleted, and the tests in this PR run unchanged
    against the new storage.
+
+Check-in authorisation is removed when the account is deleted or stops being a leader (by hand or
+because it no longer leads a team), so it never comes back silently.
 
 Until then, review the authorised list in Settings → Sign-in & accounts (accounts show a
 "Check-in" tag).
