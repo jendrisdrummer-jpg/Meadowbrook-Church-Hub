@@ -28,6 +28,12 @@ Existing behaviour, unchanged: signing in for the first time links an account to
 People with exactly that email address, and an admin adding an account with no person chosen does
 the same. That is how volunteers in People get their schedule without an admin step.
 
+## Feedback
+
+Anyone signed in can send feedback (rate-limited) and see what they sent and what happened to it.
+Admins see all of it, with who sent it, and set the status and notes. The "You said, we did" list
+(`GET /feedback/done`) shows only admins' notes on finished items: no names and no original text.
+
 ## Roles (ranked)
 
 `volunteer` < `leader` < `staff` < `admin`. A route guarded with `requireRole('leader')` lets

@@ -40,6 +40,7 @@ Arrows show the main references.
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
+| `feedback` → users, campuses | Feedback from staff and leaders: category, severity, text, page, status, an admin-only note, and `done_note` (what was done, shown to everyone as "You said, we did"). |
 
 ### Teams, services and scheduling
 | Table | Purpose |
