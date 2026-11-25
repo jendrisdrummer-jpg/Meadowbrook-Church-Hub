@@ -32,7 +32,9 @@ they differ**. In short:
 - an **approved release roster** with confirmation on the volunteer's own phone for every Tier B release
 - the exact **label content**, with the reason for each item
 - **hardware and costs**: no paid service, subscription or new hardware required
-- effort is now **about 61.5 working days core** (65 with P9), about 21–25 weeks
+- effort is now **about 61.5 working days core** (65 with P9). The calendar is revised in
+  [schedule-review.md](schedule-review.md): about 15 weeks recommended, about 11–12 accelerated, with no requirement
+  changed
 
 Security ("approve with changes", all applied) and Church Operations ("workable with changes", applied) reviewed it.
 

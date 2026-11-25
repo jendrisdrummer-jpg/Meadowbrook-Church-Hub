@@ -280,7 +280,10 @@ No household name, no children's full names and no room.
 - **Effort:**
   - P0.5 adds about 2 days and P2 drops 0.5 day.
   - The roster adds about 1.5 days.
-  - **Core: about 61.5 working days** (65 with P9), about **21–25 weeks** on the calendar.
+  - **Core: about 61.5 working days** (65 with P9) of effort at a human-developer pace.
+  - **Calendar:** replaced by [schedule-review.md](schedule-review.md): about **15 weeks** recommended, or about
+    **11–12 weeks** accelerated, with nothing removed. Code-only release ends in about week 9. Level 1 labels move up
+    to ship with P4 (P7a).
 - **New checklist items:**
   - I-54: roster renewal and screening tick (Group I, sheet B)
   - I-55: last-name initial (Group I, routine)

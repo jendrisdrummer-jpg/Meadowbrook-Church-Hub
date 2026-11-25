@@ -10,6 +10,7 @@ the checklist) are asked for one at a time, when each phase is ready.
 | File | What it is |
 |---|---|
 | [revision-3.2.md](revision-3.2.md) | **Read first.** Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |
+| [schedule-review.md](schedule-review.md) | Independent Chief Architect and Senior Developer review of the effort and calendar: hours per phase, safe combinations, parallel work, dependencies, and the recommended and accelerated timelines |
 | [plan.md](plan.md) | The implementation plan, revision 3.1 (Chief Architect). Section "000" lists the final Security notes N1–N8; where older wording differs, that section governs |
 | [operational-policy.md](operational-policy.md) | Church-facing policy for staff and volunteers: the two check-out lanes, tag holders, "list only" families, medical notes, paper kit, lost iPads |
 | [approval-checklist.md](approval-checklist.md) | All 135 items in three groups (I church policy, II technical approvals, III deployment approvals), each with a recommended default; the owner decision sheet is at the top |
