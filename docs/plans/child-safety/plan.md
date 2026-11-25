@@ -1698,9 +1698,9 @@ Never two editing agents at once. Steps 1–3 run in parallel.
 ## 8. Owner decisions and approvals
 All decisions, technical approvals and deployment approvals are in **`approval-checklist.md`**: 128 items in
 revision 3 (group I church policy, 53; group II technical, 47; group III deployment, 28).
-- 18 are already decided by the owner on 2026-11-25.
-- **110 still need an owner decision or approval:** 82 now, and 28 deployment approvals given at the time.
-- Most of the 82 are routine. The **owner decision sheet** at the top of the checklist lists the 24 that need the
+- 17 are already decided by the owner on 2026-11-25.
+- **111 still need an owner decision or approval:** 83 now, and 28 deployment approvals given at the time.
+- Most of the 83 are routine. The **owner decision sheet** at the top of the checklist lists the 25 that need the
   owner's judgement, plus one line accepting all the other recommended defaults.
 
 **Project-rule approvals in brief:**

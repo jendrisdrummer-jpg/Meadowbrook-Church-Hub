@@ -4,11 +4,11 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 `operational-policy.md`.
 
 **Totals:** 128 items.
-- **Group I, church policy:** 53 items. 10 already decided by the owner on 2026-11-25; 43 need a decision now.
+- **Group I, church policy:** 53 items. 9 already decided by the owner on 2026-11-25; 44 need a decision now.
 - **Group II, technical approvals:** 47 items. 8 already decided; 39 need a decision now.
 - **Group III, deployment approvals:** 28 items. Each is approved at the time of that step, not now.
-- In all, 110 items still need an owner decision or approval: 82 now and 28 later.
-- Of the 82 needed now, the **owner decision sheet** below lists the **24 that need your judgement**. The other 58 are
+- In all, 111 items still need an owner decision or approval: 83 now and 28 later.
+- Of the 83 needed now, the **owner decision sheet** below lists the **25 that need your judgement**. The other 58 are
   routine or technical, and one line accepts all of them.
 
 ---
@@ -59,7 +59,7 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 | I-46 | iPad device policy, and whether to pay for MDM | **Guided Access (free) at minimum**; MDM only if you approve the cost |
 | I-51 | Who is the second person for releasing a hold, approving a permitted deletion, and the relaxation switch | **A second admin, or you (the owner).** For the relaxation switch, a coordinator may be the second person. |
 
-### C. Risks you accept (5)
+### C. Risks you accept, and one to confirm (6)
 | ID | Decision | Recommended default |
 |---|---|---|
 | II-02 | Staff can no longer delete or retime past services, positions or assignments; they cancel, archive or mark them removed | **Accept** |
@@ -104,7 +104,7 @@ Signed: ____________________ Date: __________
 | I-14 | Lost tag tiers (offline: day code, I-53) | Yes | Known household adult with photo or ID → adult helper; anyone else → coordinator; code revoked | §3.3, Policy §5 | Pending (**sheet A**) |
 | I-15 | Do-not-release is a hard block | Yes | No override by anyone; the relaxation switch never lifts it | §3.3, §4.8 | Pending (routine) |
 | I-16 | Approval routes: phone, online PIN, offline day code; no sign-in on kiosks | Yes (Security) | As stated; alert children by phone only (II-47) | §3.7 | **Decided (owner, 2026-11-25)** |
-| I-17 | Offline day-code length | Yes (Security) | 10 digits | §3.7.2 | Pending: the owner approved the approach when it said 8 digits; Security raised it to 10 (8 digits fall in under 2 hours on one GPU). Owner to confirm. |
+| I-17 | Offline day-code length | Yes (Security) | 10 digits | §3.7.2 | Pending: the owner approved the approach when it said 8 digits; Security raised it to 10 (8 digits fall in under 2 hours on one GPU). Owner to confirm (**sheet C**). |
 | I-18 | Duty rota per service (two approvers and a runner), in the hub | Yes | Yes | §3.7.2, §6 | Pending (**sheet B**) |
 | I-19 | Offline safety-list age limit | Yes | 180 minutes and the same day | §3.8 | Pending (**sheet A**) |
 | I-20 | ID check policy | Yes | `unrecognised`; careful lane always checks ID | §3.5 | Pending (**sheet A**) |
@@ -241,5 +241,5 @@ Signed: ____________________ Date: __________
 | III | 28 | 0 | — | 28 |
 | **Total** | **128** | **18** | **82** | **28** |
 
-Of the 82 needed now, 24 are on the owner decision sheet (sections A–D) and 58 are routine, covered by the
+Of the 83 needed now, 25 are on the owner decision sheet (sections A–D) and 58 are routine, covered by the
 "accept all other defaults" line.
