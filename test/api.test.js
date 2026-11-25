@@ -1833,6 +1833,32 @@ test('backups: encrypted database copies, Google Drive, uploaded files, keeping 
   assert.equal(restored.prepare('SELECT COUNT(*) n FROM people').get().n, db.prepare('SELECT COUNT(*) n FROM people').get().n);
   restored.close();
 
+  // The restore check: whole, current schema, same counts; a damaged copy fails it; the script never overwrites.
+  const { checkRestored } = await import('../server/restore-check.js');
+  const { SCHEMA_VERSION } = await import('../server/db.js');
+  const good = checkRestored(copy);
+  assert.equal(good.ok, true, good.problems.join('; '));
+  assert.equal(good.integrity, 'ok');
+  assert.equal(good.version, SCHEMA_VERSION);
+  assert.equal(good.counts.people, db.prepare('SELECT COUNT(*) n FROM people').get().n);
+  assert.equal(good.counts.assignments, db.prepare('SELECT COUNT(*) n FROM assignments').get().n);
+  const broken = path.join(dir, 'broken.db');
+  const bytes = fs.readFileSync(copy);
+  fs.writeFileSync(broken, bytes.subarray(0, Math.floor(bytes.length / 2)));
+  assert.equal(checkRestored(broken).ok, false);
+  fs.writeFileSync(path.join(dir, 'junk.db'), 'not a database at all');
+  assert.equal(checkRestored(path.join(dir, 'junk.db')).ok, false);
+  const { execFileSync } = await import('node:child_process');
+  const script = path.resolve('scripts/restore-backup.js');
+  const env = { ...process.env, MB_BACKUP_PASSWORD: 'correct horse battery staple' };
+  const run = (...a) => { try { return { code: 0, out: execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', script, ...a], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  const drill = run(path.join(dir, local.data.name), 'drill.db', '--check');
+  assert.equal(drill.code, 0, drill.out);
+  assert.match(drill.out, /Restore check passed/);
+  const again = run(path.join(dir, local.data.name), 'drill.db', '--check');
+  assert.equal(again.code, 1);
+  assert.match(again.out, /never overwrites/);
+
   // Google Drive (a stand-in): the copy and new uploaded files go to a folder; unchanged files don't go again.
   const calls = [];
   let n = 0;
@@ -2464,4 +2490,17 @@ test('campus eligibility: who can set serving campuses', async () => {
   assert.equal((await api('admin', 'PUT', url, {})).status, 400);
   assert.deepEqual((await api('admin', 'GET', `/people/${p.id}`)).data.serving_campuses, [1, 2]);
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'person.serving_campuses'").get());
+});
+
+test('offline mode (restore drills): outgoing calls refused, this machine still reachable', async () => {
+  const { enableOffline } = await import('../server/offline.js');
+  const restore = enableOffline();
+  try {
+    await assert.rejects(fetch('https://fcm.googleapis.com/fcm/send/abc', { method: 'POST' }), /Offline mode: not contacting fcm\.googleapis\.com/);
+    await assert.rejects(fetch(new URL('https://www.googleapis.com/drive/v3/files')), /Offline mode/);
+    await assert.rejects(fetch(new Request('https://api.stripe.com/v1/charges')), /Offline mode/);
+    assert.equal((await fetch(`${base}/api/me`)).status, 401, 'the local hub still answers');
+    assert.equal(enableOffline(), restore, 'turning it on twice is harmless');
+  } finally { restore(); }
+  assert.equal(fetch.offline, undefined);
 });

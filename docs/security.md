@@ -40,6 +40,7 @@ Where data lives: [database.md](database.md#sensitive-data).
 | Rate limits | In-memory per-IP limits on public forms (connect cards, event sign-ups) | `routes/app.js`, `events.js` |
 | Audit | `audit_log` for significant changes | `http.js` |
 | Backups | AES-256-GCM with a key derived (scrypt) from `MB_BACKUP_PASSWORD`; Drive access limited to files the hub creates | `backup.js` |
+| Copies of real data on a laptop | Offline mode (`MB_OFFLINE=1`) refuses every outgoing request except to the machine itself and starts no background jobs, so a copy can't push to phones, send reminders or touch the church's Drive; the restore check opens copies read-only | `offline.js`, `restore-check.js`, [restore-drill.md](restore-drill.md) |
 
 ## Severity scale (for findings)
 

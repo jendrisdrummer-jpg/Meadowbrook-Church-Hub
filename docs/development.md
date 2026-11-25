@@ -38,7 +38,8 @@ How changes are made, tested and shipped. Applies to people and to every agent.
 | `npm run demo` | Fresh demo database (made-up people), then the server. Sign in as `pastor@meadowbrook.church` (admin), `south@meadowbrook.church` (campus staff) or `volunteer@meadowbrook.church` |
 | `npm test` | API and rules tests (`node:test`, in-memory DB, stand-in servers). Must pass before every push. |
 | `npm run test:ui` | Browser smoke and regression run (see [testing.md](testing.md)). Needs Playwright installed globally; not a project dependency. |
-| `npm run restore -- <file>` | Decrypt a backup (needs `MB_BACKUP_PASSWORD`) |
+| `npm run restore -- <file> [out] [--check]` | Decrypt a backup (needs `MB_BACKUP_PASSWORD`); `--check` confirms a database copy is whole and lists its counts. Never overwrites a file. See [restore-drill.md](restore-drill.md) |
+| `MB_OFFLINE=1` | Offline mode for a copy of real data: refuses outgoing calls (push, Drive, payments, video, media) and starts no background jobs |
 
 ## Git and pull requests
 
