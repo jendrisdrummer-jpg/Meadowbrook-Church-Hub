@@ -29,7 +29,11 @@ export default function checkinRoutes(db) {
         allergies, medical_notes, phone, photo FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
     const pickups = db.prepare('SELECT * FROM household_pickups').all();
     const byHousehold = new Map(households.map((h) => [h.id, { ...h, members: [], pickups: [] }]));
-    for (const p of people) byHousehold.get(p.household_id)?.members.push(p);
+    // Check-in needs children's allergies and medical notes; it never needs an adult's.
+    for (const p of people) {
+      if (p.household_role !== 'child') { p.allergies = null; p.medical_notes = null; }
+      byHousehold.get(p.household_id)?.members.push(p);
+    }
     for (const p of pickups) byHousehold.get(p.household_id)?.pickups.push(p);
     res.json({
       campus: c,

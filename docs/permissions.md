@@ -48,7 +48,12 @@ same way.
 ## Field-level visibility
 
 - Custom profile fields have `visibility` leader or staff.
-- Children's allergies and medical notes are shown for check-in and to leaders and up.
+- Allergies, medical notes, a person's private `notes`, household notes and the household pickup list
+  are **staff and up** on a person's page (`GET /people/:id`). Leaders, including anyone with leader
+  access only because they lead a team, see contact and serving details but not those fields.
+- Check-in (`/checkin/roster`, `/checkin/active`) sends **children's** allergies and medical notes to
+  stations and leaders for kids' safety, never an adult's. (Until child-safety V1 adds a check-in
+  access flag, any leader can still open the roster; see the child-safety plan in PR #49.)
 - Chats: only members (team chats follow the team roster).
 - Private tasks: only the person; team tasks: the team.
 
