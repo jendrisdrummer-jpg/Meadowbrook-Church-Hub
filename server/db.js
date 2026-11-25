@@ -859,7 +859,28 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN link_requested_at TEXT;
   `,
-  // 31: the campuses each volunteer can serve at. Teams can be shared across campuses, people can't
+  // 31: feedback from staff and leaders (bugs, frustrations, ideas), triaged by admins, with what
+  // was done ("You said, we did"). Deliberately small: not a project tracker.
+  `
+  CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    role TEXT NOT NULL DEFAULT '',                        -- the sender's role when they sent it
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    page TEXT NOT NULL DEFAULT '',                        -- where they were in the hub or app
+    category TEXT NOT NULL,                               -- bug | frustration | missing | workflow | request | idea
+    severity TEXT NOT NULL,                               -- blocks_sunday | slows_me_down | nice_to_have
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'received',              -- received | looking | planned | done | not_now
+    admin_note TEXT NOT NULL DEFAULT '',                  -- for admins only
+    done_note TEXT NOT NULL DEFAULT '',                   -- what we did / why not now; shown to everyone
+    done_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX feedback_status ON feedback(status, created_at);
+  `,
+  // 32: the campuses each volunteer can serve at. Teams can be shared across campuses, people can't
   // be everywhere. No rows = their home campus only (people.campus_id); see server/eligibility.js.
   `
   CREATE TABLE serving_campuses (

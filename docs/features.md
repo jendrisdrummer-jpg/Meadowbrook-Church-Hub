@@ -68,6 +68,8 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Operations
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
+| Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | ✅ | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
+| Unlinked accounts tell the office; admins link accounts to people by hand | ✅ | `routes/setup.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script | 🟡 needs password + Drive | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
 | Demo data | ✅ | `scripts/seed-demo.js` | `npm run demo` |
 
