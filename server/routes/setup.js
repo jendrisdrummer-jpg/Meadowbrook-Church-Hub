@@ -6,6 +6,7 @@ import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
+import { closeStreams } from '../live.js';
 import { revokeCheckin } from './checkin.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
@@ -194,6 +195,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       throw bad('This is the only admin. Make someone else an admin first.');
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    closeStreams({ userId: u.id });
     revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
     res.json({ ok: true });
@@ -258,6 +260,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    // Open live pages end now; they reconnect with the new access, or fail if signed out.
+    if (['role', 'campus_ids', 'person_id', 'active'].some((k) => b[k] !== undefined)) closeStreams({ userId: u.id });
     audit(db, req, 'user.update', { id: u.id, ...req.body });
     res.json({ ok: true });
   });
