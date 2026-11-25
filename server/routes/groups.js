@@ -1,23 +1,38 @@
 // Small groups (Bible study, home groups…). A separate model from serving teams: a group never
-// grants leader access and never appears in scheduling. Staff manage groups at their campuses;
-// a group's own leaders manage its roster. Members see names and photos; leaders and staff also
-// see members' email and phone. Each group has a chat that follows its roster (see chat.js).
+// grants leader access and never appears in scheduling. Staff manage groups at their campuses
+// (church-wide groups: only staff with no campus limit); a group's own leaders manage its roster.
+// Members and leaders see names and photos; only staff also see email and phone. Each group has
+// a chat that follows its roster and is private to its members, staff included (see chat.js).
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
-import { notFound, forbidden, bad, int, str, required, audit } from '../http.js';
+import { HttpError, notFound, forbidden, bad, int, str, required, audit } from '../http.js';
 import { send } from '../live.js';
+
+// A leader who isn't staff may add this many people per rolling day.
+const LEADER_ADDS_PER_DAY = 30;
 
 export default function groupRoutes(db) {
   const r = Router();
   const isStaff = (req) => rank(req.user.role) >= rank('staff');
 
+  // Staff powers over a group: staff at its campus; for a church-wide group (no campus), only staff
+  // with no campus limit. Campus-limited staff are ordinary members there.
+  const staffOf = (req, g) => isStaff(req) && (g.campus_id == null ? !req.user.campusIds : canCampus(req.user, g.campus_id));
+  // Adults only: not marked a child, no school grade, and (if we know it) at least 18.
+  const ADULT_SQL = "p.household_role != 'child' AND p.grade IS NULL AND (p.birthdate IS NULL OR p.birthdate <= date('now', '-18 years'))";
+  const isAdult = (p) => {
+    if (p.household_role === 'child' || p.grade != null) return false;
+    if (!p.birthdate) return true;
+    const cut = new Date(); cut.setUTCFullYear(cut.getUTCFullYear() - 18);
+    return p.birthdate <= cut.toISOString().slice(0, 10);
+  };
   // Loads a group and what this account may do with it, or refuses. Archived groups are only
   // for staff (to bring back); everyone else gets "not found".
   function open(req, id) {
     const g = db.prepare('SELECT * FROM groups WHERE id = ?').get(int(id, 'group'));
     if (!g) throw notFound('Group');
-    const staff = isStaff(req) && canCampus(req.user, g.campus_id);
+    const staff = staffOf(req, g);
     const row = req.user.personId && db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(g.id, req.user.personId);
     if (g.archived && !staff) throw notFound('Group');
     if (!staff && !row) throw forbidden();
@@ -32,9 +47,12 @@ export default function groupRoutes(db) {
     if (uid) send([uid], null, { type: 'chats' });
   };
 
+  const isMember = (req, gid) => Boolean(req.user.personId && db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND person_id = ?').get(gid, req.user.personId));
+  // The chat is private to members, so non-member staff aren't pointed at it.
   const summary = (g, req) => ({
     ...g,
-    chat_id: chatId(g.id),
+    chat_id: isMember(req, g.id) ? chatId(g.id) : null,
+    is_member: isMember(req, g.id),
     members: db.prepare('SELECT COUNT(*) n FROM group_members gm JOIN people p ON p.id = gm.person_id WHERE gm.group_id = ? AND p.archived = 0').get(g.id).n,
     leaders: db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname FROM group_members gm JOIN people p ON p.id = gm.person_id
       WHERE gm.group_id = ? AND gm.is_leader = 1 AND p.archived = 0 ORDER BY p.first_name`).all(g.id),
@@ -47,8 +65,11 @@ export default function groupRoutes(db) {
     const archived = req.query.archived === '1' && isStaff(req) ? 1 : 0;
     let rows;
     if (isStaff(req)) {
+      // Campus-limited staff don't manage church-wide groups, so those show only if they're in them.
       const cf = campusFilter(req.user, 'g.campus_id');
-      rows = db.prepare(`SELECT g.* FROM groups g WHERE g.archived = ? AND ${cf.sql} ORDER BY g.name LIMIT 500`).all(archived, ...cf.args);
+      const limited = Boolean(req.user.campusIds);
+      const sql = limited ? `${cf.sql.replace(`g.campus_id IS NULL OR `, '')} OR (g.campus_id IS NULL AND g.id IN (SELECT group_id FROM group_members WHERE person_id = ?))` : cf.sql;
+      rows = db.prepare(`SELECT g.* FROM groups g WHERE g.archived = ? AND (${sql}) ORDER BY g.name LIMIT 500`).all(archived, ...cf.args, ...(limited ? [req.user.personId ?? -1] : []));
     } else {
       rows = req.user.personId ? db.prepare(`SELECT g.* FROM groups g JOIN group_members gm ON gm.group_id = g.id
         WHERE gm.person_id = ? AND g.archived = 0 ORDER BY g.name LIMIT 100`).all(req.user.personId) : [];
@@ -58,11 +79,13 @@ export default function groupRoutes(db) {
 
   r.get('/groups/:id', requireRole('volunteer'), (req, res) => {
     const a = open(req, req.params.id);
-    const contact = manager(a) ? ', p.email, p.phone' : '';
+    const contact = a.staff ? ', p.email, p.phone' : '';
     res.json({
       ...summary(a.g, req),
       can_manage: manager(a),
       can_staff: a.staff,
+      can_contact: a.staff,
+      my_person_id: req.user.personId ?? null,
       roster: db.prepare(`SELECT gm.person_id, gm.is_leader, p.first_name, p.last_name, p.nickname, p.photo${contact}
         FROM group_members gm JOIN people p ON p.id = gm.person_id WHERE gm.group_id = ? AND p.archived = 0
         ORDER BY gm.is_leader DESC, p.first_name, p.last_name LIMIT 500`).all(a.g.id),
@@ -103,7 +126,7 @@ export default function groupRoutes(db) {
     res.json(summary(getGroup(g.id), req));
   });
 
-  // Who could be added: adults at the viewer's campuses, by name. Names and photos only, so a
+  // Who could be added: adults at the group's campus, by name. Names and photos only, so a
   // group leader (who can't open People) can still find someone to add.
   r.get('/groups/:id/candidates', requireRole('volunteer'), (req, res) => {
     const a = open(req, req.params.id);
@@ -111,9 +134,11 @@ export default function groupRoutes(db) {
     const q = String(req.query.q || '').trim().slice(0, 60);
     if (q.length < 2) return res.json([]);
     const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-    const cf = campusFilter(req.user, 'p.campus_id');
+    // A campus group draws from its own campus (and people with no campus); church-wide groups from
+    // whatever the viewer can see.
+    const cf = a.g.campus_id == null ? campusFilter(req.user, 'p.campus_id') : { sql: '(p.campus_id = ? OR p.campus_id IS NULL)', args: [a.g.campus_id] };
     res.json(db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo FROM people p
-      WHERE p.archived = 0 AND p.household_role != 'child' AND ${cf.sql}
+      WHERE p.archived = 0 AND ${ADULT_SQL} AND ${cf.sql}
         AND (p.first_name || ' ' || p.last_name LIKE ? ESCAPE '\\' OR p.nickname LIKE ? ESCAPE '\\')
         AND p.id NOT IN (SELECT person_id FROM group_members WHERE group_id = ?)
       ORDER BY p.first_name, p.last_name LIMIT 10`).all(...cf.args, like, like, a.g.id));
@@ -125,15 +150,23 @@ export default function groupRoutes(db) {
     const a = open(req, req.params.id);
     if (!manager(a)) throw forbidden();
     const personId = int(req.params.personId);
-    const person = db.prepare('SELECT id, campus_id, household_role FROM people WHERE id = ? AND archived = 0').get(personId);
-    if (!person || !canCampus(req.user, person.campus_id)) throw notFound('Person');
-    if (person.household_role === 'child') throw bad('Small groups are for adults for now. Children can’t be added.');
+    const person = db.prepare('SELECT id, campus_id, household_role, grade, birthdate FROM people WHERE id = ? AND archived = 0').get(personId);
+    const reachable = person && (a.g.campus_id == null ? canCampus(req.user, person.campus_id) : (person.campus_id == null || person.campus_id === a.g.campus_id));
+    if (!reachable) throw notFound('Person');
+    if (!isAdult(person)) throw bad('Small groups are for adults for now. Children can’t be added.');
     const existing = db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(a.g.id, personId);
     const wantsLeader = req.body?.is_leader === undefined ? undefined : (req.body.is_leader ? 1 : 0);
-    if (wantsLeader !== undefined && wantsLeader !== (existing?.is_leader ?? 0) && !a.staff) throw forbidden();
+    // Leaders can't make leaders; the one thing they can change is stepping down themselves.
+    const steppingDown = personId === req.user.personId && existing?.is_leader === 1 && wantsLeader === 0;
+    if (wantsLeader !== undefined && wantsLeader !== (existing?.is_leader ?? 0) && !a.staff && !steppingDown) throw forbidden();
+    if (!existing && !a.staff) {
+      const n = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'group.member_add' AND user_id = ? AND at > datetime('now', '-1 day')").get(req.user.id).n;
+      if (n >= LEADER_ADDS_PER_DAY) throw new HttpError(429, 'You’ve added a lot of people today. Please try again tomorrow, or ask the church office to help.');
+    }
     const leader = wantsLeader ?? existing?.is_leader ?? 0;
     db.prepare(`INSERT INTO group_members (group_id, person_id, is_leader) VALUES (?, ?, ?)
       ON CONFLICT (group_id, person_id) DO UPDATE SET is_leader = excluded.is_leader`).run(a.g.id, personId, leader);
+    if (!existing) audit(db, req, 'group.member_add', { group_id: a.g.id, person_id: personId });
     if (leader !== (existing?.is_leader ?? 0)) audit(db, req, leader ? 'group.leader_add' : 'group.leader_remove', { group_id: a.g.id, person_id: personId });
     nudge(personId);
     res.json({ ok: true });
@@ -148,6 +181,7 @@ export default function groupRoutes(db) {
     // Only staff take another leader off the roster (a leader can step down themselves).
     if (row?.is_leader && !a.staff && !self) throw forbidden();
     db.prepare('DELETE FROM group_members WHERE group_id = ? AND person_id = ?').run(a.g.id, personId);
+    if (row) audit(db, req, 'group.member_remove', { group_id: a.g.id, person_id: personId, self });
     if (row?.is_leader) audit(db, req, 'group.leader_remove', { group_id: a.g.id, person_id: personId });
     nudge(personId);
     res.json({ ok: true });

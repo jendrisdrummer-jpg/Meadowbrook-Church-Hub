@@ -32,7 +32,7 @@ export default function chatRoutes(db, { uploadDir }) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform', 'x-accel-buffering': 'no' });
     res.write('retry: 4000\n\n');
     const viewing = int(req.query.viewing, 'viewing');
-    const s = { userId: req.user.id, viewing: viewing && canSee(req, viewing) ? viewing : null, res };
+    const s = { userId: req.user.id, req, viewing: viewing && canSee(req, viewing) ? viewing : null, res };
     streams.add(s);
     const ping = setInterval(() => res.write(': ping\n\n'), 25e3);
     req.on('close', () => { clearInterval(ping); streams.delete(s); });
@@ -93,9 +93,11 @@ export default function chatRoutes(db, { uploadDir }) {
     if (c.kind === 'smallgroup') {
       if (c.group_archived) return null;
       const row = me.personId && db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(c.group_id, me.personId);
-      const staff = rank(me.role) >= rank('staff') && canCampus(me, c.campus_id);
-      if (!row && !staff) return null;
-      return { member: Boolean(row), manage: staff || Boolean(row?.is_leader) };
+      // Small-group chats (often prayer and pastoral) are private to the roster, staff included.
+      // Staff manage the roster from the group's page. For a church-wide group, staff powers need no campus limit.
+      if (!row) return null;
+      const staff = rank(me.role) >= rank('staff') && (c.campus_id == null ? !me.campusIds : canCampus(me, c.campus_id));
+      return { member: true, manage: staff || Boolean(row.is_leader) };
     }
     const row = me.personId && db.prepare('SELECT is_admin FROM chat_members WHERE chat_id = ? AND person_id = ?').get(c.id, me.personId);
     const ownerWithoutPerson = c.created_by === me.id && !me.personId;

@@ -18,12 +18,13 @@ export default async function group(el, id) {
         <div class="suggest hidden" data-list></div></div>` : ''}
       ${g.roster.length ? html`<div class="m-people">${g.roster.map((m) => html`<div class="row" style="padding:8px 0;border-top:1px solid var(--line)" data-person="${m.person_id}">
         ${avatar(m)}<span class="grow"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}
-          ${g.can_manage && (m.email || m.phone) ? html`<br><span class="muted small">${[m.email, m.phone].filter(Boolean).join(' · ')}</span>` : ''}</span>
+          ${g.can_contact && (m.email || m.phone) ? html`<br><span class="muted small">${[m.email, m.phone].filter(Boolean).join(' · ')}</span>` : ''}</span>
         ${g.can_staff ? html`<button type="button" class="btn small ghost" data-leader="${m.is_leader ? 0 : 1}">${m.is_leader ? 'Remove as leader' : 'Make leader'}</button>` : ''}
+        ${!g.can_staff && m.is_leader && m.person_id === g.my_person_id ? html`<button type="button" class="btn small ghost" data-leader="0">Step down as leader</button>` : ''}
         ${g.can_manage && (g.can_staff || !m.is_leader) ? html`<button type="button" class="icon-btn" data-remove title="Remove from group" aria-label="Remove ${displayName(m)}">${icon('x')}</button>` : ''}
       </div>`)}</div>` : html`<div class="empty">No one in this group yet.${g.can_manage ? ' Type a name above to add someone.' : ''}</div>`}
     </div>
-    ${g.can_manage ? '' : html`<p class="muted small">Only the group’s leaders and the church office can see phone numbers and emails.</p>`}`);
+    ${g.can_contact ? '' : html`<p class="muted small">Only the church office can see phone numbers and emails.</p>`}`);
 
   const reload = () => group(el, id);
   el.onclick = async (e) => {

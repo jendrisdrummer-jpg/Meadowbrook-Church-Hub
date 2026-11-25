@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import { openDb } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
+import { streams } from '../server/live.js';
 
 let server, base, db, upDir;
 const cookies = {};
@@ -52,7 +53,9 @@ test('small groups: staff manage, leaders run the roster, members see names only
   assert.equal(made.status, 201);
   const gid = made.data.id;
   const other = (await api('admin', 'POST', '/groups', { name: 'Men’s Group', campus_id: 1 })).data.id;
-  assert.ok(made.data.chat_id, 'a group gets a chat');
+  const chatOf = (g) => db.prepare('SELECT id FROM chats WHERE group_id = ?').get(g)?.id;
+  assert.ok(chatOf(gid), 'a group gets a chat');
+  assert.equal(made.data.chat_id, null, 'the chat is private to members, so staff who aren’t in the group aren’t pointed at it');
   assert.equal((await api('south', 'GET', `/groups/${gid}`)).status, 403);
   assert.equal((await api('south', 'PATCH', `/groups/${gid}`, { name: 'Hijack' })).status, 403);
   assert.equal((await api('south', 'PUT', `/groups/${gid}/members/${P.mem}`, {})).status, 403);
@@ -81,10 +84,11 @@ test('small groups: staff manage, leaders run the roster, members see names only
   const seen = JSON.stringify(view.data);
   for (const secret of ['@mb.org', '555-', 'Peanuts', 'Private note', 'allergies', 'medical']) assert.ok(!seen.includes(secret), `member view leaks ${secret}`);
   assert.equal((await api('mem', 'PUT', `/groups/${gid}/members/${P.mem2}`, {})).status, 403, 'a plain member can’t add');
-  // Leaders (and staff) also see email and phone for their own group.
+  // Only staff see email and phone; a leader manages the roster without contact details.
   const led = await api('lead', 'GET', `/groups/${gid}`);
   assert.equal(led.data.can_manage, true);
-  assert.ok(led.data.roster.every((m) => m.email && m.phone));
+  assert.ok(led.data.roster.every((m) => !('email' in m) && !('phone' in m)), 'leader roster has no contact details');
+  assert.ok((await api('north', 'GET', `/groups/${gid}`)).data.roster.every((m) => m.email && m.phone), 'staff roster has contact details');
 
   // Someone who isn't in the group gets 403; the list is empty.
   assert.equal((await api('other', 'GET', `/groups/${gid}`)).status, 403);
@@ -116,7 +120,7 @@ test('small groups: staff manage, leaders run the roster, members see names only
   assert.equal((await api('lead2', 'DELETE', `/groups/${gid}/members/${P.lead2}`)).status, 200);
 
   // The chat's members follow the roster: added people are in, removed people are out.
-  const cid = made.data.chat_id;
+  const cid = chatOf(gid);
   const inChat = async (who) => (await api(who, 'GET', '/chats')).data.chats.some((c) => c.id === cid);
   const roster = async () => (await api('lead', 'GET', `/chats/${cid}`)).data.members.map((m) => m.person_id).sort();
   assert.deepEqual(await roster(), [P.lead, P.mem].sort());
@@ -159,4 +163,186 @@ test('small groups: staff manage, leaders run the roster, members see names only
 
   // Groups are not teams: nothing in scheduling knows about them.
   assert.ok(!(await api('admin', 'GET', '/teams')).data.some((t) => t.name === 'Wednesday Study'));
+});
+
+// ---- security edges ---------------------------------------------------------------------------
+const addPerson = (first, campus, extra = {}) => Number(db.prepare('INSERT INTO people (first_name, last_name, email, phone, campus_id, household_role, grade, birthdate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+  .run(first, 'Sec', `${first}@mb.org`, '555-1', campus, extra.role || 'adult', extra.grade ?? null, extra.birthdate ?? null).lastInsertRowid);
+const addUser = (key, role, campuses, personId) => {
+  const id = db.prepare('INSERT INTO users (email, role, campus_ids, person_id) VALUES (?, ?, ?, ?)').run(`${key}@mb.org`, role, campuses, personId).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+  return id;
+};
+const yearsAgo = (n) => { const d = new Date(); d.setUTCFullYear(d.getUTCFullYear() - n); return d.toISOString().slice(0, 10); };
+const chatOfGroup = (g) => db.prepare('SELECT id FROM chats WHERE group_id = ?').get(g).id;
+
+test('group leaders: campus-bound finder and adds, audited, no contact details, rate limited, step down', async () => {
+  const gid = (await api('north', 'POST', '/groups', { name: 'North Home Group', campus_id: 1 })).data.id;
+  const leadP = addPerson('Sleader', 1); addUser('sleader', 'volunteer', null, leadP);
+  const northP = addPerson('Sarah', 1), southP = addPerson('Sally', 2), noCampusP = addPerson('Sunny', null);
+  await api('north', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true });
+
+  // The finder and add stay on the group's campus (or people with none), even for an all-campus account.
+  assert.deepEqual((await api('sleader', 'GET', `/groups/${gid}/candidates?q=Sec`)).data.map((p) => p.id).sort(), [northP, noCampusP].sort());
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${southP}`, {})).status, 404);
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${northP}`, {})).status, 200);
+
+  // Adds and removals are audited, including leaving on your own.
+  const log = (action) => db.prepare('SELECT user_id, detail FROM audit_log WHERE action = ?').all(action).map((r) => ({ ...r, d: JSON.parse(r.detail) }));
+  const add = log('group.member_add').find((r) => r.d.person_id === northP);
+  assert.equal(add.d.group_id, gid);
+  assert.equal(add.user_id, db.prepare('SELECT id FROM users WHERE person_id = ?').get(leadP).id);
+  await api('sleader', 'DELETE', `/groups/${gid}/members/${northP}`);
+  assert.ok(log('group.member_remove').some((r) => r.d.person_id === northP && r.d.group_id === gid));
+  addUser('snorth', 'volunteer', null, northP);
+  await api('sleader', 'PUT', `/groups/${gid}/members/${northP}`, {});
+  await api('snorth', 'DELETE', `/groups/${gid}/members/${northP}`);
+  assert.ok(log('group.member_remove').filter((r) => r.d.person_id === northP).length >= 2, 'self-leave is audited');
+
+  // A leader's roster has no email or phone.
+  const roster = (await api('sleader', 'GET', `/groups/${gid}`)).data.roster;
+  assert.ok(roster.length && roster.every((m) => !('email' in m) && !('phone' in m)));
+
+  // Step down: a leader can drop their own leadership but stay; nobody else can promote.
+  const second = addPerson('Sam', 1);
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true })).status, 200, 'no change is fine');
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${second}`, { is_leader: true })).status, 403);
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: false })).status, 200);
+  assert.equal(db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(gid, leadP).is_leader, 0);
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true })).status, 403, 'can’t step back up');
+  await api('north', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true });
+
+  // Rate limit: 30 adds a day per leader (simulated with audit rows); staff aren't limited.
+  const uid = db.prepare('SELECT id FROM users WHERE person_id = ?').get(leadP).id;
+  const ins = db.prepare("INSERT INTO audit_log (user_id, action, detail) VALUES (?, 'group.member_add', '{}')");
+  for (let i = 0; i < 30; i++) ins.run(uid);
+  const r = await api('sleader', 'PUT', `/groups/${gid}/members/${second}`, {});
+  assert.equal(r.status, 429);
+  assert.ok(r.data.error);
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${second}`, {})).status, 200);
+  db.prepare("UPDATE audit_log SET at = datetime('now', '-2 days') WHERE user_id = ? AND detail = '{}'").run(uid);
+  assert.equal((await api('sleader', 'PUT', `/groups/${gid}/members/${northP}`, {})).status, 200, 'old adds stop counting');
+});
+
+test('adults only: a child is refused by grade or by birthdate', async () => {
+  const gid = (await api('north', 'POST', '/groups', { name: 'Adults Only', campus_id: 1 })).data.id;
+  const byGrade = addPerson('Gradey', 1, { grade: 5 });
+  const byAge = addPerson('Youngy', 1, { birthdate: yearsAgo(10) });
+  const grown = addPerson('Grownup', 1, { birthdate: yearsAgo(40) });
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${byGrade}`, {})).status, 400);
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${byAge}`, {})).status, 400);
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${grown}`, {})).status, 200);
+  const found = (await api('north', 'GET', `/groups/${gid}/candidates?q=${encodeURIComponent('Gradey')}`)).data;
+  assert.deepEqual(found, []);
+  assert.deepEqual((await api('north', 'GET', `/groups/${gid}/candidates?q=Youngy`)).data, []);
+});
+
+test('church-wide groups: campus-limited staff are ordinary members; unrestricted staff manage', async () => {
+  const gid = (await api('admin', 'POST', '/groups', { name: 'Everyone Study' })).data.id;
+  const cid = chatOfGroup(gid);
+  const target = addPerson('Wendy', 1);
+  assert.equal((await api('north', 'GET', `/groups/${gid}`)).status, 403);
+  assert.equal((await api('north', 'PATCH', `/groups/${gid}`, { name: 'Mine now' })).status, 403);
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${target}`, {})).status, 403);
+  assert.equal((await api('north', 'GET', `/groups/${gid}/candidates?q=Wendy`)).status, 403);
+  assert.equal((await api('north', 'GET', `/chats/${cid}`)).status, 404);
+  assert.ok(!(await api('north', 'GET', '/groups')).data.groups.some((g) => g.id === gid), 'not listed for campus-limited staff');
+  assert.equal((await api('admin', 'PUT', `/groups/${gid}/members/${target}`, {})).status, 200);
+  // A member who is campus-limited staff still gets only member rights.
+  await api('admin', 'PUT', `/groups/${gid}/members/${P.north}`, {});
+  assert.ok((await api('north', 'GET', '/groups')).data.groups.some((g) => g.id === gid), 'listed once they’re a member');
+  const v = await api('north', 'GET', `/groups/${gid}`);
+  assert.equal(v.status, 200);
+  assert.equal(v.data.can_manage, false);
+  assert.equal(v.data.can_staff, false);
+  assert.ok(v.data.roster.every((m) => !('email' in m)));
+  assert.equal((await api('north', 'PUT', `/groups/${gid}/members/${P.other}`, {})).status, 403);
+  assert.equal((await api('north', 'PATCH', `/groups/${gid}`, { archived: true })).status, 403);
+  await api('admin', 'DELETE', `/groups/${gid}/members/${P.north}`);
+});
+
+test('small-group chats are private to members, staff included; removed members stop getting live messages', async () => {
+  const gid = (await api('north', 'POST', '/groups', { name: 'Prayer Circle', campus_id: 1 })).data.id;
+  const cid = chatOfGroup(gid);
+  await api('north', 'PUT', `/groups/${gid}/members/${P.mem}`, {});
+  await api('north', 'PUT', `/groups/${gid}/members/${P.lead}`, {});
+  assert.equal((await api('mem', 'POST', `/chats/${cid}/messages`, { body: 'Please pray for my mom' })).status, 201);
+  // Not even an admin or the campus's own staff, until they join the group.
+  for (const who of ['admin', 'north']) {
+    assert.equal((await api(who, 'GET', `/chats/${cid}/messages`)).status, 404, `${who} can’t read it`);
+    assert.equal((await api(who, 'GET', `/chats/${cid}`)).status, 404);
+    assert.equal((await api(who, 'POST', `/chats/${cid}/messages`, { body: 'hi' })).status, 404);
+    assert.ok(!(await api(who, 'GET', '/chats')).data.chats.some((c) => c.id === cid));
+  }
+  // Staff still see the group page, but without a chat link.
+  assert.equal((await api('north', 'GET', `/groups/${gid}`)).data.chat_id, null);
+  assert.equal((await api('mem', 'GET', `/groups/${gid}`)).data.chat_id, cid);
+
+  // Live stream: a page that was "viewing" the chat stops receiving once removed.
+  const writes = [];
+  const fakeReq = { user: { id: db.prepare('SELECT id FROM users WHERE person_id = ?').get(P.mem).id, role: 'volunteer', personId: P.mem, campusIds: null } };
+  const stream = { userId: fakeReq.user.id, req: fakeReq, viewing: cid, res: { write: (d) => writes.push(d) } };
+  streams.add(stream);
+  try {
+    // Another member posts: the stream hears about it.
+    assert.equal((await api('lead', 'POST', `/chats/${cid}/messages`, { body: 'Praying' })).status, 201);
+    assert.ok(writes.some((w) => w.includes('Praying')), 'a current member hears it');
+    await api('north', 'DELETE', `/groups/${gid}/members/${P.mem}`);
+    writes.length = 0;
+    // The removed member's account is no longer in the recipient list, so only `viewing` could match it.
+    assert.equal((await api('lead', 'POST', `/chats/${cid}/messages`, { body: 'After removal' })).status, 201);
+    assert.ok(!writes.some((w) => w.includes('After removal')), 'removed member gets nothing');
+    assert.equal(stream.viewing, null);
+  } finally { streams.delete(stream); }
+
+  // Archiving cuts off a viewer too.
+  await api('north', 'PUT', `/groups/${gid}/members/${P.mem}`, {});
+  const s2 = { userId: -1, req: fakeReq, viewing: cid, res: { write: (d) => writes.push(d) } };
+  streams.add(s2);
+  try {
+    await api('north', 'PATCH', `/groups/${gid}`, { archived: true });
+    writes.length = 0;
+    await api('lead', 'POST', `/chats/${cid}/messages`, { body: 'Archived now' });
+    assert.ok(!writes.some((w) => w.includes('Archived now')));
+  } finally { streams.delete(s2); }
+});
+
+test('team chats and DMs still reach viewers and members live', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Live Team' })).data;
+  await api('admin', 'PUT', `/teams/${team.id}/members/${P.mem}`, {});
+  const chat = (await api('mem', 'GET', '/chats')).data.chats.find((c) => c.kind === 'team' && c.name === 'Live Team');
+  const writes = [];
+  const req = { user: { id: db.prepare('SELECT id FROM users WHERE person_id = ?').get(P.mem).id, role: 'volunteer', personId: P.mem, campusIds: null } };
+  const stream = { userId: req.user.id, req, viewing: chat.id, res: { write: (d) => writes.push(d) } };
+  // A staff viewer of the team chat (not a recipient) still hears it while viewing.
+  const adminReq = { user: { id: db.prepare('SELECT id FROM users WHERE person_id = ?').get(P.admin).id, role: 'admin', personId: P.admin, campusIds: null } };
+  const adminWrites = [];
+  const adminStream = { userId: -2, req: adminReq, viewing: chat.id, res: { write: (d) => adminWrites.push(d) } };
+  streams.add(stream); streams.add(adminStream);
+  try {
+    await api('mem', 'POST', `/chats/${chat.id}/messages`, { body: 'Team hello' });
+    assert.ok(writes.some((w) => w.includes('Team hello')));
+    assert.ok(adminWrites.some((w) => w.includes('Team hello')), 'staff viewing a team chat still hear it');
+  } finally { streams.delete(stream); streams.delete(adminStream); }
+});
+
+test('merging people keeps group membership (and leadership) and serving campuses', async () => {
+  const gA = (await api('north', 'POST', '/groups', { name: 'Merge A', campus_id: 1 })).data.id;
+  const gB = (await api('north', 'POST', '/groups', { name: 'Merge B', campus_id: 1 })).data.id;
+  const gC = (await api('north', 'POST', '/groups', { name: 'Merge C', campus_id: 1 })).data.id;
+  const keep = addPerson('Keeper', 1), dup = addPerson('Dupe', 1);
+  const put = (g, p, lead) => db.prepare('INSERT INTO group_members (group_id, person_id, is_leader) VALUES (?, ?, ?)').run(g, p, lead);
+  put(gA, dup, 0);          // only the duplicate is in A
+  put(gB, keep, 0); put(gB, dup, 1);  // both in B, the duplicate led
+  put(gC, keep, 1); put(gC, dup, 0);  // both in C, the kept one led
+  db.prepare('INSERT INTO serving_campuses (person_id, campus_id) VALUES (?, 2), (?, 1), (?, 2)').run(dup, dup, keep);
+  const r = await api('admin', 'POST', `/people/${keep}/merge`, { duplicate_id: dup });
+  assert.equal(r.status, 200);
+  const mem = (g) => db.prepare('SELECT person_id, is_leader FROM group_members WHERE group_id = ?').all(g).map((x) => ({ ...x }));
+  assert.deepEqual(mem(gA), [{ person_id: keep, is_leader: 0 }]);
+  assert.deepEqual(mem(gB), [{ person_id: keep, is_leader: 1 }], 'leadership carries over');
+  assert.deepEqual(mem(gC), [{ person_id: keep, is_leader: 1 }]);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM group_members WHERE person_id = ?').get(dup).n, 0);
+  assert.deepEqual(db.prepare('SELECT campus_id FROM serving_campuses WHERE person_id = ? ORDER BY campus_id').all(keep).map((x) => x.campus_id), [1, 2]);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM serving_campuses WHERE person_id = ?').get(dup).n, 0);
 });

@@ -224,6 +224,13 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE OR IGNORE profile_values SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
+      // Small groups: the kept person leads if either of them did. Same for serving campuses.
+      db.prepare(`UPDATE group_members SET is_leader = 1 WHERE person_id = ? AND is_leader = 0
+        AND group_id IN (SELECT group_id FROM group_members WHERE person_id = ? AND is_leader = 1)`).run(keep.id, dup.id);
+      db.prepare('UPDATE OR IGNORE group_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM group_members WHERE person_id = ?').run(dup.id);
+      db.prepare('UPDATE OR IGNORE serving_campuses SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(dup.id);
       db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       // Fill blanks on the kept record from the duplicate.
