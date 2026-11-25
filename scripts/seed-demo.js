@@ -206,6 +206,19 @@ tx(db, () => {
     if (rand() > 0.3) put(lead, pick(JSON.parse(lead.options)));
   }
 
+  // One simple form, with a couple of responses (made-up people).
+  const formId = ins('forms', {
+    slug: 'volunteer-interest', title: 'Volunteer interest', intro: 'We’d love to help you find a place to serve. Tell us a little about you and someone will be in touch.',
+    questions: JSON.stringify([
+      { id: 'area', label: 'Where would you like to serve?', type: 'multichoice', options: ['Kids', 'Music', 'Welcome team', 'Production'], required: true },
+      { id: 'days', label: 'Which days are best?', type: 'choice', options: ['Sundays', 'Wednesdays', 'Either'], required: false },
+      { id: 'about', label: 'Anything else we should know?', type: 'longtext', required: false },
+    ]),
+    ask_contact: JSON.stringify({ name: 'required', email: 'optional', phone: 'optional' }),
+  });
+  ins('form_responses', { form_id: formId, name: 'Taylor Sample', email: 'taylor@example.com', phone: '555-0142', answers: JSON.stringify({ area: ['Kids', 'Welcome team'], days: 'Sundays', about: 'I help with a youth group at my old church.' }) });
+  ins('form_responses', { form_id: formId, name: 'Jordan Example', answers: JSON.stringify({ area: ['Music'] }), status: 'done', done_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
+
   // A few away dates.
   for (const p of adults.slice(0, 5)) ins('blockouts', { person_id: p.id, start_date: iso(daysFrom(2)), end_date: iso(daysFrom(9)), reason: pick(['Vacation', 'Work trip', 'Family visit']) });
 });

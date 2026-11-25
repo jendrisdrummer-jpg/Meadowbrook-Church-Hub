@@ -39,10 +39,27 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `announcements.js` | announcements, guest push | `announce` flag |
 | `app.js` | `/app/config` (public), App Builder, connect cards, sign-ups, email reply links | mixed |
 | `events.js` | `/events` (public), `/admin/events/*` | staff for admin |
+| `forms.js` | `/public/forms/:slug` (public), `/forms` (signed-in forms), `/admin/forms/*`, `/admin/form-responses/*` | staff for admin; admin deletes |
 | `giving.js`, `finance.js` | checkout (public), my giving, `/finance/*` | `requireFinance` |
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
 | `search.js`, `dashboard.js` | global search, home | volunteer+ (results filtered by role/campus) |
+
+### Forms (`routes/forms.js`)
+
+| Route | Who | Notes |
+|---|---|---|
+| `GET /public/forms/:slug` | guest (signed-in forms: needs a session) | Active forms only (else 404). Returns title, intro, which contact fields to ask and the questions (`id, label, type, options, required`); nothing else. A signed-in form seen by a guest returns `needs_sign_in: true` and no questions. |
+| `POST /public/forms/:slug` | guest (signed-in forms: 401 without a session) | Body `{name, email, phone, answers, website}`. A filled `website` (honeypot) is dropped silently. Rate-limited per address (IPv6 by /64): 30 tries and 10 successful submissions per 10 minutes, and per form 200 per hour: 429. Signed-in forms at another campus than the account's: 404. Returns `{ok: true}` only (no response id). Required fields, choices, dates and lengths are checked: 400. Records `user_id`/`person_id` only from the session. Notifies `notify_user_id` (if still eligible; at most one notice per form per person per 15 minutes) with no answer text. |
+| `GET /forms` | volunteer+ | Active signed-in forms (titles) for the app's More tab, campus-filtered. |
+| `GET /admin/forms`, `GET /admin/forms/:id` | staff | Forms at the account's campuses plus church-wide ones; `can_manage` and response counts only where the account may read responses. |
+| `GET /admin/forms/notify-options` | staff | `?campus_id=` (none = church-wide). Names (`id`, `name`) of active staff/admins who could be told about that form's responses; nothing else. Empty for a campus the account can't access. |
+| `POST /admin/forms`, `PATCH /admin/forms/:id` | staff | Campus-limited staff: their own campuses only, never church-wide. `active: false` archives (audited as `form.archive`). Audited `form.create`, `form.edit`. The slug is chosen at create and then fixed. |
+| `GET /admin/forms/:id/responses`, `.../responses.csv` | staff who manage the form | Church-wide forms: only staff with no campus limit. CSV cells starting `=`, `+`, `-`, `@` are defused (`toCsv`). The CSV export is audited as `form.export` (title and row count). |
+| `PATCH /admin/form-responses/:id` | staff who manage the form | `{done: bool}` marks done or reopens. |
+| `DELETE /admin/form-responses/:id` | admin who manages the form | Audited `form.response_delete`. |
+
+Question types and answer checking are shared with event sign-ups in `server/questions.js`.
 
 Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signature),
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`
