@@ -69,6 +69,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Operations
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
+| Help page: short how-to guides by role (reply to a request, away dates, schedule people, remind, team chat, small groups, feedback, check-in access, getting help); hub `#/help` and app More → Help | ✅ | | `pages/help.js`, `help-content.js`, `member/main.js` |
 | Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | ✅ | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
 | Unlinked accounts tell the office; admins link accounts to people by hand | ✅ | `routes/setup.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script with `--check`; offline mode and [restore drill](restore-drill.md) | 🟡 needs password + Drive | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
