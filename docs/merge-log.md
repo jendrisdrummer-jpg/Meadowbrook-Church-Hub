@@ -20,9 +20,15 @@ rules are in [master-product-roadmap.md](master-product-roadmap.md) §2.
 | 2026-11-25 | #61 | Polish from the browser click-through: group finder "Keep typing…" for leaders below three letters; the Remind confirm isn't styled as destructive | CI green; npm test 57/57 (58/58 after merge); test:ui 174/174; Playwright check | milestone-1 |
 | 2026-11-25 | #60 | Basic forms: staff set up forms in the hub (six question types, contact fields, public or signed-in, a person to tell), guests fill them in on a phone; responses staff-only, CSV, done/reopen. **Migration 35** (`forms`, `form_responses`) | CI green; npm test 81/81; test:ui 206/206; security review (1 Medium, 7 Low) fixed, re-review no High/Medium; QA click-through found a blocking Save bug, fixed, second click-through passed | milestone-1 |
 | 2026-11-25 | #63 | In-app Help page (hub and member app): short how-tos by role for replying, away dates, scheduling, reminders, team chat, small groups, feedback, check-in access, getting help | CI green; npm test; test:ui; every step checked against the demo UI | milestone-1 |
+| 2026-11-25 | #64 | Hashed sign-in session tokens (existing sessions converted at startup and capped to 24 hours); live chat closes on sign-out, deactivate, delete, role/campus/link changes and merges; streams re-check the session and fail closed | CI green; npm test 91/91; test:ui 218/218; security review: no High/Medium, 5 Lows fixed | milestone-1 |
+| 2026-11-25 | #65 | Admin-only account linking (no automatic link by email anywhere); one account per person: audit script, 409 on every path, unique index created at startup only when no duplicates (no data changed) | CI green; npm test 105/105; test:ui 218/218; security review: M1 (dialog unlink kept leader access) and 6 Lows fixed; re-review no High/Medium | milestone-1 |
+| 2026-11-25 | #66 | Linking follow-ups: check-in tick on link, team-leader rule on create and merge, honest wording about automatic leader access | CI green; npm test 106/106; test:ui 218/218 | milestone-1 |
+| 2026-11-25 | #67 | IPv6-aware shared rate limits (/64 and /48), sign-in limiter hardening, code emails only to eligible addresses with a new-accounts cap and no timing tell, Settings → Checks, forms retention recommendation | CI; npm test 125/125; test:ui 224/224; security review: 3 Medium + 5 Low fixed; re-review: 2 new Medium + 2 Low fixed; final check | milestone-1 |
 
 **Migrations waiting for the next deploy:** 30 (`users.link_requested_at`), 31 (`feedback`), 32 (`serving_campuses`), 33 (small groups), 34 (`assignments.nudged_at`), 35 (forms). All additive. They run automatically on
 production when `milestone-1` is merged to `main`, which needs the owner's approval; take a backup first.
+
+**Before deploy:** see [beta-readiness.md](beta-readiness.md) §1 (deployment gate). After a rollback to an older release, clear `sessions` (after a backup).
 
 **At go-live:** add serving campuses for volunteers who serve at more than one campus (otherwise they are only offered at their home campus).
 
