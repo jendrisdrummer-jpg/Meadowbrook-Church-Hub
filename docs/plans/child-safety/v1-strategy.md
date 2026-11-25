@@ -11,6 +11,10 @@ Church Hub schedule.
 - This page is the consolidated result.
 - Where they still differ, the stricter safe choice was taken, and the difference is noted.
 
+**Amended by [subsplash-cutover.md](subsplash-cutover.md):** Meadowbrook uses Subsplash for check-in today, so the Hub's
+check-in is not yet live at the desk. That page changes the route to launch and adds the cutover work; **every safety
+requirement on this page stands.** Where the two differ on timing or interim steps, the cutover page governs.
+
 **If the owner approves this page,** it sets the scope of the **first release (V1)**. The revision 3.2 design
 ([revision-3.2.md](revision-3.2.md), [plan.md](plan.md)) stays as the reference for Version 2 and 3. **No child-safety
 requirement is weakened.** Some are now met by a simpler mechanism or by a documented manual step with a named owner.
