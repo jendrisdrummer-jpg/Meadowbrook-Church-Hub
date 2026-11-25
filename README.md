@@ -23,8 +23,8 @@ on tablets. Everyone signs in with a Google account (church or personal).
 | **1. People & planning** | People and households, campuses, teams, service plans and songs, volunteer scheduling, attendance, kids' check-in with name tags | Faith Teams | **Built** |
 | 2. Discipleship | Growth pathway and next steps, mentor pairs with meeting logs, small groups, new-guest follow-up | (new) | Next |
 | 3. Team communication | A chat for every team plus groups, with photos, files, replies, reactions and @mentions; tasks with due dates, reminders, checklists and comments | Google Chat | **Built** |
-| 4. Website & member app | Public website, sermons, events, connect forms, an installable member app | Subsplash | Planned |
-| 5. Giving | Online giving with Stripe, funds, year-end statements | Subsplash Giving / Faith Teams giving | Planned |
+| **4. Member app & media** | Installable member app with App Builder, events with sign-ups, announcements, media library, live streaming (Mux), podcast. Public website still to come | Subsplash | **Built** (website planned) |
+| **5. Giving** | Online giving with Stripe, funds, recurring gifts, cash/check batches, year-end statements | Subsplash Giving / Faith Teams giving | **Built** |
 
 ## Try it (no setup needed)
 
@@ -562,7 +562,9 @@ Render can also snapshot the disk; that's a useful extra, but it isn't off-site.
 | Edit people, services, rooms; schedule any team | | | ✓ | ✓ |
 | Settings, campuses, accounts, import, merge duplicates | | | | ✓ |
 
-Any account can be limited to some campuses.
+Any account can be limited to some campuses. Two permissions sit on top of the role: **Finance**
+(giving records; never automatic, not even for admins) and **Announcements** (admins always have
+it). The full rules are in [docs/permissions.md](docs/permissions.md).
 
 ## For developers
 
@@ -576,4 +578,9 @@ Any account can be limited to some campuses.
 - Database changes go in a **new** entry at the end of `MIGRATIONS` in `server/db.js`. Never
   edit one that has shipped.
 - `npm run dev` runs with test sign-in and auto-restart. `npm test` runs the test suite.
+  `npm run test:ui` runs a browser and phone-size check of every main page (needs Playwright
+  installed globally: `npm i -g playwright && npx playwright install chromium`).
+- **How it's built and how to change it** (architecture, database, permissions, design system,
+  testing, release checklist, roadmap): [docs/README.md](docs/README.md). Guidance for Claude
+  Code and its agent team: [CLAUDE.md](CLAUDE.md) and [docs/agent-workflow.md](docs/agent-workflow.md).
 - Every API change requires the `x-mb: 1` header, which blocks cross-site request forgery.
