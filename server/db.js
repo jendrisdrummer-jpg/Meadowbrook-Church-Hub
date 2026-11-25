@@ -912,6 +912,11 @@ const MIGRATIONS = [
   CREATE UNIQUE INDEX chats_group ON chats (group_id) WHERE group_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS audit_log_action_user ON audit_log (action, user_id, at);
   `,
+  // 34: when a leader last nudged someone who hadn't replied (Remind people), kept apart from
+  // reminded_at so a manual nudge never cancels the automatic reminder.
+  `
+  ALTER TABLE assignments ADD COLUMN nudged_at TEXT;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

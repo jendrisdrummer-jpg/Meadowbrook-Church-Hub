@@ -43,7 +43,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 2 | Merge a duplicate person | Admin | One record left, history kept |
 | 3 | Add someone to a team and position | Leader | Roster updated; team chat membership follows |
 | 4 | Create a repeating service and an order of service from a template | Staff | Services appear on the calendar; plan filled |
-| 5 | Schedule a volunteer, send requests, accept and decline | Leader → volunteer | Push/inbox; decline reaches leader; conflicts and away dates respected |
+| 5 | Schedule a volunteer, send requests, accept and decline; remind those who haven’t replied | Leader → volunteer | Push/inbox; decline reaches leader; reminders skip accepted/declined/unsent and repeat only after 12 hours; conflicts and away dates respected |
 | 6 | Roll call and kids' check-in/out (also from a paired station) | Leader / station | Attendance recorded; name tags; check-out by code |
 | 7 | Create an event with sign-up questions (and a paid one) | Staff → guest | Event in app calendar; sign-up recorded; capacity honoured |
 | 8 | Send an announcement (now and scheduled) | Announcements flag | Inbox + push; guests get push; audience respected |
