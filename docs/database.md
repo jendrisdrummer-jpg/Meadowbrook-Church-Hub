@@ -37,7 +37,7 @@ Arrows show the main references.
 | `people` → households, campuses | Everyone in the directory: contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. |
 | `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme`, `link_requested_at` (an unlinked account last asked the office to link it). |
-| `sessions` → users | Session tokens. |
+| `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. |
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
@@ -117,4 +117,4 @@ Where the sensitive data lives, so reviews know where to look (standards in
 | Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
 | Private communication | `messages`, `message_files`, `task_comments`, `notifications` |
-| Credentials | `users.password_hash`, `sessions`, `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |
+| Credentials | `users.password_hash`, `sessions` (hashed), `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |
