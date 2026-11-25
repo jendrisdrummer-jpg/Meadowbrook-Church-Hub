@@ -695,6 +695,52 @@ test('leading a team gives leader access, and takes it back only if it came from
   assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
 });
 
+test('unlinked accounts: the office is told once, only an admin links them, and nothing links automatically', async () => {
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  // An account an admin added without choosing a person (nobody in People has this email).
+  const made = await api('admin', 'POST', '/users', { email: 'newstaff@example.org', role: 'volunteer' });
+  assert.equal(made.status, 201);
+  const uid = made.data.id;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.unlinked = v.split(';')[0]; } }, uid);
+  assert.equal((await api('unlinked', 'GET', '/my/schedule')).data.linked, false);
+  assert.equal((await api('unlinked', 'GET', '/app/config')).data.user.linked, false);
+
+  // Showing the "we've told the office" screen asks once; admins get one notification, not one per visit.
+  const notes = () => db.prepare("SELECT title, url FROM notifications WHERE user_id = ? AND kind = 'account'").all(adminId);
+  const before = notes().length;
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: false, notified: true });
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: false, notified: false });
+  assert.equal(notes().length, before + 1);
+  assert.match(notes().at(-1).title, /newstaff@example\.org/);
+  assert.equal(notes().at(-1).url, '/#/settings/accounts');
+  // Asking never links the account to anyone, even when People has someone who could match.
+  await api('admin', 'POST', '/people', { first_name: 'Newstaff', last_name: 'Example', campus_id: 1, force: true });
+  await api('unlinked', 'POST', '/me/link-request');
+  assert.equal(db.prepare('SELECT person_id FROM users WHERE id = ?').get(uid).person_id, null);
+
+  // Admins see it in the list of unlinked accounts; nobody else can see that list or link.
+  const list = await api('admin', 'GET', '/users');
+  assert.ok(list.data.unlinked.some((u) => u.id === uid && u.link_requested_at));
+  const person = (await api('admin', 'POST', '/people', { first_name: 'Nora', last_name: 'Newstaff', email: 'nora@church.org', campus_id: 1 })).data;
+  for (const role of ['north', 'vol', 'unlinked']) {
+    assert.equal((await api(role, 'GET', '/users')).status, 403, role);
+    assert.equal((await api(role, 'PATCH', `/users/${uid}`, { person_id: person.id })).status, 403, role);
+  }
+  assert.equal(db.prepare('SELECT person_id FROM users WHERE id = ?').get(uid).person_id, null);
+
+  // An admin links it to the person they chose; the account then sees that person's schedule.
+  assert.equal((await api('admin', 'PATCH', `/users/${uid}`, { person_id: 999999 })).status, 404);
+  assert.equal((await api('admin', 'PATCH', `/users/${uid}`, { person_id: person.id })).status, 200);
+  assert.equal((await api('unlinked', 'GET', '/my/schedule')).data.linked, true);
+  assert.equal((await api('admin', 'GET', '/users')).data.unlinked.some((u) => u.id === uid), false);
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: true, notified: false });
+  // One person, one account: a second account can't be linked to the same person.
+  const other = (await api('admin', 'POST', '/users', { email: 'second@example.org', role: 'volunteer' })).data.id;
+  const dup = await api('admin', 'PATCH', `/users/${other}`, { person_id: person.id });
+  assert.equal(dup.status, 409);
+  assert.match(dup.data.error, /already has an account/);
+});
+
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
   // People with accounts: a team leader, two team members, and someone not on the team.
   const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Chat', campus_id: 1, email: `${first.toLowerCase()}@chat.org` })).data;

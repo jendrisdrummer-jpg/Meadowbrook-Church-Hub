@@ -854,6 +854,11 @@ const MIGRATIONS = [
   ALTER TABLE media ADD COLUMN audio_status TEXT NOT NULL DEFAULT '';       -- '' | making | ready | failed
   ALTER TABLE media ADD COLUMN audio_size INTEGER;
   `,
+  // 30: when an account that isn't linked to a person last asked the office to link it, so admins
+  // are told once (not on every visit).
+  `
+  ALTER TABLE users ADD COLUMN link_requested_at TEXT;
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {

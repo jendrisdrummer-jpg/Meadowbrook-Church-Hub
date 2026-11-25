@@ -338,7 +338,17 @@ async function accounts(panel, q = '') {
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
       <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
-    </tbody></table></div>`);
+    </tbody></table></div>
+  <div class="card" style="margin-top:14px" data-unlinked>
+    <h2>Accounts not linked to a person</h2>
+    <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically: choose the right person for each one.</p>
+    ${list.unlinked.length ? html`<table class="list"><thead><tr><th>Email</th><th>Access</th><th>Asked to be linked</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+      ${list.unlinked.map((u) => html`<tr><td>${u.email}</td><td><span class="pill">${u.role}</span></td>
+        <td class="small muted">${u.link_requested_at ? new Date(u.link_requested_at + 'Z').toLocaleDateString() : '—'}</td>
+        <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td>
+        <td><button class="btn small" data-link-account="${u.id}">Link to person…</button></td></tr>`)}
+    </tbody></table>` : html`<p class="muted">Every account is linked to a person.</p>`}
+  </div>`);
   panel.querySelector('[data-signin]').onsubmit = async (e) => {
     e.preventDefault();
     try { await save(formData(e.target)); } catch (err) { fail(err); }
@@ -382,7 +392,16 @@ async function accounts(panel, q = '') {
     if (ok) accounts(panel, q);
   };
   panel.querySelector('[data-search]').onsubmit = (e) => { e.preventDefault(); accounts(panel, e.target.q.value.trim()); };
-  panel.onclick = (e) => {
+  panel.onclick = async (e) => {
+    const linkBtn = e.target.closest('[data-link-account]');
+    if (linkBtn) {
+      const u = list.unlinked.find((x) => x.id === Number(linkBtn.dataset.linkAccount));
+      const p = await pickPerson(`Link ${u.email} to which person?`);
+      if (!p) return;
+      if (!(await dialog({ title: `Link this account to ${displayName(p)}?`, body: html`<p>${u.email} will see ${displayName(p)}’s schedule, teams and chats. Only link it if you’re sure this account belongs to them.</p>`, submit: 'Link' }))) return;
+      try { await patch(`/users/${u.id}`, { person_id: p.id }); toast('Account linked.'); accounts(panel, q); } catch (err) { fail(err); }
+      return;
+    }
     if (e.target.closest('[data-clear]')) return accounts(panel);
     if (e.target.closest('[data-add]')) return edit();
     const tr = e.target.closest('tr[data-id]');

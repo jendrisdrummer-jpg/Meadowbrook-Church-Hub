@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
+import { notify } from '../notify.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -144,6 +145,25 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     res.json({ ok: true });
   });
 
+  // An account that isn't linked to a person in People asks the office to link it. Admins are told
+  // (at most once a week per account); nothing is ever linked automatically: an admin picks the person.
+  r.post('/me/link-request', requireRole('volunteer'), (req, res) => {
+    if (req.user.personId) return res.json({ linked: true, notified: false });
+    const u = db.prepare('SELECT link_requested_at FROM users WHERE id = ?').get(req.user.id);
+    const recent = u?.link_requested_at && Date.parse(`${u.link_requested_at}Z`) > Date.now() - 7 * 864e5;
+    if (recent) return res.json({ linked: false, notified: false });
+    db.prepare("UPDATE users SET link_requested_at = datetime('now') WHERE id = ?").run(req.user.id);
+    const admins = db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin'").all().map((a) => a.id);
+    notify(db, admins, {
+      kind: 'account',
+      title: `Account needs linking: ${req.user.email}`,
+      body: 'They signed in, but their account isn’t linked to a person in People. Link it in Settings → Sign-in & accounts.',
+      url: '/#/settings/accounts',
+    });
+    audit(db, req, 'user.link_request', req.user.email);
+    res.json({ linked: false, notified: true });
+  });
+
   // Accounts with more than volunteer access, or (?q=) anyone matching a search. Everyone in
   // People gets a volunteer account by signing in, so those don't need listing.
   r.get('/users', requireRole('admin'), (req, res) => {
@@ -155,7 +175,10 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
-    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })), volunteers, people_with_email: withEmail });
+    // Active accounts not linked to anyone in People: an admin links each one by hand.
+    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at FROM users
+      WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT 200`).all();
+    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })), volunteers, people_with_email: withEmail, unlinked });
   });
 
   // Removes the sign-in (and its sessions and devices). The person stays in People.
@@ -170,6 +193,16 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     audit(db, req, 'user.delete', u.email);
     res.json({ ok: true });
   });
+
+  // The person an admin chose to link an account to: must exist, not be archived, and not already
+  // have another account (one person, one sign-in). null unlinks.
+  function linkablePerson(value, userId) {
+    const pid = int(value);
+    if (pid == null) return null;
+    if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(pid)) throw notFound('Person');
+    if (db.prepare('SELECT 1 FROM users WHERE person_id = ? AND id != ?').get(pid, userId ?? 0)) throw new HttpError(409, 'That person already has an account. Unlink it there first.');
+    return pid;
+  }
 
   r.post('/users', requireRole('admin'), (req, res) => {
     const b = req.body || {};
@@ -189,7 +222,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const b = { ...req.body };
     if (b.role !== undefined) b.role = oneOf(b.role, ROLES, u.role);
     if (b.campus_ids !== undefined) b.campus_ids = campusList(b.campus_ids);
-    if (b.person_id !== undefined) b.person_id = int(b.person_id);
+    if (b.person_id !== undefined) b.person_id = linkablePerson(b.person_id, u.id);
     // Never let the last admin lock everyone out.
     if (u.role === 'admin' && ((b.role && b.role !== 'admin') || b.active === false || b.active === 0)) {
       const admins = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n;

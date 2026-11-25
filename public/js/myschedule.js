@@ -10,7 +10,8 @@ const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 export async function drawSchedule(el, { planHref, decline: askDecline, notifyCard } = {}) {
   const d = await get('/my/schedule');
   if (!d.linked) {
-    mount(el, html`<div class="alert info">Your sign-in isn’t linked to a person in the church directory yet, so there’s no schedule to show. Ask a church admin to link your account in Settings → Accounts.</div>`);
+    mount(el, html`<div class="alert info">Your account isn’t connected to your record in the church directory yet, so there’s no schedule to show. We’ve let the church office know; they’ll connect it, and your schedule will appear here.</div>`);
+    post('/me/link-request', {}).catch(() => {});
     return;
   }
   const status = (a) => ({
