@@ -131,7 +131,8 @@ cover every campus."). Code: `accountInReach` and `requireAllCampuses` in `serve
 
 **Accounts in reach.** For a limited admin with campuses C, an account is in reach when it is not
 their own, is not an admin, and is either a volunteer who is unlinked or linked to a person at a
-campus in C, or a leader or staff account whose own campus list is set and sits inside C. Everything
+campus in C or with no campus yet (as elsewhere, unassigned people are open to every campus; giving
+them more access still needs a campus list inside C), or a leader or staff account whose own campus list is set and sits inside C. Everything
 else is out of reach: 403 on change, delete and check-in grants, and left out of Settings → Accounts
 (the main list, "not linked" and "more than one account").
 
@@ -154,7 +155,7 @@ when that account is out of reach.
 
 | Route | Scope | Limited admin |
 |---|---|---|
-| `PATCH /settings` | Church-wide (sign-in policy, domain, code cap, reminders, name, brand) | 403 |
+| `PATCH /settings` | Church-wide (sign-in policy, domain, code cap, reminders, name, brand, name tags, headcount areas) | 403 (Settings hides those forms and says so; kids' rooms for their campus stay editable) |
 | `POST /app-icon/:size`, `DELETE /app-icon` | Church-wide (the installed app's icon) | 403 |
 | `POST /campuses` | Church-wide (creates a campus) | 403 |
 | `PATCH /campuses/:id` | Campus-scoped | Own campuses only |

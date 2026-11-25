@@ -124,7 +124,9 @@ export function requireAllCampuses(req, res, next) {
 export function accountInReach(user, t) {
   if (!user.campusIds) return true;
   if (t.id === user.id || t.role === 'admin') return false;
-  if (t.role === 'volunteer') return t.person_id == null || (t.person_campus_id != null && user.campusIds.includes(Number(t.person_campus_id)));
+  // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
+  // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
+  if (t.role === 'volunteer') return t.person_id == null || t.person_campus_id == null || user.campusIds.includes(Number(t.person_campus_id));
   const ids = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
   return Array.isArray(ids) && ids.every((c) => user.campusIds.includes(Number(c)));
 }

@@ -131,7 +131,8 @@ function squarePng(file, size) {
 async function checkin(panel) {
   const s = await get('/settings');
   mount(panel, html`<div class="stack" style="max-width:820px">
-    <form class="card stack" data-labels>
+    ${limitedAdmin() ? html`<div class="alert info small">Name tags and headcount areas are the same for every campus, so an admin who covers every campus changes them. Kids' rooms for your campus are below.</div>` : ''}
+    <form class="card stack" data-labels ${limitedAdmin() ? 'hidden' : ''}>
       <h2>Name tags</h2>
       <label class="field">Label printer and size<select name="label_size">${options([
         { value: 'brother-62x29', label: 'Brother QL: 62 × 29 mm (DK-1209)' },
@@ -143,7 +144,7 @@ async function checkin(panel) {
       <label class="check"><input type="checkbox" name="checkin_print_parent_tag" ${s.checkin_print_parent_tag ? 'checked' : ''}> Print a parent pickup tag with each check-in</label>
       <div class="row end"><button class="btn primary">Save</button></div>
     </form>
-    <div class="card"><h2>Headcount areas</h2>
+    <div class="card" ${limitedAdmin() ? 'hidden' : ''}><h2>Headcount areas</h2>
       <p class="muted small">The rooms you count on each service’s Attendance tab.</p><div data-areas></div></div>
     <div data-rooms></div>
   </div>`);

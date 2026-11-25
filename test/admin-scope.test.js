@@ -269,3 +269,12 @@ test('duplicate links show a limited admin only accounts in reach', async () => 
   assert.equal((await call('A', 'GET', '/users')).data.duplicate_links.length, 2);
   assert.ok(b1 && b2);
 });
+
+test('a volunteer linked to someone with no campus yet is manageable; more access still stays inside the admin’s campuses', async () => {
+  const nobody = addPerson('Nocamp', null);
+  const v = addUser('nocamp@x.test', 'volunteer', { person: nobody });
+  assert.ok((await call('N', 'GET', '/users?q=nocamp')).data.users.some((u) => u.id === v), 'found by search for the campus admin');
+  assert.equal((await call('N', 'PATCH', `/users/${v}`, { role: 'leader' })).status, 200);
+  assert.deepEqual(camps(v), [1], 'promoted inside the admin’s campuses only');
+  assert.equal((await call('N', 'PATCH', `/users/${v}`, { campus_ids: 'all' })).status, 403);
+});
