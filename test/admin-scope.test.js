@@ -302,8 +302,11 @@ test('re-review M1: the team-leader rule never makes a leader for a campus the a
   const ka = addUser('keepme-m1@x.test', 'volunteer', { person: keep });
   db.prepare("UPDATE users SET campus_ids = '[1,2]' WHERE id = ?").run(ka);
   const m = await call('N', 'POST', `/people/${keep}/merge`, { duplicate_id: dup });
-  assert.ok(m.status < 300 || m.status === 403, `merge: ${m.status}`);
-  if (row(ka).role === 'leader') assert.deepEqual(camps(ka), [1]);
+  assert.equal(m.status, 200, `merge: ${m.status}`);
+  assert.equal(row(ka).role, 'leader');
+  assert.deepEqual(camps(ka), [1]);
+  const narrowed = JSON.parse(db.prepare("SELECT detail FROM audit_log WHERE action = 'user.leader_auto' AND detail LIKE ? ORDER BY id DESC").get(`%\"user_id\":${ka},%`).detail);
+  assert.deepEqual([narrowed.campus_ids_before, narrowed.campus_ids_after], [[1, 2], [1]], 'the audit records the change');
   // An unrestricted admin keeps the older behaviour.
   const ua = addUser('free-m1@x.test', 'volunteer', { campus: [2], person: addPerson('Freeone', 1) });
   db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, row(ua).person_id);
@@ -317,6 +320,8 @@ test('re-review L1, L2: Finance/Announcements holders and listed admin emails st
   db.prepare('UPDATE users SET finance = 1 WHERE id = ?').run(fin);
   assert.equal((await call('N', 'PATCH', `/users/${fin}`, { active: false })).status, 403);
   assert.equal((await call('N', 'DELETE', `/users/${fin}`)).status, 403);
+  assert.ok(!(await call('N', 'GET', '/users')).data.unlinked.some((u) => u.id === fin), 'not listed for the campus admin');
+  assert.ok((await call('A', 'GET', '/users')).data.unlinked.some((u) => u.id === fin), 'listed for an unrestricted admin');
   const keep = process.env.MB_ADMIN_EMAILS;
   process.env.MB_ADMIN_EMAILS = 'listed-l2@x.test';
   try {

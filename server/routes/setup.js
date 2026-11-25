@@ -199,9 +199,9 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
     // Active accounts not linked to anyone in People: an admin links each one by hand.
     // (A campus-limited admin sees only the accounts they could manage, in all three lists.)
-    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids FROM users
+    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT ${limited ? 5000 : 200}`).all()
-      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, ...u }) => u);
+      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => u);
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)

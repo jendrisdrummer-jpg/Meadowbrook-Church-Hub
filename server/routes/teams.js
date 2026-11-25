@@ -166,12 +166,14 @@ function syncOne(db, user, personId, leads, req, personCampus) {
       // docs/permissions.md.)
       const actor = req?.user?.campusIds;
       const current = user.campus_ids == null ? null : JSON.parse(user.campus_ids);
+      let narrowed = {};
       if (actor && (current == null || !current.every((c) => actor.includes(Number(c))))) {
         const ids = personCampus != null && actor.includes(Number(personCampus)) ? [Number(personCampus)] : actor;
         db.prepare('UPDATE users SET campus_ids = ? WHERE id = ?').run(JSON.stringify(ids), user.id);
+        narrowed = { campus_ids_before: current, campus_ids_after: ids };
       }
       closeStreams({ userId: user.id });
-      audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true });
+      audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true, ...narrowed });
     }
     // No account yet: nothing is created here. People get an account by signing in, and an admin
     // links it to them by hand (we never connect an account to a person by matching email).
