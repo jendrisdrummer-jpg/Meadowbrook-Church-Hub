@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (34 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (35 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -42,6 +42,8 @@ Arrows show the main references.
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
 | `feedback` → users, campuses | Feedback from staff and leaders: category, severity, text, page, status, an admin-only note, and `done_note` (what was done, shown to everyone as "You said, we did"). |
+| `forms` → campuses, users | Simple staff-configured forms: unique `slug` (the public link; never changes), `title`, `intro`, `campus_id` (NULL = church-wide), `questions` JSON `[{id, label, type, options, required}]` (types text, longtext, choice, multichoice, yesno, date), `audience` (`public` or `signed_in`), `ask_contact` JSON (name/email/phone each `off`, `optional` or `required`), `active` (off = archived: link stops working, responses stay), `notify_user_id`. |
+| `form_responses` → forms (cascade), users, people | One response: typed `name`/`email`/`phone`, `answers` JSON, `status` (`new`/`done`) with `done_by`/`done_at`. `user_id` and `person_id` are set **only** from the signed-in account (its linked person), never from a typed email or name. Staff-only. |
 
 ### Teams, services and scheduling
 | Table | Purpose |
@@ -111,8 +113,8 @@ Where the sensitive data lives, so reviews know where to look (standards in
 | Class | Tables / columns |
 |---|---|
 | Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code` |
-| Contact details | `people`, `households`, `connect_cards`, `event_signups` |
-| Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message` |
+| Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
+| Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
 | Private communication | `messages`, `message_files`, `task_comments`, `notifications` |
 | Credentials | `users.password_hash`, `sessions`, `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |

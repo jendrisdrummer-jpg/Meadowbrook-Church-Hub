@@ -1613,10 +1613,12 @@ test('events: calendar, sign-ups with questions and a cap, paid sign-ups through
   assert.equal(list.rows.find((r) => r.status === 'canceled').name, 'Gus Guest');
   assert.ok(!('key' in list.rows[0]));
   await api('admin', 'POST', `/admin/events/${potluck.id}/signups`, { name: 'Phone Call Phil', count: 1, answers: { dish: 'Main' } });
+  await api('admin', 'POST', `/admin/events/${potluck.id}/signups`, { name: '=1+1', count: 1, answers: { dish: '@cmd' } });
   const csv = await fetch(`${base}/api/admin/events/${potluck.id}/signups.csv`, { headers: { cookie: cookies.admin } }).then((r) => r.text());
   assert.match(csv, /^Name,Email,Phone,People,What are you bringing\?,Bringing kids\?,Paid,Signed up/);
   assert.match(csv, /Phone Call Phil,,,1,Main/);
   assert.ok(!/Gus Guest/.test(csv));
+  assert.ok(csv.includes("'=1+1,") && csv.includes("'@cmd"), 'leading = and @ are defused in the sign-up CSV');
   assert.equal((await api('vol', 'GET', `/admin/events/${potluck.id}/signups`)).status, 403);
 
   // Paid events: checkout by card, confirmed by the webhook, which doesn't count as a gift.

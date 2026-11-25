@@ -34,6 +34,7 @@ const NAV = [
   ] },
   { group: 'Church app', items: [
     { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader' },
+    { path: '/forms', label: 'Forms', icon: 'file', min: 'staff' },
     { path: '/announcements', label: 'Announcements', icon: 'bell', min: 'volunteer', announce: true },
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
   ] },
@@ -82,6 +83,7 @@ const ROUTES = [
   [/^\/templates\/(\d+)$/, 'template'],
   [/^\/attendance$/, 'attendance'],
   [/^\/connect$/, 'connect'],
+  [/^\/forms(?:\/(new|\d+)(?:\/(responses))?)?$/, 'forms'],
   [/^\/announcements$/, 'announcements'],
   [/^\/stations$/, 'stations'],
   [/^\/media(?:\/(published|skipped|hidden|setup|podcast))?$/, 'media'],

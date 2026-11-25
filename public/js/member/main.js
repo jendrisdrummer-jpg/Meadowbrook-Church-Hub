@@ -13,6 +13,7 @@ import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
 import { helpList } from '../help-content.js';
+import { formPage } from './forms.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -92,6 +93,7 @@ async function route() {
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'help') { drawTabs('more'); return await helpPage(el); }
+    if (parts[0] === 'form' && parts[1]) { drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
       drawTabs('more');
@@ -405,6 +407,7 @@ async function more(el, tab, q) {
   const extra = app.config.tabs.filter((t) => !t.on && t.type !== 'more' && ['page', 'link', 'watch', 'give', 'connect'].includes(t.type));
   const share = html`<svg class="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
   const showInstall = !isInstalled() && (isMobile || q.get('install'));
+  const forms = app.user && !preview ? await get('/forms').catch(() => []) : []; // forms for signed-in people
   mount(el, html`<div class="card">${app.user
       ? html`<div class="row"><b>${app.user.name}</b><span class="spacer"></span><button class="btn small ghost" data-logout>Sign out</button></div>`
       : html`<div class="row"><span>Signed out</span><span class="spacer"></span><a class="btn small primary" href="${signInHref('/more')}">Sign in</a></div>`}</div>
@@ -419,6 +422,7 @@ async function more(el, tab, q) {
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
       <div data-groups style="display:contents"></div>
       ${app.user && !tasksTab()?.on ? html`<a href="#/tasks">${icon('check')}<span class="grow">Tasks</span><span class="nav-badge hidden" data-badge="tasks"></span></a>` : ''}
+      ${forms.map((x) => html`<a href="#/form/${x.slug}">${icon('file')}<span class="grow">${x.title}</span></a>`)}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}

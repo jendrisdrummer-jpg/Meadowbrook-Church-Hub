@@ -34,6 +34,22 @@ Anyone signed in can send feedback (rate-limited) and see what they sent and wha
 Admins see all of it from their campuses (and feedback with no campus), with who sent it, and set the status and notes. A sender can only tag a campus they belong to. Admin notifications say who sent it and what kind, never the text. The "You said, we did" list
 (`GET /feedback/done`) shows only admins' notes on finished items: no names and no original text.
 
+## Forms
+
+Staff and admins set up forms (Church app → Forms). A campus-limited account can create and edit forms only
+for its own campuses, never church-wide ones, and sees another campus's forms nowhere. **Responses are
+staff-only.** For a campus form they are readable by staff who can access that campus; for a church-wide
+form only by staff with no campus limit (campus-limited staff see the form in the list but no counts or
+answers). Marking a response done is staff; deleting one is admin and audited. Anyone can fill in a
+public form without an account (rate-limited, with a hidden honeypot field); a signed-in form needs a
+session of any role, and for a campus form the account must be able to access that campus (otherwise 404,
+the same rule as the app's More tab). A response is linked to a person **only** through the signed-in account's own linked
+person: a typed email or name never links to anyone. The "tell this person" notice carries no answers
+("Open Forms in the Hub to read it."), and the person chosen must be staff who can see that form's responses. That is checked again when a response
+arrives, so someone demoted, switched off or limited since is simply not told; a person gets at most one notice
+per form every 15 minutes. Exporting responses to CSV is audited (`form.export`: title and row count, never
+answers). Don't collect children's medical or safeguarding details in forms; check-in is the place for that.
+
 ## Roles (ranked)
 
 `volunteer` < `leader` < `staff` < `admin`. A route guarded with `requireRole('leader')` lets
@@ -50,7 +66,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | See people, teams, attendance; run check-in; add families; connect cards | | ✓ | ✓ | ✓ |
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
-| Events, Media, App Builder, check-in stations | | | ✓ | ✓ |
+| Events, Forms, Media, App Builder, check-in stations | | | ✓ | ✓ |
 | Settings, campuses, accounts, profile fields, import, merge duplicates, backups, reset Mux key | | | | ✓ |
 
 ## Permission flags (on top of the role)

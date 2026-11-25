@@ -917,6 +917,42 @@ const MIGRATIONS = [
   `
   ALTER TABLE assignments ADD COLUMN nudged_at TEXT;
   `,
+  // 35: basic forms. Staff set up simple forms (volunteer interest, a request, a survey) in the hub;
+  // guests or signed-in people fill them in on a phone. One model, not a form builder. Every
+  // response is staff-only. person_id is set only from a signed-in account's linked person, never
+  // from a typed name or email.
+  `
+  CREATE TABLE forms (
+    id INTEGER PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,                            -- in the public link; never changes
+    title TEXT NOT NULL,
+    intro TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,   -- NULL = church-wide
+    questions TEXT NOT NULL DEFAULT '[]',                 -- [{id, label, type, options, required}]
+    audience TEXT NOT NULL DEFAULT 'public',              -- public | signed_in
+    ask_contact TEXT NOT NULL DEFAULT '{"name":"required","email":"optional","phone":"off"}',  -- off | optional | required
+    active INTEGER NOT NULL DEFAULT 1,
+    notify_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE form_responses (
+    id INTEGER PRIMARY KEY,
+    form_id INTEGER NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,   -- only from the signed-in account's linked person
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    answers TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'new',                   -- new | done
+    done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    done_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX form_responses_form ON form_responses(form_id, created_at);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
