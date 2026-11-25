@@ -125,7 +125,7 @@ const SECTIONS = [
     hub: [
       html`Staff and admins can use it. Team leaders can use it once the church office has given them access.`,
       html`If you need to use it, ask the church office to give your account access.`,
-      html`When you have access, you’ll see ${b('Kids Check-in')} in the menu.`,
+      html`It’s ${b('Kids Check-in')} in the menu. Without access, it tells you to ask the office.`,
     ],
     note: 'Step-by-step help for check-in is coming separately.',
   },
