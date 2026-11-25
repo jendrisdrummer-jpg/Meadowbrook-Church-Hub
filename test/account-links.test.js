@@ -258,3 +258,28 @@ test('the audit script is read-only and prints no emails or names unless --show 
   assert.equal(usersOf(), before, 'no accounts changed (and the startup step only warned)');
   assert.match(fs.readFileSync('scripts/audit-account-links.js', 'utf8'), /new DatabaseSync\(file, \{ readOnly: true \}\)/, 'opens the database read-only');
 });
+
+test('admin linking applies the usual team-leader rule; unlinking takes back only automatic leader access', async () => {
+  const team = Number(db.prepare("INSERT INTO teams (name) VALUES ('Link Crew')").run().lastInsertRowid);
+  const leaderP = addPerson(db, 'Leah', 'leah@gmail.com');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, leaderP);
+  const u = addUser(db, 'leah@gmail.com');
+  const role = () => db.prepare('SELECT role, role_auto FROM users WHERE id = ?').get(u);
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: leaderP })).status, 200);
+  assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.leader_auto' AND detail LIKE ?").get(`%"user_id":${u}%`));
+  // Unlinking takes back the automatic leader access, not access set by hand.
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: null })).status, 200);
+  assert.deepEqual({ ...role() }, { role: 'volunteer', role_auto: 0 });
+  // A role chosen by hand at link time is kept as chosen.
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: leaderP, role: 'staff' })).status, 200);
+  assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
+  await s.api('PATCH', `/users/${u}`, { person_id: null });
+  assert.equal(role().role, 'staff', 'hand-set access never changes automatically');
+  // Creating an account for a team leader, linked by the admin, gives leader access too.
+  const p2 = addPerson(db, 'Lon', 'lon@gmail.com');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, p2);
+  const made = await s.api('POST', '/users', { email: 'lon@gmail.com', person_id: p2 });
+  assert.equal(made.status, 201);
+  assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(made.data.id).role, 'leader');
+});

@@ -49,7 +49,9 @@ new account that waits for an admin. Someone with a matching email in People sig
 "We've let the church office know" until an admin links them.
 
 Leading a team gives leader access to the person's account if they have a linked one; it no longer
-creates an account.
+creates an account. When an admin links an account to someone who already leads a team, the same rule
+applies at that moment (audited as `user.leader_auto`), unless the admin chose a role by hand.
+Unlinking takes back leader access only if it came from leading a team; access set by hand stays.
 
 ## Feedback
 

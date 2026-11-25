@@ -7,6 +7,7 @@ import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicate
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
 import { revokeCheckin } from './checkin.js';
+import { syncLeaderAccessFor } from './teams.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -228,7 +229,10 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
     if (b.checkin) setCheckin(Number(info.lastInsertRowid), true);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
-    if (person) audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
+    if (person) {
+      audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
+      if (b.role === undefined) syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
+    }
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -258,6 +262,16 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.role === 'volunteer') revokeCheckin(db, u.id);
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
+    // Linking (an admin's choice): a team leader gets leader access, the usual team-leader rule.
+    // Unlinking: leader access that came only from leading a team goes with it.
+    if (b.role === undefined && b.person_id !== undefined && b.person_id !== u.person_id) {
+      if (b.person_id != null) syncLeaderAccessFor(db, b.person_id, req);
+      else if (u.role_auto && u.role === 'leader') {
+        db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(u.id);
+        revokeCheckin(db, u.id);
+        audit(db, req, 'user.leader_auto', { user_id: u.id, person_id: u.person_id, granted: false });
+      }
+    }
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     audit(db, req, 'user.update', { id: u.id, ...req.body });
     res.json({ ok: true });
