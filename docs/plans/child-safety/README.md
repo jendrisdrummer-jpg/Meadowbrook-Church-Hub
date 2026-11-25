@@ -1,6 +1,6 @@
 # Kids' check-in child-safety plan
 
-**Status: revision 3.1 as amended by revision 3.2, awaiting owner approval. Nothing here is implemented.** Approving means
+**Status: Version 1 strategy proposed (see v1-strategy.md); revision 3.2 kept as the Version 2/3 reference. Awaiting owner approval. Nothing here is implemented.** Approving means
 merging the pull request that adds this folder. Development then starts with Phase 0, one phase per
 pull request, each needing its own review and the owner's merge. Deployment approvals (Group III of
 the checklist) are asked for one at a time, when each phase is ready.
@@ -9,7 +9,8 @@ the checklist) are asked for one at a time, when each phase is ready.
 
 | File | What it is |
 |---|---|
-| [revision-3.2.md](revision-3.2.md) | **Read first.** Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |
+| [v1-strategy.md](v1-strategy.md) | **Read first.** The Version 1 / 2 / 3 strategy: the smallest safe first release, what stays manual, what is postponed and its real risk, effort, calendar, and the rest of Church Hub. Reviewed independently by all five agents, who then challenged each other's positions. Sets the scope of the first release |
+| [revision-3.2.md](revision-3.2.md) | The full design (now the Version 2/3 reference). Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |
 | [schedule-review.md](schedule-review.md) | Independent Chief Architect and Senior Developer review of the effort and calendar: hours per phase, safe combinations, parallel work, dependencies, and the recommended and accelerated timelines |
 | [plan.md](plan.md) | The implementation plan, revision 3.1 (Chief Architect). Section "000" lists the final Security notes N1–N8; where older wording differs, that section governs |
 | [operational-policy.md](operational-policy.md) | Church-facing policy for staff and volunteers: the two check-out lanes, tag holders, "list only" families, medical notes, paper kit, lost iPads |
