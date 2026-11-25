@@ -18,6 +18,7 @@ how it's built and how to change it.
 | [release-checklist.md](release-checklist.md) | Release-readiness checklist for significant features |
 | [tech-debt.md](tech-debt.md) | Known bugs and technical debt |
 | [master-product-roadmap.md](master-product-roadmap.md) | **Order and phases:** the five-phase rollout, release gates, adoption and migration plan, retiring Faith Teams, Google Chat and Subsplash, effort and timeline |
+| [feedback.md](feedback.md) | Leaders' prioritised feedback list and the "You said, we did" record |
 | [roadmap.md](roadmap.md) | The backlog: item IDs, sizes, gap analysis (order is set by the master roadmap) |
 | [agent-workflow.md](agent-workflow.md) | The seven agents, who does what, approvals, efficient use |
 | [plans/](plans/child-safety/README.md) | Implementation plans awaiting or after owner approval (child safety) |
