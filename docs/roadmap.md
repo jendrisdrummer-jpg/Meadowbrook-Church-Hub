@@ -12,6 +12,28 @@ events with sign-ups and payments, giving, media library, backups. Built and awa
 setup: Mux streaming, uploads, podcast. This already replaces most of Faith Teams, Google Chat and
 the Subsplash app.
 
+## Order and phases
+
+**[master-product-roadmap.md](master-product-roadmap.md) sets the order:** phases, release gates, the adoption and
+migration plan, and when each old system retires. This page stays the **backlog**: what each item is, its ID, size and
+gap analysis. Where the two differ on order or phase, the master roadmap governs. The "Critical / High / Medium" groups
+below describe importance, not sequence.
+
+**New items from the master roadmap (Nov 2026):**
+
+| ID | Item | Size | Release |
+|---|---|---|---|
+| N1 | Interim privacy fix: medical and pastoral notes hidden from anyone below staff; auto-leader accounts get their team's campus (Security H1, live today) | S | R1a |
+| N2 | Member tier below volunteer, plus sign-up default, designed with C4 and the check-in access flag as one permission change | M | R1b |
+| N3 | Per-volunteer campus serving eligibility (`serving_campuses`), honoured by candidates and autofill | M | R1a |
+| N4 | Platform readiness: restore drill, deploy window, uptime and error alerting (CI is H12) | S | R0 |
+| N5 | Push hardening: batched, queued fan-out with retries and delivery counts; sign-out removes the device; hidden previews | S–M | R0 / R1a |
+| N6 | Invitations and safe account linking (bulk invite, exact-match linking, admin queue, merge guard) | M | R1b |
+| N7 | First-run flow, Chat reachable on phones, More page tidy-up, accessibility pass | S–M | R1a / R1b |
+| N8 | Adult direct messages with minimal chat safeguarding (kept originals, report and block) | M | R1b |
+| N9 | Security Mediums: campus-scoped announcement audiences, offboarding and sign-out everywhere, per-account chat and upload limits, audit of role grants and sign-ins | M | R1a / R1b |
+| N10 | Adoption view (signed in, push on, unlinked) and in-app feedback link | S | R1a / R1b |
+
 ## Product vision
 
 The Hub is the church's operating system: one place where every person is known, cared for and
