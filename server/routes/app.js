@@ -1,7 +1,7 @@
 // The member app (app.<church domain>): what's on it, set in the dashboard's App Builder, and
 // what guests can do without signing in (see service times, fill in a connect card).
 import { Router } from 'express';
-import { requireRole, canCampus, campusFilter } from '../auth.js';
+import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
@@ -236,7 +236,9 @@ export default function appRoutes(db, { uploadDir } = {}) {
       FROM connect_cards k LEFT JOIN campuses c ON c.id = k.campus_id LEFT JOIN people p ON p.id = k.person_id
       WHERE ${open ? 'k.done_at IS NULL' : 'k.done_at IS NOT NULL'} AND ${cf.sql}
       ORDER BY k.created_at DESC LIMIT 200`).all(...cf.args);
-    res.json(rows.map((k) => ({ ...k, interests: JSON.parse(k.interests || '[]') })));
+    // The message (often a prayer request or something personal) is for staff only.
+    const staff = rank(req.user.role) >= rank('staff');
+    res.json(rows.map(({ message, ...k }) => ({ ...k, ...(staff ? { message } : { has_message: Boolean(message) }), interests: JSON.parse(k.interests || '[]') })));
   });
 
   // Body: { done?: bool, person_id?: id|null }
