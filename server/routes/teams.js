@@ -4,6 +4,7 @@ import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { revokeCheckin } from './checkin.js';
+import { closeStreams } from '../live.js';
 
 export default function teamRoutes(db) {
   const r = Router();
@@ -152,6 +153,7 @@ export function syncLeaderAccessFor(db, personId, req) {
   if (leads) {
     if (user?.role === 'volunteer') {
       db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
+      closeStreams({ userId: user.id });
       audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true });
     }
     // No account yet: nothing is created here. People get an account by signing in, and an admin
@@ -159,6 +161,7 @@ export function syncLeaderAccessFor(db, personId, req) {
   } else if (user?.role_auto && user.role === 'leader') {
     db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(user.id);
     revokeCheckin(db, user.id);
+    closeStreams({ userId: user.id });
     audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: false });
   }
 }

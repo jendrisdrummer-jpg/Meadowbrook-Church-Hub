@@ -6,6 +6,7 @@ import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
 import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicateAccountLinks } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
+import { closeStreams } from '../live.js';
 import { revokeCheckin } from './checkin.js';
 import { syncLeaderAccessFor } from './teams.js';
 
@@ -193,6 +194,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       throw bad('This is the only admin. Make someone else an admin first.');
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    closeStreams({ userId: u.id });
     revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
     ensureAccountLinkIndex(db); // a duplicate may just have been resolved
@@ -273,6 +275,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       }
     }
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    // Open live pages end now; they reconnect with the new access, or fail if signed out.
+    if (['role', 'campus_ids', 'person_id', 'active'].some((k) => b[k] !== undefined)) closeStreams({ userId: u.id });
     audit(db, req, 'user.update', { id: u.id, ...req.body });
     res.json({ ok: true });
   });

@@ -7,7 +7,8 @@
 //   admin     – everything, including campuses, accounts and imports
 // A user's campus_ids limits them to some campuses; NULL means every campus.
 import crypto from 'node:crypto';
-import { getSetting } from './db.js';
+import { getSetting, hashToken } from './db.js';
+import { closeStreams } from './live.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
@@ -36,14 +37,18 @@ function cookieFlags(req) {
 export function startSession(db, req, res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, expires);
+  // Only the hash is stored; the cookie keeps the raw token.
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(hashToken(token), userId, expires);
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(userId);
   res.setHeader('Set-Cookie', `${COOKIE}=${token}; Max-Age=${SESSION_DAYS * 86400}; ${cookieFlags(req)}`);
 }
 
 export function endSession(db, req, res) {
   const token = parseCookies(req)[COOKIE];
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  if (token) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(hashToken(token));
+    closeStreams({ token: hashToken(token) });
+  }
   res.setHeader('Set-Cookie', `${COOKIE}=; Max-Age=0; ${cookieFlags(req)}`);
 }
 
@@ -54,8 +59,10 @@ export function loadUser(db) {
     WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`);
   return (req, _res, next) => {
     const token = parseCookies(req)[COOKIE];
-    const row = token && find.get(token, new Date().toISOString());
+    const hash = token ? hashToken(token) : null;
+    const row = hash && find.get(hash, new Date().toISOString());
     req.user = row ? toUser(row) : null;
+    req.sessionHash = row ? hash : null;
     next();
   };
 }
@@ -397,7 +404,10 @@ export function authRoutes(app, db) {
     if (password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), user.id);
     db.prepare("UPDATE login_codes SET used_at = datetime('now') WHERE id = ?").run(row.id);
     // A new password signs out everywhere else.
-    if (password) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+    if (password) {
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      closeStreams({ userId: user.id });
+    }
     startSession(db, req, res, user.id);
     res.json({ ok: true });
   });
