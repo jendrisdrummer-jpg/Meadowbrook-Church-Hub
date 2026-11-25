@@ -23,7 +23,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Repeating services (series), skips, per-service needs | ✅ | `routes/series.js`, `services.js` | `pages/services.js` |
 | Order of service (Faith Teams style), locking, templates with fill-in slots | ✅ | `routes/services.js`, `templates.js` | `pages/service.js`, `templates.js`, `js/plan.js` |
 | Songs with keys; charts, lyrics and audio files | ✅ | `routes/services.js`, `songfiles.js` | `pages/songs.js`, `js/songfiles.js` |
-| Scheduling: candidates, conflicts, away dates, autofill, month matrix, drafts → send requests | ✅ | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
+| Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill, month matrix, drafts → send requests | ✅ | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
 | Accept/decline in app, push, email links; reminders; leaders hear declines | ✅ | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
 
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
@@ -69,6 +69,8 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Operations
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
+| Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | ✅ | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
+| Unlinked accounts tell the office; admins link accounts to people by hand | ✅ | `routes/setup.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script | 🟡 needs password + Drive | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
 | Demo data | ✅ | `scripts/seed-demo.js` | `npm run demo` |
 

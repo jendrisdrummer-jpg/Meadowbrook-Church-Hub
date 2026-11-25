@@ -130,6 +130,8 @@ export default function peopleRoutes(db, { uploadDir }) {
         FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id
         JOIN campuses c ON c.id = s.campus_id
         WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at LIMIT 20`).all(p.id),
+      // Campuses they can serve at (empty = home campus only, or any if they have none; see eligibility.js).
+      serving_campuses: servingList(p.id),
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
         WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
@@ -175,6 +177,26 @@ export default function peopleRoutes(db, { uploadDir }) {
       || (f.phone && digits(p.phone) && digits(p.phone) === digits(f.phone))
       || (f.birthdate && p.birthdate === f.birthdate)) || null;
   }
+
+  const servingList = (id) => db.prepare('SELECT campus_id FROM serving_campuses WHERE person_id = ? ORDER BY campus_id').all(id).map((x) => x.campus_id);
+
+  // Sets the campuses someone can serve at. Campus-limited staff can only add or remove campuses
+  // they can access; anything else already on the list stays as it is.
+  r.put('/people/:id/serving-campuses', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    if (!Array.isArray(req.body?.campus_ids)) throw bad('Choose which campuses this person serves at.');
+    const wanted = [...new Set(req.body.campus_ids.map((x) => int(x, 'Campus')).filter((x) => x != null))];
+    for (const id of wanted) if (!db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(id)) throw bad('One of those campuses doesn’t exist.');
+    const current = servingList(p.id);
+    const changed = [...wanted.filter((x) => !current.includes(x)), ...current.filter((x) => !wanted.includes(x))];
+    if (changed.some((id) => !canCampus(req.user, id))) throw forbidden();
+    tx(db, () => {
+      db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(p.id);
+      for (const id of wanted) db.prepare('INSERT INTO serving_campuses (person_id, campus_id) VALUES (?, ?)').run(p.id, id);
+    });
+    audit(db, req, 'person.serving_campuses', { id: p.id, from: current, to: wanted });
+    res.json({ serving_campuses: wanted });
+  });
 
   r.patch('/people/:id', requireRole('staff'), (req, res) => {
     const p = visiblePerson(req, req.params.id);

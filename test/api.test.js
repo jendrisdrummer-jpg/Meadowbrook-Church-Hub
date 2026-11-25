@@ -94,6 +94,8 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   const drummer = (await api('admin', 'POST', '/people', { first_name: 'Dan', last_name: 'Drums', campus_id: 1, email: 'vol@mb.org' })).data;
   db.prepare('UPDATE users SET person_id = ? WHERE email = ?').run(drummer.id, 'vol@mb.org');
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${drummer.id}`, { position_ids: [drums.id] });
+  // Serves at both campuses, so the clash below is about the overlap rather than the campus.
+  assert.equal((await api('admin', 'PUT', `/people/${drummer.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
 
   // Two repeating Sunday services starting next week, at overlapping times on different campuses.
   const sunday = nextSunday(7);
@@ -915,6 +917,59 @@ test('unlinked accounts: the office is told once, only an admin links them, and 
   // The same checks apply when an admin creates an account for a chosen person.
   assert.equal((await api('admin', 'POST', '/users', { email: 'third@example.org', role: 'volunteer', person_id: person.id })).status, 409);
   assert.equal((await api('admin', 'POST', '/users', { email: 'fourth@example.org', role: 'volunteer', person_id: 999999 })).status, 404);
+});
+
+test('feedback: anyone signed in sends it, admins triage it, and "You said, we did" shows what was done', async () => {
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  assert.equal((await api(null, 'POST', '/feedback', { body: 'hi' })).status, 401);
+  assert.equal((await api('vol', 'POST', '/feedback', { category: 'bug' })).status, 400, 'needs the text');
+  const sent = await api('vol', 'POST', '/feedback', { category: 'bug', severity: 'blocks_sunday', body: 'VOL-CANARY The accept button did nothing', page: '/services/3', campus_id: 1 });
+  assert.equal(sent.status, 201);
+  const note = db.prepare("SELECT title, body, url FROM notifications WHERE user_id = ? AND kind = 'feedback' ORDER BY id DESC LIMIT 1").get(adminId);
+  assert.match(note.title, /^Blocks Sunday: Bug from /);
+  assert.ok(!note.body.includes('VOL-CANARY'), 'the feedback text never goes into a notification');
+  assert.equal(note.url, '/#/feedback');
+  await api('north', 'POST', '/feedback', { category: 'idea', severity: 'nice_to_have', body: 'NORTH-CANARY a ministry idea' });
+
+  // Each person sees only their own; admins see everything, with who sent it and where from.
+  const volList = (await api('vol', 'GET', '/feedback')).data;
+  assert.equal(volList.length, 1);
+  assert.equal(volList[0].page, '/services/3');
+  assert.ok(!JSON.stringify(volList).includes('NORTH-CANARY'));
+  assert.equal('admin_note' in volList[0], false);
+  const all = (await api('admin', 'GET', '/feedback')).data;
+  const mine = all.find((f) => f.id === sent.data.id);
+  assert.equal(mine.sender_email, 'vol@mb.org');
+  assert.equal(mine.role, 'volunteer');
+  assert.ok(all.some((f) => /NORTH-CANARY/.test(f.body)));
+
+  // Only admins triage.
+  for (const role of ['vol', 'north']) assert.equal((await api(role, 'PATCH', `/feedback/${sent.data.id}`, { status: 'done' })).status, 403);
+  await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'planned', admin_note: 'ADMIN-ONLY-CANARY repro on iPhone' });
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].status, 'planned');
+  assert.ok(!JSON.stringify((await api('vol', 'GET', '/feedback')).data).includes('ADMIN-ONLY-CANARY'));
+  assert.equal((await api('admin', 'GET', '/feedback?status=planned')).data.every((f) => f.status === 'planned'), true);
+
+  // Done, with a note: the sender sees what happened, and everyone sees it under "You said, we did",
+  // without the sender's name or their original words.
+  const done = await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'done', done_note: 'Accept now works from the notification' });
+  assert.ok(done.data.done_at);
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].done_note, 'Accept now works from the notification');
+  const record = (await api('north', 'GET', '/feedback/done')).data;
+  assert.ok(record.some((d) => d.done_note === 'Accept now works from the notification'));
+  assert.ok(!JSON.stringify(record).match(/VOL-CANARY|vol@mb\.org|ADMIN-ONLY-CANARY/));
+  // A campus-limited admin sees only their campuses' feedback (and feedback with no campus); a sender
+  // can only tag a campus they belong to.
+  const southAdminId = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES ('southadmin@mb.org', 'admin', '[2]')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.southadmin = v.split(';')[0]; } }, southAdminId);
+  const southView = (await api('southadmin', 'GET', '/feedback')).data;
+  assert.equal(southView.some((f) => f.id === sent.data.id), false, 'campus 1 feedback hidden from a campus 2 admin');
+  assert.ok(southView.some((f) => /NORTH-CANARY/.test(f.body)), 'feedback with no campus is shown');
+  const tagged = await api('north', 'POST', '/feedback', { category: 'idea', body: 'tag test', campus_id: 2 });
+  assert.equal(db.prepare('SELECT campus_id FROM feedback WHERE id = ?').get(tagged.data.id).campus_id, null);
+  db.prepare('DELETE FROM users WHERE id = ?').run(southAdminId); // later tests count admins
+  // Re-opening clears the done date.
+  assert.equal((await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'looking' })).data.done_at, null);
 });
 
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
@@ -2260,4 +2315,88 @@ test('streaming through Mux: one stream key, live in the app during services, re
   // Left out of the podcast: gone from the feed.
   await api('admin', 'PATCH', `/media/${rec.id}`, { podcast: false });
   assert.ok(!(await (await fetch(`${base}/podcast.xml`)).text()).includes('<item>'));
+});
+
+test('campus eligibility: shared team, per-volunteer campuses, autofill and manual overrides', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Shared Hosts', campus_id: null, positions: ['Host'] })).data;
+  const host = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];
+  const mk = async (name, campus_id) => {
+    const p = (await api('admin', 'POST', '/people', { first_name: name, last_name: 'Eligible', ...(campus_id ? { campus_id } : {}) })).data;
+    await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [host.id] });
+    return p;
+  };
+  const A = await mk('Ava', 1);    // home North
+  const B = await mk('Ben', 2);    // home South
+  const C = await mk('Cal', 1);    // North and South by list
+  const D = await mk('Dee', null); // no home campus, no list
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
+
+  const day = nextSunday(120);
+  const mkService = async (campus_id, time) => {
+    const s = (await api('admin', 'POST', '/services', { campus_id, starts_at: `${day}T${time}` })).data;
+    await api('admin', 'PUT', `/services/${s.id}/needs`, { needs: [{ position_id: host.id, count: 4 }] });
+    return s;
+  };
+  const northSvc = await mkService(1, '08:00');
+  const southSvc = await mkService(2, '13:00');
+  const candList = async (svc) => (await api('admin', 'GET', `/services/${svc.id}/candidates?position_id=${host.id}`)).data;
+  const cands = async (svc) => Object.fromEntries((await candList(svc)).map((c) => [c.id, c]));
+
+  // Candidates: eligibility and the reason, ineligible people last.
+  const n = await cands(northSvc);
+  assert.equal(n[A.id].eligible, true);
+  assert.equal(n[B.id].eligible, false);
+  assert.equal(n[B.id].eligibility_reason, 'Serves at South only');
+  assert.equal(n[C.id].eligible, true);
+  assert.equal(n[D.id].eligible, true);
+  assert.equal(n[D.id].eligibility_reason, 'Campus not set');
+  const order = await candList(northSvc);
+  assert.equal(order[order.length - 1].id, B.id);
+  const s = await cands(southSvc);
+  assert.equal(s[A.id].eligible, false);
+  assert.equal(s[A.id].eligibility_reason, 'Serves at North only');
+  assert.ok(s[B.id].eligible && s[C.id].eligible && s[D.id].eligible);
+
+  // Autofill never assigns an ineligible person, even with spots left over.
+  const fillN = await api('admin', 'POST', `/services/${northSvc.id}/autofill`);
+  assert.deepEqual(fillN.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ava', 'Cal', 'Dee']);
+  const fillS = await api('admin', 'POST', '/schedule/autofill', { service_ids: [southSvc.id], team_id: team.id });
+  assert.deepEqual(fillS.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ben', 'Cal', 'Dee']);
+
+  // Manual: refused for another campus unless the override is explicit.
+  const north2 = await mkService(1, '18:00');
+  const refused = await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, 'Serves at South only');
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, force: true })).status, 409);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, allow_other_campus: true })).status, 201);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: A.id })).status, 201);
+
+  // The person record carries the list; an empty list falls back to the home campus.
+  assert.deepEqual((await api('admin', 'GET', `/people/${C.id}`)).data.serving_campuses, [1, 2]);
+  assert.deepEqual((await api('admin', 'GET', `/people/${A.id}`)).data.serving_campuses, []);
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [] })).status, 200);
+  assert.equal((await cands(southSvc))[C.id].eligible, false);
+  assert.equal((await cands(northSvc))[C.id].eligible, true);
+});
+
+test('campus eligibility: who can set serving campuses', async () => {
+  const p = (await api('admin', 'POST', '/people', { first_name: 'Pat', last_name: 'Serves', campus_id: 1 })).data;
+  const leaderId = db.prepare("INSERT INTO users (email, role) VALUES ('lead-elig@mb.org', 'leader')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.lead = v.split(';')[0]; } }, leaderId);
+  const url = `/people/${p.id}/serving-campuses`;
+
+  assert.equal((await api('vol', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('lead', 'PUT', url, { campus_ids: [1] })).status, 403);
+  // North-only staff can add North but not South.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  // South was set by an admin: North staff can't remove it, and keep it when saving other changes.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [9999] })).status, 400);
+  assert.equal((await api('admin', 'PUT', url, {})).status, 400);
+  assert.deepEqual((await api('admin', 'GET', `/people/${p.id}`)).data.serving_campuses, [1, 2]);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'person.serving_campuses'").get());
 });

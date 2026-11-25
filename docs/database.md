@@ -32,6 +32,7 @@ Arrows show the main references.
 |---|---|
 | `settings` | Key → JSON value: church name, brand colour, app config, media/podcast/mux settings, backup state, live state… |
 | `campuses` | Campuses with time zone, colour, address. Most data is campus-scoped. |
+| `serving_campuses` → people, campuses | Campuses a volunteer can serve at (migration 32). No rows = home campus only (`people.campus_id`); no rows and no home campus = any campus. Rules in `server/eligibility.js`. |
 | `households` → campuses | Families: address, phone, notes. |
 | `people` → households, campuses | Everyone in the directory: contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. |
@@ -40,6 +41,7 @@ Arrows show the main references.
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
+| `feedback` → users, campuses | Feedback from staff and leaders: category, severity, text, page, status, an admin-only note, and `done_note` (what was done, shown to everyone as "You said, we did"). |
 
 ### Teams, services and scheduling
 | Table | Purpose |

@@ -42,6 +42,7 @@ const NAV = [
   ] },
   { group: 'Admin', items: [
     { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
+    { path: '/feedback', label: 'Feedback', icon: 'chat', min: 'volunteer' },
   ] },
 ];
 
@@ -86,9 +87,10 @@ const ROUTES = [
   [/^\/media\/(\d+)$/, 'media-item'],
   [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],
+  [/^\/feedback$/, 'feedback'],
 ];
 
-export const state = { me: null, campuses: [], settings: {}, campusId: null };
+export const state = { me: null, campuses: [], settings: {}, campusId: null, lastPath: '' };
 
 export const can = (role) => RANK[state.me?.role] >= RANK[role];
 export const go = (path) => { location.hash = '#' + path; };
@@ -241,6 +243,7 @@ document.addEventListener('click', (e) => {
 let renderSeq = 0;
 async function route() {
   const path = (location.hash.slice(1) || '/').split('?')[0];
+  if (path !== '/feedback') state.lastPath = path; // so feedback says which page it was about
   const seq = ++renderSeq;
   const hit = ROUTES.map(([re, page]) => [path.match(re), page]).find(([m]) => m);
   const content = $('[data-content]');

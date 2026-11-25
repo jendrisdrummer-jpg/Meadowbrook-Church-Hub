@@ -14,6 +14,12 @@ const ROLE_HELP = {
 
 const GRADES = [{ value: -1, label: 'Pre-K' }, { value: 0, label: 'Kindergarten' }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: gradeLabel(i + 1) }))];
 
+// Plain wording for where someone can serve (see server/eligibility.js for the rules).
+function servesText(p) {
+  if (p.serving_campuses.length) return p.serving_campuses.map(campusName).join(', ');
+  return p.campus_id != null ? `Home campus only (${campusName(p.campus_id)})` : 'Any campus (campus not set)';
+}
+
 export default async function person(el, id) {
   const [p, att] = await Promise.all([get(`/people/${id}`), get(`/people/${id}/attendance`)]);
   const staff = can('staff');
@@ -68,6 +74,10 @@ export default async function person(el, id) {
       </div>
 
       <div class="stack">
+        <div class="card"><div class="card-head"><h2>Serves at</h2>${staff ? html`<button class="btn small" data-serves>${icon('edit')} Edit</button>` : ''}</div>
+          <p style="margin:0">${servesText(p)}</p>
+          ${!p.serving_campuses.length && p.campus_id == null ? html`<p class="muted small" style="margin-bottom:0">${staff ? 'Set a home campus or pick campuses so scheduling knows where they can serve.' : 'No campus is set yet.'}</p>` : ''}
+        </div>
         <div class="card"><h2>Teams</h2>
           ${p.teams.length ? p.teams.map((t) => html`<a class="row" href="#/teams/${t.id}" style="padding:4px 0;color:inherit"><span class="dot" style="background:${t.color}"></span>${t.name}
             ${t.position ? html`<span class="muted">· ${t.position}</span>` : ''}${t.is_leader ? html`<span class="pill info">Leader</span>` : ''}</a>`) : html`<p class="muted">Not on a team.</p>`}
@@ -97,6 +107,23 @@ export default async function person(el, id) {
     if (!dup) return;
     if (!(await confirm('Merge records?', `${displayName(dup)}’s history, teams and schedule will move to ${displayName(p)}, and the duplicate will be archived.`, 'Merge'))) return;
     try { await post(`/people/${p.id}/merge`, { duplicate_id: dup.id }); toast('Merged.'); reload(); } catch (e) { fail(e); }
+  });
+
+  el.querySelector('[data-serves]')?.addEventListener('click', async () => {
+    const camps = visibleCampuses();
+    // Campuses this person serves at that this staff member can't see stay as they are.
+    const hidden = p.serving_campuses.filter((id) => !camps.some((c) => c.id === id));
+    let saved;
+    await dialog({
+      title: 'Serves at', submit: 'Save',
+      body: html`<p class="muted small" style="margin-top:0">Pick the campuses ${displayName(p)} can be scheduled at. Leave all unticked for ${p.campus_id ? `${campusName(p.campus_id)} only (their home campus)` : 'any campus, since no home campus is set'}.</p>
+        ${camps.map((c) => html`<label class="check"><input type="checkbox" data-serve="${c.id}" ${p.serving_campuses.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}`,
+      onSubmit: async (f) => {
+        const ids = [...f.querySelectorAll('[data-serve]:checked')].map((c) => Number(c.dataset.serve));
+        saved = await api('PUT', `/people/${p.id}/serving-campuses`, { campus_ids: [...hidden, ...ids] });
+      },
+    });
+    if (saved) { toast('Saved.'); reload(); }
   });
 
   drawProfile(el.querySelector('[data-profile]'), p.id).catch(fail);

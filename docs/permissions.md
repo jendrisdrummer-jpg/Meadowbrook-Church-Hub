@@ -28,6 +28,12 @@ Existing behaviour, unchanged: signing in for the first time links an account to
 People with exactly that email address, and an admin adding an account with no person chosen does
 the same. That is how volunteers in People get their schedule without an admin step.
 
+## Feedback
+
+Anyone signed in can send feedback (rate-limited) and see what they sent and what happened to it.
+Admins see all of it from their campuses (and feedback with no campus), with who sent it, and set the status and notes. A sender can only tag a campus they belong to. Admin notifications say who sent it and what kind, never the text. The "You said, we did" list
+(`GET /feedback/done`) shows only admins' notes on finished items: no names and no original text.
+
 ## Roles (ranked)
 
 `volunteer` < `leader` < `staff` < `admin`. A route guarded with `requireRole('leader')` lets
@@ -59,6 +65,14 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 `users.campus_ids` (JSON list, or NULL for all campuses). Routes use `canCampus(user, id)` for one
 record and `campusFilter(user, column)` for lists. Any new campus-owned data must be filtered the
 same way.
+
+**Serving campuses** (which campuses a volunteer may be scheduled at, `PUT /people/:id/serving-campuses`):
+staff and admins only; leaders and volunteers can't change them. Campus-limited staff can only add or
+remove campuses they can access (other campuses already on the list are left alone), and every change
+is audited (`person.serving_campuses`). The list is shown on `GET /people/:id` (not sensitive).
+Scheduling honours it on the server: candidates are marked `eligible`, autofill skips ineligible people,
+and a manual assignment for one is refused with 409 unless the request sends `allow_other_campus: true`
+(the screen sends that only after the scheduler confirms a warning).
 
 ## Field-level visibility
 

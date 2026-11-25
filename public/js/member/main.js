@@ -1,6 +1,6 @@
 // The member app: what's on it comes from the dashboard's App Builder. Anyone can use it;
 // signing in adds the person's serving schedule, service plans and notifications.
-import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
@@ -420,6 +420,7 @@ async function more(el, tab, q) {
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}
+      ${app.user ? html`<button data-feedback>${icon('chat')}<span class="grow">Send feedback</span></button>` : ''}
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
   if (app.user) myGroups(el.querySelector('[data-groups]'));
@@ -433,6 +434,18 @@ async function more(el, tab, q) {
       location.href = '/app/';
     }
     if (b.matches('[data-install]')) { await promptInstall(); more(el, tab, q); }
+    if (b.matches('[data-feedback]')) {
+      const sent = await dialog({
+        title: 'Send feedback',
+        submit: 'Send',
+        body: html`<div class="stack">
+          <label class="field">What kind<select name="category">${options([['bug', 'Something isn’t working'], ['frustration', 'It works, but it’s hard or slow'], ['missing', 'I can’t do something I need'], ['request', 'A new feature'], ['idea', 'An idea for my ministry']].map(([value, label]) => ({ value, label })), 'bug')}</select></label>
+          <label class="field">How much does it matter?<select name="severity">${options([['nice_to_have', 'Nice to have'], ['slows_me_down', 'Slows me down'], ['blocks_sunday', 'Blocks Sunday']].map(([value, label]) => ({ value, label })), 'slows_me_down')}</select></label>
+          <label class="field">What happened, or what would help?<textarea name="body" rows="4" maxlength="2000" required></textarea></label></div>`,
+        onSubmit: (f) => post('/feedback', { ...formData(f), page: 'app' }),
+      });
+      if (sent) toast('Thank you, we’ve got it.');
+    }
     if (b.matches('[data-theme-cycle]')) {
       const order = ['light', 'dark', 'device'];
       const next = order[(order.indexOf(document.documentElement.dataset.theme) + 1) % 3];
