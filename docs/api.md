@@ -25,7 +25,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | Router | Main paths | Guard |
 |---|---|---|
 | `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin |
-| `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv` | leader+ (edit staff, merge/import admin) |
+| `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff) | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |
 | `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill | volunteer+ read, leader+ write |

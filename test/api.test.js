@@ -94,6 +94,8 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   const drummer = (await api('admin', 'POST', '/people', { first_name: 'Dan', last_name: 'Drums', campus_id: 1, email: 'vol@mb.org' })).data;
   db.prepare('UPDATE users SET person_id = ? WHERE email = ?').run(drummer.id, 'vol@mb.org');
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${drummer.id}`, { position_ids: [drums.id] });
+  // Serves at both campuses, so the clash below is about the overlap rather than the campus.
+  assert.equal((await api('admin', 'PUT', `/people/${drummer.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
 
   // Two repeating Sunday services starting next week, at overlapping times on different campuses.
   const sunday = nextSunday(7);
@@ -2313,4 +2315,88 @@ test('streaming through Mux: one stream key, live in the app during services, re
   // Left out of the podcast: gone from the feed.
   await api('admin', 'PATCH', `/media/${rec.id}`, { podcast: false });
   assert.ok(!(await (await fetch(`${base}/podcast.xml`)).text()).includes('<item>'));
+});
+
+test('campus eligibility: shared team, per-volunteer campuses, autofill and manual overrides', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Shared Hosts', campus_id: null, positions: ['Host'] })).data;
+  const host = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];
+  const mk = async (name, campus_id) => {
+    const p = (await api('admin', 'POST', '/people', { first_name: name, last_name: 'Eligible', ...(campus_id ? { campus_id } : {}) })).data;
+    await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [host.id] });
+    return p;
+  };
+  const A = await mk('Ava', 1);    // home North
+  const B = await mk('Ben', 2);    // home South
+  const C = await mk('Cal', 1);    // North and South by list
+  const D = await mk('Dee', null); // no home campus, no list
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
+
+  const day = nextSunday(120);
+  const mkService = async (campus_id, time) => {
+    const s = (await api('admin', 'POST', '/services', { campus_id, starts_at: `${day}T${time}` })).data;
+    await api('admin', 'PUT', `/services/${s.id}/needs`, { needs: [{ position_id: host.id, count: 4 }] });
+    return s;
+  };
+  const northSvc = await mkService(1, '08:00');
+  const southSvc = await mkService(2, '13:00');
+  const candList = async (svc) => (await api('admin', 'GET', `/services/${svc.id}/candidates?position_id=${host.id}`)).data;
+  const cands = async (svc) => Object.fromEntries((await candList(svc)).map((c) => [c.id, c]));
+
+  // Candidates: eligibility and the reason, ineligible people last.
+  const n = await cands(northSvc);
+  assert.equal(n[A.id].eligible, true);
+  assert.equal(n[B.id].eligible, false);
+  assert.equal(n[B.id].eligibility_reason, 'Serves at South only');
+  assert.equal(n[C.id].eligible, true);
+  assert.equal(n[D.id].eligible, true);
+  assert.equal(n[D.id].eligibility_reason, 'Campus not set');
+  const order = await candList(northSvc);
+  assert.equal(order[order.length - 1].id, B.id);
+  const s = await cands(southSvc);
+  assert.equal(s[A.id].eligible, false);
+  assert.equal(s[A.id].eligibility_reason, 'Serves at North only');
+  assert.ok(s[B.id].eligible && s[C.id].eligible && s[D.id].eligible);
+
+  // Autofill never assigns an ineligible person, even with spots left over.
+  const fillN = await api('admin', 'POST', `/services/${northSvc.id}/autofill`);
+  assert.deepEqual(fillN.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ava', 'Cal', 'Dee']);
+  const fillS = await api('admin', 'POST', '/schedule/autofill', { service_ids: [southSvc.id], team_id: team.id });
+  assert.deepEqual(fillS.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ben', 'Cal', 'Dee']);
+
+  // Manual: refused for another campus unless the override is explicit.
+  const north2 = await mkService(1, '18:00');
+  const refused = await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, 'Serves at South only');
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, force: true })).status, 409);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, allow_other_campus: true })).status, 201);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: A.id })).status, 201);
+
+  // The person record carries the list; an empty list falls back to the home campus.
+  assert.deepEqual((await api('admin', 'GET', `/people/${C.id}`)).data.serving_campuses, [1, 2]);
+  assert.deepEqual((await api('admin', 'GET', `/people/${A.id}`)).data.serving_campuses, []);
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [] })).status, 200);
+  assert.equal((await cands(southSvc))[C.id].eligible, false);
+  assert.equal((await cands(northSvc))[C.id].eligible, true);
+});
+
+test('campus eligibility: who can set serving campuses', async () => {
+  const p = (await api('admin', 'POST', '/people', { first_name: 'Pat', last_name: 'Serves', campus_id: 1 })).data;
+  const leaderId = db.prepare("INSERT INTO users (email, role) VALUES ('lead-elig@mb.org', 'leader')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.lead = v.split(';')[0]; } }, leaderId);
+  const url = `/people/${p.id}/serving-campuses`;
+
+  assert.equal((await api('vol', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('lead', 'PUT', url, { campus_ids: [1] })).status, 403);
+  // North-only staff can add North but not South.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  // South was set by an admin: North staff can't remove it, and keep it when saving other changes.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [9999] })).status, 400);
+  assert.equal((await api('admin', 'PUT', url, {})).status, 400);
+  assert.deepEqual((await api('admin', 'GET', `/people/${p.id}`)).data.serving_campuses, [1, 2]);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'person.serving_campuses'").get());
 });

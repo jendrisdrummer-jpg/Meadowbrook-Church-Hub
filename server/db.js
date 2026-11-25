@@ -880,6 +880,15 @@ const MIGRATIONS = [
   );
   CREATE INDEX feedback_status ON feedback(status, created_at);
   `,
+  // 32: the campuses each volunteer can serve at. Teams can be shared across campuses, people can't
+  // be everywhere. No rows = their home campus only (people.campus_id); see server/eligibility.js.
+  `
+  CREATE TABLE serving_campuses (
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    campus_id INTEGER NOT NULL REFERENCES campuses(id) ON DELETE CASCADE,
+    PRIMARY KEY (person_id, campus_id)
+  );
+  `,
 ];
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
