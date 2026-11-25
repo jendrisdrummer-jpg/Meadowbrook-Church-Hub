@@ -963,7 +963,37 @@ export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   migrate(db);
+  ensureAccountLinkIndex(db, { log: true });
   return db;
+}
+
+// One person, one account. A unique index on users.person_id enforces it, but only when no person
+// already has two accounts: creating it over duplicates would fail, and a migration that fails
+// would stop the deploy. So this runs after the migrations, changes no data, and when it finds
+// duplicates it skips the index and warns (Settings → Accounts shows the same list to admins).
+// Safe to call repeatedly; docs/account-links.md explains how to resolve duplicates.
+export function duplicateAccountLinks(db) {
+  const people = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 100').all();
+  const accounts = db.prepare(`SELECT u.id, u.email, u.role, u.active, u.last_login, u.created_at FROM users u WHERE u.person_id = ? ORDER BY u.id`);
+  const person = db.prepare('SELECT first_name, last_name FROM people WHERE id = ?');
+  return people.map(({ person_id }) => {
+    const p = person.get(person_id);
+    return { person_id, name: p ? `${p.first_name} ${p.last_name}`.trim() : null, accounts: accounts.all(person_id) };
+  });
+}
+
+export function ensureAccountLinkIndex(db, { log = false } = {}) {
+  const dupes = db.prepare('SELECT COUNT(*) n FROM (SELECT 1 FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1)').get().n;
+  if (dupes) {
+    if (log) {
+      const ids = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 50').all().map((r) => r.person_id);
+      console.warn(`WARNING: ${dupes} ${dupes === 1 ? 'person has' : 'people have'} more than one account (person ids: ${ids.join(', ')}). `
+        + 'The one-account-per-person rule is not enforced by the database until this is fixed. See Settings → Accounts and docs/account-links.md. No data was changed.');
+    }
+    return { indexed: false, duplicates: dupes };
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_person_unique ON users (person_id) WHERE person_id IS NOT NULL');
+  return { indexed: true, duplicates: 0 };
 }
 
 function migrate(db) {

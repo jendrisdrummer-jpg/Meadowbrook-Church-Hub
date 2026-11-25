@@ -30,7 +30,8 @@ Where data lives: [database.md](database.md#sensitive-data).
 |---|---|---|
 | Sessions | Random token in `sessions`, cookie `mb_session`: HTTP-only, `SameSite=Lax`, `Secure` behind HTTPS, 30 days | `auth.js` |
 | Sign-in | Google OAuth (state cookie), email one-time codes (hashed, attempt-limited, expiring), passwords (scrypt) | `auth.js` |
-| Sign-in policy | anyone / people in the directory / Workspace domain / invited only | Settings → Sign-in |
+| Sign-in policy | anyone / people in the directory / Workspace domain / invited only. Decides who may sign in, never who they are: accounts start unlinked and an admin links them (audited `user.link`) | Settings → Sign-in |
+| Account links | One account per person: 409 on every write path, plus a unique index on `users.person_id` created at startup when no duplicates exist (see [account-links.md](account-links.md)) | `db.js`, `routes/setup.js`, `scripts/audit-account-links.js` |
 | CSRF | `x-mb` header on non-GET | `requireAppHeader` |
 | Stations | Paired tokens stored as SHA-256 hashes; check-in endpoints and own campus only | `routes/stations.js` |
 | Email links | HMAC-signed per assignment (`assignmentSig`), timing-safe compare | `notify.js`, `routes/app.js` |

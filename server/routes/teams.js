@@ -141,13 +141,8 @@ export default function teamRoutes(db) {
         db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
         audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true });
       }
-      if (!user) {
-        const email = db.prepare('SELECT lower(email) e FROM people WHERE id = ?').get(personId)?.e;
-        if (email && !db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
-          const info = db.prepare("INSERT INTO users (email, role, person_id, role_auto) VALUES (?, 'leader', ?, 1)").run(email, personId);
-          audit(db, req, 'user.leader_auto', { user_id: Number(info.lastInsertRowid), person_id: personId, granted: true, created: true });
-        }
-      }
+      // No account yet: nothing is created here. People get an account by signing in, and an admin
+      // links it to them by hand (we never connect an account to a person by matching email).
     } else if (user?.role_auto && user.role === 'leader') {
       db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(user.id);
       revokeCheckin(db, user.id);

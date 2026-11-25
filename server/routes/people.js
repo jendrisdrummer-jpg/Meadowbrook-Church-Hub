@@ -215,6 +215,11 @@ export default function peopleRoutes(db, { uploadDir }) {
     const dupId = int(req.body?.duplicate_id, 'Duplicate');
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
+    // One person, one account: merging two people who both have accounts would leave two on one person.
+    const dupUser = db.prepare('SELECT id, email FROM users WHERE person_id = ?').get(dup.id);
+    if (dupUser && db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(keep.id)) {
+      throw new HttpError(409, 'Both of these people have an account. In Settings → Accounts, unlink one of them first, then merge.');
+    }
     tx(db, () => {
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
         db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
@@ -242,6 +247,8 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || ? || ')') WHERE id = ?").run(keep.id, dup.id);
     });
     audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
+    // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
+    if (dupUser) audit(db, req, 'user.link', { user_id: dupUser.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
     res.json(getPerson(keep.id));
   });
 
