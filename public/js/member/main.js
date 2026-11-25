@@ -12,6 +12,7 @@ import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
+import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
 
 const $ = (s) => document.querySelector(s);
@@ -91,6 +92,7 @@ async function route() {
   window.scrollTo(0, 0);
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
+    if (parts[0] === 'help') { drawTabs('more'); return await helpPage(el); }
     if (parts[0] === 'form' && parts[1]) { drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
@@ -424,6 +426,7 @@ async function more(el, tab, q) {
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}
+      ${app.user ? html`<a href="#/help">${icon('info')}<span class="grow">Help</span></a>` : ''}
       ${app.user ? html`<button data-feedback>${icon('chat')}<span class="grow">Send feedback</span></button>` : ''}
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
@@ -459,6 +462,12 @@ async function more(el, tab, q) {
       more(el, tab, q);
     }
   };
+}
+
+// Short how-to guides for this person's role (the same words as the hub's Help page).
+function helpPage(el) {
+  setTitle('Help', html`<a class="btn small ghost" href="#/more">Back</a>`);
+  mount(el, html`<div class="help-page"><p class="muted" style="margin-top:0">Quick steps for the things you’ll do most. Tap a heading to open it. Stuck? Ask the church office.</p>${helpList('app', app.user?.role || 'volunteer')}</div>`);
 }
 
 // My small groups, each opening its chat. Quietly absent when you're in none.

@@ -11,7 +11,7 @@ what was run, as whom, at what size, and what was seen. "Should work" is not a r
 |---|---|---|---|
 | API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test) |
 | Shared rules | `node:test` | `npm test` | Check-in room rules (`test/rules.test.js`), service worker (`test/sw.test.js`) |
-| Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
+| Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page (including Help, `#/help`, in both) as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
 | Workflow checks | Playwright scripts or by hand | — | The workflows below, for features that changed |
 | CI | GitHub Actions (`.github/workflows/test.yml`) | automatic | `npm test` on every pull request and push to `main` |
 

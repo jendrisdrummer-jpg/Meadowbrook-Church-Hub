@@ -11,6 +11,7 @@ const NAV = [
     { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
     { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
     { path: '/tasks', label: 'Tasks', icon: 'tasks', min: 'volunteer', badge: 'tasks' },
+    { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
   ] },
   { group: 'People', items: [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
@@ -90,6 +91,7 @@ const ROUTES = [
   [/^\/app-builder$/, 'appbuilder'],
   [/^\/settings(?:\/(\w+))?$/, 'settings'],
   [/^\/feedback$/, 'feedback'],
+  [/^\/help$/, 'help'],
 ];
 
 export const state = { me: null, campuses: [], settings: {}, campusId: null, lastPath: '' };

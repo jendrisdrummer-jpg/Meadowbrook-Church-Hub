@@ -164,10 +164,11 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 | 6 | Scheduling loop | Merged (#58) |
 | 7 | Feedback | Merged (#55): a Feedback page with triage and "You said, we did", not just a chat link |
 | 8 | Basic small groups | Merged (#57), after a security review (1 High, 3 Medium fixed) and a re-review |
-| 9 | Forms | PR #60 open: built, security-reviewed (no High); fixes and one blocking editor bug in progress. The named forms are set up in the hub once the owner's list arrives, with no new code |
+| 9 | Forms | Merged (#60), after a security review, a re-review (no High/Medium) and two browser click-throughs. The named forms are set up in the hub once the owner's list arrives, with no new code |
 | 10 | Recurring availability | Not started: only if worship needs it (owner fact) |
 | – | Backup restore drill | Tools and runbook merged (#59, [restore-drill.md](restore-drill.md)); the drill itself is the owner's |
 | – | Polish from browser click-through | Merged (#61) |
+| – | How-to pages | In-app Help page (#63), hub and member app |
 
 **Not PRs, but part of the milestone:**
 
@@ -182,12 +183,11 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 
 **Total:** about **140–220 agent-assisted hours**. Small groups and forms are about 50–80 of it.
 
-**Remaining, as of 25 November:** about **40–70 agent-assisted hours**, plus owner and volunteer time:
-- forms fixes and merge: 2–4
+**Remaining, as of 25 November:** about **30–45 agent-assisted hours**, plus owner and volunteer time:
 - real-device testing: 6–8
 - Faith Teams import rehearsal: 4–8
 - extra leader and campus permission tests: 3–4 (most are in the PRs already)
-- how-to pages: 6–8
+- how-to pages: done (#63); 1–2 to keep them current
 - bug reserve: 12–15
 - small follow-ups: 3–6 (Tasks place picker for small groups; per-person reminder grouping)
 - running the restore drill with the developer: 1

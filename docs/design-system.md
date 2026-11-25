@@ -93,3 +93,9 @@ four-column grid, styles card/soft/accent/color.
 - Fixed bottom bars leave room for the iPhone home indicator (`env(safe-area-inset-bottom)`).
 - Inputs use the right `type`/`inputmode` so phones show the right keyboard.
 - Long tables collapse or scroll inside their card, never the page.
+
+## Help guides
+
+How-to text lives in `public/js/help-content.js` (one list, hub and app wording, a minimum role per
+section). Sections are `details.card.help-sec` with a numbered `.help-steps` list of 3 to 7 steps.
+Name buttons exactly as they appear on screen; when a button is renamed, update the guide.
