@@ -99,10 +99,10 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
     announcement: 'Announcements from the church', media: 'When we go live, and new messages',
     scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
     declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
-    connect: 'New connect cards from guests', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', email: 'Also send me emails',
+    connect: 'New connect cards from guests', form: 'New responses to my forms', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', email: 'Also send me emails',
   };
   const atLeast = (r) => ROLES.indexOf(role) >= ROLES.indexOf(r);
-  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : k === 'connect' ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
+  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : ['connect', 'form'].includes(k) ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
 
   let install = '';
   if (ui === 'hub' && appLink) {

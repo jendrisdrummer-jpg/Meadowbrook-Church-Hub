@@ -830,6 +830,9 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .q-list { display: grid; gap: 8px; margin-bottom: 8px; }
 .q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
 .q-row .q-opts { grid-column: 1 / -1; }
+/* Forms: the question text gets its own full row, so it stays readable on a phone. */
+.q-wide .q-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.q-wide .q-row [data-qk=label] { grid-column: 1 / -1; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--panel-2); }
 /* Song files */

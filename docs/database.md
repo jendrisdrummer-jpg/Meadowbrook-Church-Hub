@@ -42,6 +42,8 @@ Arrows show the main references.
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
 | `feedback` → users, campuses | Feedback from staff and leaders: category, severity, text, page, status, an admin-only note, and `done_note` (what was done, shown to everyone as "You said, we did"). |
+| `forms` → campuses, users | Simple staff-configured forms: unique `slug` (the public link; never changes), `title`, `intro`, `campus_id` (NULL = church-wide), `questions` JSON `[{id, label, type, options, required}]` (types text, longtext, choice, multichoice, yesno, date), `audience` (`public` or `signed_in`), `ask_contact` JSON (name/email/phone each `off`, `optional` or `required`), `active` (off = archived: link stops working, responses stay), `notify_user_id`. |
+| `form_responses` → forms (cascade), users, people | One response: typed `name`/`email`/`phone`, `answers` JSON, `status` (`new`/`done`) with `done_by`/`done_at`. `user_id` and `person_id` are set **only** from the signed-in account (its linked person), never from a typed email or name. Staff-only. |
 
 ### Teams, services and scheduling
 | Table | Purpose |

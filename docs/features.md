@@ -68,6 +68,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Operations
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
+| Basic forms: staff set up simple forms (questions, contact fields, who's told), people fill them in on a phone from a link (guests or signed-in), staff read responses, mark done, export CSV; one model, not a form builder | ✅ | `routes/forms.js`, `questions.js` | `pages/forms.js`, `member/forms.js` (`/app/#/form/:slug`), app More tab |
 | Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | ✅ | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
 | Unlinked accounts tell the office; admins link accounts to people by hand | ✅ | `routes/setup.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script | 🟡 needs password + Drive | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
