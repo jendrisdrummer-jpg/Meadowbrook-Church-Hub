@@ -1,4 +1,4 @@
-# Kids' check-in child-safety plan — revision 3.1 (for owner approval)
+# Kids' check-in child-safety plan — revision 3.1, amended by revision 3.2 (for owner approval)
 
 Chief Architect · 2026-11-25 · Planning only. **Nothing is implemented; no application code, schema, migration or production setting was changed.**
 
@@ -22,6 +22,19 @@ fixed during implementation.
 - Owner requirements of 2026-11-25 (items R1–R7 below).
 
 ---
+
+## 0000. Revision 3.2 (binding)
+[revision-3.2.md](revision-3.2.md) answers the owner's four questions of 2026-11-25 and **governs over this file where
+they differ**. In short:
+- a new first code phase **P0.5 "Interim guard"**: two-family stop, child-by-child check-out, a server guard on both
+  check-out paths (closing a gap found in the 3.1 guard), a safe outbox migration, and label and tag privacy now
+- a **temporary pickup procedure** from next Sunday
+- an **approved release roster** with confirmation on the volunteer's own phone for every Tier B release
+- the exact **label content**, with the reason for each item
+- **hardware and costs**: no paid service, subscription or new hardware required
+- effort is now **about 61.5 working days core** (65 with P9), about 21–25 weeks
+
+Security ("approve with changes", all applied) and Church Operations ("workable with changes", applied) reviewed it.
 
 ## 000. Revision 3.1: final Security verification notes (N1–N8, binding)
 The Security Specialist verified revision 3: all 19 must-fix items pass; verdict "ready for owner sign-off with minor
@@ -1699,8 +1712,8 @@ Never two editing agents at once. Steps 1–3 run in parallel.
 All decisions, technical approvals and deployment approvals are in **`approval-checklist.md`**: 128 items in
 revision 3 (group I church policy, 53; group II technical, 47; group III deployment, 28).
 - 17 are already decided by the owner on 2026-11-25.
-- **111 still need an owner decision or approval:** 83 now, and 28 deployment approvals given at the time.
-- Most of the 83 are routine. The **owner decision sheet** at the top of the checklist lists the 25 that need the
+- **118 still need an owner decision or approval** (with the 7 items added in revision 3.2): 89 now, and 29 deployment approvals given at the time.
+- Most of the 89 are routine. The **owner decision sheet** at the top of the checklist lists the 29 that need the
   owner's judgement, plus one line accepting all the other recommended defaults.
 
 **Project-rule approvals in brief:**

@@ -1,6 +1,6 @@
 # Kids' check-in child-safety plan
 
-**Status: revision 3.1, awaiting owner approval. Nothing here is implemented.** Approving means
+**Status: revision 3.1 as amended by revision 3.2, awaiting owner approval. Nothing here is implemented.** Approving means
 merging the pull request that adds this folder. Development then starts with Phase 0, one phase per
 pull request, each needing its own review and the owner's merge. Deployment approvals (Group III of
 the checklist) are asked for one at a time, when each phase is ready.
@@ -9,14 +9,17 @@ the checklist) are asked for one at a time, when each phase is ready.
 
 | File | What it is |
 |---|---|
+| [revision-3.2.md](revision-3.2.md) | **Read first.** Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |
 | [plan.md](plan.md) | The implementation plan, revision 3.1 (Chief Architect). Section "000" lists the final Security notes N1–N8; where older wording differs, that section governs |
 | [operational-policy.md](operational-policy.md) | Church-facing policy for staff and volunteers: the two check-out lanes, tag holders, "list only" families, medical notes, paper kit, lost iPads |
-| [approval-checklist.md](approval-checklist.md) | All 128 items in three groups (I church policy, II technical approvals, III deployment approvals), each with a recommended default; the owner decision sheet is at the top |
+| [approval-checklist.md](approval-checklist.md) | All 135 items in three groups (I church policy, II technical approvals, III deployment approvals), each with a recommended default; the owner decision sheet is at the top |
 
 ## Supporting review findings
 
 | File | What it is |
 |---|---|
+| [review-security-rev3.2.md](review-security-rev3.2.md) | Security Specialist's review of revision 3.2: approve with changes (all six applied) |
+| [review-operations-rev3.2.md](review-operations-rev3.2.md) | Church Operations' review of revision 3.2: workable with changes (applied) |
 | [review-security-v3-verification.md](review-security-v3-verification.md) | Security Specialist's verification of revision 3: all 19 must-fix items pass; notes N1–N8 (applied in 3.1) |
 | [review-security-rev2.md](review-security-rev2.md) | Security Specialist's independent review of revision 2 (0 Critical, 3 High, 14 Medium, 21 Low) |
 | [security-credentials-and-isolation.md](security-credentials-and-isolation.md) | Security Specialist's specification of offline coordinator codes (cryptography, generation, storage, expiry, brute-force limits, lost iPad) and the separate check-in host |

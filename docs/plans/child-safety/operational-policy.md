@@ -1,9 +1,24 @@
 # Kids' check-in: how we keep children safe at pickup
 
-*Operational policy for staff, coordinators and volunteers. **DRAFT, revision 3,** for the owner's approval.*
+*Operational policy for staff, coordinators and volunteers. **DRAFT, revision 3.2,** for the owner's approval.*
 
 Words in [brackets] are settings the church chooses. Sections marked **PENDING REVIEW** must be checked by the
 church's insurer and attorney before they take effect.
+
+---
+
+## 0. Until the new pickup system starts (interim, about 10–13 weeks)
+Until pickup sessions are switched on, follow the **temporary pickup procedure** in
+[revision-3.2.md §1.3](revision-3.2.md#13-temporary-pickup-procedure-recommended-from-next-sunday-no-code-needed). It is printed as a
+one-page desk card. In short:
+- The tag plus the children's names, said by the adult first.
+- Tick the children one by one; never "Check out all".
+- Only people on the screen's lists may collect. Everyone else shows ID, and the coordinator calls a parent.
+- The child waits in the room.
+- Use the confidential paper pickup-alert list.
+- Nobody under 16 collects.
+
+Sections 1–14 below describe the new system and apply phase by phase as it is switched on.
 
 ---
 

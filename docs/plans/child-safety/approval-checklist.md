@@ -1,14 +1,14 @@
-# Child-safety plan: approval checklist (revision 3.1)
+# Child-safety plan: approval checklist (revision 3.2)
 
 Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy §" refers to
 `operational-policy.md`.
 
-**Totals:** 128 items.
-- **Group I, church policy:** 53 items. 9 already decided by the owner on 2026-11-25; 44 need a decision now.
-- **Group II, technical approvals:** 47 items. 8 already decided; 39 need a decision now.
-- **Group III, deployment approvals:** 28 items. Each is approved at the time of that step, not now.
-- In all, 111 items still need an owner decision or approval: 83 now and 28 later.
-- Of the 83 needed now, the **owner decision sheet** below lists the **25 that need your judgement**. The other 58 are
+**Totals:** 135 items (128 in revision 3.1, plus 7 added by [revision-3.2.md](revision-3.2.md)).
+- **Group I, church policy:** 57 items. 9 already decided by the owner on 2026-11-25; 48 need a decision now.
+- **Group II, technical approvals:** 49 items. 8 already decided; 41 need a decision now.
+- **Group III, deployment approvals:** 29 items. Each is approved at the time of that step, not now.
+- In all, 118 items still need an owner decision or approval: 89 now and 29 later.
+- Of the 89 needed now, the **owner decision sheet** below lists the **29 that need your judgement**. The other 60 are
   routine or technical, and one line accepts all of them.
 
 ---
@@ -35,7 +35,7 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 - II-31 Code changes from Q1
 - II-40 Each purge job separately approved
 
-### A. Families and pickups: policy trade-offs (10)
+### A. Families and pickups: policy trade-offs (12)
 | ID | Decision | Recommended default |
 |---|---|---|
 | I-10 | "List only" families: what happens to someone not on the list | **Coordinator, after speaking to a parent by phone; otherwise the child stays.** Families may choose "strict" (never released). |
@@ -44,12 +44,18 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 | I-19 | How old the iPad's offline safety list may be | **180 minutes, and the same day** |
 | I-20 | When to check ID | **Anyone not recognised**, and always in the careful lane |
 | I-24 | Parent tag and child label content | **Code, date, check-in time, initials and count; "EPI: YES"; no family name; tag always printed** |
-| I-27 | How the iPad knows the operator is an adult | **Pick from today's kids-team schedule, with age from the birthdate. Tag-holder releases need confirmation from the volunteer's own phone** (Security's recommendation) |
-| I-36 | Trial period | **Two trial Sundays, with the paper kit plus a spare new iPad as fallback; no old-app iPad** |
+| I-27 | How the iPad knows the operator may release a child (changed in 3.2) | **Tier B releases (tag holder, lost tag, ID tick) and full medical notes only by people on the admin-approved release roster, adult by birthdate, each Tier B release confirmed on their own signed-in phone; otherwise a coordinator approves** |
+| I-36 | Trial period | **Two trial Sundays, with the paper kit plus a spare iPad you already own, set up with the new app, as fallback; no old-app iPad** |
 | I-52 | Full care notes need a connection (fetched on tap); offline, only the safety line shows | **Accept.** The safety line (allergy, EpiPen, action, where the medicine is) is always on the iPad and on the label. |
 | I-53 | Offline tag-holder and lost-tag pickups need a coordinator at the desk with their offline code | **Accept** |
+| I-54 | **New (3.2).** Release roster: renewal and screening tick | Yes | Admins grant; 12-month review; screening tick with no details stored; not on own grant | rev 3.2 §2.1 | Pending (**sheet B**) |
+| I-55 | **New (3.2).** Last-name initial on child labels, with the clash rule | Yes | Adopt | rev 3.2 §3 | Pending (routine) |
+| I-56 | **New (3.2).** Offline ID-tick rule | Yes (Security) | Cached roster operator, flagged, daily review | rev 3.2 §2.3 | Pending (**sheet A**) |
+| I-57 | **New (3.2).** Temporary pickup procedure until pickup sessions | Yes (insurer and attorney before it becomes a written rule) | Adopt as interim guidance | rev 3.2 §1.3 | Pending (**sheet A**) |
+| I-56 | Offline ID-tick release of a known household adult (new in 3.2) | **Operator must be on the cached release roster; recorded as not phone-confirmed and shown in the daily review.** Stricter option: a coordinator's offline code |
+| I-57 | Temporary pickup procedure from next Sunday until pickup sessions start (new in 3.2) | **Adopt** [revision-3.2.md §1.3](revision-3.2.md#13-temporary-pickup-procedure-recommended-from-next-sunday-no-code-needed) as interim guidance, with a named safeguarding lead and duty coordinator per campus |
 
-### B. People, money and outside parties (6)
+### B. People, money and outside parties (7)
 | ID | Decision | Recommended default |
 |---|---|---|
 | I-06 | Who are the first coordinators and helpers at each campus | You name them; an admin grants them before explicit mode |
@@ -58,8 +64,9 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 | I-45 | Label stock roughly doubles | **Accept** |
 | I-46 | iPad device policy, and whether to pay for MDM | **Guided Access (free) at minimum**; MDM only if you approve the cost |
 | I-51 | Who is the second person for releasing a hold, approving a permitted deletion, and the relaxation switch | **A second admin, or you (the owner).** For the relaxation switch, a coordinator may be the second person. |
+| I-54 | Release roster: who approves, renewal and screening (new in 3.2) | **Admins grant; renewed every 12 months; an admin ticks "screening complete under church policy" (no details stored; not on their own grant)** |
 
-### C. Risks you accept, and one to confirm (6)
+### C. Risks you accept, and one to confirm (7)
 | ID | Decision | Recommended default |
 |---|---|---|
 | II-02 | Staff can no longer delete or retime past services, positions or assignments; they cancel, archive or mark them removed | **Accept** |
@@ -68,6 +75,7 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 | II-36 | Recorded residual risks: copied iPads are detected rather than prevented; the operator pick is self-attested; roster not encrypted on the iPad | **Accept** |
 | II-41 | Today's code-only check-out continues until pickup sessions start (P4, about 10–13 weeks), with only the "two families" guard added | **Accept** |
 | I-17 | Offline day-code length raised from 8 to 10 digits after your decision (8 digits can be cracked in under 2 hours on one GPU if an iPad's storage is copied) | **Confirm 10 digits** (12 is safer but slower to type at the desk) |
+| II-49 | Labels keep today's full medical note until Phase 7 creates the short safety line (new in 3.2) | **Accept** (removing it earlier could hide life-critical information) |
 
 ### D. Needs the insurer or attorney before it takes effect (3)
 | ID | Decision | Recommended default |
@@ -77,14 +85,14 @@ Chief Architect · 2026-11-25. "Where" refers to sections of `plan.md`; "Policy 
 | I-49 | Privacy notice for families | Draft; **attorney to confirm** |
 
 ### Everything else
-☐ **I accept the recommended default for every other item in groups I and II that is not listed above (58 routine or
+☐ **I accept the recommended default for every other item in groups I and II that is not listed above (60 routine or
 technical items).** Group III deployment approvals will come to me one at a time.
 
 Signed: ____________________ Date: __________
 
 ---
 
-## I. Church policy decisions (53)
+## I. Church policy decisions (57)
 
 | ID | Item | Owner approval required (co-signers) | Recommended default | Where | Status |
 |---|---|---|---|---|---|
@@ -114,7 +122,7 @@ Signed: ____________________ Date: __________
 | I-24 | Parent tag and child label content | Yes | Code, date, check-in time, initials and count; "EPI: YES"; no family name; always printed | §3.14 | Pending (**sheet A**) |
 | I-25 | Phone numbers on iPads | Yes | Last 4 digits for search, plus the household's main phone | §3.13 | Pending (routine) |
 | I-26 | Three medical levels | Yes (Security) | As stated | §3.12, Policy §9 | **Decided (owner, 2026-11-25)** |
-| I-27 | Operator adult or teen; `attested` or `phone` mode | Yes (Security) | `attested`, but **phone confirmation required for tag-holder releases**; birthdates filled in before P4 | §3.10 | Pending (**sheet A**) |
+| I-27 | Operator adult or teen; `attested` or `phone` mode | Yes (Security) | Changed in 3.2: approved release roster; phone confirmation for every Tier B release; coordinator fallback; birthdates filled in before P4 | §3.10, rev 3.2 §2 | Pending (**sheet A**) |
 | I-28 | Per-child "print full note on label", re-confirmed each term | Yes | Yes | §3.12 | Pending (routine) |
 | I-29 | Existing notes (and `allergies`) sorted into levels by hand | Yes | Yes, using a review list | §3.12 | Pending (routine) |
 | I-30 | Medical access log review | Yes | Monthly, by the safeguarding lead | §3.12 | Pending (routine) |
@@ -123,7 +131,7 @@ Signed: ____________________ Date: __________
 | I-33 | Ending a pickup alert | Yes | A **different** coordinator or admin confirms; never the requester or the child's household | §3.4 | Pending (routine) |
 | I-34 | Intake of pickup alerts | Yes (attorney) | Custodial parent or court order; paper locked; two trained staff; weekly expiry review; incident note | §3.4, Policy §7 | Pending (**sheet D**) |
 | I-35 | Hard-block script | Yes | Don't argue; keep the child; Alert button; 911 if threatened; pastor told | Policy §7 | Pending (routine) |
-| I-36 | Deploy windows and soak | Yes | Weekday mornings; two Sundays with the paper kit plus a spare new iPad; you list the midweek programmes | §4.7, §5.4 | Pending (**sheet A**) |
+| I-36 | Deploy windows and soak | Yes | Weekday mornings; two Sundays with the paper kit plus a spare iPad you already own; you list the midweek programmes | §4.7, §5.4 | Pending (**sheet A**) |
 | I-37 | Christmas freeze | Yes | No deploys in Advent or Christmas week | §7 | Pending (routine) |
 | I-38 | Retention policy | Yes (**insurer and attorney**) | The draft in §4.10 | §4.10, Policy §14 | Pending (**sheet D**) |
 | I-39 | Legal-hold procedure ("set the hold first"; who can set it) | Yes (attorney) | Any admin or the safeguarding lead sets it; release needs two people (I-51) | §4.9 | Pending (routine) |
@@ -144,7 +152,7 @@ Signed: ____________________ Date: __________
 
 ---
 
-## II. Technical approvals required by project rules (47)
+## II. Technical approvals required by project rules (49)
 
 | ID | Item | Owner approval required (co-signers) | Recommended default | Where | Status |
 |---|---|---|---|---|---|
@@ -195,10 +203,12 @@ Signed: ____________________ Date: __________
 | II-45 | **New (H2).** Level 3 and contact notes in separate tables; column allow-lists replace `SELECT *` on people and pickups (including `finance.js`); router-wide canary sweep | Yes (Security) | Approve | §3.5, §3.12, §4.3 | Pending (routine) |
 | II-46 | **New (M5, M6).** Release reports bound to their approval (one each; uploader must match); single revoked-token rule (lost or stolen → quarantined; replaced → applied, no time limit) | Yes (Security) | Approve | §3.7.4, §3.9.4 | Pending (routine) |
 | II-47 | **New (H3).** PIN may approve only children with no pickup alert (alert children: phone only); real-time notice on every use; 90-day rotation and rotation after "Not you?"; no digit echo | Yes (rule 7; Security) | Approve | §3.7.1 | Pending (routine) |
+| II-48 | **New (3.2).** Release roster and confirmation design: roster fields, single-use 2-minute confirmation bound to release and station, generic push text, code-entry alternative, cached roster revocation, audit | Yes (rule 7; Security) | Approve | rev 3.2 §2 | Pending (routine) |
+| II-49 | **New (3.2).** Full `medical_notes` stays on labels until P7 | Yes (Security) | Accept | rev 3.2 §3.4 | Pending (**sheet C**) |
 
 ---
 
-## III. Deployment approvals (28): each one is an owner act at the time
+## III. Deployment approvals (29): each one is an owner act at the time
 
 | ID | Item | Owner approval required (co-signers) | Recommended default | Where | Status |
 |---|---|---|---|---|---|
@@ -230,6 +240,7 @@ Signed: ____________________ Date: __________
 | III-26 | Turn on each purge job (one at a time; dry-run counts first) | Yes (Security; after III-25) | One job at a time | §4.10 | Pending |
 | III-27 | Any use of the relaxation switch: two different people, at most 4 hours, never lifts do-not-release | Yes (two people per I-51; owner told) | Never, unless an emergency | §4.8 | Pending (standing rule) |
 | III-28 | Merge and deploy optional P9 | Yes (Security) | After P4 | P9 | Pending |
+| III-29 | **New (3.2).** Merge and deploy P0.5 (interim guard), then switch on the `{ids}` refusal only after every station has reloaded | Yes (Security) | First code PR | rev 3.2 §1.1 | Pending |
 
 ---
 
@@ -241,5 +252,5 @@ Signed: ____________________ Date: __________
 | III | 28 | 0 | — | 28 |
 | **Total** | **128** | **18** | **82** | **28** |
 
-Of the 83 needed now, 25 are on the owner decision sheet (sections A–D) and 58 are routine, covered by the
+Of the 89 needed now, 29 are on the owner decision sheet (sections A–D) and 60 are routine, covered by the
 "accept all other defaults" line.
