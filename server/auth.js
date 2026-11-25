@@ -6,6 +6,7 @@
 //   staff     – also edits people, services, songs and rooms at their campuses
 //   admin     – everything, including campuses, accounts and imports
 // A user's campus_ids limits them to some campuses; NULL means every campus.
+import { createLimiter, ipAllowed } from './ratelimit.js';
 import crypto from 'node:crypto';
 import { getSetting } from './db.js';
 import { notify } from './notify.js';
@@ -179,15 +180,9 @@ const codeHash = (email, code) => crypto.createHash('sha256').update(`${email.to
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
 
 // In-memory limits per address/IP; enough to stop guessing and email flooding on one server.
-const hits = new Map();
-function limited(key, max, windowMs) {
-  const now = Date.now();
-  const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
-  list.push(now);
-  hits.set(key, list);
-  if (hits.size > 10000) hits.clear();
-  return list.length > max;
-}
+// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
+const limits = createLimiter();
+const limited = (key, max, windowMs) => !limits.hit(key, max, windowMs);
 
 // Who may create their own (volunteer) account just by signing in. Everyone else needs an admin
 // to add them in Settings → Accounts. New accounts only see their own schedule until given more.
@@ -334,7 +329,7 @@ export function authRoutes(app, db) {
   // Sign in with email and password.
   app.post('/auth/password', (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
-    if (limited(`pw:${email}`, 8, 15 * 60e3) || limited(`pwip:${req.ip}`, 40, 15 * 60e3)) {
+    if (limited(`pw:${email}`, 8, 15 * 60e3) || !ipAllowed(limits, 'pwip', req.ip, 40, 15 * 60e3)) {
       return res.status(429).json({ error: 'Too many tries. Wait a few minutes, or use “Email me a code”.' });
     }
     const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
@@ -351,7 +346,7 @@ export function authRoutes(app, db) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (!validEmail(email)) return res.status(400).json({ error: 'Enter your email address.' });
     if (!canSendMail()) return res.status(503).json({ error: 'Email sign-in isn’t set up yet. Use Google, or ask the church office.' });
-    if (limited(`code:${email}`, 5, 60 * 60e3) || limited(`codeip:${req.ip}`, 20, 60 * 60e3)) {
+    if (limited(`code:${email}`, 5, 60 * 60e3) || !ipAllowed(limits, 'codeip', req.ip, 20, 60 * 60e3)) {
       return res.status(429).json({ error: 'We’ve sent several codes already. Check your inbox (and spam), or try again in an hour.' });
     }
     const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');

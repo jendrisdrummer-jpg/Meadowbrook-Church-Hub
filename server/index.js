@@ -23,6 +23,7 @@ import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
 import searchRoutes from './routes/search.js';
 import backupRoutes from './routes/backups.js';
+import checkRoutes from './routes/checks.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
@@ -88,6 +89,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));
+  api.use(checkRoutes(db));
   api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));

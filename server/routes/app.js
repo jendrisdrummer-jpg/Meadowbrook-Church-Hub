@@ -1,6 +1,7 @@
 // The member app (app.<church domain>): what's on it, set in the dashboard's App Builder, and
 // what guests can do without signing in (see service times, fill in a connect card).
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
@@ -115,16 +116,9 @@ export const appConfig = (db) => {
 };
 
 // A tiny per-address limit so the public form can't be used to flood the inbox.
-const recent = new Map();
-function rateLimit(key, max = 5, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
+// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
+const limits = createLimiter();
+const rateLimit = (key, max = 5, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
 
 export default function appRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -195,7 +189,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
   r.post('/public/connect', (req, res) => {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
-    if (!rateLimit(req.ip)) throw bad('Thanks! We already have your card. Please try again later if you need to send another.');
+    if (!ipAllowed(limits, 'card', req.ip, 5, 10 * 60e3)) throw bad('Thanks! We already have your card. Please try again later if you need to send another.');
     const first = required(b.first_name, 'First name').slice(0, 60);
     const email = str(b.email, 200).toLowerCase();
     const phone = str(b.phone, 40);

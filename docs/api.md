@@ -43,6 +43,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `giving.js`, `finance.js` | checkout (public), my giving, `/finance/*` | `requireFinance` |
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
+| `checks.js` | `GET /admin/production-checks` | admin |
 | `search.js`, `dashboard.js` | global search, home | volunteer+ (results filtered by role/campus) |
 
 ### Forms (`routes/forms.js`)

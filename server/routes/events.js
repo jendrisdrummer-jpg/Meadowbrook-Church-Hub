@@ -3,6 +3,7 @@
 // price per person paid by card through Stripe. Guests can sign up without an account; a private
 // key on each sign-up lets them see (and, for free events, cancel) their own.
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import crypto from 'node:crypto';
 import { requireRole, canCampus, campusFilter, siteOrigin, rank } from '../auth.js';
 import { getSetting, tx } from '../db.js';
@@ -18,16 +19,9 @@ const money = (c) => `$${(c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '
 const HOLD_MIN = 35; // a spot is held this long while someone pays (Stripe's checkout lasts 30)
 const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
-const recent = new Map();
-function rateLimit(key, max = 20, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
+// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
+const limits = createLimiter();
+const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
 
 // "Saturday, October 19 · 6:00 PM", for emails.
 function when(e) {
@@ -84,7 +78,7 @@ export default function eventRoutes(db) {
 
   // Body: { name, email, phone, count, answers: { [question id]: value } }
   r.post('/events/:id/signups', async (req, res) => {
-    if (!rateLimit(req.ip)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!ipAllowed(limits, 'signup', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const e = db.prepare(`${EVENT} WHERE e.id = ?`).get(int(req.params.id));
     if (!visible(req, e)) throw notFound('Event');
     const ev = parse(e);

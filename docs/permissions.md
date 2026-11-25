@@ -50,6 +50,26 @@ arrives, so someone demoted, switched off or limited since is simply not told; a
 per form every 15 minutes. Exporting responses to CSV is audited (`form.export`: title and row count, never
 answers). Don't collect children's medical or safeguarding details in forms; check-in is the place for that.
 
+**Retention (recommendation, agreed before any form collects sensitive information):**
+- Ask only what the ministry needs to act. No children's medical, safeguarding, financial or
+  identity-document details in forms; those belong in check-in, giving or a pastoral conversation.
+- Pastoral or personal free text (a prayer request, a care need): mark the response done once
+  followed up, and delete it (admin) within **90 days** of being done, unless a pastor asks to keep it.
+- Sign-ups and interest forms (volunteer interest, event questions): keep for **12 months**, then
+  export what's needed and delete the rest.
+- CSV exports are copies outside the hub: download only when needed, keep them off shared drives,
+  and delete them when the task is done (exports are audited as `form.export`).
+- Archive a form when it closes; archiving keeps responses, so the deletion step above still applies.
+- Review open forms and old responses each quarter (the same rhythm as the restore drill).
+
+The hub doesn't delete responses automatically yet; if a form will collect sensitive information
+regularly, ask for automatic deletion first.
+
+## Settings → Checks
+
+Admins only (`GET /admin/production-checks`). Shows whether this server is set up safely for real use; never
+shows a secret, only yes/no and non-secret values such as `MB_TRUST_PROXY`.
+
 ## Roles (ranked)
 
 `volunteer` < `leader` < `staff` < `admin`. A route guarded with `requireRole('leader')` lets

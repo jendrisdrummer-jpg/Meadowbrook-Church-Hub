@@ -38,7 +38,7 @@ const freePort = () => new Promise((resolve) => {
 });
 
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
-  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings'];
+  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/checks'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church']];
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];

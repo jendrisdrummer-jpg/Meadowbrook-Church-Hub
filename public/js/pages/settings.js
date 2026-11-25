@@ -4,7 +4,7 @@ import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
 
-const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups']];
+const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
 
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
@@ -12,7 +12,7 @@ export default async function settings(el, tab = 'church') {
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
   // Old links (#/settings/rooms) land on the section that now holds them.
-  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople, backups };
+  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople, backups, checks };
   await (pages[tab] || church)(panel);
 }
 
@@ -466,4 +466,19 @@ function drawMapping(box, csv, pv) {
         ${!r.dry_run ? html`<br><a href="#/people">Go to People →</a>` : ''}</div>`);
     } catch (err) { fail(err); } finally { b.disabled = false; }
   };
+}
+
+// ---------------------------------------------------------------- checks
+// Is this server set up safely for real use? Yes/no checks from the server; no secrets shown.
+async function checks(panel) {
+  const c = await get('/admin/production-checks');
+  const pill = { ok: ['good', 'Yes'], warn: ['warn', 'Check'], bad: ['bad', 'No'], info: ['info', 'Info'] };
+  mount(panel, html`<div class="card stack" style="max-width:820px">
+    <h2 style="margin:0">Checks</h2>
+    <p class="muted small" style="margin:0">${c.hosted ? 'This server is hosted, so these are the settings for real use.' : 'This isn’t the hosted server, so some checks are for information only.'} Settings marked “No” must be fixed before staff use the hub.</p>
+    ${c.ready ? html`<div class="alert good small">Nothing here blocks real use.</div>` : html`<div class="alert bad small">Some checks say “No”. Fix those first.</div>`}
+    <table class="list"><tbody>${c.checks.map((x) => html`<tr>
+      <td style="width:5.5em"><span class="pill ${pill[x.status][0]}">${pill[x.status][1]}</span></td>
+      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}</tbody></table>
+  </div>`);
 }

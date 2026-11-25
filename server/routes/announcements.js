@@ -2,6 +2,7 @@
 // now or at a set time. Only accounts with the Announcements permission (and admins) send them.
 // Phones can get announcements without an account: the app's More tab offers that to guests.
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import { getSetting } from '../db.js';
 import { HttpError, bad, notFound, int, str, audit } from '../http.js';
 import { notify, pushGuests } from '../notify.js';
@@ -17,16 +18,9 @@ export function requireAnnounce(req, res, next) {
   next();
 }
 
-const recent = new Map();
-function rateLimit(key, max = 10, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
+// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
+const limits = createLimiter();
+const rateLimit = (key, max = 10, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
 
 // Who an audience reaches: accounts, and phones without an account (everyone or a campus).
 export function reach(db, audience) {
@@ -159,7 +153,7 @@ export default function announcementRoutes(db) {
   // ---------------------------------------------------------------- guest phones
   r.get('/push/key', (_req, res) => res.json({ public_key: vapidKeys(db).publicKey }));
   r.post('/push/guest', (req, res) => {
-    if (!rateLimit(`g${req.ip}`, 20)) throw new HttpError(429, 'Please try again in a few minutes.');
+    if (!ipAllowed(limits, 'guestpush', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Please try again in a few minutes.');
     const b = req.body || {};
     if (!validEndpoint(b.endpoint) || !b.keys?.p256dh || !b.keys?.auth) throw bad('That isn’t a push subscription this app can use.');
     if (String(b.keys.p256dh).length > 200 || String(b.keys.auth).length > 100) throw bad('Invalid push keys.');

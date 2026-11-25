@@ -2,6 +2,7 @@
 // Google Pay), what each giver sees of their own giving, and the finance reports. Who gave what
 // is only shown to accounts with the Finance permission (not to staff or admins without it).
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import { requireRole, siteOrigin } from '../auth.js';
 import { getSetting, setSetting, tx } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, isDate, audit, localNow } from '../http.js';
@@ -20,16 +21,9 @@ export function requireFinance(req, res, next) {
 }
 
 // A tiny per-address limit on starting payments.
-const recent = new Map();
-function rateLimit(key, max = 20, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
+// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
+const limits = createLimiter();
+const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
 
 export default function givingRoutes(db) {
   const r = Router();
@@ -66,7 +60,7 @@ export default function givingRoutes(db) {
   // Starts Stripe's payment form (shown inside our page). Card numbers never reach this server.
   r.post('/giving/checkout', async (req, res) => {
     if (!stripeConfigured()) throw new HttpError(503, 'Online giving isn’t set up yet.');
-    if (!rateLimit(req.ip)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!ipAllowed(limits, 'give', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const b = req.body || {};
     const amount = Math.round(Number(String(b.amount ?? '').replace(/[$,\s]/g, '')) * 100);
     if (!Number.isFinite(amount) || amount < 100) throw bad('The smallest gift online is $1.');
