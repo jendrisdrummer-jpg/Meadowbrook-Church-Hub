@@ -55,8 +55,15 @@ same way.
   deleting a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
   authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
-  **children's** allergies and medical notes, never an adult's. The roster holds only the requested
-  campus's families (and families with no campus), and every route checks the campus.
+  **children's** allergies and medical notes, never an adult's. Every route checks the campus.
+- **The check-in roster** for a campus holds that campus's families **plus families with no campus
+  set**, and never a family assigned to another campus. Unassigned families are included on purpose,
+  because Faith Teams has no campuses, so many imported households have none. Leaving them out would
+  hide real children from check-in. Unassigned families are therefore visible at every campus's
+  check-in to authorised people. Staff can assign a household's campus at any time (People → the
+  household → edit; `PATCH /households/:id`), and from then on the family appears only at that
+  campus. Assigning campuses to imported households before kids' check-in goes live (Subsplash
+  cutover) narrows this further.
 
 ### Moving the interim check-in authorisation to the permanent permissions
 

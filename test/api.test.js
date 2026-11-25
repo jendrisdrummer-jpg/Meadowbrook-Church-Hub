@@ -807,10 +807,19 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   assert.equal((await api('gwen', 'POST', '/checkin/checkout', { campus_id: 2, ids: ['south-guard-1'] })).status, 403);
   assert.equal((await api('gwen', 'DELETE', '/checkin/checkins/south-guard-1')).status, 403);
   assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null, 'nothing changed');
-  // Their own campus's roster holds only that campus's families: no South child, even by accident.
+  // Their own campus's roster holds that campus's families and unassigned ones (Faith Teams has
+  // no campuses), but never a family assigned to another campus.
+  const looseHh = (await api('admin', 'POST', '/households', { name: 'Unassigned Household', campus_id: null })).data;
+  await api('admin', 'POST', '/people', { first_name: 'Una', last_name: 'Loose', household_id: looseHh.id, household_role: 'child', birthdate: '2020-01-01', force: true });
   const northRoster = (await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data;
   assert.equal(northRoster.households.some((h) => h.id === southHh.id), false);
   assert.ok(!JSON.stringify(northRoster).includes('SOUTH-MEDICAL-CANARY'));
+  assert.equal(northRoster.households.some((h) => h.id === looseHh.id), true, 'unassigned families are included on purpose');
+  assert.equal((await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.households.some((h) => h.id === looseHh.id), true);
+  // Once staff assign the family a campus, it appears only there.
+  assert.equal((await api('admin', 'PATCH', `/households/${looseHh.id}`, { campus_id: 2 })).status, 200);
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data.households.some((h) => h.id === looseHh.id), false);
+  assert.equal((await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.households.some((h) => h.id === looseHh.id), true);
   // A checkout by ids at their own campus can't reach another campus's child either.
   await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['south-guard-1'] });
   assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null);
