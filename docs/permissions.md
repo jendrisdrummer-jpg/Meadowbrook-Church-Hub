@@ -121,6 +121,62 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Events, Forms, Media, App Builder, check-in stations | | | ✓ | ✓ |
 | Settings, campuses, accounts, profile fields, import, merge duplicates, backups, reset Mux key | | | | ✓ |
 
+## Campus-limited admins
+
+An admin whose `campus_ids` is a list (not NULL) manages their own campuses and nothing wider. An admin
+with no campus limit keeps every power, exactly as before. The server enforces all of this (the
+Settings and person-page dialogs hide what would be refused and say "Some options are for admins who
+cover every campus."). Code: `accountInReach` and `requireAllCampuses` in `server/auth.js`,
+`scopePatch` in `routes/setup.js`.
+
+**Accounts in reach.** For a limited admin with campuses C, an account is in reach when it is not
+their own, is not an admin, and is either a volunteer who is unlinked or linked to a person at a
+campus in C or with no campus yet (as elsewhere, unassigned people are open to every campus; giving
+them more access still needs a campus list inside C), or a leader or staff account whose own campus list is set and sits inside C. Everything
+else is out of reach: 403 on change, delete and check-in grants, and left out of Settings → Accounts
+(the main list, "not linked" and "more than one account").
+
+Also out of reach: any account holding Finance or Announcements (church-wide), a volunteer whose own campus
+list reaches beyond C (for example staff who stepped down at another campus), and deleting an account whose
+email is in `MB_ADMIN_EMAILS` (its next sign-in would make it an admin again).
+
+**What they can't do** (403 with a kind message; a value the dialog re-sends unchanged is fine):
+- change their own role, campuses, Finance, Announcements, "Can sign in" or check-in, link or unlink
+  their own person, or delete themselves ("Ask an admin who covers every campus to change your own access.");
+- make anyone an admin, or give or take Finance or Announcements (giving and announcements are church-wide);
+- set campuses to "all" or to a campus outside C. Leader and staff accounts always end up with a campus
+  list inside C: left out on create, or when promoting someone with no list, it becomes C.
+
+**Team-leader rule.** When a campus-limited actor (an admin linking an account, staff or a leader changing a team, or a merge) makes someone an automatic leader, the account's campus list ends up inside the actor's campuses: the person's campus if it's one of theirs, otherwise their campuses, and an existing list that reaches further is narrowed the same way. An unrestricted actor keeps the older behaviour. The narrowing is audited (`user.leader_auto` records the campus list before and after) and stays if they later stop leading. Open questions for the owner: (1) accept that narrowing, or skip such promotions instead; (2) accounts holding Finance or Announcements are out of reach for campus-limited admins even inside their campuses (safe default); (3) campus-limited admins can still send announcements to the whole church (existing behaviour; their own power, not a grant). Also: campus-limited staff can make someone from another campus a leader of one of their own teams (teams can be shared across campuses); the access granted stays inside the staff member's campuses.
+
+**Merging people** moves the duplicate's account to the kept person, so a limited admin can't merge
+when that account is out of reach.
+
+**Church-wide admin routes** are for admins with no campus limit (`requireAllCampuses`):
+
+| Route | Scope | Limited admin |
+|---|---|---|
+| `PATCH /settings` | Church-wide (sign-in policy, domain, code cap, reminders, name, brand, name tags, headcount areas) | 403 (Settings hides those forms and says so; kids' rooms for their campus stay editable) |
+| `POST /app-icon/:size`, `DELETE /app-icon` | Church-wide (the installed app's icon) | 403 |
+| `POST /campuses` | Church-wide (creates a campus) | 403 |
+| `PATCH /campuses/:id` | Campus-scoped | Own campuses only |
+| `POST`, `PATCH /profile-fields`, `PUT /profile-fields/order` | Church-wide (every profile) | 403 |
+| `GET /backups`, `POST /backups/run`, `GET /backups/:id/download`, `DELETE /backups/drive`, Google Drive sign-in | Church-wide (a backup holds every campus) | 403 |
+| `POST /import/preview`, `POST /import/people` | Church-wide (can create and update people at any campus) | 403 |
+| `POST /media/mux/reset-key` | Church-wide (the live-stream key) | 403 |
+| `GET /users`, `POST`, `PATCH`, `DELETE /users/:id` | Accounts | Accounts in reach only, rules above |
+| `POST /people/:id/merge` | Campus-scoped | Both people in their campuses, and the duplicate's account in reach |
+| `PATCH /feedback/:id` | Campus-scoped | Own campuses and feedback with no campus |
+| `DELETE /admin/form-responses/:id` | Campus-scoped (the form's own rules) | As the form allows |
+| `GET /admin/production-checks` | Read-only server status, no secrets | Allowed |
+
+Read-only exposure that remains: a person's page shows their account (email, role, campuses, flags) to
+any leader or above who can see that person, and the Checks page and account counts are church-wide.
+Both leave the account itself unchangeable.
+
+Older behaviour, not changed: a volunteer who becomes an automatic leader through an unrestricted
+admin or an unrestricted actor keeps no campus list, so sees every campus.
+
 ## Permission flags (on top of the role)
 
 | Flag | Grants | Notes |

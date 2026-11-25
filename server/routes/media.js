@@ -2,7 +2,7 @@
 // from the church's YouTube channel (see ../media.js); staff give each one the app's own title,
 // trim, speaker, series, scripture and topics. Watch is public, like the rest of the app.
 import { Router } from 'express';
-import { requireRole } from '../auth.js';
+import { requireRole, requireAllCampuses } from '../auth.js';
 import { setSetting } from '../db.js';
 import crypto from 'node:crypto';
 import { bad, notFound, int, str, audit } from '../http.js';
@@ -107,7 +107,7 @@ export default function mediaRoutes(db) {
     res.json(muxInfo());
   };
   r.post('/media/mux/stream', requireRole('staff'), (req, res) => muxCall(res, async () => { await ensureLiveStream(db); audit(db, req, 'media.mux.stream'); }));
-  r.post('/media/mux/reset-key', requireRole('admin'), (req, res) => muxCall(res, async () => { await resetStreamKey(db); audit(db, req, 'media.mux.reset_key'); }));
+  r.post('/media/mux/reset-key', requireRole('admin'), requireAllCampuses, (req, res) => muxCall(res, async () => { await resetStreamKey(db); audit(db, req, 'media.mux.reset_key'); }));
   r.put('/media/mux/youtube', requireRole('staff'), (req, res) => muxCall(res, async () => {
     const key = str(req.body?.key, 200);
     const url = str(req.body?.url, 300);

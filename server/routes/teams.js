@@ -150,15 +150,30 @@ export default function teamRoutes(db) {
 export function syncLeaderAccessFor(db, personId, req) {
   const leads = db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(personId);
   // Normally one account per person; while old duplicates remain, each is treated the same way.
-  for (const user of db.prepare('SELECT * FROM users WHERE person_id = ?').all(personId)) syncOne(db, user, personId, leads, req);
+  const personCampus = db.prepare('SELECT campus_id FROM people WHERE id = ?').get(personId)?.campus_id ?? null;
+  for (const user of db.prepare('SELECT * FROM users WHERE person_id = ?').all(personId)) syncOne(db, user, personId, leads, req, personCampus);
 }
 
-function syncOne(db, user, personId, leads, req) {
+function syncOne(db, user, personId, leads, req, personCampus) {
   if (leads) {
     if (user.role === 'volunteer') {
       db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
+      // A campus-limited actor (admin, staff or leader) must never hand out wider access than their own. A
+      // volunteer with no campus list means "every campus", so a leader made by them gets the person's
+      // campus (or, for someone with no campus, the actor's campuses). An existing list that reaches beyond
+      // the actor's campuses is narrowed the same way, so a leader is never made for a campus the actor
+      // doesn't cover. (When an unrestricted actor does this, nothing changes: older behaviour, noted in
+      // docs/permissions.md.)
+      const actor = req?.user?.campusIds;
+      const current = user.campus_ids == null ? null : JSON.parse(user.campus_ids);
+      let narrowed = {};
+      if (actor && (current == null || !current.every((c) => actor.includes(Number(c))))) {
+        const ids = personCampus != null && actor.includes(Number(personCampus)) ? [Number(personCampus)] : actor;
+        db.prepare('UPDATE users SET campus_ids = ? WHERE id = ?').run(JSON.stringify(ids), user.id);
+        narrowed = { campus_ids_before: current, campus_ids_after: ids };
+      }
       closeStreams({ userId: user.id });
-      audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true });
+      audit(db, req, 'user.leader_auto', { user_id: user.id, person_id: personId, granted: true, ...narrowed });
     }
     // No account yet: nothing is created here. People get an account by signing in, and an admin
     // links it to them by hand (we never connect an account to a person by matching email).
