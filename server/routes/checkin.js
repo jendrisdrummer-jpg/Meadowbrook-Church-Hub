@@ -4,13 +4,28 @@
 // with no internet. Each check-in gets its id and pickup code on the tablet, and uploads are
 // idempotent: re-sending a batch after a dropped connection never double-counts anyone.
 import { Router } from 'express';
-import { requireRole, canCampus, campusFilter } from '../auth.js';
+import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow } from '../http.js';
 import { roomFor, securityCode } from '../../public/js/checkin-rules.js';
 
+// Who may use kids' check-in (the family roster with children's allergies and medical notes,
+// checking in and out): paired stations, staff and admins, and leader accounts an admin has
+// authorised for check-in (Settings → Sign-in & accounts). Interim rule until the check-in access
+// flag of the child-safety plan replaces it.
+export function canCheckin(db, user) {
+  if (!user) return false;
+  if (user.station || rank(user.role) >= rank('staff')) return true;
+  return rank(user.role) >= rank('leader') && getSetting(db, 'checkin_user_ids', []).includes(user.id);
+}
+
 export default function checkinRoutes(db) {
   const r = Router();
+  const requireCheckin = (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+    if (!canCheckin(db, req.user)) return res.status(403).json({ error: 'Kids’ check-in is for staff and people an admin has authorised. Ask an admin if you need it.' });
+    next();
+  };
 
   function campus(req, id) {
     const c = db.prepare('SELECT * FROM campuses WHERE id = ?').get(int(id, 'Campus'));
@@ -20,7 +35,7 @@ export default function checkinRoutes(db) {
   }
 
   // Everything a tablet needs to check families in with no connection.
-  r.get('/checkin/roster', requireRole('leader'), (req, res) => {
+  r.get('/checkin/roster', requireCheckin, (req, res) => {
     const c = campus(req, req.query.campus_id);
     const today = localNow(c.timezone).date;
     // Every household is included: families sometimes visit the other campus.
@@ -49,7 +64,7 @@ export default function checkinRoutes(db) {
   });
 
   // Upload check-ins: { campus_id, records: [{ id, person_id, room_id?, service_id?, kind, security_code, station, checked_in_at }] }
-  r.post('/checkin/checkins', requireRole('leader'), (req, res) => {
+  r.post('/checkin/checkins', requireCheckin, (req, res) => {
     const c = campus(req, req.body?.campus_id);
     const records = Array.isArray(req.body?.records) ? req.body.records : [];
     if (!records.length) throw bad('Nothing to check in.');
@@ -79,7 +94,7 @@ export default function checkinRoutes(db) {
   });
 
   // Who is checked in today (or on ?day=), with rooms; ?room_id narrows to one room.
-  r.get('/checkin/active', requireRole('leader'), (req, res) => {
+  r.get('/checkin/active', requireCheckin, (req, res) => {
     const c = campus(req, req.query.campus_id);
     const day = isDate(req.query.day) ? req.query.day : localNow(c.timezone).date;
     const args = [c.id, day];
@@ -97,7 +112,7 @@ export default function checkinRoutes(db) {
   });
 
   // Check out by pickup code (every child on that code) or by check-in ids.
-  r.post('/checkin/checkout', requireRole('leader'), (req, res) => {
+  r.post('/checkin/checkout', requireCheckin, (req, res) => {
     const c = campus(req, req.body?.campus_id);
     const day = localNow(c.timezone).date;
     const by = str(req.body?.by, 100) || req.user.name;
@@ -117,7 +132,7 @@ export default function checkinRoutes(db) {
   });
 
   // Undo a mistaken check-in.
-  r.delete('/checkin/checkins/:id', requireRole('leader'), (req, res) => {
+  r.delete('/checkin/checkins/:id', requireCheckin, (req, res) => {
     const ci = db.prepare('SELECT * FROM checkins WHERE id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
     if (!canCampus(req.user, ci.campus_id)) throw forbidden();

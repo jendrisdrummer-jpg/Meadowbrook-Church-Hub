@@ -51,9 +51,14 @@ same way.
 - Allergies, medical notes, a person's private `notes`, household notes and the household pickup list
   are **staff and up** on a person's page (`GET /people/:id`). Leaders, including anyone with leader
   access only because they lead a team, see contact and serving details but not those fields.
-- Check-in (`/checkin/roster`, `/checkin/active`) sends **children's** allergies and medical notes to
-  stations and leaders for kids' safety, never an adult's. (Until child-safety V1 adds a check-in
-  access flag, any leader can still open the roster; see the child-safety plan in PR #49.)
+- **Kids' check-in** (`/checkin/roster`, `/checkin/checkins`, `/checkin/active`, `/checkin/checkout`,
+  deleting a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
+  authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
+  `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
+  **children's** allergies and medical notes, never an adult's. Interim rule until the child-safety
+  plan's check-in access flag replaces it.
+- **Connect-card messages** (often prayer requests) are staff only; leaders see the card without it.
+- Automatic leader access from leading a team is written to the audit log (`user.leader_auto`).
 - Chats: only members (team chats follow the team roster).
 - Private tasks: only the person; team tasks: the team.
 
