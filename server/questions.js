@@ -7,6 +7,8 @@ export const EVENT_TYPES = ['text', 'choice', 'yesno'];
 export const FORM_TYPES = ['text', 'longtext', 'choice', 'multichoice', 'yesno', 'date'];
 const RESERVED = ['__proto__', 'constructor', 'prototype'];
 const HAS_OPTIONS = ['choice', 'multichoice'];
+// One stored answer, or undefined: never a value inherited from Object.prototype.
+export const answerOf = (answers, id) => (answers && Object.hasOwn(answers, id) ? answers[id] : undefined);
 
 // Cleans the list staff send; returns plain objects ready to store as JSON.
 export function cleanQuestions(list, types, max = 12) {
@@ -14,7 +16,7 @@ export function cleanQuestions(list, types, max = 12) {
   const out = list.slice(0, max).map((q, i) => {
     const type = oneOf(q.type, types, 'text');
     let id = str(q.id, 20).replace(/[^\w-]/g, '') || `q${i + 1}`;
-    if (RESERVED.includes(id)) id = `q${i + 1}`; // would read inherited object properties
+    if (RESERVED.includes(id) || id in Object.prototype) id = `q${i + 1}`; // would read inherited object properties
     const clean = { id, label: required(q.label, 'Question').slice(0, 200), type, required: Boolean(q.required) };
     if (HAS_OPTIONS.includes(type)) {
       clean.options = [...new Set((Array.isArray(q.options) ? q.options : []).map((o) => str(o, 80)).filter(Boolean))].slice(0, 20);

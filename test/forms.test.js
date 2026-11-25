@@ -389,6 +389,17 @@ test('a question id like "constructor" is renamed and never reads inherited valu
   assert.equal(res.status, 400);
   assert.match(res.data.error, /Sneaky/);
   assert.equal((await submit(slug, { answers: { constructor: 'real answer' } })).status, 201);
+
+  // Any other inherited name (toString, valueOf…) is renamed too, and an unanswered one exports as blank.
+  const ts = await makeForm({ title: 'Proto two', questions: [{ id: 'toString', label: 'Ts' }, { id: 'valueOf', label: 'Vo' }] });
+  assert.deepEqual(ts.data.questions.map((q) => q.id), ['q1', 'q2']);
+  const slug2 = 'legacy-tostring';
+  db.prepare('INSERT INTO forms (slug, title, questions, ask_contact) VALUES (?, ?, ?, ?)').run(slug2, 'Legacy two', JSON.stringify([{ id: 'toString', label: 'Ts', type: 'text' }]), '{"name":"optional"}');
+  assert.equal((await submit(slug2, { name: 'Lee', answers: {} })).status, 201);
+  const fid = db.prepare('SELECT id FROM forms WHERE slug = ?').get(slug2).id;
+  const csv = await api('staff', 'GET', `/admin/forms/${fid}/responses.csv`);
+  assert.equal(csv.status, 200);
+  assert.doesNotMatch(typeof csv.data === 'string' ? csv.data : JSON.stringify(csv.data), /native code/);
 });
 
 test('notify options: only people who could be told, no campus lists', async () => {

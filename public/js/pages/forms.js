@@ -145,7 +145,7 @@ async function responses(el, f) {
       ${shown.length ? html`<div class="grid two">${shown.map((x) => html`<div class="card stack" style="gap:8px">
         <div class="row"><b style="font-size:16px">${x.name || (x.person_first ? `${x.person_first} ${x.person_last}` : 'Someone')}</b><span class="spacer"></span><span class="muted small">${fmtDate(x.created_at.slice(0, 10))}</span></div>
         <div class="row small">${x.email ? html`<a href="mailto:${x.email}">${x.email}</a>` : ''}${x.phone ? html`<a href="tel:${x.phone}">${x.phone}</a>` : ''}${x.person_id ? html`<a href="#/people/${x.person_id}">${icon('user')} ${x.person_first} ${x.person_last}</a>` : ''}</div>
-        ${form.questions.filter((q) => x.answers[q.id] !== undefined).map((q) => html`<div><div class="muted small">${q.label}</div><div style="white-space:pre-line">${answer(q, x.answers[q.id])}</div></div>`)}
+        ${form.questions.filter((q) => Object.hasOwn(x.answers, q.id)).map((q) => html`<div><div class="muted small">${q.label}</div><div style="white-space:pre-line">${answer(q, x.answers[q.id])}</div></div>`)}
         <div class="row" style="margin-top:4px">
           ${x.status === 'done' ? html`<span class="muted small">Done${x.done_by_name ? ` by ${x.done_by_name}` : ''}</span><button class="btn small ghost" data-reopen="${x.id}">Reopen</button>`
             : html`<button class="btn small primary" data-done="${x.id}">${icon('check')} Done</button>`}

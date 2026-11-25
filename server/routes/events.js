@@ -12,7 +12,7 @@ import { sendMail, canSendMail } from '../mail.js';
 import { notify } from '../notify.js';
 import { toCsv } from '../csv.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
-import { cleanQuestions, cleanAnswers, EVENT_TYPES } from '../questions.js';
+import { cleanQuestions, cleanAnswers, answerOf, EVENT_TYPES } from '../questions.js';
 
 const money = (c) => `$${(c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 const HOLD_MIN = 35; // a spot is held this long while someone pays (Stripe's checkout lasts 30)
@@ -290,7 +290,7 @@ export default function eventRoutes(db) {
 
   r.get('/admin/events/:id/signups.csv', requireRole('staff'), (req, res) => {
     const e = parse(getEvent(req, req.params.id));
-    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => s.answers[q.id] || ''), (s.amount_cents / 100).toFixed(2), s.created_at]);
+    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => answerOf(s.answers, q.id) || ''), (s.amount_cents / 100).toFixed(2), s.created_at]);
     res.setHeader('Content-Disposition', `attachment; filename="${e.title.replace(/[^\w -]/g, '').slice(0, 60) || 'event'} sign-ups.csv"`);
     res.type('text/csv').send(toCsv([['Name', 'Email', 'Phone', 'People', ...e.questions.map((q) => q.label), 'Paid', 'Signed up'], ...rows]));
   });

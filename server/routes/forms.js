@@ -8,7 +8,7 @@ import { getSetting } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
 import { notify } from '../notify.js';
 import { toCsv } from '../csv.js';
-import { cleanQuestions, cleanAnswers, answerText, FORM_TYPES } from '../questions.js';
+import { cleanQuestions, cleanAnswers, answerText, answerOf, FORM_TYPES } from '../questions.js';
 
 const MAX_QUESTIONS = 30;
 const AUDIENCES = ['public', 'signed_in'];
@@ -43,7 +43,8 @@ function limiter() {
     if (ips.size <= IP_CAP && now - swept < 60e3) return;
     swept = now;
     for (const [k, v] of ips) if (!recent(v.tries, now, IP_WINDOW).length) ips.delete(k);
-    for (const k of ips.keys()) { if (ips.size <= IP_CAP) break; ips.delete(k); } // still flooded: oldest go first
+    // Still flooded: the oldest go first, down to 90% so the next requests don't sweep again.
+    for (const k of ips.keys()) { if (ips.size <= IP_CAP * 0.9) break; ips.delete(k); }
   };
   return {
     // Counts an attempt (even one that fails validation); false when this address is over its tries.
@@ -197,7 +198,7 @@ export default function formRoutes(db) {
     const f = parse(getManaged(req, req.params.id));
     const header = ['Name', 'Email', 'Phone', 'Signed-in person', ...f.questions.map((q) => q.label), 'Status', 'Received'];
     const rows = responseRows(f.id).map((x) => [x.name, x.email, x.phone, x.person_first ? `${x.person_first} ${x.person_last}` : '',
-      ...f.questions.map((q) => answerText(x.answers[q.id])), x.status === 'done' ? 'Done' : 'New', x.created_at]);
+      ...f.questions.map((q) => answerText(answerOf(x.answers, q.id))), x.status === 'done' ? 'Done' : 'New', x.created_at]);
     audit(db, req, 'form.export', `${f.title} (${rows.length} responses)`); // never the answers
     res.setHeader('Content-Disposition', `attachment; filename="${f.slug}-responses.csv"`);
     res.type('text/csv').send(toCsv([header, ...rows]));
