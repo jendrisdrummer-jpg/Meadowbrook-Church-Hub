@@ -695,6 +695,71 @@ test('leading a team gives leader access, and takes it back only if it came from
   assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
 });
 
+test('leaders see contact details but not health information, private notes or pickups', async () => {
+  // A family at North: a parent and a child, each with health information and private notes.
+  const hh = (await api('admin', 'POST', '/households', { name: 'Privacy Household', campus_id: 1 })).data;
+  const make = async (b) => (await api('admin', 'POST', '/people', { campus_id: 1, household_id: hh.id, force: true, ...b })).data;
+  const parent = await make({ first_name: 'Pat', last_name: 'Private', household_role: 'adult', email: 'pat@private.org',
+    allergies: 'PARENT-ALLERGY-CANARY', medical_notes: 'PARENT-MEDICAL-CANARY', notes: 'PASTORAL-CANARY' });
+  const child = await make({ first_name: 'Kit', last_name: 'Private', household_role: 'child', birthdate: '2019-05-01',
+    allergies: 'CHILD-ALLERGY-CANARY', medical_notes: 'CHILD-MEDICAL-CANARY', notes: 'CHILD-NOTES-CANARY' });
+  await api('admin', 'PATCH', `/households/${hh.id}`, { notes: 'HOUSEHOLD-NOTES-CANARY' });
+  await api('admin', 'POST', `/households/${hh.id}/pickups`, { name: 'Gran Private', relationship: 'Grandmother', phone: '555-0100' });
+
+  // Someone who gets leader access only because they lead a team (any team: here, parking).
+  const team = await api('admin', 'POST', '/teams', { name: 'Parking', campus_id: 1, positions: ['Lot'] });
+  const lee = (await api('admin', 'POST', '/people', { first_name: 'Lee', last_name: 'Lot', email: 'lee@lot.org', campus_id: 1 })).data;
+  await api('admin', 'PUT', `/teams/${team.data.id}/members/${lee.id}`, { position_ids: [], is_leader: true });
+  const leeUser = db.prepare('SELECT id, role FROM users WHERE person_id = ?').get(lee.id);
+  assert.equal(leeUser.role, 'leader');
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.lee = v.split(';')[0]; } }, leeUser.id);
+
+  for (const id of [parent.id, child.id]) {
+    const seen = await api('lee', 'GET', `/people/${id}`);
+    assert.equal(seen.status, 200);
+    assert.ok(seen.data.first_name && seen.data.teams && seen.data.household.members.length === 2, 'contact and serving details still shown');
+    const text = JSON.stringify(seen.data);
+    assert.ok(!/CANARY/.test(text), `no health information, private notes or household notes for a leader: ${text.match(/[A-Z-]*CANARY/g)}`);
+    for (const k of ['allergies', 'medical_notes', 'notes']) assert.equal(k in seen.data, false, k);
+    assert.equal('pickups' in seen.data.household, false, 'pickup list is staff-only');
+    assert.equal('notes' in seen.data.household, false);
+  }
+
+  // Staff and admins still see everything, as before.
+  for (const role of ['admin', 'north']) {
+    const full = (await api(role, 'GET', `/people/${child.id}`)).data;
+    assert.equal(full.medical_notes, 'CHILD-MEDICAL-CANARY');
+    assert.equal(full.allergies, 'CHILD-ALLERGY-CANARY');
+    assert.equal(full.notes, 'CHILD-NOTES-CANARY');
+    assert.equal(full.household.notes, 'HOUSEHOLD-NOTES-CANARY');
+    assert.deepEqual(full.household.pickups.map((p) => p.name), ['Gran Private']);
+  }
+  assert.equal((await api('vol', 'GET', `/people/${child.id}`)).status, 403);
+
+  // Check-in keeps children's allergies and medical notes, but never sends an adult's.
+  const roster = (await api('lee', 'GET', '/checkin/roster?campus_id=1')).data;
+  const family = roster.households.find((h) => h.id === hh.id);
+  const kid = family.members.find((m) => m.id === child.id);
+  const adult = family.members.find((m) => m.id === parent.id);
+  assert.equal(kid.allergies, 'CHILD-ALLERGY-CANARY');
+  assert.equal(kid.medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(adult.allergies, null);
+  assert.equal(adult.medical_notes, null);
+  assert.ok(!JSON.stringify(roster).includes('PARENT-'), 'no adult health information anywhere in the roster');
+  assert.ok(!JSON.stringify(roster).includes('PASTORAL-CANARY'));
+
+  // The same on the list of who is checked in today: the child's notes, never an adult's.
+  const today = roster.today;
+  const ins = db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES (?, 1, ?, ?, ?, datetime('now'))");
+  ins.run('privacy-kid', child.id, 'kid', today);
+  ins.run('privacy-adult', parent.id, 'volunteer', today);
+  const active = (await api('lee', 'GET', `/checkin/active?campus_id=1&day=${today}`)).data;
+  assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(active.find((c) => c.id === 'privacy-adult').allergies, null);
+  assert.ok(!JSON.stringify(active).includes('PARENT-'), 'no adult health information in the active list');
+  db.prepare("DELETE FROM checkins WHERE id LIKE 'privacy-%'").run();
+});
+
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
   // People with accounts: a team leader, two team members, and someone not on the team.
   const person = async (first) => (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Chat', campus_id: 1, email: `${first.toLowerCase()}@chat.org` })).data;

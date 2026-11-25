@@ -59,9 +59,9 @@ export default async function person(el, id) {
             ${h.address ? html`<p class="muted small">${h.address}${h.city ? `, ${h.city}` : ''} ${h.state} ${h.zip}</p>` : ''}
             ${h.members.map((m) => html`<a class="row" href="#/people/${m.id}" style="padding:6px 0;color:inherit">${avatar(m)}<span>${displayName(m)}</span>
               <span class="muted small">${m.household_role === 'child' ? `Child${m.birthdate ? ` · ${ageLabel(m.birthdate, now)}` : ''}` : 'Adult'}</span></a>`)}
-            <h3 style="margin-top:14px">Also allowed to pick up kids</h3>
+            ${h.pickups ? html`<h3 style="margin-top:14px">Also allowed to pick up kids</h3>
             ${h.pickups.length ? h.pickups.map((pu) => html`<div class="row small" style="padding:3px 0"><span>${pu.name}</span><span class="muted">${pu.relationship} ${pu.phone}</span>
-              ${staff ? html`<button class="icon-btn" data-del-pickup="${pu.id}" title="Remove">${icon('x')}</button>` : ''}</div>`) : html`<p class="muted small">Only adults in this household.</p>`}
+              ${staff ? html`<button class="icon-btn" data-del-pickup="${pu.id}" title="Remove">${icon('x')}</button>` : ''}</div>`) : html`<p class="muted small">Only adults in this household.</p>`}` : ''}
             ${staff ? html`<button class="btn small" data-add-pickup>${icon('plus')} Add pickup person</button>` : ''}
           ` : html`<p class="muted">Not part of a household yet.</p>`}
         </div>
