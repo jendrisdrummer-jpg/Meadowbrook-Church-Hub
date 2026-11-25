@@ -65,6 +65,7 @@ async function boot() {
   if (!state.station) { await setup(); return; }
   state.roster = store.get(KEY.roster(state.station.campusId), null);
   await refreshRoster();
+  if (state.denied) { mount($main, html`<div class="alert bad">${state.denied}</div>`); return; }
   if (!state.roster) { mount($main, html`<div class="alert bad">This station has no family list yet. Connect to the internet and reload.</div>`); return; }
   drawHeader();
   setMode('in');
@@ -87,7 +88,8 @@ async function refreshRoster() {
     saveToday([...byId.values()]);
     drawStatus();
   } catch (e) {
-    if (e.status !== 401) console.warn('Roster refresh failed', e);
+    if (e.status === 403) state.denied = e.message;
+    else if (e.status !== 401) console.warn('Roster refresh failed', e);
   }
 }
 
