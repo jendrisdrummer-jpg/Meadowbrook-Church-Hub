@@ -30,7 +30,7 @@ rules are in [master-product-roadmap.md](master-product-roadmap.md) §2.
 **Migrations waiting for the next deploy:** 30 (`users.link_requested_at`), 31 (`feedback`), 32 (`serving_campuses`), 33 (small groups), 34 (`assignments.nudged_at`), 35 (forms). All additive. They run automatically on
 production when `milestone-1` is merged to `main`, which needs the owner's approval; take a backup first.
 
-**Before deploy:** see [beta-readiness.md](beta-readiness.md) §1 (deployment gate). After a rollback to an older release, clear `sessions` (after a backup).
+**Before deploy:** see [beta-readiness.md](beta-readiness.md) §1 (deployment gate) and the [deploy and rollback runbook](deploy-runbook.md). After a rollback to an older release, clear `sessions` and drop the one-account index (after a backup; exact steps in the runbook), and add no migrations to `main` until `milestone-1` is live. Migrations 30–35 rehearsed on made-up data on 2026-11-25 ([rehearsal record](deploy-runbook.md#rehearsal-record)).
 
 **At go-live:** add serving campuses for volunteers who serve at more than one campus (otherwise they are only offered at their home campus).
 
