@@ -14,6 +14,7 @@ how it's built and how to change it.
 | [api.md](api.md) | API conventions, endpoint map, integrations and their settings |
 | [security.md](security.md) | Security and privacy standards, severity scale, review checklist |
 | [development.md](development.md) | Coding standards, commands, git/PR flow, keeping docs current, efficient Claude use |
+| [restore-drill.md](restore-drill.md) | Backup restore drill on a laptop (offline mode), and its record |
 | [testing.md](testing.md) | Test layers, writing tests, core workflow regression checklist, phone checks |
 | [release-checklist.md](release-checklist.md) | Release-readiness checklist for significant features |
 | [tech-debt.md](tech-debt.md) | Known bugs and technical debt |

@@ -919,6 +919,9 @@ const MIGRATIONS = [
   `,
 ];
 
+// The schema version a fully migrated database has (PRAGMA user_version).
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);

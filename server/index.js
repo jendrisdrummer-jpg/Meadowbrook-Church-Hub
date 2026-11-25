@@ -28,6 +28,7 @@ import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
 import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
+import { isOffline, enableOffline, listenHost } from './offline.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
 import groupRoutes from './routes/groups.js';
@@ -201,26 +202,35 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     console.warn('Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (see README), or MB_DEV_LOGIN=1 for local testing.');
   }
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
-  createApp({ db }).listen(port, () => console.log(`Meadowbrook Church Hub on http://localhost:${port}`));
-  // Serving reminders go out a day or two ahead (Settings: reminder_hours); task reminders the
-  // morning before and the morning of.
-  const remind = () => {
-    try { sendReminders(db); } catch (e) { console.error('Reminders failed:', e.message); }
-    try { sendTaskReminders(db); } catch (e) { console.error('Task reminders failed:', e.message); }
-  };
-  setTimeout(remind, 60e3).unref();
-  setInterval(remind, 15 * 60e3).unref();
-  // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
-  setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
-  setInterval(() => sendDueAnnouncements(db), 60e3).unref();
-  // Nightly backup (from 3 a.m. church time; see Settings → Backups).
-  setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
-  // Media: new videos from the YouTube channel every hour; around service times, every two
-  // minutes, whether we're live.
-  const mediaSync = () => syncMedia(db).catch((e) => console.error('Media sync failed:', e.message));
-  setTimeout(mediaSync, 2 * 60e3).unref();
-  setInterval(mediaSync, 60 * 60e3).unref();
-  setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
-  // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
-  setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
+  const offline = isOffline();
+  if (offline) {
+    enableOffline();
+    console.warn('OFFLINE MODE: no push, Drive, payments, video or media calls, and no background jobs. For restore drills and local copies only.');
+  }
+  createApp({ db }).listen(port, listenHost(), () => console.log(`Meadowbrook Church Hub on http://localhost:${port}${offline ? ' (this computer only)' : ''}`));
+  // Background jobs. Not in offline mode: they would reach real people and services.
+  if (!offline) startJobs();
+  function startJobs() {
+    // Serving reminders go out a day or two ahead (Settings: reminder_hours); task reminders the
+    // morning before and the morning of.
+    const remind = () => {
+      try { sendReminders(db); } catch (e) { console.error('Reminders failed:', e.message); }
+      try { sendTaskReminders(db); } catch (e) { console.error('Task reminders failed:', e.message); }
+    };
+    setTimeout(remind, 60e3).unref();
+    setInterval(remind, 15 * 60e3).unref();
+    // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
+    setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
+    setInterval(() => sendDueAnnouncements(db), 60e3).unref();
+    // Nightly backup (from 3 a.m. church time; see Settings → Backups).
+    setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
+    // Media: new videos from the YouTube channel every hour; around service times, every two
+    // minutes, whether we're live.
+    const mediaSync = () => syncMedia(db).catch((e) => console.error('Media sync failed:', e.message));
+    setTimeout(mediaSync, 2 * 60e3).unref();
+    setInterval(mediaSync, 60 * 60e3).unref();
+    setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
+    // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
+    setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
+  }
 }
