@@ -2,7 +2,7 @@
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireRole, requireAllCampuses, accountInReach, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
+import { requireRole, requireAllCampuses, accountInReach, canCampus, ROLES, SIGN_IN_POLICIES, wouldBeAdmin } from '../auth.js';
 import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicateAccountLinks } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
@@ -217,6 +217,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (req.user.campusIds) {
       if (u.id === req.user.id) throw new HttpError(403, SELF_MSG);
       if (!accountInReach(req.user, loadAccount(u.id))) throw new HttpError(403, OUT_MSG);
+      // Its next sign-in would make it an admin again (MB_ADMIN_EMAILS): leave that to an admin who covers every campus.
+      if (wouldBeAdmin(db, u.email)) throw new HttpError(403, OUT_MSG);
     }
     if (u.id === req.user.id) throw bad('You can’t delete your own account. Ask another admin.');
     if (u.role === 'admin' && db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n <= 1) {

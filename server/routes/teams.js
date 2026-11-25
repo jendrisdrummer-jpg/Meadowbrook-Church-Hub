@@ -160,10 +160,13 @@ function syncOne(db, user, personId, leads, req, personCampus) {
       db.prepare("UPDATE users SET role = 'leader', role_auto = 1 WHERE id = ?").run(user.id);
       // A campus-limited actor (admin, staff or leader) must never hand out wider access than their own. A
       // volunteer with no campus list means "every campus", so a leader made by them gets the person's
-      // campus (or, for someone with no campus, the actor's campuses). An existing list is left alone.
-      // (When an unrestricted actor does this, nothing changes: older behaviour, noted in docs/permissions.md.)
+      // campus (or, for someone with no campus, the actor's campuses). An existing list that reaches beyond
+      // the actor's campuses is narrowed the same way, so a leader is never made for a campus the actor
+      // doesn't cover. (When an unrestricted actor does this, nothing changes: older behaviour, noted in
+      // docs/permissions.md.)
       const actor = req?.user?.campusIds;
-      if (actor && user.campus_ids == null) {
+      const current = user.campus_ids == null ? null : JSON.parse(user.campus_ids);
+      if (actor && (current == null || !current.every((c) => actor.includes(Number(c))))) {
         const ids = personCampus != null && actor.includes(Number(personCampus)) ? [Number(personCampus)] : actor;
         db.prepare('UPDATE users SET campus_ids = ? WHERE id = ?').run(JSON.stringify(ids), user.id);
       }

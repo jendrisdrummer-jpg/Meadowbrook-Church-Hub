@@ -136,6 +136,10 @@ them more access still needs a campus list inside C), or a leader or staff accou
 else is out of reach: 403 on change, delete and check-in grants, and left out of Settings → Accounts
 (the main list, "not linked" and "more than one account").
 
+Also out of reach: any account holding Finance or Announcements (church-wide), a volunteer whose own campus
+list reaches beyond C (for example staff who stepped down at another campus), and deleting an account whose
+email is in `MB_ADMIN_EMAILS` (its next sign-in would make it an admin again).
+
 **What they can't do** (403 with a kind message; a value the dialog re-sends unchanged is fine):
 - change their own role, campuses, Finance, Announcements, "Can sign in" or check-in, link or unlink
   their own person, or delete themselves ("Ask an admin who covers every campus to change your own access.");
@@ -143,10 +147,7 @@ else is out of reach: 403 on change, delete and check-in grants, and left out of
 - set campuses to "all" or to a campus outside C. Leader and staff accounts always end up with a campus
   list inside C: left out on create, or when promoting someone with no list, it becomes C.
 
-**Team-leader rule.** When a campus-limited actor (an admin linking an account, or staff or a leader
-changing a team) turns a volunteer into an automatic leader, an account with no campus list gets the
-linked person's campus (or the actor's campuses when the person has none), never "every campus". Lists
-already set are left alone. The same rule run by an unrestricted admin is unchanged.
+**Team-leader rule.** When a campus-limited actor (an admin linking an account, staff or a leader changing a team, or a merge) makes someone an automatic leader, the account's campus list ends up inside the actor's campuses: the person's campus if it's one of theirs, otherwise their campuses, and an existing list that reaches further is narrowed the same way. An unrestricted actor keeps the older behaviour. Open question for the owner: campus-limited staff can make someone from another campus a leader of one of their own teams (teams can be shared across campuses); the access granted stays inside the staff member's campuses.
 
 **Merging people** moves the duplicate's account to the kept person, so a limited admin can't merge
 when that account is out of reach.

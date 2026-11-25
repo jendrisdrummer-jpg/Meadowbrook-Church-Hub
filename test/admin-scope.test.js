@@ -278,3 +278,51 @@ test('a volunteer linked to someone with no campus yet is manageable; more acces
   assert.deepEqual(camps(v), [1], 'promoted inside the admin’s campuses only');
   assert.equal((await call('N', 'PATCH', `/users/${v}`, { campus_ids: 'all' })).status, 403);
 });
+
+test('re-review M1: the team-leader rule never makes a leader for a campus the actor doesn’t cover', async () => {
+  const team = Number(db.prepare("INSERT INTO teams (name, campus_id) VALUES ('North Crew', 1)").run().lastInsertRowid);
+  // (a) A limited admin links an unlinked volunteer whose own list is [2] (e.g. South staff who stepped down)
+  // to a North team leader: now out of reach, so refused.
+  const lead = addPerson('Leadone', 1);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, lead);
+  const ex = addUser('ex-m1@x.test', 'volunteer', { campus: [2] });
+  assert.equal((await call('N', 'PATCH', `/users/${ex}`, { person_id: lead })).status, 403);
+  assert.equal(row(ex).role, 'volunteer');
+  // (b) North-only staff makes someone a team leader whose volunteer account has [2]: leader, but North only.
+  login('S1', ids.S1);
+  const p2 = addPerson('Leadtwo', 1);
+  const acct = addUser('leadtwo-m1@x.test', 'volunteer', { campus: [2], person: p2 });
+  const r = await call('S1', 'PUT', `/teams/${team}/members/${p2}`, { is_leader: true });
+  assert.ok(r.status < 300, `team change: ${r.status}`);
+  assert.equal(row(acct).role, 'leader');
+  assert.deepEqual(camps(acct), [1]);
+  // (c) Merge by a limited admin: the kept person's account had [1, 2]; leadership comes over with the merge.
+  const keep = addPerson('Keepme', 1), dup = addPerson('Keepme', 1);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, dup);
+  const ka = addUser('keepme-m1@x.test', 'volunteer', { person: keep });
+  db.prepare("UPDATE users SET campus_ids = '[1,2]' WHERE id = ?").run(ka);
+  const m = await call('N', 'POST', `/people/${keep}/merge`, { duplicate_id: dup });
+  assert.ok(m.status < 300 || m.status === 403, `merge: ${m.status}`);
+  if (row(ka).role === 'leader') assert.deepEqual(camps(ka), [1]);
+  // An unrestricted admin keeps the older behaviour.
+  const ua = addUser('free-m1@x.test', 'volunteer', { campus: [2], person: addPerson('Freeone', 1) });
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, row(ua).person_id);
+  const { syncLeaderAccessFor } = await import('../server/routes/teams.js');
+  syncLeaderAccessFor(db, row(ua).person_id, { user: { id: ids.A, campusIds: null } });
+  assert.deepEqual(camps(ua), [2]);
+});
+
+test('re-review L1, L2: Finance/Announcements holders and listed admin emails stay with unrestricted admins', async () => {
+  const fin = addUser('fin-l1@x.test', 'volunteer');
+  db.prepare('UPDATE users SET finance = 1 WHERE id = ?').run(fin);
+  assert.equal((await call('N', 'PATCH', `/users/${fin}`, { active: false })).status, 403);
+  assert.equal((await call('N', 'DELETE', `/users/${fin}`)).status, 403);
+  const keep = process.env.MB_ADMIN_EMAILS;
+  process.env.MB_ADMIN_EMAILS = 'listed-l2@x.test';
+  try {
+    const listed = addUser('listed-l2@x.test', 'volunteer');
+    assert.equal((await call('N', 'DELETE', `/users/${listed}`)).status, 403);
+    assert.equal((await call('A', 'DELETE', `/users/${listed}`)).status, 200);
+  } finally { if (keep === undefined) delete process.env.MB_ADMIN_EMAILS; else process.env.MB_ADMIN_EMAILS = keep; }
+  assert.equal((await call('A', 'PATCH', `/users/${fin}`, { active: false })).status, 200);
+});

@@ -124,9 +124,16 @@ export function requireAllCampuses(req, res, next) {
 export function accountInReach(user, t) {
   if (!user.campusIds) return true;
   if (t.id === user.id || t.role === 'admin') return false;
+  // Finance and Announcements are church-wide, so accounts holding them are for unrestricted admins.
+  if (t.finance || t.announce) return false;
   // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
   // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
-  if (t.role === 'volunteer') return t.person_id == null || t.person_campus_id == null || user.campusIds.includes(Number(t.person_campus_id));
+  // A volunteer's own campus list, if set (e.g. staff who stepped down), must also sit inside theirs.
+  if (t.role === 'volunteer') {
+    const own = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
+    if (Array.isArray(own) && !own.every((c) => user.campusIds.includes(Number(c)))) return false;
+    return t.person_id == null || t.person_campus_id == null || user.campusIds.includes(Number(t.person_campus_id));
+  }
   const ids = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
   return Array.isArray(ids) && ids.every((c) => user.campusIds.includes(Number(c)));
 }
@@ -148,6 +155,9 @@ export function requireAppHeader(req, res, next) {
 // What a new sign-in for this email would be: the role it would get (null: not allowed to create an
 // account) and whether that email is already in People (only to decide whether sign-in is allowed, and
 // to avoid adding a second person; never to link). userForEmail and the code route share it.
+// True when signing in with this email would make an admin (MB_ADMIN_EMAILS, or a brand-new install).
+export const wouldBeAdmin = (db, email) => signUpRole(db, String(email).trim().toLowerCase()).role === 'admin';
+
 function signUpRole(db, email) {
   const adminEmails = (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
