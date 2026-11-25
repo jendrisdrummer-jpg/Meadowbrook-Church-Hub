@@ -328,9 +328,16 @@ async function accounts(panel, q = '') {
       <span class="muted small">Staff can also <b>Lock</b> a single service so only admins can change it.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
+  ${list.duplicate_links?.length ? html`<div class="card" style="margin-top:14px" data-duplicates>
+    <h2>${list.duplicate_links.length === 1 ? 'One person has' : `${list.duplicate_links.length} people have`} more than one account</h2>
+    <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
+    <table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
+    ${list.duplicate_links.map((d) => html`<tr><td>${d.name || 'Person'} <span class="muted small">#${d.person_id}</span></td>
+      <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString() : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
+    </tbody></table></div>` : ''}
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
-    <p class="muted small">Everyone in People with an email can sign in as a volunteer: no account needed. ${list.volunteers} of ${list.people_with_email} have so far. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
+    <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
     <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
     <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
@@ -367,7 +374,7 @@ async function accounts(panel, q = '') {
         <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
         <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
         <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
-        <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button></div>
+        <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
         ${u.id ? html`<p class="muted small" style="margin:0">${u.has_password ? 'Signs in with email and password (or Google).' : 'Hasn’t set a password; signs in with Google or an emailed code.'}</p>
           <div><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete account</button></div>` : ''}
@@ -376,6 +383,9 @@ async function accounts(panel, q = '') {
         d.querySelector('[data-delete]')?.addEventListener('click', async () => {
           if (!(await confirm('Delete this account?', `${u.email} can’t sign in until they set up again (as a volunteer, if they’re in People). Their record in People, attendance and serving history stay.`))) return;
           try { await del(`/users/${u.id}`); toast('Account deleted.'); close('deleted'); } catch (err) { fail(err); }
+        });
+        d.querySelector('[data-unlink]')?.addEventListener('click', (e) => {
+          personId = null; d.querySelector('[data-person]').textContent = 'not linked'; e.target.remove();
         });
         d.querySelector('[data-link]').onclick = async () => {
           const p = await pickPerson('Link to which person?');
@@ -394,6 +404,8 @@ async function accounts(panel, q = '') {
   };
   panel.querySelector('[data-search]').onsubmit = (e) => { e.preventDefault(); accounts(panel, e.target.q.value.trim()); };
   panel.onclick = async (e) => {
+    const findBtn = e.target.closest('[data-find]');
+    if (findBtn) return accounts(panel, findBtn.dataset.find);
     const linkBtn = e.target.closest('[data-link-account]');
     if (linkBtn) {
       const u = list.unlinked.find((x) => x.id === Number(linkBtn.dataset.linkAccount));

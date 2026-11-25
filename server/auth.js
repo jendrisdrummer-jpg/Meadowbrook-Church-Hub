@@ -121,10 +121,12 @@ export function requireAppHeader(req, res, next) {
   res.status(403).json({ error: 'Missing app header.' });
 }
 
-// Finds the account for a verified email, creating one when the church allows it:
-// - anyone in People with that email gets a volunteer account the first time they sign in;
-// - someone not in People yet (when sign-ups are open) is added to People, flagged as new from
-//   the app, if we know their name (Google tells us; the email sign-up form asks).
+// Finds the account for a verified email, creating one when the church allows it.
+// The sign-in policy decides WHO MAY SIGN IN; it never decides WHO THEY ARE. A new account is
+// always created unlinked, and an admin links it to a person by hand (Settings → Accounts).
+// The one exception is someone brand new to the church (not in People, sign-ups open), who is
+// added to People as a new person, flagged as new from the app, when we know their name
+// (Google tells us; the email sign-up form asks). That never attaches to an existing person.
 export function userForEmail(db, email, profile = {}) {
   email = String(email).trim().toLowerCase();
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
@@ -134,7 +136,9 @@ export function userForEmail(db, email, profile = {}) {
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
   const domain = getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || '');
   const policy = getSetting(db, 'sign_in_policy', 'anyone');
-  let person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
+  // Only used to decide whether sign-in is allowed ("directory") and to avoid adding a second
+  // person for the same email. It is never used to link the account.
+  const inDirectory = Boolean(db.prepare("SELECT 1 FROM people WHERE lower(trim(email)) = ? AND archived = 0 LIMIT 1").get(email));
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
@@ -142,15 +146,16 @@ export function userForEmail(db, email, profile = {}) {
   const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
-  else if (canJoin(policy, { inDomain, inDirectory: Boolean(person) })) role = 'volunteer';
+  else if (canJoin(policy, { inDomain, inDirectory })) role = 'volunteer';
   if (!role) return null;
 
   const first = String(profile.first_name || '').trim().slice(0, 60);
-  if (!person && role === 'volunteer' && !first) return { needsName: true };
-  if (!person && first) {
+  if (!inDirectory && role === 'volunteer' && !first) return { needsName: true };
+  let personId = null;
+  if (!inDirectory && first) {
     const info = db.prepare("INSERT INTO people (first_name, last_name, email, status, signed_up_at) VALUES (?, ?, ?, 'guest', datetime('now'))")
       .run(first, String(profile.last_name || '').trim().slice(0, 60), email);
-    person = { id: Number(info.lastInsertRowid) };
+    personId = Number(info.lastInsertRowid);
     const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('staff', 'admin')").all().map((u) => u.id);
     notify(db, staff, {
       kind: 'connect',
@@ -161,9 +166,7 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  // Someone who already leads a team starts with leader access (see teams: syncLeaderAccess).
-  const leads = role === 'volunteer' && person && db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(person.id);
-  const info = db.prepare('INSERT INTO users (email, role, person_id, role_auto) VALUES (?, ?, ?, ?)').run(email, leads ? 'leader' : role, person?.id ?? null, leads ? 1 : 0);
+  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, personId);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 

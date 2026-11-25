@@ -24,7 +24,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 
 | Router | Main paths | Guard |
 |---|---|---|
-| `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin |
+| `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin. `POST`/`PATCH /users` set `person_id` only when the admin sends one (409 if that person already has an account; audited `user.link` / `user.unlink`). `GET /users` also returns `unlinked` and `duplicate_links` (people with more than one account, empty when healthy). |
 | `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff) | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |

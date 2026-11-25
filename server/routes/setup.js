@@ -3,11 +3,12 @@ import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
-import { getSetting, setSetting, updateFields } from '../db.js';
+import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicateAccountLinks } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
 import { closeStreams } from '../live.js';
 import { revokeCheckin } from './checkin.js';
+import { syncLeaderAccessFor } from './teams.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -181,7 +182,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     // Active accounts not linked to anyone in People: an admin links each one by hand.
     const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT 200`).all();
-    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })), volunteers, people_with_email: withEmail, unlinked });
+    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })), volunteers, people_with_email: withEmail, unlinked, duplicate_links: duplicateAccountLinks(db) });
   });
 
   // Removes the sign-in (and its sessions and devices). The person stays in People.
@@ -196,15 +197,19 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     closeStreams({ userId: u.id });
     revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
+    ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     res.json({ ok: true });
   });
 
   // The person an admin chose to link an account to: must exist, not be archived, and not already
-  // have another account (one person, one sign-in). null unlinks.
-  function linkablePerson(value, userId) {
+  // have another account (one person, one sign-in). null unlinks. Every write that sets a user's
+  // person goes through this (or the merge check in people.js), so the rule holds on every path.
+  function linkablePerson(value, userId, req) {
     const pid = int(value);
     if (pid == null) return null;
-    if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(pid)) throw notFound('Person');
+    const p = db.prepare('SELECT campus_id FROM people WHERE id = ? AND archived = 0').get(pid);
+    if (!p) throw notFound('Person');
+    if (!canCampus(req.user, p.campus_id)) throw forbidden(); // a campus-limited admin links only their campuses' people
     if (db.prepare('SELECT 1 FROM users WHERE person_id = ? AND id != ?').get(pid, userId ?? 0)) throw new HttpError(409, 'That person already has an account. Unlink it there first.');
     return pid;
   }
@@ -222,18 +227,16 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const email = required(b.email, 'Email').toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
-    // The person the admin chose, checked like any link. With none chosen, the existing behaviour stays
-    // (the person in People with exactly this email), but never one who already has an account.
-    let person;
-    if (b.person_id != null && b.person_id !== '') person = linkablePerson(b.person_id, null);
-    else {
-      const match = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
-      person = match && !db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(match) ? match : null;
-    }
+    // Only the person the admin chose, checked like any link. Never guessed from the email.
+    const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
       .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
     if (b.checkin) setCheckin(Number(info.lastInsertRowid), true);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
+    if (person) {
+      audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
+      if (b.role === undefined) syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
+    }
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -242,8 +245,13 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (!u) throw notFound('Account');
     const b = { ...req.body };
     if (b.role !== undefined) b.role = oneOf(b.role, ROLES, u.role);
+    // The account dialog always sends the current role: an unchanged role isn't a hand change, so
+    // automatic (team-leader) access stays automatic and can still be taken back on unlink.
+    if (b.role !== undefined && b.role === u.role) delete b.role;
     if (b.campus_ids !== undefined) b.campus_ids = campusList(b.campus_ids);
-    if (b.person_id !== undefined) b.person_id = linkablePerson(b.person_id, u.id);
+    // Only a changed person is checked, so an account that already shares a person (see docs/account-links.md)
+    // can still be edited, and unlinked.
+    if (b.person_id !== undefined) b.person_id = int(b.person_id) === u.person_id ? u.person_id : linkablePerson(b.person_id, u.id, req);
     // Never let the last admin lock everyone out.
     if (u.role === 'admin' && ((b.role && b.role !== 'admin') || b.active === false || b.active === 0)) {
       const admins = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n;
@@ -253,10 +261,24 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
+    if (b.person_id !== undefined && b.person_id !== u.person_id) {
+      audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
+      if (b.person_id == null) ensureAccountLinkIndex(db); // a duplicate may just have been resolved
+    }
     if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
-    if (b.role === 'volunteer') revokeCheckin(db, u.id);
+    if ((b.role ?? u.role) === 'volunteer') revokeCheckin(db, u.id); // volunteers never keep kids' check-in access
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
+    // Linking (an admin's choice): a team leader gets leader access, the usual team-leader rule.
+    // Unlinking: leader access that came only from leading a team goes with it.
+    if (b.role === undefined && b.person_id !== undefined && b.person_id !== u.person_id) {
+      if (b.person_id != null) syncLeaderAccessFor(db, b.person_id, req);
+      else if (u.role_auto && u.role === 'leader') {
+        db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(u.id);
+        revokeCheckin(db, u.id);
+        audit(db, req, 'user.leader_auto', { user_id: u.id, person_id: u.person_id, granted: false });
+      }
+    }
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     // Open live pages end now; they reconnect with the new access, or fail if signed out.
     if (['role', 'campus_ids', 'person_id', 'active'].some((k) => b[k] !== undefined)) closeStreams({ userId: u.id });

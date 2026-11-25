@@ -582,14 +582,14 @@ test('email sign-in: codes, passwords, new people from the app, and deleting acc
   assert.equal((await auth('/auth/password', { email: 'newbie@example.com', password: 'wrong password' })).status, 401);
   assert.equal((await auth('/auth/password', { email: 'NEWBIE@example.com', password: 'correct horse 1' })).status, 200);
 
-  // Someone already in People gets linked, not duplicated.
+  // Someone already in People can sign in, but isn't duplicated and isn't linked: an admin does that.
   const before = db.prepare('SELECT COUNT(*) n FROM people').get().n;
   await auth('/auth/code', { email: 'sarah@example.com' });
   r = await auth('/auth/code/verify', { email: 'sarah@example.com', code: lastCode('sarah@example.com'), password: 'sarahs password' });
   assert.equal(r.status, 200);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM people').get().n, before);
   const sarahUser = db.prepare("SELECT * FROM users WHERE email = 'sarah@example.com'").get();
-  assert.equal(sarahUser.person_id, db.prepare("SELECT id FROM people WHERE email = 'sarah@example.com'").get().id);
+  assert.equal(sarahUser.person_id, null);
 
   // The accounts list shows extra access only (search finds anyone); admins can delete accounts.
   const list = (await api('admin', 'GET', '/users')).data;
@@ -682,7 +682,12 @@ test('leading a team gives leader access, and takes it back only if it came from
   const role = () => db.prepare('SELECT role, role_auto FROM users WHERE person_id = ?').get(mia.id);
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [] });
   assert.equal(role(), undefined);
-  // Made a leader before ever signing in: an account is set up with leader access.
+  // Made a leader before having an account: no account is made from her email.
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
+  assert.equal(role(), undefined);
+  // An admin adds her account and links it by hand; the next team change gives leader access.
+  assert.equal((await api('admin', 'POST', '/users', { email: 'mia@example.com', role: 'volunteer', person_id: mia.id })).status, 201);
+  assert.deepEqual({ ...role() }, { role: 'volunteer', role_auto: 0 });
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
   assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
   assert.equal((await api('admin', 'GET', `/people/${mia.id}`)).data.account.role, 'leader');
@@ -711,6 +716,7 @@ test('leaders see contact details but not health information, private notes or p
   // Someone who gets leader access only because they lead a team (any team: here, parking).
   const team = await api('admin', 'POST', '/teams', { name: 'Parking', campus_id: 1, positions: ['Lot'] });
   const lee = (await api('admin', 'POST', '/people', { first_name: 'Lee', last_name: 'Lot', email: 'lee@lot.org', campus_id: 1 })).data;
+  await api('admin', 'POST', '/users', { email: 'lee@lot.org', role: 'volunteer', person_id: lee.id });
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${lee.id}`, { position_ids: [], is_leader: true });
   const leeUser = db.prepare('SELECT id, role FROM users WHERE person_id = ?').get(lee.id);
   assert.equal(leeUser.role, 'leader');
@@ -768,11 +774,12 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   // A leader only because they lead a non-kids team.
   const team = await api('admin', 'POST', '/teams', { name: 'Greeters', campus_id: 1, positions: ['Door'] });
   const gwen = (await api('admin', 'POST', '/people', { first_name: 'Gwen', last_name: 'Greet', email: 'gwen@greet.org', campus_id: 1 })).data;
+  await api('admin', 'POST', '/users', { email: 'gwen@greet.org', role: 'volunteer', person_id: gwen.id });
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${gwen.id}`, { position_ids: [], is_leader: true });
   const user = db.prepare('SELECT id, role FROM users WHERE person_id = ?').get(gwen.id);
   assert.equal(user.role, 'leader');
   const granted = db.prepare("SELECT detail FROM audit_log WHERE action = 'user.leader_auto' ORDER BY id DESC LIMIT 1").get();
-  assert.deepEqual(JSON.parse(granted.detail), { user_id: user.id, person_id: gwen.id, granted: true, created: true });
+  assert.deepEqual(JSON.parse(granted.detail), { user_id: user.id, person_id: gwen.id, granted: true });
   startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.gwen = v.split(';')[0]; } }, user.id);
 
   // Not authorised: every check-in route refuses, with a plain reason.

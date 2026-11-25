@@ -19,14 +19,39 @@ posting on a signed-in person's behalf.
 
 An account is linked to one person in People (`users.person_id`); that's how it sees its schedule,
 teams and chats. **Only an admin links an account,** by choosing the person (Settings → Sign-in &
-accounts → "Accounts not linked to a person", or the account's "Link to person…"). New code never
-links by name, email or any other guess. One person can have only one account (409 otherwise).
+accounts → "Accounts not linked to a person", or the account's "Link to person…"). Nothing links by
+name, email or any other guess: no automatic link by exact email, no link from the sign-in policy,
+none from team leadership, imports, connect cards or forms. Every link and unlink is audited
+(`user.link`, `user.unlink`, with the admin who did it). Accounts already linked stay linked.
+
+**One person, one account.** Every write that sets a person on an account refuses with 409 when
+another account already has that person (admin link, adding an account, merging two people who both
+have accounts). The database enforces it too, once no duplicates exist: see
+[account-links.md](account-links.md) for the audit script and what to do about duplicates.
+
 An unlinked account sees "We've let the church office know", which calls `POST /me/link-request`;
 admins get one notification per account per week.
 
-Existing behaviour, unchanged: signing in for the first time links an account to the person in
-People with exactly that email address, and an admin adding an account with no person chosen does
-the same. That is how volunteers in People get their schedule without an admin step.
+### The sign-in policy decides who may sign in, not who they are
+
+| Policy | May sign in | New account |
+|---|---|---|
+| Anyone | Anyone who can verify an email | Created as a volunteer, **unlinked** |
+| People in the directory | Someone whose email is in People (or in the Workspace domain) | Created as a volunteer, **unlinked** (the directory is only checked to allow sign-in) |
+| Workspace domain | Only the church's Google Workspace domain | Created as a volunteer, **unlinked** |
+| Invited only | Only accounts an admin added | n/a |
+
+`MB_ADMIN_EMAILS` and the first admin on a fresh install also start unlinked when their email is in People (otherwise they are a brand-new person, below). The only account that
+is born linked is someone brand new to the church (their email is not in People, sign-ups are open):
+the app adds them to People as a new person flagged "signed up from the app", and links the account to
+that new person. It never attaches to an existing person, and a matching email or name only means a
+new account that waits for an admin. Someone with a matching email in People signs in unlinked and sees
+"We've let the church office know" until an admin links them.
+
+Leading a team gives leader access to the person's account if they have a linked one; it no longer
+creates an account. When an admin links an account to someone who already leads a team, the same rule
+applies at that moment (audited as `user.leader_auto`), unless the admin chose a role by hand.
+Unlinking takes back leader access only if it came from leading a team; access set by hand stays.
 
 ## Feedback
 
