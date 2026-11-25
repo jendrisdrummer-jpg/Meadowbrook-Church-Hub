@@ -17,7 +17,11 @@ how it's built and how to change it.
 | [testing.md](testing.md) | Test layers, writing tests, core workflow regression checklist, phone checks |
 | [release-checklist.md](release-checklist.md) | Release-readiness checklist for significant features |
 | [tech-debt.md](tech-debt.md) | Known bugs and technical debt |
-| [roadmap.md](roadmap.md) | Product roadmap, gap analysis, backlog |
+| [master-product-roadmap.md](master-product-roadmap.md) | **Order and phases:** the five-phase rollout, release gates, adoption and migration plan, retiring Faith Teams, Google Chat and Subsplash, effort and timeline |
+| [merge-log.md](merge-log.md) | What was merged into the `milestone-1` integration branch, and why (deploying to `main` needs the owner's approval) |
+| [feedback.md](feedback.md) | Leaders' prioritised feedback list and the "You said, we did" record |
+| [roadmap.md](roadmap.md) | The backlog: item IDs, sizes, gap analysis (order is set by the master roadmap) |
 | [agent-workflow.md](agent-workflow.md) | The seven agents, who does what, approvals, efficient use |
+| [plans/](plans/child-safety/README.md) | Implementation plans awaiting or after owner approval (child safety) |
 
 Screenshots used by the root README also live here (`*.png`).
