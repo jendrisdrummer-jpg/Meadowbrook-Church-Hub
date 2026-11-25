@@ -1,11 +1,12 @@
-# Runs the test suite on every pull request and every push to main, so a failing test is seen
+# Runs the test suite on every pull request and every push to main or milestone-1 (the
+# integration branch; merging to main deploys), so a failing test is seen
 # before anything is merged (merging to main deploys). Free GitHub Actions minutes; no secrets.
 name: Tests
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, milestone-1]
 
 permissions:
   contents: read
