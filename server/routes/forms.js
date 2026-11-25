@@ -2,6 +2,7 @@
 // guests or signed-in people fill it in on their phone. One small model, not a form builder.
 // Every response is staff-only. A response is tied to a person only from the signed-in account's
 // own linked person, never from a typed name, email or phone.
+import { ipBucket, ipWide, createLimiter } from '../ratelimit.js';
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting } from '../db.js';
@@ -16,51 +17,25 @@ const MODES = ['off', 'optional', 'required'];
 const CONTACT = ['name', 'email', 'phone'];
 const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
-// IPv6 addresses are bucketed by /64 (one household or Wi-Fi gets a whole /64), v4-mapped ones as IPv4.
-export function ipBucket(ip = '') {
-  ip = String(ip).replace(/%.*$/, '');
-  const v4 = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (v4) return v4[1];
-  if (!ip.includes(':')) return ip;
-  const [head, tail = ''] = ip.split('::');
-  const h = head ? head.split(':') : [];
-  const t = tail ? tail.split(':') : [];
-  const groups = ip.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h;
-  return `v6:${groups.slice(0, 4).map((g) => (parseInt(g || '0', 16) || 0).toString(16)).join(':')}`;
-}
+export { ipBucket } from '../ratelimit.js'; // kept for existing imports
 
-// Small in-memory limiter, one per app so a test (or a restart) starts clean. Addresses are
-// swept when stale and capped (oldest dropped first); per-form counters live in their own map
-// that is never wiped, so a flood of addresses can't reset a form's hourly limit.
+// Small in-memory limiter, one per app so a test (or a restart) starts clean. Addresses use the
+// shared limiter (check, then record; least recently used go first and a locked-out address last,
+// never wiped); per-form counters live in their own map so a flood of addresses can't reset a
+// form's hourly limit.
 const IP_WINDOW = 10 * 60e3;
-const IP_CAP = 5000;
-function limiter() {
-  const ips = new Map(); // bucket -> { tries: [t], wins: [t] }
+const WIDE = 16; // a whole IPv6 /48 may do this many times what one /64 may
+export function limiter(cap = 5000) {
+  const ips = createLimiter({ cap });
   const forms = new Map(); // form id -> [t]
-  let swept = 0;
   const recent = (list, now, windowMs) => list.filter((t) => now - t < windowMs);
-  const sweep = (now) => {
-    if (ips.size <= IP_CAP && now - swept < 60e3) return;
-    swept = now;
-    for (const [k, v] of ips) if (!recent(v.tries, now, IP_WINDOW).length) ips.delete(k);
-    // Still flooded: the oldest go first, down to 90% so the next requests don't sweep again.
-    for (const k of ips.keys()) { if (ips.size <= IP_CAP * 0.9) break; ips.delete(k); }
-  };
   return {
-    // Counts an attempt (even one that fails validation); false when this address is over its tries.
-    attempt(ip, max) {
-      const now = Date.now();
-      sweep(now);
-      const e = ips.get(ip) || { tries: [], wins: [] };
-      e.tries = recent(e.tries, now, IP_WINDOW);
-      e.wins = recent(e.wins, now, IP_WINDOW);
-      if (e.tries.length >= max) return false;
-      e.tries.push(now);
-      ips.set(ip, e);
-      return true;
-    },
-    canWin: (ip, max) => (recent(ips.get(ip)?.wins || [], Date.now(), IP_WINDOW).length < max),
-    win(ip) { ips.get(ip)?.wins.push(Date.now()); },
+    // Whether this address (or /48) may try again: checks only, creates and records nothing.
+    canAttempt: (ip, max) => ips.allowed(`try:${ip}`, max, IP_WINDOW),
+    // Counts an attempt (even one that fails validation); call it only after canAttempt passed for every bucket.
+    attempt: (ip, max) => ips.record(`try:${ip}`, max, IP_WINDOW),
+    canWin: (ip, max) => ips.allowed(`win:${ip}`, max, IP_WINDOW),
+    win: (ip, max) => ips.record(`win:${ip}`, max, IP_WINDOW),
     formFull(id, max) { const now = Date.now(); const l = recent(forms.get(id) || [], now, 3600e3); forms.set(id, l); return l.length >= max; },
     formWin(id) { forms.get(id).push(Date.now()); },
   };
@@ -252,12 +227,16 @@ export default function formRoutes(db) {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
     const ip = ipBucket(req.ip);
-    if (!limits.attempt(ip, 30)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    const wide = ipWide(req.ip); // IPv6 /48: sixteen times the per-address limits
+    // Check both buckets first and record only if both pass, so a refused client creates no new keys.
+    if (!limits.canAttempt(ip, 30) || (wide && !limits.canAttempt(wide, 30 * WIDE))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    limits.attempt(ip, 30);
+    if (wide) limits.attempt(wide, 30 * WIDE);
     const f = findActive(req.params.slug);
     if (limits.formFull(f.id, 200)) throw new HttpError(429, 'This form is getting a lot of responses. Please try again a little later.');
     if (f.audience === 'signed_in' && !req.user) throw new HttpError(401, 'Please sign in to fill this in.');
     if (f.audience === 'signed_in' && !canCampus(req.user, f.campus_id)) throw notFound('Form');
-    if (!limits.canWin(ip, 10)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!limits.canWin(ip, 10) || (wide && !limits.canWin(wide, 10 * WIDE))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const who = { name: str(b.name, 120), email: str(b.email, 200).toLowerCase(), phone: str(b.phone, 40) };
     for (const k of CONTACT) {
       if (f.ask_contact[k] !== 'required' || who[k]) continue;
@@ -269,7 +248,8 @@ export default function formRoutes(db) {
     const answers = cleanAnswers(f.questions, b.answers && typeof b.answers === 'object' ? b.answers : {});
     db.prepare('INSERT INTO form_responses (form_id, user_id, person_id, name, email, phone, answers) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(f.id, req.user?.id ?? null, req.user?.personId ?? null, who.name, who.email, who.phone, JSON.stringify(answers));
-    limits.win(ip);
+    limits.win(ip, 10);
+    if (wide) limits.win(wide, 10 * WIDE);
     limits.formWin(f.id);
     // Checked now, not just when the form was saved: the person may have been demoted since. At most
     // one notice per form per person every 15 minutes, so a busy form doesn't flood their inbox.

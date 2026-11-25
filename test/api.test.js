@@ -2554,3 +2554,21 @@ test('offline mode (restore drills): outgoing calls refused, this machine still 
     for (const k of ['MB_OFFLINE', 'MB_SMTP_USER', 'MB_SMTP_PASS', 'MB_SMTP_HOST', 'MB_SMTP_PORT']) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; }
   }
 });
+
+test('production checks: admins only; test sign-in, proxy setting and duplicates are flagged without secrets', async () => {
+  assert.equal((await api('north', 'GET', '/admin/production-checks')).status, 403);
+  const r = await api('admin', 'GET', '/admin/production-checks');
+  assert.equal(r.status, 200);
+  assert.ok(r.data.checks.every((c) => ['ok', 'warn', 'bad', 'info'].includes(c.status) && c.label && c.detail));
+  const { productionChecks } = await import('../server/routes/checks.js');
+  const byId = (env) => Object.fromEntries(productionChecks(db, env).checks.map((c) => [c.id, c]));
+  const hosted = byId({ RENDER: 'true', MB_DEV_LOGIN: '1', MB_TRUST_PROXY: 'true', MB_SMTP_PASS: 'super-secret-value' });
+  assert.equal(hosted.dev_login.status, 'bad');
+  assert.equal(hosted.trust_proxy.status, 'bad');
+  assert.match(hosted.trust_proxy.detail, /exactly 1/);
+  const good = byId({ RENDER: 'true', MB_TRUST_PROXY: '1' });
+  assert.equal(good.dev_login.status, 'ok');
+  assert.equal(good.trust_proxy.status, 'ok');
+  assert.ok(!JSON.stringify(productionChecks(db, { RENDER: 'true', MB_SMTP_PASS: 'super-secret-value' })).includes('super-secret-value'), 'never shows a secret');
+  assert.equal(byId({}).trust_proxy.status, 'info', 'not hosted: information only');
+});
