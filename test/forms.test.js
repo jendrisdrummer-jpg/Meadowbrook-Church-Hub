@@ -347,6 +347,15 @@ test('IPv6 addresses share a limit across their /64', async () => {
   assert.equal((await from('2001:db8:1:3::1')).status, 201, 'another /64 is another address');
 });
 
+test('a whole IPv6 /48 may fill in sixteen times what one /64 may, and no more', async () => {
+  const f = (await makeForm({ title: 'Wide' })).data;
+  const from = (a) => call(base, null, 'POST', `/public/forms/${f.slug}`, good, { 'x-forwarded-for': a });
+  // 16 /64s × 10 successes each = 160, the /48's limit.
+  for (let n = 1; n <= 16; n++) for (let i = 0; i < 10; i++) assert.equal((await from(`2001:db8:2:${n.toString(16)}::${i + 1}`)).status, 201);
+  assert.equal((await from('2001:db8:2:99::1')).status, 429, 'the 161st from this /48');
+  assert.equal((await from('2001:db8:3:1::1')).status, 201, 'another /48 is unaffected');
+});
+
 test('only one notice per form per person in 15 minutes', async () => {
   const u = newUser('notified', 'staff');
   const f = (await makeForm({ title: 'Quick ones', notify_user_id: u })).data;

@@ -13,10 +13,6 @@ const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I
 const makeCode = () => Array.from(crypto.randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join('');
 
-// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
-const limits = createLimiter();
-const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
-
 // What a paired station may do: check-in itself, list campuses, and add a new guest family.
 const stationMay = (req) => req.path.startsWith('/checkin/') || req.path === '/campuses' || (req.method === 'POST' && req.path === '/people');
 
@@ -38,12 +34,15 @@ export function stationAuth(db) {
 
 export default function stationRoutes(db) {
   const r = Router();
+  // Limits for pairing and pairing-code tries; one limiter per app (IPv6 per /64 and /48).
+  const limits = createLimiter();
+  const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
   db.prepare("DELETE FROM device_pairings WHERE expires_at < datetime('now')").run();
 
   // ---------------------------------------------------------------- the iPad
   // Starts pairing: a code to show, and a secret to collect the result with.
   r.post('/checkin/pair', (req, res) => {
-    if (!ipAllowed(limits, 'pair', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Wait a few minutes.');
+    if (!ipAllowed(limits, 'pair', req.ip, 20, 10 * 60e3, { wide: 8 })) throw new HttpError(429, 'Too many tries. Wait a few minutes.');
     db.prepare("DELETE FROM device_pairings WHERE expires_at < datetime('now')").run();
     const secret = crypto.randomBytes(24).toString('hex');
     let code;

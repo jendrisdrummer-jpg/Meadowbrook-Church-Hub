@@ -192,7 +192,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 }
 
 // MB_TRUST_PROXY: a number of proxy hops ("1" on Render, Railway or Fly), "true", or a list of addresses.
-function trustProxy(v) {
+export function trustProxy(v) {
+  v = String(v ?? '').trim(); // pasted values often pick up stray spaces; the Checks page trims too
   if (!v) return 'loopback, linklocal, uniquelocal';
   if (/^\d+$/.test(v)) return Number(v);
   if (v === 'true' || v === 'false') return v === 'true';

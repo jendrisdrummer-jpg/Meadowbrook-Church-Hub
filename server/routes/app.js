@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { createLimiter, ipAllowed } from '../ratelimit.js';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
+import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -115,13 +115,11 @@ export const appConfig = (db) => {
   return cfg;
 };
 
-// A tiny per-address limit so the public form can't be used to flood the inbox.
-// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
-const limits = createLimiter();
-const rateLimit = (key, max = 5, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
-
 export default function appRoutes(db, { uploadDir } = {}) {
   const r = Router();
+  // A per-address limit so the public connect card can't be used to flood the inbox. One per app,
+  // so a test (or a restart) starts clean. IPv6 counts per /64 and /48 (server/ratelimit.js).
+  const limits = createLimiter();
   const imageDir = path.join(uploadDir || 'data/uploads', 'app');
 
   // Pictures for home screen widgets. Everyone sees the app, so these are public (/uploads/app/).
@@ -189,7 +187,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
   r.post('/public/connect', (req, res) => {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
-    if (!ipAllowed(limits, 'card', req.ip, 5, 10 * 60e3)) throw bad('Thanks! We already have your card. Please try again later if you need to send another.');
+    if (!ipAllowed(limits, 'card', req.ip, 5, 10 * 60e3, { wide: 16 })) throw new HttpError(429, 'We couldn’t send your card just now. Please try again in a few minutes.');
     const first = required(b.first_name, 'First name').slice(0, 60);
     const email = str(b.email, 200).toLowerCase();
     const phone = str(b.phone, 40);

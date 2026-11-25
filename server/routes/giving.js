@@ -20,13 +20,10 @@ export function requireFinance(req, res, next) {
   next();
 }
 
-// A tiny per-address limit on starting payments.
-// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
-const limits = createLimiter();
-const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
-
 export default function givingRoutes(db) {
   const r = Router();
+  // A per-address limit on starting payments; one per app so tests and restarts start clean.
+  const limits = createLimiter();
   const tz = () => db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC';
   const today = () => localNow(tz()).date;
   const fees = () => ({ percent: getSetting(db, 'giving_fee_percent', 2.2), fixed_cents: getSetting(db, 'giving_fee_fixed', 30) });
@@ -60,7 +57,7 @@ export default function givingRoutes(db) {
   // Starts Stripe's payment form (shown inside our page). Card numbers never reach this server.
   r.post('/giving/checkout', async (req, res) => {
     if (!stripeConfigured()) throw new HttpError(503, 'Online giving isn’t set up yet.');
-    if (!ipAllowed(limits, 'give', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!ipAllowed(limits, 'give', req.ip, 20, 10 * 60e3, { wide: 8 })) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const b = req.body || {};
     const amount = Math.round(Number(String(b.amount ?? '').replace(/[$,\s]/g, '')) * 100);
     if (!Number.isFinite(amount) || amount < 100) throw bad('The smallest gift online is $1.');

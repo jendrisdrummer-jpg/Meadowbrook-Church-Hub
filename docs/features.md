@@ -74,7 +74,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | ✅ | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
 | Unlinked accounts tell the office; admins link accounts to people by hand | ✅ | `routes/setup.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script with `--check`; offline mode and [restore drill](restore-drill.md) | 🟡 needs password + Drive | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
-| Settings → Checks: yes/no production checks for admins (test sign-in off, `MB_TRUST_PROXY`, backups, email, sign-in policy, admins, one account per person) | ✅ | `routes/checks.js` | `pages/settings.js` |
+| Settings → Checks: yes/no production checks for admins (test sign-in off, `MB_TRUST_PROXY`, backups, email, sign-in policy, admins, one account per person; the admin's own address as the server sees it) | ✅ | `routes/checks.js` | `pages/settings.js` |
 | Demo data | ✅ | `scripts/seed-demo.js` | `npm run demo` |
 
 ## Not built yet (see [roadmap.md](roadmap.md))

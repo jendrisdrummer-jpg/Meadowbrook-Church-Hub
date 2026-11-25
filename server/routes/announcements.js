@@ -18,10 +18,6 @@ export function requireAnnounce(req, res, next) {
   next();
 }
 
-// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
-const limits = createLimiter();
-const rateLimit = (key, max = 10, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
-
 // Who an audience reaches: accounts, and phones without an account (everyone or a campus).
 export function reach(db, audience) {
   const ids = (audience.ids || []).map(Number).filter(Number.isInteger);
@@ -88,6 +84,9 @@ export function sendDueAnnouncements(db) {
 }
 
 export default function announcementRoutes(db) {
+  // Limits on sending announcements and on guest phone sign-ups; one limiter per app.
+  const limits = createLimiter();
+  const rateLimit = (key, max = 10, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
   const r = Router();
 
   function clean(b) {
@@ -153,7 +152,7 @@ export default function announcementRoutes(db) {
   // ---------------------------------------------------------------- guest phones
   r.get('/push/key', (_req, res) => res.json({ public_key: vapidKeys(db).publicKey }));
   r.post('/push/guest', (req, res) => {
-    if (!ipAllowed(limits, 'guestpush', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Please try again in a few minutes.');
+    if (!ipAllowed(limits, 'guestpush', req.ip, 20, 10 * 60e3, { wide: 16 })) throw new HttpError(429, 'Please try again in a few minutes.');
     const b = req.body || {};
     if (!validEndpoint(b.endpoint) || !b.keys?.p256dh || !b.keys?.auth) throw bad('That isn’t a push subscription this app can use.');
     if (String(b.keys.p256dh).length > 200 || String(b.keys.auth).length > 100) throw bad('Invalid push keys.');

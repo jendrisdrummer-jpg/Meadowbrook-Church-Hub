@@ -24,6 +24,7 @@ export { ipBucket } from '../ratelimit.js'; // kept for existing imports
 // that is never wiped, so a flood of addresses can't reset a form's hourly limit.
 const IP_WINDOW = 10 * 60e3;
 const IP_CAP = 5000;
+const WIDE = 16; // a whole IPv6 /48 may do this many times what one /64 may
 function limiter() {
   const ips = new Map(); // bucket -> { tries: [t], wins: [t] }
   const forms = new Map(); // form id -> [t]
@@ -37,17 +38,17 @@ function limiter() {
     for (const k of ips.keys()) { if (ips.size <= IP_CAP * 0.9) break; ips.delete(k); }
   };
   return {
-    // Counts an attempt (even one that fails validation); false when this address is over its tries.
-    attempt(ip, max) {
+    // Whether this address (or /48) may try again: checks only, creates and records nothing.
+    canAttempt: (ip, max) => (recent(ips.get(ip)?.tries || [], Date.now(), IP_WINDOW).length < max),
+    // Counts an attempt (even one that fails validation); call it only after canAttempt passed for every bucket.
+    attempt(ip) {
       const now = Date.now();
       sweep(now);
       const e = ips.get(ip) || { tries: [], wins: [] };
       e.tries = recent(e.tries, now, IP_WINDOW);
       e.wins = recent(e.wins, now, IP_WINDOW);
-      if (e.tries.length >= max) return false;
       e.tries.push(now);
       ips.set(ip, e);
-      return true;
     },
     canWin: (ip, max) => (recent(ips.get(ip)?.wins || [], Date.now(), IP_WINDOW).length < max),
     win(ip) { ips.get(ip)?.wins.push(Date.now()); },
@@ -242,13 +243,16 @@ export default function formRoutes(db) {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
     const ip = ipBucket(req.ip);
-    const wide = ipWide(req.ip); // IPv6 /48: four times the per-address limits
-    if (!limits.attempt(ip, 30) || (wide && !limits.attempt(wide, 120))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    const wide = ipWide(req.ip); // IPv6 /48: sixteen times the per-address limits
+    // Check both buckets first and record only if both pass, so a refused client creates no new keys.
+    if (!limits.canAttempt(ip, 30) || (wide && !limits.canAttempt(wide, 30 * WIDE))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    limits.attempt(ip);
+    if (wide) limits.attempt(wide);
     const f = findActive(req.params.slug);
     if (limits.formFull(f.id, 200)) throw new HttpError(429, 'This form is getting a lot of responses. Please try again a little later.');
     if (f.audience === 'signed_in' && !req.user) throw new HttpError(401, 'Please sign in to fill this in.');
     if (f.audience === 'signed_in' && !canCampus(req.user, f.campus_id)) throw notFound('Form');
-    if (!limits.canWin(ip, 10) || (wide && !limits.canWin(wide, 40))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!limits.canWin(ip, 10) || (wide && !limits.canWin(wide, 10 * WIDE))) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const who = { name: str(b.name, 120), email: str(b.email, 200).toLowerCase(), phone: str(b.phone, 40) };
     for (const k of CONTACT) {
       if (f.ask_contact[k] !== 'required' || who[k]) continue;

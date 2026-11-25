@@ -9,7 +9,8 @@ import { mailConfigured } from '../mail.js';
 import { backupStatus } from '../backup.js';
 import { isOffline } from '../offline.js';
 
-export function productionChecks(db, env = process.env) {
+// `ip` is the requesting admin's own address as this server sees it; it is shown to them and not stored.
+export function productionChecks(db, env = process.env, { ip } = {}) {
   const hosted = Boolean(env.RENDER);
   const out = [];
   const add = (id, label, status, detail) => out.push({ id, label, status, detail }); // status: ok | warn | bad | info
@@ -22,6 +23,11 @@ export function productionChecks(db, env = process.env) {
   add('trust_proxy', 'Real visitor addresses (MB_TRUST_PROXY = 1)', tp === '1' ? 'ok' : hosted ? 'bad' : 'info',
     tp === '1' ? 'Set to 1: one proxy hop, as on Render.'
       : `Set to “${tp || '(not set)'}”. On Render it must be exactly 1, or rate limits see the proxy’s address (or a forged one) instead of the visitor’s.`);
+
+  if (ip) {
+    add('your_address', 'Your address as this server sees it', 'info',
+      `${ip}. Compare it with a “what is my IP” site: if they differ, MB_TRUST_PROXY is probably wrong, and rate limits are counting the proxy’s address instead of each visitor’s.`);
+  }
 
   add('offline', 'Offline mode is off', isOffline() ? (hosted ? 'bad' : 'warn') : 'ok',
     isOffline() ? 'MB_OFFLINE is on: no email, push, backups or reminders go out. It is for restore drills on a laptop only.' : 'Off.');
@@ -56,6 +62,6 @@ export function productionChecks(db, env = process.env) {
 
 export default function checkRoutes(db) {
   const r = Router();
-  r.get('/admin/production-checks', requireRole('admin'), (_req, res) => res.json(productionChecks(db)));
+  r.get('/admin/production-checks', requireRole('admin'), (req, res) => res.json(productionChecks(db, process.env, { ip: req.ip })));
   return r;
 }

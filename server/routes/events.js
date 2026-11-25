@@ -19,10 +19,6 @@ const money = (c) => `$${(c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '
 const HOLD_MIN = 35; // a spot is held this long while someone pays (Stripe's checkout lasts 30)
 const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
-// Shared limiter (server/ratelimit.js): IPv6 counted per /64 and /48, never wiped all at once.
-const limits = createLimiter();
-const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
-
 // "Saturday, October 19 · 6:00 PM", for emails.
 function when(e) {
   const d = new Date(`${e.starts_at}:00`);
@@ -31,6 +27,8 @@ function when(e) {
 }
 
 export default function eventRoutes(db) {
+  // Public sign-ups are limited per address (IPv6 per /64 and /48); one limiter per app.
+  const limits = createLimiter();
   const r = Router();
   const tz = () => db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC';
   const nowLocal = () => { const n = localNow(tz()); return `${n.date}T${n.time}`; };
@@ -78,7 +76,7 @@ export default function eventRoutes(db) {
 
   // Body: { name, email, phone, count, answers: { [question id]: value } }
   r.post('/events/:id/signups', async (req, res) => {
-    if (!ipAllowed(limits, 'signup', req.ip, 20, 10 * 60e3)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!ipAllowed(limits, 'signup', req.ip, 20, 10 * 60e3, { wide: 16 })) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const e = db.prepare(`${EVENT} WHERE e.id = ?`).get(int(req.params.id));
     if (!visible(req, e)) throw notFound('Event');
     const ev = parse(e);

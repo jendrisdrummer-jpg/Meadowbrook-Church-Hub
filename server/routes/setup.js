@@ -104,6 +104,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
     reminder_hours: 48,
     app_short_name: '',
+    max_code_emails_per_hour: 200,             // server-wide ceiling on sign-in code emails
     video_minutes_limit: 9000,                 // Daily's free plan is 10,000 participant-minutes a month
   };
 
@@ -125,6 +126,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (k === 'plan_edit_role' && !['leader', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
       if (k === 'reminder_hours' && !(Number.isInteger(v) && v >= 0 && v <= 168)) throw bad('Reminders can go out up to 168 hours (a week) ahead, or 0 for none.');
       if (k === 'schedule_role' && !['team_leaders', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
+      if (k === 'max_code_emails_per_hour' && !(Number.isInteger(v) && v >= 1 && v <= 100_000)) throw bad('Use a whole number from 1 to 100,000.');
       if (k === 'video_minutes_limit' && !(Number.isInteger(v) && v >= 0 && v <= 10_000_000)) throw bad('The limit is a number of minutes (0 turns video calls off).');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
