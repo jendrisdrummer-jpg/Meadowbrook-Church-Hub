@@ -165,10 +165,12 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 | 7 | Feedback | Merged (#55): a Feedback page with triage and "You said, we did", not just a chat link |
 | 8 | Basic small groups | Merged (#57), after a security review (1 High, 3 Medium fixed) and a re-review |
 | 9 | Forms | Merged (#60), after a security review, a re-review (no High/Medium) and two browser click-throughs. The named forms are set up in the hub once the owner's list arrives, with no new code |
-| 10 | Recurring availability | Not started: only if worship needs it (owner fact) |
+| 10 | Recurring availability | Deferred (owner, 25 Nov): only if the worship team confirms it's needed; doesn't hold up the milestone |
 | – | Backup restore drill | Tools and runbook merged (#59, [restore-drill.md](restore-drill.md)); the drill itself is the owner's |
 | – | Polish from browser click-through | Merged (#61) |
 | – | How-to pages | In-app Help page (#63), hub and member app |
+| – | Security decisions (owner, 25 Nov) | Hashed sessions and live-connection revocation (#64); admin-only account linking and one account per person (#65, #66); IPv6-aware rate limits, safer sign-in codes, Settings → Checks, forms retention (#67) |
+| – | Beta readiness | [beta-readiness.md](beta-readiness.md): deployment gate, device and email tests, import rehearsal, restore drill, permissions, training, configuration |
 
 **Not PRs, but part of the milestone:**
 
@@ -192,12 +194,12 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 - small follow-ups: 3–6 (Tasks place picker for small groups; per-person reminder grouping)
 - running the restore drill with the developer: 1
 
+Done since (owner decisions of 25 November): hashed sessions, closing live chat on sign-out, removing
+automatic linking, one account per person (#64–#66), and the rate-limit and Checks work (#67).
+
 **Only if approved or needed:**
-- recurring availability: 10–14
-- hashing session tokens: 4–6
-- closing live chat streams on sign-out: 2–3
-- the exact-email auto-link decision: 1–3
-- a unique account-per-person index: 1–2
+- recurring availability: 10–14 (deferred; only if the worship team confirms it)
+- campus limits on account management for campus-limited admins: 3–5 (owner decision; see beta-readiness §6)
 
 **Not rebuilt:** scheduling, planning, chat, announcements, roll call, events and connect cards stay as they are. They
 are verified.
