@@ -910,6 +910,7 @@ const MIGRATIONS = [
   CREATE INDEX group_members_person ON group_members (person_id);
   ALTER TABLE chats ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE;
   CREATE UNIQUE INDEX chats_group ON chats (group_id) WHERE group_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS audit_log_action_user ON audit_log (action, user_id, at);
   `,
 ];
 

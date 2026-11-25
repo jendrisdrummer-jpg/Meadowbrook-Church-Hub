@@ -11,6 +11,16 @@ import { send } from '../live.js';
 
 // A leader who isn't staff may add this many people per rolling day.
 const LEADER_ADDS_PER_DAY = 30;
+// People-finder searches by group leaders who aren't staff: at most 60 an hour each.
+const FINDER_PER_HOUR = 60;
+const finderUse = new Map();
+export function finderLimit(userId, now = Date.now()) {
+  const recent = (finderUse.get(userId) || []).filter((t) => t > now - 3600e3);
+  if (recent.length >= FINDER_PER_HOUR) { finderUse.set(userId, recent); return false; }
+  recent.push(now);
+  finderUse.set(userId, recent);
+  return true;
+}
 
 export default function groupRoutes(db) {
   const r = Router();
@@ -66,10 +76,9 @@ export default function groupRoutes(db) {
     let rows;
     if (isStaff(req)) {
       // Campus-limited staff don't manage church-wide groups, so those show only if they're in them.
-      const cf = campusFilter(req.user, 'g.campus_id');
-      const limited = Boolean(req.user.campusIds);
-      const sql = limited ? `${cf.sql.replace(`g.campus_id IS NULL OR `, '')} OR (g.campus_id IS NULL AND g.id IN (SELECT group_id FROM group_members WHERE person_id = ?))` : cf.sql;
-      rows = db.prepare(`SELECT g.* FROM groups g WHERE g.archived = ? AND (${sql}) ORDER BY g.name LIMIT 500`).all(archived, ...cf.args, ...(limited ? [req.user.personId ?? -1] : []));
+      const ids = req.user.campusIds;
+      const sql = ids ? `${ids.length ? `g.campus_id IN (${ids.map(() => '?').join(',')}) OR ` : ''}(g.campus_id IS NULL AND g.id IN (SELECT group_id FROM group_members WHERE person_id = ?))` : '1 = 1';
+      rows = db.prepare(`SELECT g.* FROM groups g WHERE g.archived = ? AND (${sql}) ORDER BY g.name LIMIT 500`).all(archived, ...(ids ? [...ids, req.user.personId ?? -1] : []));
     } else {
       rows = req.user.personId ? db.prepare(`SELECT g.* FROM groups g JOIN group_members gm ON gm.group_id = g.id
         WHERE gm.person_id = ? AND g.archived = 0 ORDER BY g.name LIMIT 100`).all(req.user.personId) : [];
@@ -132,7 +141,9 @@ export default function groupRoutes(db) {
     const a = open(req, req.params.id);
     if (!manager(a)) throw forbidden();
     const q = String(req.query.q || '').trim().slice(0, 60);
-    if (q.length < 2) return res.json([]);
+    if (q.length < (a.staff ? 2 : 3)) return res.json([]);
+    // Group leaders who aren't staff can't page through the whole directory.
+    if (!a.staff && !finderLimit(req.user.id)) throw new HttpError(429, 'That’s a lot of searches. Please wait a little and try again.');
     const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
     // A campus group draws from its own campus (and people with no campus); church-wide groups from
     // whatever the viewer can see.
@@ -151,10 +162,14 @@ export default function groupRoutes(db) {
     if (!manager(a)) throw forbidden();
     const personId = int(req.params.personId);
     const person = db.prepare('SELECT id, campus_id, household_role, grade, birthdate FROM people WHERE id = ? AND archived = 0').get(personId);
-    const reachable = person && (a.g.campus_id == null ? canCampus(req.user, person.campus_id) : (person.campus_id == null || person.campus_id === a.g.campus_id));
-    if (!reachable) throw notFound('Person');
-    if (!isAdult(person)) throw bad('Small groups are for adults for now. Children can’t be added.');
     const existing = db.prepare('SELECT is_leader FROM group_members WHERE group_id = ? AND person_id = ?').get(a.g.id, personId);
+    if (!existing) {
+      // Only new members are checked: someone already in the group can still step down or be made
+      // a leader after their campus or household changes.
+      const reachable = person && (a.g.campus_id == null ? canCampus(req.user, person.campus_id) : (person.campus_id == null || person.campus_id === a.g.campus_id));
+      if (!reachable) throw notFound('Person');
+      if (!isAdult(person)) throw bad('Small groups are for adults for now. Children can’t be added.');
+    }
     const wantsLeader = req.body?.is_leader === undefined ? undefined : (req.body.is_leader ? 1 : 0);
     // Leaders can't make leaders; the one thing they can change is stepping down themselves.
     const steppingDown = personId === req.user.personId && existing?.is_leader === 1 && wantsLeader === 0;

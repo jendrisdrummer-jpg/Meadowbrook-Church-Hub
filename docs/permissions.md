@@ -147,7 +147,14 @@ Until then, review the authorised list in Settings → Sign-in & accounts (accou
   `group.archive`/`unarchive`, `group.member_add`/`member_remove` (including leaving),
   `group.leader_add`/`leader_remove`. A leader who adds more than 30 people in 24 hours gets a
   kind 429 (counted from the audit log). Merging two people moves group memberships (keeping
-  leadership) and serving campuses to the kept person.
+  leadership) and serving campuses to the kept person. Leaders who aren't staff need three letters
+  to search the finder and get at most 60 searches an hour. Campus and adult checks apply when
+  someone joins, not to existing members (so a leader can still step down after moving campus).
+  Push notifications for small-group chats never include the message text ("New message. Open the
+  chat to read it."), since these chats carry prayer and pastoral news. Open chat pages stop
+  receiving a small-group chat's messages as soon as the viewer is removed or the group archived;
+  if that check fails, it fails closed. Not done yet (owner decision): closing open live streams
+  when someone signs out, is deactivated, or has their role changed.
 - Private tasks: only the person; team tasks: the team.
 
 ## When you add a route

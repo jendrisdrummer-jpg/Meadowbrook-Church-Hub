@@ -11,7 +11,9 @@ export function send(userIds, chatId, event) {
     if (!chatId || s.viewing !== chatId) continue;
     // Matched only because they're looking at this chat: check they still may (removed from the
     // roster, group archived…), and stop sending if not.
-    if (s.req && !hooks.chatAccess(s.req, chatId)) { s.viewing = null; continue; }
+    let ok = true;
+    if (s.req) { try { ok = Boolean(hooks.chatAccess(s.req, chatId)); } catch { ok = false; } } // fail closed
+    if (!ok) { s.viewing = null; continue; }
     s.res.write(data);
   }
 }

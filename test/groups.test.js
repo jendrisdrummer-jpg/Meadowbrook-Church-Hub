@@ -346,3 +346,38 @@ test('merging people keeps group membership (and leadership) and serving campuse
   assert.deepEqual(db.prepare('SELECT campus_id FROM serving_campuses WHERE person_id = ? ORDER BY campus_id').all(keep).map((x) => x.campus_id), [1, 2]);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM serving_campuses WHERE person_id = ?').get(dup).n, 0);
 });
+
+test('re-review fixes: step down after a campus change, finder limits, live sends fail closed', async () => {
+  const gid = (await api('north', 'POST', '/groups', { name: 'Moved Group', campus_id: 1 })).data.id;
+  const leadP = addPerson('Mover', 1); addUser('mover', 'volunteer', null, leadP);
+  await api('north', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true });
+  // Their home campus changes later: they can still step down (only new members are checked).
+  db.prepare('UPDATE people SET campus_id = 2 WHERE id = ?').run(leadP);
+  assert.equal((await api('mover', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: false })).status, 200);
+  await api('north', 'PUT', `/groups/${gid}/members/${leadP}`, { is_leader: true });
+
+  // Leaders who aren't staff need three letters, and get at most 60 searches an hour.
+  assert.deepEqual((await api('mover', 'GET', `/groups/${gid}/candidates?q=Sa`)).data, []);
+  let last;
+  for (let i = 0; i < 61; i++) last = await api('mover', 'GET', `/groups/${gid}/candidates?q=Sar`);
+  assert.equal(last.status, 429);
+  assert.equal((await api('north', 'GET', `/groups/${gid}/candidates?q=Sa`)).status, 200, 'staff aren’t limited');
+
+  // If the access check throws for one viewer, the others still get the message and the post succeeds.
+  const { hooks } = await import('../server/live.js');
+  const cid = db.prepare('SELECT id FROM chats WHERE group_id = ?').get(gid).id;
+  const real = hooks.chatAccess;
+  const okWrites = [], badWrites = [];
+  const badStream = { userId: -5, req: { boom: true }, viewing: cid, res: { write: (d) => badWrites.push(d) } };
+  const goodReq = { user: { id: db.prepare('SELECT id FROM users WHERE person_id = ?').get(leadP).id, role: 'volunteer', personId: leadP, campusIds: null } };
+  const goodStream = { userId: -6, req: goodReq, viewing: cid, res: { write: (d) => okWrites.push(d) } };
+  hooks.chatAccess = (req, id) => { if (req.boom) throw new Error('db busy'); return real(req, id); };
+  streams.add(badStream); streams.add(goodStream);
+  try {
+    const r = await api('mover', 'POST', `/chats/${cid}/messages`, { body: 'Still here' });
+    assert.equal(r.status, 201);
+    assert.ok(okWrites.some((w) => w.includes('Still here')));
+    assert.equal(badWrites.length, 0);
+    assert.equal(badStream.viewing, null);
+  } finally { hooks.chatAccess = real; streams.delete(badStream); streams.delete(goodStream); }
+});

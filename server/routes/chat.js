@@ -289,7 +289,8 @@ export default function chatRoutes(db, { uploadDir }) {
     const watching = viewers(c.id);
     const mentioned = new Set(people.filter((p) => msg.mentions.includes(p.person_id)).map((p) => p.user_id));
     const name = chatName(c);
-    const preview = msg.task ? `New task: ${msg.task.title}${msg.task.assignee ? ` → ${msg.task.assignee.nickname || msg.task.assignee.first_name}` : ''}`
+    // Small-group chats carry prayer and pastoral news: keep their text off lock screens.
+    const preview = c.kind === 'smallgroup' ? 'New message. Open the chat to read it.' : msg.task ? `New task: ${msg.task.title}${msg.task.assignee ? ` → ${msg.task.assignee.nickname || msg.task.assignee.first_name}` : ''}`
       : msg.body ? msg.body.slice(0, 140) : msg.files.some((f) => f.mime.startsWith('image/')) ? 'Sent a photo' : 'Sent a file';
     const quiet = new Set(db.prepare('SELECT user_id FROM chat_reads WHERE chat_id = ? AND muted = 1').all(c.id).map((x) => x.user_id));
     const to = memberUserIds(c).filter((u) => u !== msg.user_id && !watching.has(u) && !skip.has(u));
