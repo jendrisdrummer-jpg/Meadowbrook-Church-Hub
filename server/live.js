@@ -25,7 +25,9 @@ export function send(userIds, chatId, event) {
     const direct = ids.has(s.userId);
     if (!direct && (!chatId || s.viewing !== chatId)) continue;
     // A session that has expired or been removed stops receiving.
-    if (s.valid && !s.valid()) { closeStreams({ token: s.token }); continue; }
+    let valid = true;
+    try { valid = !s.valid || s.valid(); } catch { valid = false; } // fail closed
+    if (!valid) { closeStreams({ token: s.token }); continue; }
     if (direct) { s.res.write(data); continue; }
     // Matched only because they're looking at this chat: check they still may (removed from the
     // roster, group archived…), and stop sending if not.

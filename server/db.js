@@ -975,13 +975,27 @@ export const hashToken = (token) => crypto.createHash('sha256').update(String(to
 // hex hash is replaced by its hash. Real tokens are 43-char base64url, so the shape can't be
 // confused. Runs on every start, in one transaction, and does nothing once everything is hashed;
 // it keeps people signed in, and leaves no plaintext fallback in the sign-in path.
-export function hashSessionTokens(db) {
-  tx(db, () => {
-    const upd = db.prepare('UPDATE sessions SET token = ? WHERE token = ?');
-    for (const { token } of db.prepare('SELECT token FROM sessions').all()) {
-      if (!/^[0-9a-f]{64}$/.test(token)) upd.run(hashToken(token), token);
+// Converted sessions also end within a day, so a backup or copy made before this release (which
+// still holds the raw tokens) stops being usable within 24 hours. BEGIN IMMEDIATE takes the write
+// lock up front, so two servers starting at once can't trip each other. If it fails anyway, the
+// server still starts: unconverted sessions simply don't match any more (those people sign in again).
+export function hashSessionTokens(db, now = new Date()) {
+  const cap = new Date(now.getTime() + 24 * 3600e3).toISOString();
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const upd = db.prepare('UPDATE sessions SET token = ?, expires_at = MIN(expires_at, ?) WHERE token = ?');
+      for (const { token } of db.prepare('SELECT token FROM sessions').all()) {
+        if (!/^[0-9a-f]{64}$/.test(token)) upd.run(hashToken(token), cap, token);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
     }
-  });
+  } catch (e) {
+    console.error(`Session conversion failed (${e.message}); people signed in before this release will need to sign in again.`);
+  }
 }
 function migrate(db) {
   const version = db.prepare('PRAGMA user_version').get().user_version;

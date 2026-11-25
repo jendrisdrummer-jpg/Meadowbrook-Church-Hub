@@ -98,6 +98,10 @@ test('sessions made before hashing are converted at startup and keep working', a
   const rows = old.prepare('SELECT token FROM sessions ORDER BY token').all().map((r) => r.token);
   assert.deepEqual(rows, [raw, already].map((t) => (t === raw ? sha(raw) : t)).sort());
   assert.ok(!rows.includes(raw));
+  // A converted session ends within a day (old copies stop being useful); already-hashed ones keep their date.
+  const exp = Object.fromEntries(old.prepare('SELECT token, expires_at FROM sessions').all().map((r) => [r.token, r.expires_at]));
+  assert.ok(Date.parse(exp[sha(raw)]) <= Date.now() + 24 * 3600e3 + 60e3, exp[sha(raw)]);
+  assert.equal(exp[already], '2999-01-01T00:00:00.000Z');
   const srv = createApp({ db: old, uploadDir: dir }).listen(0);
   await new Promise((r) => srv.once('listening', r));
   const res = await fetch(`http://127.0.0.1:${srv.address().port}/api/me`, { headers: { cookie: `mb_session=${raw}` } });
@@ -161,4 +165,35 @@ test('a stream whose session has expired stops receiving', async () => {
   send([id], null, { type: 'later' });
   assert.equal(await s.ended(), true);
   assert.ok(!s.text().includes('later'));
+});
+
+test('a stream check that errors fails closed and never throws', async () => {
+  const id = addUser('err@mb.org');
+  const st = await openStream(signIn(id));
+  const live = [...streams].find((x) => x.userId === id);
+  live.valid = () => { throw new Error('database is locked'); };
+  assert.doesNotThrow(() => send([id], null, { type: 'boom' }));
+  assert.equal(await st.ended(), true);
+  assert.ok(!st.text().includes('boom'));
+});
+
+test('a stream stops when its account is switched off, even if its session row remains', async () => {
+  const id = addUser('off@mb.org');
+  const st = await openStream(signIn(id));
+  db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(id);
+  send([id], null, { type: 'after' });
+  assert.equal(await st.ended(), true);
+  assert.ok(!st.text().includes('after'));
+});
+
+test('merging people ends the live chat of the account whose person changed', async () => {
+  const admin = signIn(addUser('admin3@mb.org', 'admin'));
+  const keep = Number(db.prepare("INSERT INTO people (first_name, last_name) VALUES ('Kay', 'Keep')").run().lastInsertRowid);
+  const dup = Number(db.prepare("INSERT INTO people (first_name, last_name) VALUES ('Kay', 'Dup')").run().lastInsertRowid);
+  const id = Number(db.prepare("INSERT INTO users (email, role, person_id) VALUES ('kay@mb.org', 'volunteer', ?)").run(dup).lastInsertRowid);
+  const st = await openStream(signIn(id));
+  const r = await call(admin, 'POST', `/api/people/${keep}/merge`, { duplicate_id: dup });
+  assert.ok(r.status < 300, `merge returned ${r.status}: ${await r.text()}`);
+  assert.equal(db.prepare('SELECT person_id FROM users WHERE id = ?').get(id).person_id, keep);
+  assert.equal(await st.ended(), true);
 });

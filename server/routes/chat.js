@@ -28,13 +28,15 @@ export default function chatRoutes(db, { uploadDir }) {
   // Each open chat page holds a stream; `viewing` is the chat on screen (they get no push for it).
   const viewers = (chatId) => new Set([...streams].filter((s) => s.viewing === chatId).map((s) => s.userId));
 
+  const stillIn = db.prepare('SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ? AND u.active = 1');
   r.get('/chats/stream', requireRole('volunteer'), (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform', 'x-accel-buffering': 'no' });
     res.write('retry: 4000\n\n');
     const viewing = int(req.query.viewing, 'viewing');
     const s = { userId: req.user.id, token: req.sessionHash, req, viewing: viewing && canSee(req, viewing) ? viewing : null, res };
     // Still signed in? (one indexed lookup; checked on every send and every ping)
-    s.valid = () => Boolean(db.prepare('SELECT 1 FROM sessions WHERE token = ? AND expires_at > ?').get(s.token, new Date().toISOString()));
+    // Fails closed: a database error counts as signed out, never as a crash.
+    s.valid = () => { try { return Boolean(stillIn.get(s.token, new Date().toISOString())); } catch { return false; } };
     streams.add(s);
     const ping = setInterval(() => { if (s.valid()) res.write(': ping\n\n'); else closeStreams({ token: s.token }); }, 25e3);
     s.stop = () => clearInterval(ping);
