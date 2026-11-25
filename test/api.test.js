@@ -1858,6 +1858,20 @@ test('backups: encrypted database copies, Google Drive, uploaded files, keeping 
   const again = run(path.join(dir, local.data.name), 'drill.db', '--check');
   assert.equal(again.code, 1);
   assert.match(again.out, /never overwrites/);
+  assert.equal(fs.statSync(path.join(dir, 'drill.db')).mode & 0o777, 0o600, 'readable by you only');
+  // The password can come from a hidden prompt (piped here) instead of the environment.
+  const noEnv = { ...env }; delete noEnv.MB_BACKUP_PASSWORD;
+  let piped;
+  try { piped = { code: 0, out: execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', script, path.join(dir, local.data.name), 'prompted.db', '--check'], { cwd: dir, env: noEnv, input: 'correct horse battery staple\n', encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { piped = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(piped.code, 0, piped.out);
+  // Never inside the code folder; --check on something that isn't a database fails loudly.
+  const inRepo = run(path.join(dir, local.data.name), path.resolve('drill-in-repo.db'));
+  assert.equal(inRepo.code, 1);
+  assert.match(inRepo.out, /Not writing inside the code folder/);
+  assert.ok(!fs.existsSync(path.resolve('drill-in-repo.db')));
+  const notDb = run(path.join(dir, local.data.name), 'copy.sqlite', '--check');
+  assert.equal(notDb.code, 3);
+  assert.match(notDb.out, /Check skipped/);
 
   // Google Drive (a stand-in): the copy and new uploaded files go to a folder; unchanged files don't go again.
   const calls = [];
@@ -2501,6 +2515,33 @@ test('offline mode (restore drills): outgoing calls refused, this machine still 
     await assert.rejects(fetch(new Request('https://api.stripe.com/v1/charges')), /Offline mode/);
     assert.equal((await fetch(`${base}/api/me`)).status, 401, 'the local hub still answers');
     assert.equal(enableOffline(), restore, 'turning it on twice is harmless');
+    // A local address that redirects elsewhere is refused too.
+    const hop = http.createServer((_q, r) => { r.writeHead(302, { location: 'https://example.com/' }); r.end(); }).listen(0);
+    await new Promise((r) => hop.once('listening', r));
+    try { await assert.rejects(fetch(`http://127.0.0.1:${hop.address().port}/`)); } finally { hop.close(); }
   } finally { restore(); }
   assert.equal(fetch.offline, undefined);
+
+  // Email stays in the outbox in offline mode even if SMTP settings are present; no connection is made.
+  const { isOffline, listenHost } = await import('../server/offline.js');
+  const { sendMail } = await import('../server/mail.js');
+  const net = await import('node:net');
+  let connections = 0;
+  const smtp = net.createServer((c) => { connections++; c.destroy(); }).listen(0, '127.0.0.1');
+  await new Promise((r) => smtp.once('listening', r));
+  const keep = { ...process.env };
+  try {
+    Object.assign(process.env, { MB_OFFLINE: '1', MB_SMTP_USER: 'x@example.com', MB_SMTP_PASS: 'not-real', MB_SMTP_HOST: '127.0.0.1', MB_SMTP_PORT: String(smtp.address().port) });
+    const n = outbox.length;
+    await sendMail({ to: 'someone@example.com', subject: 'Offline test', text: 'hi' });
+    assert.equal(outbox.length, n + 1);
+    assert.equal(connections, 0);
+    assert.equal(listenHost(), '127.0.0.1', 'only this computer can connect');
+    for (const v of ['true', 'yes', 'on', 'TRUE']) { process.env.MB_OFFLINE = v; assert.equal(isOffline(), true, v); }
+    for (const v of ['', '0', 'false', 'no']) { process.env.MB_OFFLINE = v; assert.equal(isOffline(), false, `"${v}"`); }
+    assert.equal(listenHost(), undefined);
+  } finally {
+    smtp.close();
+    for (const k of ['MB_OFFLINE', 'MB_SMTP_USER', 'MB_SMTP_PASS', 'MB_SMTP_HOST', 'MB_SMTP_PORT']) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; }
+  }
 });

@@ -28,7 +28,7 @@ import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
 import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
-import { isOffline, enableOffline } from './offline.js';
+import { isOffline, enableOffline, listenHost } from './offline.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
 import groupRoutes from './routes/groups.js';
@@ -207,7 +207,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     enableOffline();
     console.warn('OFFLINE MODE: no push, Drive, payments, video or media calls, and no background jobs. For restore drills and local copies only.');
   }
-  createApp({ db }).listen(port, () => console.log(`Meadowbrook Church Hub on http://localhost:${port}`));
+  createApp({ db }).listen(port, listenHost(), () => console.log(`Meadowbrook Church Hub on http://localhost:${port}${offline ? ' (this computer only)' : ''}`));
   // Background jobs. Not in offline mode: they would reach real people and services.
   if (!offline) startJobs();
   function startJobs() {

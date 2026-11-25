@@ -4,9 +4,10 @@
 //   MB_SMTP_PASS   its app password (Google Account → Security → App passwords)
 //   MB_SMTP_HOST   default smtp.gmail.com;  MB_SMTP_PORT  default 465 (TLS)
 //   MB_MAIL_FROM   optional display name, e.g. "Meadowbrook Church"
-// Without them (local testing), messages are kept in `outbox` and printed instead.
+// Without them (local testing), or in offline mode (MB_OFFLINE), messages are kept in `outbox` and printed instead.
 import tls from 'node:tls';
 import crypto from 'node:crypto';
+import { isOffline } from './offline.js';
 
 export const outbox = [];
 export const mailConfigured = () => Boolean(process.env.MB_SMTP_USER && process.env.MB_SMTP_PASS);
@@ -93,7 +94,7 @@ function smtpSend({ host, port, user, pass }, from, to, data) {
 
 export async function sendMail({ to, subject, text, html }) {
   to = addr(to);
-  if (!mailConfigured()) {
+  if (!mailConfigured() || isOffline()) {
     outbox.push({ to, subject, text, html, at: new Date().toISOString() });
     if (outbox.length > 50) outbox.shift();
     if (!process.env.NODE_TEST_CONTEXT) console.log(`[email not set up] To ${to}: ${subject}\n${text}`);
