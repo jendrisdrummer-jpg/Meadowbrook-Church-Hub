@@ -65,7 +65,8 @@ without a restart. It is safe to run repeatedly.
 - Unlink in Settings → Accounts with **Unlink**, then **Save**. Leader access that came only from
   leading a team (not set by hand) is taken back, and kids' check-in access goes with it.
 - Linking applies the usual team-leader rule: someone who leads a team gets leader access, unless
-  you choose a role by hand in the same save.
-- A campus-limited admin can link accounts only to people at their own campuses.
+  you change their access to something else in the same save. That leader access ends if they stop
+  leading or are unlinked; to keep it regardless, choose another level, save, then choose Leader again.
+- A campus-limited admin can link accounts only to people at their own campuses, or with no campus.
 - Merging two people moves the duplicate's account to the kept person (an admin's explicit choice,
   audited as `user.link` with `via: merge`); if both have an account, unlink one first.

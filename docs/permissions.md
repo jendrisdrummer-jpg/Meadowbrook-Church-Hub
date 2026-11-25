@@ -50,7 +50,7 @@ new account that waits for an admin. Someone with a matching email in People sig
 
 Leading a team gives leader access to the person's account if they have a linked one; it no longer
 creates an account. When an admin links an account to someone who already leads a team, the same rule
-applies at that moment (audited as `user.leader_auto`), unless the admin chose a role by hand.
+applies at that moment, also when an admin creates a linked account with Volunteer access (audited as `user.leader_auto`), unless the admin changes the access to something else in the same save.
 Unlinking takes back leader access only if it came from leading a team; access set by hand stays.
 
 ## Feedback
