@@ -28,7 +28,7 @@ Where data lives: [database.md](database.md#sensitive-data).
 
 | Area | How it works | Code |
 |---|---|---|
-| Sessions | Random token in `sessions`, cookie `mb_session`: HTTP-only, `SameSite=Lax`, `Secure` behind HTTPS, 30 days | `auth.js` |
+| Sessions | Random token in the cookie `mb_session` (HTTP-only, `SameSite=Lax`, `Secure` behind HTTPS, 30 days); `sessions` stores only its sha256, so a copy of the database holds no usable cookie. Sessions made before this change are hashed in place on startup (`hashSessionTokens`, idempotent, one transaction). Signing out, deactivating, deleting, or changing an account's role, campuses or linked person closes its open live chat streams (`closeStreams` in `live.js`); a stream also stops once its session has expired | `auth.js`, `live.js`, `db.js` |
 | Sign-in | Google OAuth (state cookie), email one-time codes (hashed, attempt-limited, expiring), passwords (scrypt) | `auth.js` |
 | Sign-in policy | anyone / people in the directory / Workspace domain / invited only | Settings → Sign-in |
 | CSRF | `x-mb` header on non-GET | `requireAppHeader` |
@@ -40,7 +40,7 @@ Where data lives: [database.md](database.md#sensitive-data).
 | Rate limits | In-memory per-IP limits on public forms (connect cards, event sign-ups) | `routes/app.js`, `events.js` |
 | Audit | `audit_log` for significant changes | `http.js` |
 | Backups | AES-256-GCM with a key derived (scrypt) from `MB_BACKUP_PASSWORD`; Drive access limited to files the hub creates | `backup.js` |
-| Copies of real data on a laptop | Offline mode (`MB_OFFLINE=1`) refuses every outgoing web request except to the machine itself (redirects included), keeps email in the local outbox, listens on 127.0.0.1 only, and starts no background jobs, so a copy can't push to phones, send email or reminders, or touch the church's Drive. The restore script asks for the password without echo, never overwrites, writes files readable by you only, and refuses to write inside the code folder; the check opens copies read-only. Known gap (owner decision): session tokens are stored as-is, so a decrypted copy holds live sign-ins | `offline.js`, `restore-check.js`, [restore-drill.md](restore-drill.md) |
+| Copies of real data on a laptop | Offline mode (`MB_OFFLINE=1`) refuses every outgoing web request except to the machine itself (redirects included), keeps email in the local outbox, listens on 127.0.0.1 only, and starts no background jobs, so a copy can't push to phones, send email or reminders, or touch the church's Drive. The restore script asks for the password without echo, never overwrites, writes files readable by you only, and refuses to write inside the code folder; the check opens copies read-only. Session tokens are stored hashed, so a decrypted copy holds no usable sign-ins | `offline.js`, `restore-check.js`, [restore-drill.md](restore-drill.md) |
 
 ## Severity scale (for findings)
 

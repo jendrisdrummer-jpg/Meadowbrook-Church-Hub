@@ -3,6 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 // Each entry runs once, in order. Never edit a shipped migration: add a new one.
 const MIGRATIONS = [
@@ -963,9 +964,25 @@ export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   migrate(db);
+  hashSessionTokens(db);
   return db;
 }
 
+// Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
+export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
+
+// One-off conversion for sessions made before tokens were hashed: any token that isn't a 64-char
+// hex hash is replaced by its hash. Real tokens are 43-char base64url, so the shape can't be
+// confused. Runs on every start, in one transaction, and does nothing once everything is hashed;
+// it keeps people signed in, and leaves no plaintext fallback in the sign-in path.
+export function hashSessionTokens(db) {
+  tx(db, () => {
+    const upd = db.prepare('UPDATE sessions SET token = ? WHERE token = ?');
+    for (const { token } of db.prepare('SELECT token FROM sessions').all()) {
+      if (!/^[0-9a-f]{64}$/.test(token)) upd.run(hashToken(token), token);
+    }
+  });
+}
 function migrate(db) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
   for (let v = version; v < MIGRATIONS.length; v++) {

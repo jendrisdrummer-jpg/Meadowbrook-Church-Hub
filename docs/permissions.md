@@ -8,7 +8,7 @@ and the owner's approval (see [agent-workflow.md](agent-workflow.md)). Code: `se
 | Caller | How they're recognised | What they can reach |
 |---|---|---|
 | **Guest** (no account) | No session | Public app config, events and sign-ups, Watch library and live, giving checkout, connect cards, email reply links, announcements push for guests, the podcast feed |
-| **Signed-in account** | `mb_session` cookie (HTTP-only) from Google sign-in, an emailed code or a password | By role, flags and campuses below |
+| **Signed-in account** | `mb_session` cookie (HTTP-only) from Google sign-in, an emailed code or a password; the server keeps only a hash of it. Open live chat pages end when the account signs out, is deactivated or deleted, or has its role, campuses or linked person changed (they reconnect with the new access) | By role, flags and campuses below |
 | **Check-in station** (iPad) | `x-station` header with a paired token (stored hashed) | Check-in endpoints, campuses and adding families, at its own campus only (`stationAuth`) |
 | **Webhook** (Stripe) | Signature on the raw body | `/stripe/webhook` only |
 
