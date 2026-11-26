@@ -17,6 +17,8 @@ function stop() {
 window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#/chat')) stop(); });
 
 // ---------------------------------------------------------------- formatting
+// A short placeholder so it stays on one line in the composer on a phone.
+const composerHint = (name) => { const n = String(name || ''); return n && n.length <= 18 ? `Message ${n}` : 'Write a message'; };
 const utc = (t) => new Date(`${t.replace(' ', 'T')}Z`);
 const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -296,7 +298,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
         <form class="chat-form" data-form>
           <label class="icon-btn chat-attach" title="Add a photo or file">${icon('attach')}<input type="file" multiple data-file hidden></label>
           <button type="button" class="icon-btn chat-attach" data-quick title="Give a task" aria-label="Give a task">${icon('tasks')}</button>
-          <textarea rows="1" data-text placeholder="Message ${S.chat.name}" aria-label="Message"></textarea>
+          <textarea rows="1" data-text placeholder="${composerHint(S.chat.name)}" aria-label="Message"></textarea>
           <button class="btn primary chat-send" aria-label="Send">${icon('send')}</button>
         </form>
       </div></div>`);

@@ -100,6 +100,9 @@ a.w:hover { text-decoration: none; }
 .m-plan-row .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
 .m-plan-row .details { color: var(--text-2); font-size: 13px; white-space: pre-line; }
 .m-form .field { margin-bottom: 12px; }
+/* Name, email and phone labels match the question labels (same size and weight). */
+.m-form label.field, .m-form .field > span { display: block; font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; }
+.m-form label.field > input, .m-form .field > input, .m-form .field > select, .m-form .field > textarea { margin-top: 6px; }
 .m-form .checks { display: grid; gap: 8px; margin: 6px 0 14px; }
 .m-hp { position: absolute; left: -5000px; }
 .m-empty { text-align: center; padding: 30px 10px; color: var(--muted); }
