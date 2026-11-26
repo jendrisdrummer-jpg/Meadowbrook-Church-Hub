@@ -1,4 +1,5 @@
 // Ministry teams (Worship, Production, Kids, Hospitality…), their positions and members.
+import { unreachableReasons } from '../notify.js';
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
@@ -76,15 +77,17 @@ export default function teamRoutes(db) {
     const t = team(req, req.params.id);
     // Contact details only for teams this person leads (staff see all); others get names and photos.
     const detail = seesTeamDetail(db, req.user, t.id);
+    const unreachable = detail ? unreachableReasons(db, db.prepare('SELECT person_id FROM team_members WHERE team_id = ?').all(t.id).map((x) => x.person_id)) : new Map();
     res.json({
       ...t,
       can_manage: canManage(req, t),
       positions: db.prepare('SELECT * FROM positions WHERE team_id = ? ORDER BY sort, name').all(t.id),
-      // has_account is only yes or no (whether they can sign in), never who or how.
+      // has_account is only yes or no (whether they can sign in), never who or how. reachable (an
+      // email or an account, so a request can arrive) is only for people who see the team's contact details.
       members: db.prepare(`SELECT tm.person_id, tm.position_id, tm.is_leader, p.first_name, p.last_name, p.nickname, p.photo, p.email, p.phone,
           EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
         FROM team_members tm JOIN people p ON p.id = tm.person_id WHERE tm.team_id = ? AND p.archived = 0
-        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map(({ email, phone, ...m }) => ({ ...m, ...(detail ? { email, phone } : {}), has_account: Boolean(m.has_account) })),
+        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map(({ email, phone, ...m }) => ({ ...m, ...(detail ? { email, phone, reachable: !unreachable.has(m.person_id), unreachable_reason: unreachable.get(m.person_id) || null } : {}), has_account: Boolean(m.has_account) })),
     });
   });
 

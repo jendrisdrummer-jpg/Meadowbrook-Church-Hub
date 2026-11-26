@@ -121,6 +121,26 @@ function emailTargets(db, personIds) {
   return new Map(rows.filter((r) => prefs(r).email !== false && (r.email || r.user_email)).map((r) => [r.id, r.email || r.user_email]));
 }
 
+// Why a scheduling request wouldn't reach someone, per person: 'no_contact' (no email and no
+// account) or 'notices_off' (they have an account and turned off both emails and schedule notices). People who'd get it by email or in the app aren't in the map.
+// Only a reason is returned, never an address, so it's safe for anyone who sees the roster.
+export function unreachableReasons(db, personIds) {
+  const ids = [...new Set(personIds)].filter(Number.isInteger);
+  if (!ids.length) return new Map();
+  const rows = db.prepare(`SELECT p.id, p.email, u.id user_id, u.email user_email, u.notify FROM people p
+    LEFT JOIN users u ON u.person_id = p.id AND u.active = 1 WHERE p.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const out = new Map();
+  for (const r of rows) {
+    const pr = r.user_id ? prefs(r) : {};
+    const email = r.email || r.user_email;
+    const byEmail = Boolean(email) && pr.email !== false;
+    const inApp = Boolean(r.user_id) && pr.scheduled !== false;
+    if (byEmail || inApp) continue;
+    out.set(r.id, r.user_id ? 'notices_off' : 'no_contact');
+  }
+  return out;
+}
+
 function mail(db, to, subject, lines, { spots = [], footer = true } = {}) {
   const church = getSetting(db, 'church_name', 'Church');
   const color = getSetting(db, 'brand_color', '#135fd1');
