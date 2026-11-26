@@ -47,14 +47,16 @@ export default async function home(el) {
   const tiles = [
     a.open_spots && { n: a.open_spots, text: one ? `open ${plural(a.open_spots, 'spot', 'spots')} on ${one.name} this ${dayName(a.open_next || one.next_service)}` : `open volunteer ${plural(a.open_spots, 'spot', 'spots')} this week`, href: '#/schedule', warn: true, team: true },
     a.not_replied && { n: a.not_replied, text: `${plural(a.not_replied, 'person hasn’t', 'people haven’t')} replied to a request`, href: '#/schedule', team: true },
-    a.declines && { n: a.declines, text: `declined ${plural(a.declines, 'spot', 'spots')} to cover${a.declines_next ? ` (${fmtDate(a.declines_next)})` : ''}`, href: '#/schedule', team: true },
+    a.declines && { n: a.declines, text: `declined ${plural(a.declines, 'spot', 'spots')} to cover${a.declines_next ? ` (${fmtDate(a.declines_next)})` : ''}`,
+      // To the soonest affected service's Who's serving tab, where Find a replacement is; the schedule if we don't know which.
+      href: a.declines_service ? `#/services/${a.declines_service}` : '#/schedule', tab: a.declines_service ? 'people' : null, team: true },
     staff && a.connect_cards && { n: a.connect_cards, text: `connect ${plural(a.connect_cards, 'card', 'cards')} to follow up`, href: '#/connect' },
     staff && a.signups && { n: a.signups, text: `app ${plural(a.signups, 'sign-up', 'sign-ups')} to welcome`, href: '#/connect?tab=signups' },
     staff && a.forms_new && { n: a.forms_new, text: `new ${plural(a.forms_new, 'response', 'responses')}${a.forms_title ? `: ${a.forms_title}` : ''}`, href: '#/forms' },
   ].filter(Boolean).filter((t) => staff || t.team || a.connect_cards || a.signups);
   const tileRow = tiles.length
     ? html`<h2 class="home-label">${staff ? 'Needs your attention' : one ? 'Your team this week' : 'Needs your attention'}</h2>
-        <div class="attn">${tiles.map((t) => html`<a class="attn-tile ${t.warn ? 'warn' : ''}" href="${t.href}"><b>${t.n}</b><span>${t.text}</span></a>`)}</div>`
+        <div class="attn">${tiles.map((t) => html`<a class="attn-tile ${t.warn ? 'warn' : ''}" href="${t.href}" ${t.tab ? raw(`data-tab-go="${t.tab}"`) : ''}><b>${t.n}</b><span>${t.text}</span></a>`)}</div>`
     : html`<div class="attn-clear">${icon('check')} You’re all caught up. Nothing needs your attention right now.</div>`;
 
   const teamHead = teams.length
