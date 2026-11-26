@@ -69,6 +69,10 @@ const PATHS = {
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.7-.3 4.8 1.4 5.5 4.4"/>',
   teams: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  groups: '<circle cx="12" cy="7" r="3"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/><path d="M8 21c.4-2.2 2-3.5 4-3.5s3.6 1.3 4 3.5"/>',
+  roster: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/><circle cx="12" cy="12" r="2"/><path d="M8.5 18c.4-2 1.8-3 3.5-3s3.1 1 3.5 3"/>',
+  event: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m12 12.5.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z"/>',
+  tablet: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M11 18h2"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   checkin: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
@@ -126,6 +130,8 @@ export function icon(name, cls = 'ic') {
 }
 
 // ---------------------------------------------------------------- people helpers
+// Households are called families in the interface; stored names like "Diaz Household" read "Diaz family".
+export const familyName = (n) => String(n || '').replace(/\s+household$/i, ' family');
 export const displayName = (p) => `${p.nickname || p.first_name || ''} ${p.last_name || ''}`.trim();
 export function avatar(p, cls = '') {
   const initials = `${(p.nickname || p.first_name || '?')[0]}${(p.last_name || '')[0] || ''}`.toUpperCase();
@@ -256,12 +262,38 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
       const run = debounce(async (q) => {
         if (q.trim().length < 2) return;
         rows = (await get(`/people?q=${encodeURIComponent(q)}&limit=25`)).rows.filter((p) => !filter || filter(p));
-        mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}">${avatar(p)}<span>${displayName(p)}<br><small class="muted">${p.email || p.phone || p.household_name || ''}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
+        mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}">${avatar(p)}<span>${displayName(p)}<br><small class="muted">${p.email || p.phone || familyName(p.household_name)}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
       });
       $('[data-q]', d).addEventListener('input', (e) => run(e.target.value));
       list.addEventListener('click', (e) => {
         const b = e.target.closest('button[data-i]');
         if (b) { chosen = rows[b.dataset.i]; close(chosen); }
+      });
+    },
+  }).then(() => chosen);
+}
+
+// Search-as-you-type family picker: matches the family's name or anyone in it, and shows who's in
+// each one. Resolves to the chosen family ({ id, name, people: [{ name, role }] }) or undefined.
+export function pickFamily(title = 'Choose a family', { exclude } = {}) {
+  let chosen;
+  const label = familyName;
+  return dialog({
+    title,
+    submit: null,
+    body: html`<input type="search" placeholder="Search by family name or anyone in it" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
+    onOpen: (d, close) => {
+      const list = $('[data-list]', d);
+      let rows = [];
+      const run = debounce(async (q) => {
+        if (q.trim().length < 2) return;
+        rows = (await get(`/households?q=${encodeURIComponent(q)}`)).filter((h) => h.id !== exclude);
+        mount(list, rows.length ? rows.map((h, i) => html`<button type="button" data-i="${i}"><span class="avatar">${icon('users')}</span><span>${label(h.name)}<br><small class="muted">${h.people.length ? h.people.map((m) => m.name).join(', ') : 'No one yet'}</small></span></button>`) : html`<div class="muted small">No family found.</div>`);
+      });
+      $('[data-q]', d).addEventListener('input', (e) => run(e.target.value));
+      list.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-i]');
+        if (b) { chosen = { ...rows[b.dataset.i], name: label(rows[b.dataset.i].name) }; close(chosen); }
       });
     },
   }).then(() => chosen);

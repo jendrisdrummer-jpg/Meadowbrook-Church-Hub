@@ -1,11 +1,11 @@
 // Schedule a team for a whole month: positions down the side, that month's services across the
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
 import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
-import { state, setTitle, campusName } from '../app.js';
-import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
+import { state, setTitle, campusName, can } from '../app.js';
+import { assignDialog, scheduleOne, sendRequests, reachPill, reachShort } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
-const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not sent yet' };
+const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not asked yet' };
 const statusOf = (a) => (!a.sent_at && a.status !== 'declined' ? 'draft' : a.status);
 
 export default async function schedule(el) {
@@ -16,12 +16,16 @@ export default async function schedule(el) {
   let picked = null; // person id chosen in the side panel
   let grid;
 
-  setTitle('Schedule', html`<button class="btn primary hidden" data-send></button><button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
+  setTitle('Volunteer schedule', html`<button class="btn primary hidden" data-send></button><button class="btn hidden" data-remind></button><button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
   const sendBtn = document.querySelector('[data-actions] [data-send]');
+  const remindBtn = document.querySelector('[data-actions] [data-remind]');
   const [allSeries, allTeams] = await Promise.all([get('/series'), get('/teams')]);
   const inCampus = (cid) => !state.campusId || cid == null || cid === state.campusId;
   const series = allSeries.filter((t) => inCampus(t.campus_id));
-  const teams = allTeams.filter((t) => !t.archived && inCampus(t.campus_id));
+  // A leader who isn't staff can only schedule (and see in full) the teams they lead, so the picker
+  // lists just those. The server says which ones; staff get null and see every team.
+  const ledIds = can('staff') ? null : (await get(`/schedule?month=${month}`)).led_team_ids;
+  const teams = allTeams.filter((t) => !t.archived && inCampus(t.campus_id) && (!ledIds || ledIds.includes(t.id)));
   if (seriesId !== null && !series.some((t) => t.id === seriesId)) seriesId = null;
   if (prefs.seriesId === undefined && series.length) seriesId = series[0].id;
   if (teamId !== null && !teams.some((t) => t.id === teamId)) teamId = null;
@@ -50,13 +54,34 @@ export default async function schedule(el) {
   const isAway = (m, day) => m.away.some((b) => b.start_date <= day && b.end_date >= day);
   const serving = (personId, serviceId) => Object.entries(grid.cells).some(([k, c]) => k.startsWith(`${serviceId}:`) && live(c).some((a) => a.person_id === personId));
 
+  // Per upcoming service the team can be reminded in: how many people were asked and haven't replied.
+  function waitingFor() {
+    if (!teamId) return [];
+    const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+    return grid.services.filter((s) => s.starts_at > nowLocal && s.can_schedule[teamId]).map((s) => ({
+      id: s.id,
+      n: grid.positions.filter((p) => p.team_id === teamId)
+        .flatMap((p) => grid.cells[`${s.id}:${p.id}`]?.assignments || []).filter((a) => a.sent_at && a.status === 'pending').length,
+    })).filter((w) => w.n);
+  }
+
   function draw() {
     const { services, positions, cells, members } = grid;
     // Drafts this person can send, across the services and team shown.
     const drafts = services.flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
       .flatMap((p) => (cells[`${sv.id}:${p.id}`]?.assignments || []).filter((a) => statusOf(a) === 'draft'))).length;
     const fillBtn = document.querySelector('[data-actions] [data-fill]');
-    if (fillBtn) { fillBtn.disabled = !teamId; fillBtn.title = teamId ? '' : 'Choose a team to fill'; }
+    if (fillBtn) {
+      const t = teams.find((x) => x.id === teamId);
+      fillBtn.disabled = !t;
+      fillBtn.title = t ? `Fill every open spot for ${t.name} this month` : 'Pick a team to fill';
+      mount(fillBtn, html`${icon('wand')} ${t ? html`Fill the month <span class="fill-team">· ${t.name}</span>` : 'Fill the month'}`);
+    }
+    // Asked but not replied, for the chosen team, in services still to come.
+    const waiting = waitingFor();
+    const waitCount = waiting.reduce((a, w) => a + w.n, 0);
+    remindBtn.classList.toggle('hidden', !teamId || !waitCount);
+    remindBtn.textContent = (`Remind ${waitCount} who ${waitCount === 1 ? 'hasn’t' : 'haven’t'} replied`);
     sendBtn.classList.toggle('hidden', !drafts);
     sendBtn.textContent = `Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}`;
     const multiCampus = new Set(services.map((s) => s.campus_id)).size > 1;
@@ -66,6 +91,10 @@ export default async function schedule(el) {
       if (!g) byTeam.push(g = { id: p.team_id, name: p.team_name, color: p.team_color, positions: [] });
       g.positions.push(p);
     }
+    const team = teams.find((t) => t.id === teamId);
+    // Teams belong to the whole church unless they have a campus; name the campus only when it
+    // isn't obvious (no campus picked), instead of tagging every team "(all campuses)".
+    const teamCampus = (t) => (t.campus_id && !state.campusId && !t.name.includes(campusName(t.campus_id)) ? ` · ${campusName(t.campus_id)}` : '');
     const sel = members.find((m) => m.id === picked);
     const openIn = (s) => positions.reduce((a, p) => a + Math.max(0, (cells[`${s.id}:${p.id}`]?.needed || 0) - live(cells[`${s.id}:${p.id}`]).length), 0);
     const totalOpen = services.reduce((a, s) => a + openIn(s), 0);
@@ -78,17 +107,17 @@ export default async function schedule(el) {
           <h2 style="margin:0 0 0 6px">${monthLabel()}</h2>
           ${services.length ? html`<span class="pill ${totalOpen ? 'warn' : 'good'}">${totalOpen ? `${totalOpen} open ${totalOpen === 1 ? 'spot' : 'spots'}` : html`${icon('check')} All filled`}</span>` : ''}
         </div>
-        <div class="row sched-selects">
-          <label class="field">Services<select data-series>
+        <div class="sched-selects">
+          <label class="field sched-pick"><span>Services</span><span class="pick"><select data-series>
             <option value="">All services${state.campusId ? ` at ${campusName(state.campusId)}` : ''}</option>
             ${series.map((t) => html`<option value="${t.id}" ${t.id === seriesId ? raw('selected') : ''}>${t.campus_short || t.campus_name} · ${t.default_title || t.name}</option>`)}
-          </select></label>
-          <label class="field">Team<select data-team>
+          </select>${icon('down')}</span></label>
+          <label class="field sched-pick"><span>Team</span><span class="pick ${team ? 'has-dot' : ''}">${team ? html`<span class="dot" style="background:${team.color}"></span>` : ''}<select data-team>
             <option value="">All teams</option>
-            ${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? raw('selected') : ''}>${t.name}${t.campus_id ? '' : ' (all campuses)'}</option>`)}
-          </select></label>
+            ${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? raw('selected') : ''}>${t.name}${teamCampus(t)}</option>`)}
+          </select>${icon('down')}</span></label>
+          ${teamId ? '' : html`<p class="muted small sched-hint">Pick a team to fill the month.</p>`}
         </div>
-        ${teamId ? '' : html`<p class="muted small" style="margin:8px 0 0">Choose a team to fill. “Fill the month” works on one team at a time.</p>`}
       </div>
       <div class="sched-layout ${teamId ? 'with-side' : ''}">
         <div class="card sched-card">
@@ -139,7 +168,8 @@ export default async function schedule(el) {
     return html`<aside class="card sched-side">
       <div class="card-head"><h2>Team</h2>${sel ? html`<button class="btn small ghost" data-unpick>Done</button>` : ''}</div>
       ${members.length ? html`<div class="sched-people">${members.map((m) => html`<button type="button" class="sched-person ${m.id === picked ? 'on' : ''}" data-person="${m.id}" draggable="true">
-          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}
+          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}${reachPill(m)}
+            ${m.reachable === false ? html`<span class="muted small">${reachShort(m.unreachable_reason)}</span>` : ''}
             <span class="muted small">${m.position_ids.map((id) => posName[id]).filter(Boolean).join(', ') || 'No position yet'}</span>
             ${m.away.map((b) => html`<span class="small away-note">Away ${fmtDate(b.start_date < month1 ? month1 : b.start_date, { month: 'short', day: 'numeric' })}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date, { month: 'short', day: 'numeric' })}` : ''}</span>`)}</span>
           <span class="count ${m.month_count ? '' : 'zero'}" title="Days serving this month">${m.month_count}×</span></button>`)}</div>`
@@ -168,6 +198,7 @@ export default async function schedule(el) {
     const r = await dialog({
       title: displayName(a), submit: can ? 'Remove from this service' : null, danger: true, cancel: 'Close',
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
+        ${a.status === 'declined' && a.decline_reason ? html`<p class="muted small">“${a.decline_reason}”</p>` : ''}
         <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : statusOf(a) === 'draft' ? 'draft' : ''}">${STATUS[statusOf(a)]}</span></p>
         <p class="small"><a href="#/people/${a.person_id}">Open their profile</a> · <a href="#/services/${s.id}">Open the service</a></p>`,
     });
@@ -226,6 +257,27 @@ export default async function schedule(el) {
 
   sendBtn.addEventListener('click', async () => {
     try { if (await sendRequests(grid.services.map((sv) => sv.id), teamId)) await load(); } catch (err) { fail(err); }
+  });
+
+  // Remind one team across the month: the same reminder as on a service, once per upcoming service.
+  remindBtn.addEventListener('click', async () => {
+    const team = teams.find((t) => t.id === teamId);
+    const list = waitingFor();
+    const n = list.reduce((a, w) => a + w.n, 0);
+    if (!team || !n) return;
+    const ok = await dialog({
+      title: 'Remind people?', submit: 'Send reminders',
+      body: html`<p>Send a friendly reminder to ${n} ${n === 1 ? 'person' : 'people'} on <b>${team.name}</b> who haven’t replied yet, across ${list.length} upcoming ${list.length === 1 ? 'service' : 'services'}? Anyone reminded in the last 12 hours is skipped.</p>`,
+    });
+    if (!ok) return;
+    let reminded = 0;
+    let skipped = 0;
+    try {
+      for (const w of list) {
+        try { const r = await post(`/services/${w.id}/remind`, { team_id: teamId }); reminded += r.reminded; skipped += r.skipped; } catch (err) { if (err.status === 403) throw err; /* a service that already happened */ }
+      }
+      toast(reminded ? `Reminded ${reminded} ${reminded === 1 ? 'person' : 'people'}${skipped ? ` (${skipped} reminded recently, skipped)` : ''}.` : 'Everyone was already reminded in the last 12 hours.');
+    } catch (err) { fail(err); }
   });
 
   document.querySelector('[data-actions] [data-fill]').addEventListener('click', async () => {

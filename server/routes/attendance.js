@@ -136,7 +136,7 @@ export default function attendanceRoutes(db) {
         MIN(s.starts_at) first_at, MAX(s.starts_at) last_at,
         SUM(s.starts_at >= date('now', '-84 days')) last_12_weeks
       FROM (${PRESENT_SQL}) a JOIN services s ON s.id = a.service_id JOIN people p ON p.id = a.person_id
-      WHERE p.archived = 0 AND ${cf.sql}${extra} AND s.starts_at <= datetime('now')
+      WHERE p.archived = 0 AND ${cf.sql}${extra} AND s.starts_at < date('now', '+1 day')
       GROUP BY p.id`).all(...args);
     const cutoff = new Date(Date.now() - 21 * 864e5).toISOString().slice(0, 10);
     const month = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);

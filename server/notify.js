@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
+import { seesTeamDetail } from './team-scope.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
 export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'form', 'chat', 'task', 'call', 'email'];
@@ -120,6 +121,26 @@ function emailTargets(db, personIds) {
   return new Map(rows.filter((r) => prefs(r).email !== false && (r.email || r.user_email)).map((r) => [r.id, r.email || r.user_email]));
 }
 
+// Why a scheduling request wouldn't reach someone, per person: 'no_contact' (no email and no
+// account) or 'notices_off' (they have an account and turned off both emails and schedule notices). People who'd get it by email or in the app aren't in the map.
+// Only a reason is returned, never an address, so it's safe for anyone who sees the roster.
+export function unreachableReasons(db, personIds) {
+  const ids = [...new Set(personIds)].filter(Number.isInteger);
+  if (!ids.length) return new Map();
+  const rows = db.prepare(`SELECT p.id, p.email, u.id user_id, u.email user_email, u.notify FROM people p
+    LEFT JOIN users u ON u.person_id = p.id AND u.active = 1 WHERE p.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const out = new Map();
+  for (const r of rows) {
+    const pr = r.user_id ? prefs(r) : {};
+    const email = r.email || r.user_email;
+    const byEmail = Boolean(email) && pr.email !== false;
+    const inApp = Boolean(r.user_id) && pr.scheduled !== false;
+    if (byEmail || inApp) continue;
+    out.set(r.id, r.user_id ? 'notices_off' : 'no_contact');
+  }
+  return out;
+}
+
 function mail(db, to, subject, lines, { spots = [], footer = true } = {}) {
   const church = getSetting(db, 'church_name', 'Church');
   const color = getSetting(db, 'brand_color', '#135fd1');
@@ -189,7 +210,12 @@ export function notifyResponse(db, assignmentId, status) {
   const leaderPeople = db.prepare('SELECT DISTINCT person_id FROM team_members WHERE team_id = ? AND is_leader = 1').all(a.team_id).map((r) => r.person_id);
   const ids = new Set(usersOf(db, leaderPeople).map((u) => u.id));
   const sender = db.prepare('SELECT sent_by FROM assignments WHERE id = ?').get(a.id)?.sent_by;
-  if (sender) ids.add(sender);
+  // The sender hears a decline only while they can still schedule or see detail for that team.
+  if (sender) {
+    const su = db.prepare('SELECT role, person_id, campus_ids, active FROM users WHERE id = ?').get(sender);
+    const asUser = su && { role: su.role, personId: su.person_id };
+    if (asUser && seesTeamDetail(db, asUser, a.team_id)) ids.add(sender);
+  }
   // Not the person replying, and only active accounts.
   const users = ids.size ? db.prepare(`SELECT id, email, person_id, notify FROM users WHERE active = 1 AND id IN (${[...ids].map(() => '?').join(',')})`).all(...ids)
     .filter((u) => u.person_id !== a.person_id) : [];

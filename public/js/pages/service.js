@@ -66,7 +66,7 @@ export default async function service(el, id) {
 
   mount(el, html`
     <div class="row muted" style="margin:-6px 0 12px"><span class="campus-tag"><span class="dot" style="background:${s.campus.color}"></span>${s.campus.name}</span>
-      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span>· ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
+      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span title="Series">· Series: ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
     ${s.locked ? html`<div class="alert" style="margin-bottom:12px">${icon('lock', 'ic small-ic')} This service is locked, so its order of service and schedule can’t be changed${can('admin') ? ' (you can still edit as an admin)' : ''}.</div>` : ''}
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <style>@media (max-width: 520px) { .svc-tabs button { padding: 10px 9px; font-size: 13.5px; } }</style>
@@ -94,7 +94,7 @@ async function drawPeople(panel, s, chats) {
   const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s, chats); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   // Drafts haven't been sent yet; the volunteer doesn't know about them.
-  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
+  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not asked yet</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
   // The reason (when the server sent one) as a quiet line, since a phone can't hover.
   const reason = (a) => (a.status === 'declined' && a.decline_reason ? html`<div class="muted small" style="margin:-2px 0 4px 36px">“${a.decline_reason}”</div>` : '');
   const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;
@@ -105,19 +105,22 @@ async function drawPeople(panel, s, chats) {
   const waiting = past ? 0 : s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => a.sent_at && a.status === 'pending').length;
   const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color, active: active(p.team_id) }])).values()]
     .sort((a, b) => (b.active - a.active));
-  // The scheduler's team filter, remembered across services.
-  let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id));
-  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams.filter((t) => t.active);
+  // The scheduler's team pick (one team, or all), remembered across services.
+  let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id)).slice(0, 1);
+  const picked = allTeams.find((t) => t.id === only[0]);
+  // "All teams" lists every team: the ones in this service first, then the rest, so anyone can be scheduled.
+  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams;
   const teamStats = (t) => {
     const ps = s.positions.filter((p) => p.team_id === t.id);
     const open = ps.reduce((a, p) => a + Math.max(0, p.needed - p.assignments.filter((x) => x.status !== 'declined').length), 0);
     return open;
   };
   mount(panel, html`<div class="card">
-    ${allTeams.length > 1 ? html`<div class="team-filter" data-team-filter>
-      <button type="button" class="chip link ${only.length ? '' : 'on'}" data-team="all">All teams</button>
-      ${allTeams.map((t) => html`<button type="button" class="chip link ${only.includes(t.id) ? 'on' : ''} ${t.active ? '' : 'idle'}" data-team="${t.id}" title="${t.active ? '' : 'Not set up for this service yet'}"><span class="dot" style="background:${t.color}"></span>${t.name}
-        ${teamStats(t) ? html`<span class="cal-flag warn">${teamStats(t)}</span>` : ''}</button>`)}
+    ${allTeams.length > 1 ? html`<div class="team-filter">
+      <label class="field sched-pick"><span>Team</span><span class="pick ${picked ? 'has-dot' : ''}">${picked ? html`<span class="dot" style="background:${picked.color}"></span>` : ''}<select data-team-pick>
+        <option value="">All teams</option>
+        ${allTeams.map((t) => html`<option value="${t.id}" ${picked?.id === t.id ? raw('selected') : ''}>${t.name}${teamStats(t) ? ` · ${teamStats(t)} open` : ''}${t.active ? '' : ' · not set up'}</option>`)}
+      </select>${icon('down')}</span></label>
     </div>` : ''}
     <div class="card-head"><h2>Who’s serving</h2>
       ${drafts ? html`<button class="btn small primary" data-send title="Let everyone you've scheduled know, all at once">${icon('bell')} Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}</button>` : ''}
@@ -127,14 +130,16 @@ async function drawPeople(panel, s, chats) {
     ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="dot" style="background:${team.color}"></span> ${team.name}
         ${s.positions.some((p) => p.team_id === team.id && p.can_schedule) && teamStats(team) ? html`<button class="btn small" data-autofill="${team.id}" title="Fill this team’s open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
         ${chats.has(team.id) ? html`<a class="btn small ghost" href="#/chat/${chats.get(team.id)}" data-message-team style="margin-left:8px">${icon('chat')} Message team</a>` : ''}</h3>
-      ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
+      ${team.active || !s.positions.some((p) => p.team_id === team.id && p.detail !== false) ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
       <div class="grid three">
       ${s.positions.filter((p) => p.team_id === team.id).map((p) => {
         const live = p.assignments.filter((a) => a.status !== 'declined');
-        const open = Math.max(0, p.needed - live.length);
+        // Teams you don't lead (detail === false) show who was asked or accepted, names only.
+        const open = p.detail === false ? 0 : Math.max(0, p.needed - live.length);
         return html`<div class="position">
-          <div class="position-head"><b>${p.name}</b>${p.needed ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
+          <div class="position-head"><b>${p.name}</b>${p.needed && p.detail !== false ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
+            ${p.can_schedule && a.status === 'declined' && p.detail !== false ? html`<button class="btn small" data-replace="${p.id}" title="Pick someone else for ${p.name}. They’re added as a draft until you Send requests.">Find a replacement</button>` : ''}
             ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
@@ -143,21 +148,18 @@ async function drawPeople(panel, s, chats) {
       : html`<div class="empty">No teams are set up for this service yet.${can('staff') ? ' Click Positions needed to choose who it needs, or pick a team above.' : ''}</div>`}
   </div>`);
 
+  panel.querySelector('[data-team-pick]')?.addEventListener('change', (e) => {
+    only = e.target.value ? [Number(e.target.value)] : [];
+    try { localStorage.setItem('mb.serving.teams', JSON.stringify(only)); } catch { /* private mode: not remembered */ }
+    drawPeople(panel, s, chats);
+  });
   panel.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.team) {
-      // Click a team to show just it; click more to add them; "All teams" clears the filter.
-      if (b.dataset.team === 'all') only = [];
-      else {
-        const id = Number(b.dataset.team);
-        only = only.includes(id) ? only.filter((x) => x !== id) : [...only, id];
-      }
-      localStorage.setItem('mb.serving.teams', JSON.stringify(only));
-      return drawPeople(panel, s, chats);
-    }
     try {
-      if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
+      // “Find a replacement” opens the same picker as “Schedule someone”.
+      const assignId = Number(b.dataset.assign || b.dataset.replace);
+      if (assignId) await assignDialog(s.id, s.positions.find((p) => p.id === assignId), taken(s, assignId), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
       if (b.matches('[data-remind]') && (await remindUnanswered(s.id, waiting))) reload();
       if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();

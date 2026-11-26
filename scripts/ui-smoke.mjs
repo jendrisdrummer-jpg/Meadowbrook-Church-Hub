@@ -39,7 +39,18 @@ const freePort = () => new Promise((resolve) => {
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
   '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
-const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church']];
+// leader and finance are added to the throwaway database below; the others come from the demo seed.
+const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church'],
+  ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church']];
+// The sidebar each role should see, in order (the demo admin has the announce flag). Rules: min role per item, Giving needs the Finance flag, Announcements the announce flag.
+const EVERYDAY = ['Home', 'My Schedule', 'Chat', 'Tasks'];
+const NAV_WANT = {
+  volunteer: [...EVERYDAY, 'Groups', 'Services'],
+  finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
+  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
+  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads'],
+  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
+};
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
 
 async function main() {
@@ -51,6 +62,13 @@ async function main() {
   // Never reach real outside services from a test run.
   for (const k of ['STRIPE_SECRET_KEY', 'MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MB_DAILY_API_KEY', 'YOUTUBE_API_KEY', 'MB_SMTP_HOST', 'GOOGLE_CLIENT_ID']) delete env[k];
   execSync('node --disable-warning=ExperimentalWarning scripts/seed-demo.js', { cwd: root, env, stdio: 'ignore' });
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(env.MB_DB);
+    db.prepare("INSERT INTO users (email, role) VALUES ('leader@meadowbrook.church', 'leader')").run();
+    db.prepare("INSERT INTO users (email, role, finance) VALUES ('finance@meadowbrook.church', 'volunteer', 1)").run();
+    db.close();
+  }
   const port = await freePort();
   const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { cwd: root, env: { ...env, PORT: String(port) }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}`;
@@ -101,6 +119,30 @@ async function main() {
           await page.screenshot({ path: path.join(out, name), fullPage: true });
           results.push({ area, page: p, who, size, ok: !problems.length, denied: state.broken && denied, problems, screenshot: name });
         }
+        // The menu is the first thing people see: check the sidebar lists exactly what this role should.
+        if (size === 'desktop' && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/`);
+          await page.waitForSelector('[data-nav] a');
+          const seen = await page.$$eval('[data-nav] a', (as) => as.map((a) => a.querySelector('span').textContent.trim()));
+          const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.getAttribute('aria-label')));
+          const want = NAV_WANT[who];
+          if (seen.join('|') !== want.join('|')) problems.push(`menu shows [${seen.join(', ')}] but should show [${want.join(', ')}]`);
+          if (links.join('|') !== 'Help|Feedback') problems.push(`Help and Feedback beside the name: saw [${links.join(', ')}]`);
+          if (!(await page.locator('.side [data-campus]').count()) || (await page.locator('.side [data-nav]').evaluate((n) => n.previousElementSibling?.matches('.side-campus')) !== true)) problems.push('campus picker is not at the top of the sidebar');
+          if (who === 'admin') {
+            const tag = page.locator('[data-campus-tag]');
+            await page.selectOption('.side [data-campus]', { index: 1 });
+            await page.goto(`${base}/#/people`);
+            await page.waitForTimeout(500);
+            if (!/ only$/.test(await tag.textContent()) || !(await tag.isVisible())) problems.push('no "… only" label with a campus picked');
+            await page.screenshot({ path: path.join(out, `hub-${who}-desktop-campus-picked.png`) });
+            await page.selectOption('.side [data-campus]', '');
+            await page.waitForTimeout(300);
+            if (await tag.isVisible()) problems.push('"… only" label still showing for all campuses');
+          }
+          results.push({ area: 'hub', page: '/ (sidebar menu)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
         // The forms editor's Save lives in the page header; once it silently did nothing. Click it for real.
         if (who === 'admin' && only !== 'app') {
           problems = [];
@@ -114,7 +156,36 @@ async function main() {
           await page.click('[data-actions] [data-save]');
           const res = await sent;
           if (!res || res.status() !== 201) problems.push(`Create form did not POST /api/admin/forms (got ${res ? res.status() : 'no request'})`);
+          // Let the page finish moving to the new form before the next step navigates, or its late header lands on the next page.
+          await page.waitForURL(/#\/forms\/\d+/, { timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(500);
           results.push({ area: 'hub', page: '/forms/new (click Save)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
+        // Add a person, then "Save and add another" into the same family: the second person must land in the family the first one started.
+        if (who === 'admin' && size === 'desktop' && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/people`);
+          await page.waitForSelector('[data-add]');
+          await page.click('[data-add]');
+          await page.waitForSelector('dialog[open] input[name=first_name]');
+          await page.fill('dialog[open] input[name=first_name]', 'Smokey');
+          await page.fill('dialog[open] input[name=last_name]', 'Zzfamily');
+          if (await page.locator('dialog[open] input[name=nickname]').isVisible()) problems.push('More details was open on the add screen');
+          await page.click('dialog[open] button:has-text("Save and add another")');
+          await page.waitForSelector('.toast:has-text("Added Smokey")', { timeout: 3000 }).catch(() => problems.push('Save and add another showed no confirmation'));
+          if (!(await page.locator('dialog[open] [data-family] .pill:has-text("Zzfamily")').count())) problems.push('The second person was not set to join the family just started');
+          await page.fill('dialog[open] input[name=first_name]', 'Kiddo');
+          const sent = page.waitForResponse((r) => r.url().endsWith('/api/people') && r.request().method() === 'POST', { timeout: 3000 }).catch(() => null);
+          await page.click('dialog[open] button[type=submit]');
+          const res = await sent;
+          if (!res || res.status() !== 201) problems.push(`Second person did not POST (got ${res ? res.status() : 'no request'})`);
+          else {
+            const kid = await res.json();
+            await page.waitForURL(`${base}/#/people/${kid.id}`, { timeout: 3000 }).catch(() => problems.push('Did not open the new person'));
+            const members = await page.evaluate(async (id) => (await (await fetch(`/api/people/${id}`)).json()).household?.members.map((m) => m.first_name).sort(), kid.id);
+            if (JSON.stringify(members) !== JSON.stringify(['Kiddo', 'Smokey'])) problems.push(`Family has ${JSON.stringify(members)}, expected Kiddo and Smokey`);
+          }
+          results.push({ area: 'hub', page: '/people (add person, save and add another)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
         // The phone's More sheet and the account menu: both must open and stay fully on screen.
         if (size === 'phone' && only !== 'app') {
@@ -142,6 +213,32 @@ async function main() {
           if (!inView(await rect('[data-me-top] .menu [data-logout]'))) problems.push('Sign out in the account menu is off the screen');
           await page.screenshot({ path: path.join(out, `hub-${who}-phone-account-menu.png`) });
           results.push({ area: 'hub', page: '/ (More sheet and account menu)', who, size, ok: !problems.length, problems, screenshot: `hub-${who}-phone-more-sheet.png` });
+        }
+        // Phone People list: filters hide behind a button, rows carry a call link, and Merge is in the "…" menu (admin only).
+        if (size === 'phone' && only !== 'app' && ['admin', 'staff', 'leader'].includes(who)) {
+          problems = [];
+          await page.goto(`${base}/#/people`);
+          await page.reload(); // closes the account menu left open by the step before
+          await page.waitForSelector('.prow');
+          if (await page.locator('[data-fpanel]').isVisible()) problems.push('Filters were open before the button was tapped');
+          await page.click('[data-filters]');
+          if (!(await page.locator('[data-fpanel]').isVisible())) problems.push('The Filters button did not open the filters');
+          if (!(await page.locator('.prow a[href^="tel:"]').count())) problems.push('No call link on the People list');
+          if (who === 'admin') await page.screenshot({ path: path.join(out, 'hub-admin-phone-people-filters.png') });
+          await page.goto(`${base}/#/people`);
+          await page.waitForSelector('.prow');
+          await page.locator('.prow').first().click();
+          await page.waitForSelector('[data-actions]', { state: 'attached' });
+          await page.waitForTimeout(500);
+          const menuBtn = page.locator('[data-actions] [data-kebab]');
+          if (who === 'admin') {
+            if (!(await menuBtn.count())) problems.push('No "…" menu on the person page for an admin');
+            else {
+              await menuBtn.click();
+              if (!(await page.locator('[data-actions] [data-merge]').isVisible())) problems.push('Merge is not in the "…" menu');
+            }
+          } else if (await page.locator('[data-merge]').count()) problems.push('Merge duplicate is shown to someone who is not an admin');
+          results.push({ area: 'hub', page: '/people (phone filters, call link, Merge menu)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
         await ctx.close();
       }

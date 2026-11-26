@@ -63,6 +63,24 @@ export async function assignDialog(serviceId, pos, taken, reload) {
 
 // Sends the drafts in these services (optionally one team's): shows who'll be asked for what,
 // then tells each person once. Resolves to true when sent.
+// Why a scheduling request can't reach someone (the server sends only the reason, never an address).
+const REACH = {
+  no_contact: ['No email or account', 'They have no email and no account, so requests can’t reach them. Add an email on their page, or let them know yourself.'],
+  notices_off: ['Notices turned off', 'They turned off emails and schedule notices (My Schedule → Choose which notices you get), so requests can’t reach them. Ask them to turn one back on, or let them know yourself.'],
+};
+export const reachShort = (code) => (REACH[code] || REACH.no_contact)[0];
+
+// A "Can't be reached" pill; tapping it says why (works inside a row that's a link, too).
+export const reachPill = (m) => (m.reachable === false
+  ? html` <button type="button" class="pill warn pill-btn" data-reach="${m.unreachable_reason || 'no_contact'}" title="${reachShort(m.unreachable_reason)}">Can’t be reached</button>` : '');
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-reach]');
+  if (!b) return;
+  e.preventDefault();
+  e.stopPropagation();
+  toast((REACH[b.dataset.reach] || REACH.no_contact)[1]);
+}, true);
+
 export async function sendRequests(serviceIds, teamId = null) {
   const q = new URLSearchParams({ service_ids: serviceIds.join(',') });
   if (teamId) q.set('team_id', teamId);
@@ -74,16 +92,20 @@ export async function sendRequests(serviceIds, teamId = null) {
   await dialog({
     title: `Send ${list.length} ${list.length === 1 ? 'request' : 'requests'}`, wide: true, submit: `Send to ${people.length} ${people.length === 1 ? 'person' : 'people'}`,
     body: html`<p class="muted small" style="margin-top:0">Each person gets one email and app notification listing their spots, with buttons to accept or decline.</p>
-      <div class="send-list">${people.map((spots) => html`<div class="send-row"><b>${displayName(spots[0])}</b>${spots[0].reachable ? '' : html` <span class="pill warn">No email or app</span>`}
+      <div class="send-list">${people.map((spots) => html`<div class="send-row"><b>${displayName(spots[0])}</b>${spots[0].reachable ? '' : html` <span class="pill warn">${reachShort(spots[0].unreachable_reason)}</span>`}
         <span class="muted small">${spots.map((a) => `${fmtDate(a.starts_at)} ${a.position}`).join(' · ')}</span></div>`)}</div>
-      ${unreachable.length ? html`<p class="small" style="margin-bottom:0">${icon('info', 'ic small-ic')} ${unreachable.length === 1 ? 'One person has' : `${unreachable.length} people have`} no email and no app account. Let them know yourself, or add an email to their profile.</p>` : ''}`,
+      ${unreachable.length ? html`<p class="small" style="margin-bottom:0">${icon('info', 'ic small-ic')} ${unreachable.length === 1 ? 'One person' : `${unreachable.length} people`} won’t get this: ${unreachable.map((spots) => `${displayName(spots[0])} (${reachShort(spots[0].unreachable_reason).toLowerCase()})`).join(', ')}. Let them know yourself, or fix it on their page.</p>` : ''}`,
     onSubmit: async () => {
       const body = { service_ids: serviceIds };
       if (teamId) body.team_id = teamId;
       result = await post('/assignments/send', body);
     },
   });
-  if (result) toast(`Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`);
+  if (result) {
+    const sent = `Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`;
+    // Sending isn't blocked, but say who won't hear about it.
+    toast(unreachable.length ? `${sent} ${unreachable.length === 1 ? '1 person can’t' : `${unreachable.length} people can’t`} be reached: ${unreachable.map((spots) => `${displayName(spots[0])} (${reachShort(spots[0].unreachable_reason).toLowerCase()})`).join(', ')}.` : sent, unreachable.length ? 'bad' : '');
+  }
   return Boolean(result);
 }
 

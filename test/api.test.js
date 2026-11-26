@@ -2391,7 +2391,8 @@ test('remind people who haven’t replied: pending only, once per 12 hours, scop
 
   // Not for volunteers, or a leader of a different team; a campus-limited scheduler can't reach another campus.
   assert.equal((await api('remindVol', 'POST', `/services/${svc.id}/remind`)).status, 403);
-  assert.equal((await api('remindOther', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  // Nothing of theirs to remind: a quiet zero, so it doesn't reveal another team's pending requests.
+  assert.deepEqual((await api('remindOther', 'POST', `/services/${svc.id}/remind`)).data, { reminded: 0, skipped: 0 });
   assert.equal((await api('remindOther', 'POST', `/services/${svc.id}/remind`, { team_id: team.id })).status, 403);
   assert.equal((await api('north', 'POST', `/services/${svc.id}/remind`)).status, 403);
   assert.equal(inbox(pend), 0);
@@ -2565,10 +2566,12 @@ test('production checks: admins only; test sign-in, proxy setting and duplicates
   const hosted = byId({ RENDER: 'true', MB_DEV_LOGIN: '1', MB_TRUST_PROXY: 'true', MB_SMTP_PASS: 'super-secret-value' });
   assert.equal(hosted.dev_login.status, 'bad');
   assert.equal(hosted.trust_proxy.status, 'bad');
-  assert.match(hosted.trust_proxy.detail, /exactly 1/);
+  assert.match(hosted.trust_proxy.detail, /number of proxy hops/);
   const good = byId({ RENDER: 'true', MB_TRUST_PROXY: '1' });
   assert.equal(good.dev_login.status, 'ok');
   assert.equal(good.trust_proxy.status, 'ok');
+  assert.equal(byId({ RENDER: 'true', MB_TRUST_PROXY: '2' }).trust_proxy.status, 'ok', 'Render: Cloudflare edge + load balancer');
+  assert.equal(byId({ RENDER: 'true', MB_TRUST_PROXY: '3' }).trust_proxy.status, 'bad');
   assert.ok(!JSON.stringify(productionChecks(db, { RENDER: 'true', MB_SMTP_PASS: 'super-secret-value' })).includes('super-secret-value'), 'never shows a secret');
   assert.equal(byId({}).trust_proxy.status, 'info', 'not hosted: information only');
 });
@@ -2663,4 +2666,13 @@ test('Fill open spots works on one team at a time: needs a team, needs permissio
   assert.deepEqual(filled(shut.id), [], 'locked service untouched');
   assert.deepEqual(filled(open.id), ['Alpha spot']);
   assert.ok([...mine.data.added, ...mixed.data.added].every((a) => db.prepare('SELECT sent_at FROM assignments WHERE id = ?').get(a.id).sent_at === null));
+});
+
+test('member app service times skip a series that has not started and repeat nothing', async () => {
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const camp = Number(db.prepare("INSERT INTO campuses (name, short_name) VALUES ('Times Campus', 'TC')").run().lastInsertRowid);
+  const add = (name, dow, time, starts) => db.prepare('INSERT INTO service_types (campus_id, name, day_of_week, start_time, starts_on) VALUES (?, ?, ?, ?, ?)').run(camp, name, dow, time, starts);
+  add('Now A', 0, '09:00', day(-7)); add('Now B', 0, '09:00', day(-14)); add('Later', 3, '19:30', day(30));
+  const mine = (await api(null, 'GET', '/app/config')).data.times.filter((t) => t.campus_id === camp);
+  assert.deepEqual(mine.map((t) => `${t.day_of_week} ${t.start_time}`), ['0 09:00']);
 });

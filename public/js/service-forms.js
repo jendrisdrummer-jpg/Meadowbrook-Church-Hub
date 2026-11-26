@@ -1,7 +1,8 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
-import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, DAYS } from './lib.js';
+import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, fmtTime, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
 import { impactNote } from './guards.js';
+import { findClash } from './service-clash.js';
 
 const REPEATS = [
   { value: 0, label: 'Does not repeat' },
@@ -70,9 +71,11 @@ export async function newServiceDialog(date) {
       <label class="field">Start from template<select name="template_id">${options(templates.map((t) => ({ value: t.id, label: t.name, campus: t.campus_id })), '', { blank: 'Blank order of service' })}</select>
         <span class="muted small" data-tpl-note>Repeating services fill each new date from it.</span></label>
     </div>
-    <h3 style="margin-top:16px">Positions needed</h3>
-    <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
-    <div data-needs></div>`,
+    <details class="needs-fold" data-needs-fold open style="margin-top:16px">
+      <summary style="cursor:pointer;min-height:32px;display:flex;align-items:center;gap:8px"><h3 style="margin:0;display:inline">Positions needed</h3><span class="muted small" data-needs-note></span></summary>
+      <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
+      <div data-needs></div>
+    </details>`,
     onOpen: async (d) => {
       const f = d.querySelector('form');
       const ends = d.querySelector('[data-ends]');
@@ -84,6 +87,15 @@ export async function newServiceDialog(date) {
       };
       f.how.forEach((r) => { r.onchange = sync; });
       sync();
+      // With a template chosen its positions are used, so the list folds up (open it to override them).
+      const fold = d.querySelector('[data-needs-fold]');
+      const foldSync = () => {
+        const chosen = Boolean(f.template_id.value);
+        fold.open = !chosen;
+        d.querySelector('[data-needs-note]').textContent = chosen ? 'From the template. Open to change.' : '';
+      };
+      f.template_id.onchange = foldSync;
+      foldSync();
       picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value);
       f.campus_id.onchange = async () => { picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value, picker.get()); };
     },
@@ -92,6 +104,9 @@ export async function newServiceDialog(date) {
       if (!b.how) throw new Error('Please choose One time or Repeats first.');
       if (b.how === 'once') b.every_weeks = '0';
       const needs = picker?.get() || [];
+      // A warning, not a block: the same campus at the same start time is usually a slip, but not always.
+      const same = findClash(await get(`/services?from=${b.date}&to=${b.date}&campus_id=${b.campus_id}`).catch(() => []), b.campus_id, `${b.date}T${b.time}`);
+      if (same && !(await confirm('There’s already a service then', `${same.title || same.series || 'A service'} is already at this campus at ${fmtTime(same.starts_at)} on ${fmtDate(same.starts_at.slice(0, 10))}. Add another at the same time?`, 'Add it anyway', { danger: false }))) return false;
       if (b.every_weeks !== '0') {
         const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs, template_id: b.template_id || null });
         openId = r.first_service_id;
