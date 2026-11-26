@@ -245,6 +245,10 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('[data-me], [data-me-top]') && document.querySelector('[data-me] .menu, [data-me-top] .menu')) drawMe(false);
 });
 
+// Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
+// hold; this just shows the normal refusal instead of a form or an error).
+const PAGE_RULES = { giving: (me) => me.finance, settings: () => can('admin'), appbuilder: () => can('staff'), announcements: (me) => me.announce || can('admin') };
+
 let renderSeq = 0;
 async function route() {
   const path = (location.hash.slice(1) || '/').split('?')[0];
@@ -258,6 +262,11 @@ async function route() {
   });
   if (!hit) { setTitle('Not found'); mount(content, html`<div class="empty">That page doesn’t exist.</div>`); return; }
   const [m, page] = hit;
+  if (PAGE_RULES[page] && !PAGE_RULES[page](state.me)) {
+    setTitle('No access');
+    mount(content, html`<div class="empty">You don’t have access to this page. If you think you should, ask an admin.</div>`);
+    return;
+  }
   try {
     const mod = await import(`./pages/${page}.js`);
     if (seq !== renderSeq) return;
