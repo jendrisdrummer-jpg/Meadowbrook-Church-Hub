@@ -71,7 +71,7 @@ export default function dashboardRoutes(db) {
   // What is waiting on this person, as plain counts. Everything is limited to the campuses they
   // can reach, and a leader who isn't staff only counts the teams they lead. Volunteers get zeros.
   function attention(user, campusId) {
-    const out = { open_spots: 0, open_next: null, not_replied: 0, declines: 0, declines_next: null, connect_cards: 0, signups: 0, forms_new: 0, forms_title: null };
+    const out = { open_spots: 0, open_next: null, not_replied: 0, declines: 0, declines_next: null, declines_service: null, connect_cards: 0, signups: 0, forms_new: 0, forms_title: null };
     if (rank(user.role) < rank('leader')) return out;
     const stand = standing(user);
     for (const s of weekServices(user, campusId)) {
@@ -82,7 +82,7 @@ export default function dashboardRoutes(db) {
       if (open && !out.open_next) out.open_next = s.starts_at;
       out.not_replied += st.waiting;
       out.declines += uncovered;
-      if (uncovered && !out.declines_next) out.declines_next = s.starts_at;
+      if (uncovered && !out.declines_next) { out.declines_next = s.starts_at; out.declines_service = s.id; }
     }
     // Same filters as the Connect cards and App sign-ups pages (routes/app.js).
     const ck = campusFilter(user, 'k.campus_id');

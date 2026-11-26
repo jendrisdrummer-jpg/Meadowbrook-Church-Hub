@@ -139,6 +139,7 @@ async function drawPeople(panel, s, chats) {
         return html`<div class="position">
           <div class="position-head"><b>${p.name}</b>${p.needed && p.detail !== false ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
+            ${p.can_schedule && a.status === 'declined' && p.detail !== false ? html`<button class="btn small" data-replace="${p.id}" title="Pick someone else for ${p.name}. They’re added as a draft until you Send requests.">Find a replacement</button>` : ''}
             ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
@@ -156,7 +157,9 @@ async function drawPeople(panel, s, chats) {
     const b = e.target.closest('button');
     if (!b) return;
     try {
-      if (b.dataset.assign) await assignDialog(s.id, s.positions.find((p) => p.id === Number(b.dataset.assign)), taken(s, Number(b.dataset.assign)), reload);
+      // “Find a replacement” opens the same picker as “Schedule someone”.
+      const assignId = Number(b.dataset.assign || b.dataset.replace);
+      if (assignId) await assignDialog(s.id, s.positions.find((p) => p.id === assignId), taken(s, assignId), reload);
       if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
       if (b.matches('[data-remind]') && (await remindUnanswered(s.id, waiting))) reload();
       if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();

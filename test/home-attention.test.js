@@ -78,6 +78,7 @@ test('a leader’s counts cover their own teams only', async () => {
   assert.equal(a.open_spots, 1, 'Team A has one open spot; Team B’s are not theirs');
   assert.equal(a.not_replied, 1, 'Dan');
   assert.equal(a.declines, 1, 'Cara’s spot is still open');
+  assert.equal(a.declines_service, ids.svcN, 'the tile links to the soonest service with a declined spot');
   assert.equal(a.forms_new, 0, 'form responses are for staff');
   assert.equal(a.connect_cards, 2);
   assert.equal(a.signups, 1);
@@ -92,6 +93,8 @@ test('admin and staff counts follow their campuses', async () => {
   assert.deepEqual([north.open_spots, north.not_replied, north.declines, north.connect_cards, north.signups], [2, 2, 2, 2, 1]);
   const south = (await dash('sstaff')).attention;
   assert.deepEqual([south.open_spots, south.not_replied, south.declines, south.connect_cards, south.signups], [1, 1, 0, 1, 1]);
+  assert.equal(south.declines_service, null, 'no declined spot, no link');
+  assert.equal(north.declines_service, ids.svcN);
 });
 
 test('for campus-limited staff the forms count leaves out church-wide forms and other campuses', async () => {
@@ -123,6 +126,7 @@ test('every count is 0 when nothing is waiting', async () => {
   assert.deepEqual([a.open_spots, a.not_replied, a.declines, a.connect_cards, a.signups, a.forms_new], [0, 0, 0, 0, 0, 0]);
   assert.equal(a.forms_title, null);
   assert.equal(a.open_next, null);
+  assert.equal(a.declines_service, null);
 });
 
 test('my_teams: a leader sees the teams they lead, with where each stands', async () => {
