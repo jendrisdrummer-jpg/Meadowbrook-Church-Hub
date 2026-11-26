@@ -147,6 +147,17 @@ h3 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
 .side-foot { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .me { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Campus switcher at the top of the sidebar; Help and Feedback sit beside the user's name, which stays in view. */
+.side-campus { padding: 0 8px 8px; }
+.side-foot { position: sticky; bottom: -14px; padding-bottom: 14px; background: var(--bg); z-index: 2; }
+.side-user { display: flex; align-items: center; gap: 4px; }
+.side-user .me { flex: 1; }
+.side-links { display: flex; gap: 2px; flex: none; }
+.side-links .icon-btn { width: 34px; height: 34px; }
+.side-links .icon-btn.on { background: var(--sel); color: var(--accent-text); }
+/* "North only" beside the page title while a campus filter is on. */
+.page-campus { margin-right: auto; white-space: nowrap; }
+.topbar h1:has(+ .page-campus:not(.hidden)) { margin-right: 0; flex: 0 1 auto; }
 .me span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .main { min-width: 0; }
 .topbar { display: flex; align-items: center; gap: 12px; padding: 18px 32px 14px; flex-wrap: wrap; }

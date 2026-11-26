@@ -13,14 +13,14 @@ const seen = (t) => {
 };
 
 export default async function stations(el) {
-  setTitle('Check-in stations', html`<button class="btn primary" data-add>${icon('plus')} Add a station</button>`);
+  setTitle('Check-in iPads', html`<button class="btn primary" data-add>${icon('plus')} Add a station</button>`);
   const list = (await get('/checkin/devices')).filter((d) => !state.campusId || d.campus_id === state.campusId);
   const url = `${location.origin}/checkin`;
   mount(el, html`<div class="card st-how"><h2>Set up an iPad</h2>
       <ol class="small"><li>On the iPad, open <b>${url.replace(/^https?:\/\//, '')}</b> in Safari. (Tip: Share → Add to Home Screen for a full-screen app.)</li>
         <li>It shows a 6-letter code. Choose <b>Add a station</b> here and type it in.</li>
         <li>That’s it: the iPad checks kids in at that campus with no one signed in. Remove it here anytime.</li></ol></div>
-    <div class="card"><h2>Stations</h2>
+    <div class="card"><h2>Check-in iPads</h2>
       ${list.length ? html`<table class="list"><thead><tr><th>Station</th><th>Campus</th><th>Device</th><th>Name tags</th><th>Last used</th><th></th></tr></thead><tbody>
         ${list.map((d) => html`<tr><td><b>${d.name}</b>${d.added_by ? html`<div class="muted small">Added by ${d.added_by}</div>` : ''}</td><td>${d.campus_name}</td>
           <td class="small">${d.device || '—'}</td><td>${d.print ? html`<span class="pill good">Prints</span>` : html`<span class="pill">Off</span>`}</td>

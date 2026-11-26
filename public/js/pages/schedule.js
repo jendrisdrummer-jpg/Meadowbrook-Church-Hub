@@ -5,7 +5,7 @@ import { state, setTitle, campusName } from '../app.js';
 import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
-const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not sent yet' };
+const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not asked yet' };
 const statusOf = (a) => (!a.sent_at && a.status !== 'declined' ? 'draft' : a.status);
 
 export default async function schedule(el) {
@@ -16,7 +16,7 @@ export default async function schedule(el) {
   let picked = null; // person id chosen in the side panel
   let grid;
 
-  setTitle('Schedule', html`<button class="btn primary hidden" data-send></button><button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
+  setTitle('Volunteer schedule', html`<button class="btn primary hidden" data-send></button><button class="btn" data-fill>${icon('wand')} Fill the month</button>`);
   const sendBtn = document.querySelector('[data-actions] [data-send]');
   const [allSeries, allTeams] = await Promise.all([get('/series'), get('/teams')]);
   const inCampus = (cid) => !state.campusId || cid == null || cid === state.campusId;

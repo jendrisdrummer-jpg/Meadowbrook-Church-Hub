@@ -1,4 +1,4 @@
-// Roll call for one service: tap people (or whole families) as you see them. Works on a phone.
+// Take attendance for one service: tap people (or whole families) as you see them. Works on a phone.
 import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce } from './lib.js';
 import { state } from './app.js';
 import { duplicateOf, personLabel } from './guards.js';
@@ -14,7 +14,7 @@ export async function drawRollCall(panel, s) {
 
   mount(panel, html`<div class="stack">
     <div class="card">
-      <div class="card-head"><h2>Roll call</h2><span class="pill good" data-count></span><span class="muted small" data-saved></span></div>
+      <div class="card-head"><h2>Take attendance</h2><span class="pill good" data-count></span><span class="muted small" data-saved></span></div>
       <div class="row" style="margin-bottom:10px">
         <input type="search" placeholder="Find someone" data-q style="max-width:280px">
         <div class="seg" data-filter><button data-f="all" class="on">Everyone</button><button data-f="here">Here</button><button data-f="not">Not yet</button></div>

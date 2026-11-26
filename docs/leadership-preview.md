@@ -136,7 +136,7 @@ Don't add a test campus: campuses can't be deleted.
 | Do | Expect | Problem if | Account |
 |---|---|---|---|
 | Test service → **Who's serving**: the Tester spot shows **Schedule someone** | An open spot | | You (admin) |
-| Press **Fill open spots** | You're added, marked **Not sent** | Anyone else is added | You (admin) |
+| Press **Fill open spots** | You're added, marked **Not asked yet** | Anyone else is added | You (admin) |
 | Remove yourself (✕), then **Schedule someone** and pick yourself | Same result, by hand | | You (admin) |
 | **Schedule** page: pick your test team under **Team** | The month grid shows the test service and you | Other teams' people appear while the test team is picked | You (admin) |
 | On **Home**, look at "This week's services" | The test service shows "open" or "Fully scheduled" | Counts don't match the service | You (admin) |
@@ -205,7 +205,7 @@ first, and use the name "Test – please ignore".
 ### 14. Attendance
 | Do | Expect | Problem if | Account |
 |---|---|---|---|
-| Test service → **Attendance** tab: **Roll call**, find yourself, mark yourself here; open **Headcount** and enter a number | Saved ("Headcount saved") | Saving fails | You (admin) |
+| Test service → **Attendance** tab: **Take attendance**, find yourself, mark yourself here; open **Headcount** and enter a number | Saved ("Headcount saved") | Saving fails | You (admin) |
 | **Attendance** page | Weekly table per campus; "Haven't been here in 3+ weeks" and "First-time guests this month" | Numbers clearly wrong | You (admin) |
 
 Mark only yourself on the test service, so real attendance stays accurate. Deleting the test service
@@ -218,7 +218,7 @@ Kids' check-in itself **stays on Subsplash for the beta**. Here you only check w
 |---|---|---|---|
 | **Settings → Sign-in & accounts**: look for the **Check-in** badge | Only on children's ministry leaders who must have it, or none | Anyone else | You (admin) |
 | A leader **without** the tick opens **Kids Check-in** | It refuses and tells them to ask the office | They see families or allergies | Needs another role |
-| **Check-in stations** | Only iPads you recognise | Unknown stations: **Remove** them | You (admin) |
+| **Check-in iPads** (under More) | Only iPads you recognise | Unknown stations: **Remove** them | You (admin) |
 
 Don't check real children in or out on the live site.
 
@@ -288,7 +288,7 @@ All sections use **your admin account** unless they say otherwise.
 |---|---|---|---|---|---|
 | 1 | Why we're building it | No screen, or **Home** | One sentence per tool: Faith Teams (people, scheduling), Google Chat (team chat), Subsplash (app, kids' check-in, media) | One system the church owns, built around how Meadowbrook works, replacing three paid tools step by step | 3 min |
 | 2 | Admin dashboard | **Home** | The greeting, the four numbers (People, Members, New guests, Open volunteer spots), "This week's services" with open spots, "Away this week" | A leader sees the week at a glance: who's missing, what's open | 3 min |
-| 3 | People and households | **People** → search your own name → your page | Search, filters, your household, "Serves at", Teams, Scheduled to serve. Mention **Merge duplicate** and **Export** | One directory for every campus; families kept together; leaders don't see health or private notes | 4 min |
+| 3 | People and households | **People** → search your own name → your page | Search, filters, your household, "Can serve at", Teams, Scheduled to serve. Mention **Merge duplicate** and **Export** | One directory for every campus; families kept together; leaders don't see health or private notes | 4 min |
 | 4 | Teams and volunteers | **Teams** → your test team | Positions, the roster ticks, the Leader tick, **Message team** | Leaders manage their own teams; leader access follows the roster | 3 min |
 | 5 | Service scheduling | **Services** (Month) → test service → **Order of service**, then **Who's serving**; then **Schedule** with the test team | Plan items, **Fill open spots**, **Send requests** (show the list with only you), **Remind … who haven't replied**; the month grid. On your phone, the email's **Accept** button | Volunteers answer from an email or the app, no account needed for email links; leaders hear declines; no double-booking; campus rules respected | 6 min |
 | 6 | Communication and announcements | **Chat** → test team chat; **Announcements** | A message arriving on your phone; the announcement form with **A team** → test team, the "reaches 1 person" line, **Later**, then **Cancel** | Team chat replaces Google Chat; announcements go to the people chosen, with the count shown before sending | 4 min |

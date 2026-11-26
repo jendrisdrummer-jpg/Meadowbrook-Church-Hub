@@ -39,7 +39,7 @@ export default async function home(el) {
           <span class="pill good">${s.accepted} accepted</span>
           ${s.pending ? html`<span class="pill">${s.pending} waiting to reply</span>` : ''}
           ${s.declined ? html`<span class="pill bad">${s.declined} declined</span>` : ''}
-          ${s.items ? html`<span class="pill info">${s.items} plan items</span>` : html`<span class="pill warn">No plan yet</span>`}
+          ${s.items ? html`<span class="pill info">${s.items} in the order of service</span>` : html`<span class="pill warn">No order of service yet</span>`}
         </div>
         ${s.open_positions.length ? html`<div class="small muted" style="margin-top:8px">Still need: ${s.open_positions.map((p) => `${p.name}${p.open > 1 ? ` ×${p.open}` : ''}`).join(', ')}</div>` : ''}
       </a>`)

@@ -94,7 +94,7 @@ async function drawPeople(panel, s, chats) {
   const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s, chats); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   // Drafts haven't been sent yet; the volunteer doesn't know about them.
-  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
+  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not asked yet</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
   // The reason (when the server sent one) as a quiet line, since a phone can't hover.
   const reason = (a) => (a.status === 'declined' && a.decline_reason ? html`<div class="muted small" style="margin:-2px 0 4px 36px">“${a.decline_reason}”</div>` : '');
   const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;

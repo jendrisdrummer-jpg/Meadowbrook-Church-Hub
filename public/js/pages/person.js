@@ -75,7 +75,7 @@ export default async function person(el, id) {
       </div>
 
       <div class="stack">
-        <div class="card"><div class="card-head"><h2>Serves at</h2>${staff ? html`<button class="btn small" data-serves>${icon('edit')} Edit</button>` : ''}</div>
+        <div class="card"><div class="card-head"><h2>Can serve at</h2>${staff ? html`<button class="btn small" data-serves>${icon('edit')} Edit</button>` : ''}</div>
           <p style="margin:0">${servesText(p)}</p>
           ${!p.serving_campuses.length && p.campus_id == null ? html`<p class="muted small" style="margin-bottom:0">${staff ? 'Set a home campus or pick campuses so scheduling knows where they can serve.' : 'No campus is set yet.'}</p>` : ''}
         </div>
@@ -116,7 +116,7 @@ export default async function person(el, id) {
     const hidden = p.serving_campuses.filter((id) => !camps.some((c) => c.id === id));
     let saved;
     await dialog({
-      title: 'Serves at', submit: 'Save',
+      title: 'Can serve at', submit: 'Save',
       body: html`<p class="muted small" style="margin-top:0">Pick the campuses ${displayName(p)} can be scheduled at. Leave all unticked for ${p.campus_id ? `${campusName(p.campus_id)} only (their home campus)` : 'any campus, since no home campus is set'}.</p>
         ${camps.map((c) => html`<label class="check"><input type="checkbox" data-serve="${c.id}" ${p.serving_campuses.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}`,
       onSubmit: async (f) => {
