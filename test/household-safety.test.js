@@ -173,3 +173,27 @@ test('GET /checkin/campuses: a station sees its own campus, signed-out callers a
   assert.deepEqual((await api('leader', 'GET', '/checkin/campuses')).data.map((c) => c.id), [1]);
   assert.equal((await api('plainleader', 'GET', '/checkin/campuses')).status, 403, 'a leader not on the check-in list');
 });
+
+test('family search matches the family name or anyone in it, lists who is there, and stays at the caller’s campuses', async () => {
+  const north = household('Searchwell Household', 1);
+  person('Marigold', 'Searchwell', 1, { household_id: north });
+  const kid = person('Tobias', 'Searchwell', 1, { household_id: north });
+  db.prepare("UPDATE people SET household_role = 'child' WHERE id = ?").run(kid);
+  const south = household('Farside Household', 2);
+  person('Marigold', 'Farside', 2, { household_id: south });
+  // By family name, and by a member's first name or full name.
+  for (const q of ['searchwell', 'Tobias', 'marigold searchwell']) {
+    const r = await api('admin', 'GET', `/households?q=${encodeURIComponent(q)}`);
+    assert.equal(r.status, 200);
+    const hit = r.data.find((h) => h.id === north);
+    assert.ok(hit, q);
+    assert.deepEqual(hit.people.map((m) => m.name).sort(), ['Marigold', 'Tobias']);
+    assert.ok(hit.people.some((m) => m.name === 'Tobias' && m.role === 'child'));
+  }
+  // A North-only admin doesn't find the South family, even by a member's name.
+  const limited = await api('northadmin', 'GET', '/households?q=marigold');
+  assert.ok(limited.data.some((h) => h.id === north));
+  assert.ok(!limited.data.some((h) => h.id === south));
+  // Volunteers can't search families at all.
+  assert.equal((await call({}, 'GET', '/households?q=marigold')).status, 401);
+});

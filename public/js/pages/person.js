@@ -1,5 +1,5 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage, fmtUtcDate } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
@@ -63,7 +63,7 @@ export default async function person(el, id) {
         <div class="card">
           <div class="card-head"><h2>${h ? familyName(h.name) : 'Family'}</h2>
             ${staff ? html`${h ? html`<button class="btn small" data-edit-household>${icon('edit')}</button>` : ''}
-            <button class="btn small" data-add-member>${icon('plus')} ${h ? 'Add to family' : 'Start family'}</button>` : ''}</div>
+            <button class="btn small" data-add-member>${icon('plus')} ${h ? 'Add to family' : 'Add to a family'}</button>` : ''}</div>
           ${h ? html`
             ${h.address ? html`<p class="muted small">${h.address}${h.city ? `, ${h.city}` : ''} ${h.state} ${h.zip}</p>` : ''}
             ${h.members.map((m) => html`<a class="row" href="#/people/${m.id}" style="padding:6px 0;color:inherit">${avatar(m)}<span>${displayName(m)}</span>
@@ -158,20 +158,43 @@ export default async function person(el, id) {
       }
       if (b.matches('[data-unarchive]')) { await patch(`/people/${p.id}`, { archived: false }); reload(); }
       if (b.matches('[data-add-member]')) {
-        if (!h) {
+        const who = displayName(p);
+        // Joining someone else's family and bringing someone into this one are separate choices,
+        // so picking "Mom" never quietly moves Mom out of her own family.
+        const choice = await dialog({
+          title: h ? `Add to ${familyName(h.name)}` : `${who}’s family`, submit: null,
+          body: html`<div class="stack">
+            ${h ? html`<button type="button" class="btn" data-c="new">Someone new (e.g. a child)</button>
+              <button type="button" class="btn" data-c="existing">Someone already in the directory</button>` : ''}
+            <button type="button" class="btn" data-c="join">${h ? `Move ${who} to a different family` : `Add ${who} to an existing family`}</button>
+            ${h ? '' : html`<button type="button" class="btn" data-c="start">Start a new family for ${who}</button>`}</div>`,
+          onOpen: (d, close) => { d.querySelectorAll('[data-c]').forEach((x) => { x.onclick = () => close(x.dataset.c); }); },
+        });
+        if (choice === 'start') {
           const hh = await post('/households', { name: `${p.last_name || p.first_name} Household`, campus_id: p.campus_id });
           await patch(`/people/${p.id}`, { household_id: hh.id });
           return reload();
         }
-        const choice = await dialog({
-          title: `Add to ${familyName(h.name)}`, submit: null,
-          body: html`<div class="stack"><button type="button" class="btn" data-new>Someone new (e.g. a child)</button><button type="button" class="btn" data-existing>Someone already in the directory</button></div>`,
-          onOpen: (d, close) => { d.querySelector('[data-new]').onclick = () => close('new'); d.querySelector('[data-existing]').onclick = () => close('existing'); },
-        });
-        if (choice === 'new' && await personDialog({ household_id: h.id, last_name: p.last_name, campus_id: p.campus_id, household_role: 'child' })) reload();
+        if (choice === 'join') {
+          const fam = await pickFamily(`Which family is ${who} joining?`, { exclude: h?.id });
+          if (fam && await joinFamily(p, h, fam)) reload();
+        }
+        if (choice === 'new' && await personDialog({ household_id: h.id, household_name: familyName(h.name), last_name: p.last_name, campus_id: p.campus_id, household_role: 'child' })) reload();
         if (choice === 'existing') {
           const other = await pickPerson('Who should join this family?');
-          if (other) { await patch(`/people/${other.id}`, { household_id: h.id }); reload(); }
+          if (!other) return;
+          if (other.household_id === h.id) { toast(`${displayName(other)} is already in this family.`); return; }
+          if (!other.household_id) { await patch(`/people/${other.id}`, { household_id: h.id }); toast(`${displayName(other)} added.`); return reload(); }
+          // They already have a family: ask which way round it should go.
+          const way = await dialog({
+            title: `${displayName(other)} already has a family`, submit: null,
+            body: html`<div class="stack">
+              <button type="button" class="btn primary" data-w="join">Add ${who} to ${displayName(other)}’s family</button>
+              <button type="button" class="btn" data-w="move">Move ${displayName(other)} into ${who}’s family (they leave their current family)</button></div>`,
+            onOpen: (d, close) => { d.querySelectorAll('[data-w]').forEach((x) => { x.onclick = () => close(x.dataset.w); }); },
+          });
+          if (way === 'join' && await joinFamily(p, h, { id: other.household_id, name: `${displayName(other)}’s family` })) reload();
+          if (way === 'move') { await patch(`/people/${other.id}`, { household_id: h.id }); toast(`${displayName(other)} moved into ${who}’s family.`); reload(); }
         }
       }
       if (b.matches('[data-edit-household]')) {
@@ -201,6 +224,17 @@ export default async function person(el, id) {
       if (b.dataset.delPickup) { await del(`/pickups/${b.dataset.delPickup}`); reload(); }
     } catch (err) { fail(err); }
   };
+}
+
+// Moves this person into another family, after saying who's there and what they leave.
+async function joinFamily(p, current, fam) {
+  const others = current ? current.members.filter((m) => m.id !== p.id) : [];
+  const ok = await confirm(`Add ${displayName(p)} to ${fam.name}?`,
+    `${fam.people?.length ? `In this family: ${fam.people.map((m) => m.name).join(', ')}. ` : ''}${others.length ? `They’ll leave ${familyName(current.name)}.` : ''}`, 'Add to family', { danger: false });
+  if (!ok) return false;
+  await patch(`/people/${p.id}`, { household_id: fam.id });
+  toast(`${displayName(p)} is now in ${fam.name}.`);
+  return true;
 }
 
 // Add or edit a person. Resolves to the saved person (the last one saved), or undefined if cancelled.
@@ -252,17 +286,14 @@ export async function personDialog(p = {}) {
               ${p.household_id && fam.id === p.household_id ? '' : html`<button type="button" class="btn small" data-clear>Start a new family instead</button>`}</div>
               <small class="muted">${role.value === 'child' ? 'They’ll be added as a child' : 'They’ll be added as an adult'} (change under More details).</small>`
           : html`<span>Family</span><div class="row"><span class="muted small">A new family will be started for them.</span>
-              <button type="button" class="btn small" data-pick>Add to the family of…</button></div>`);
+              <button type="button" class="btn small" data-pick>Add to a family…</button></div>`);
       };
       slot.addEventListener('click', async (e) => {
         if (e.target.closest('[data-clear]')) { fam = null; setRole(); draw(); }
         if (!e.target.closest('[data-pick]')) return;
-        const other = await pickPerson('Whose family are they joining?');
-        if (!other) return;
-        if (!other.household_id) { toast(`${displayName(other)} isn’t in a family yet. Open their page and choose Add family member.`, 'bad'); return; }
-        let hasAdult = null;
-        try { hasAdult = (await get(`/people/${other.id}`)).household?.members.some((m) => m.household_role === 'adult') ?? null; } catch { /* keep the safe default */ }
-        fam = { id: other.household_id, name: other.household_name || `${other.last_name} family`, hasAdult };
+        const chosen = await pickFamily('Which family are they joining?');
+        if (!chosen) return;
+        fam = { id: chosen.id, name: chosen.name, hasAdult: chosen.people.some((m) => m.role === 'adult') };
         setRole(); draw();
       });
       role.addEventListener('change', draw);
@@ -297,7 +328,7 @@ export async function personDialog(p = {}) {
       if (!wantsAnother || editing) { toast(editing ? 'Saved.' : 'Added.'); return true; }
       // Stay open for the next person: they join the same family (the one just started, if new).
       toast(`Added ${displayName(saved)}. Add the next person.`);
-      fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: Boolean(fam?.hasAdult) || saved.household_role === 'adult' };
+      fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: saved.household_role === 'adult' ? true : (fam ? fam.hasAdult : false) };
       for (const n of ['first_name', 'email', 'phone', 'nickname', 'birthdate', 'gender', 'grade', 'allergies', 'medical_notes', 'notes']) f.elements[n].value = '';
       roleTouched = false;
       f.elements.household_role.value = defaultRole();

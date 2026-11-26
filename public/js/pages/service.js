@@ -105,19 +105,22 @@ async function drawPeople(panel, s, chats) {
   const waiting = past ? 0 : s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => a.sent_at && a.status === 'pending').length;
   const allTeams = [...new Map(s.positions.map((p) => [p.team_id, { id: p.team_id, name: p.team_name, color: p.team_color, active: active(p.team_id) }])).values()]
     .sort((a, b) => (b.active - a.active));
-  // The scheduler's team filter, remembered across services.
-  let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id));
-  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams.filter((t) => t.active);
+  // The scheduler's team pick (one team, or all), remembered across services.
+  let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id)).slice(0, 1);
+  const picked = allTeams.find((t) => t.id === only[0]);
+  // "All teams" lists every team: the ones in this service first, then the rest, so anyone can be scheduled.
+  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams;
   const teamStats = (t) => {
     const ps = s.positions.filter((p) => p.team_id === t.id);
     const open = ps.reduce((a, p) => a + Math.max(0, p.needed - p.assignments.filter((x) => x.status !== 'declined').length), 0);
     return open;
   };
   mount(panel, html`<div class="card">
-    ${allTeams.length > 1 ? html`<div class="team-filter" data-team-filter>
-      <button type="button" class="chip link ${only.length ? '' : 'on'}" data-team="all">All teams</button>
-      ${allTeams.map((t) => html`<button type="button" class="chip link ${only.includes(t.id) ? 'on' : ''} ${t.active ? '' : 'idle'}" data-team="${t.id}" title="${t.active ? '' : 'Not set up for this service yet'}"><span class="dot" style="background:${t.color}"></span>${t.name}
-        ${teamStats(t) ? html`<span class="cal-flag warn">${teamStats(t)}</span>` : ''}</button>`)}
+    ${allTeams.length > 1 ? html`<div class="team-filter">
+      <label class="field sched-pick"><span>Team</span><span class="pick ${picked ? 'has-dot' : ''}">${picked ? html`<span class="dot" style="background:${picked.color}"></span>` : ''}<select data-team-pick>
+        <option value="">All teams</option>
+        ${allTeams.map((t) => html`<option value="${t.id}" ${picked?.id === t.id ? raw('selected') : ''}>${t.name}${teamStats(t) ? ` · ${teamStats(t)} open` : ''}${t.active ? '' : ' · not set up'}</option>`)}
+      </select>${icon('down')}</span></label>
     </div>` : ''}
     <div class="card-head"><h2>Who’s serving</h2>
       ${drafts ? html`<button class="btn small primary" data-send title="Let everyone you've scheduled know, all at once">${icon('bell')} Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}</button>` : ''}
@@ -145,19 +148,14 @@ async function drawPeople(panel, s, chats) {
       : html`<div class="empty">No teams are set up for this service yet.${can('staff') ? ' Click Positions needed to choose who it needs, or pick a team above.' : ''}</div>`}
   </div>`);
 
+  panel.querySelector('[data-team-pick]')?.addEventListener('change', (e) => {
+    only = e.target.value ? [Number(e.target.value)] : [];
+    try { localStorage.setItem('mb.serving.teams', JSON.stringify(only)); } catch { /* private mode: not remembered */ }
+    drawPeople(panel, s, chats);
+  });
   panel.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.team) {
-      // Click a team to show just it; click more to add them; "All teams" clears the filter.
-      if (b.dataset.team === 'all') only = [];
-      else {
-        const id = Number(b.dataset.team);
-        only = only.includes(id) ? only.filter((x) => x !== id) : [...only, id];
-      }
-      localStorage.setItem('mb.serving.teams', JSON.stringify(only));
-      return drawPeople(panel, s, chats);
-    }
     try {
       // “Find a replacement” opens the same picker as “Schedule someone”.
       const assignId = Number(b.dataset.assign || b.dataset.replace);

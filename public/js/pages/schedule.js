@@ -2,7 +2,7 @@
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
 import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
 import { state, setTitle, campusName, can } from '../app.js';
-import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
+import { assignDialog, scheduleOne, sendRequests, reachPill, reachShort } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
 const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not asked yet' };
@@ -71,7 +71,12 @@ export default async function schedule(el) {
     const drafts = services.flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
       .flatMap((p) => (cells[`${sv.id}:${p.id}`]?.assignments || []).filter((a) => statusOf(a) === 'draft'))).length;
     const fillBtn = document.querySelector('[data-actions] [data-fill]');
-    if (fillBtn) { fillBtn.disabled = !teamId; fillBtn.title = teamId ? '' : 'Choose a team to fill'; }
+    if (fillBtn) {
+      const t = teams.find((x) => x.id === teamId);
+      fillBtn.disabled = !t;
+      fillBtn.title = t ? `Fill every open spot for ${t.name} this month` : 'Pick a team to fill';
+      mount(fillBtn, html`${icon('wand')} ${t ? html`Fill the month <span class="fill-team">· ${t.name}</span>` : 'Fill the month'}`);
+    }
     // Asked but not replied, for the chosen team, in services still to come.
     const waiting = waitingFor();
     const waitCount = waiting.reduce((a, w) => a + w.n, 0);
@@ -86,6 +91,10 @@ export default async function schedule(el) {
       if (!g) byTeam.push(g = { id: p.team_id, name: p.team_name, color: p.team_color, positions: [] });
       g.positions.push(p);
     }
+    const team = teams.find((t) => t.id === teamId);
+    // Teams belong to the whole church unless they have a campus; name the campus only when it
+    // isn't obvious (no campus picked), instead of tagging every team "(all campuses)".
+    const teamCampus = (t) => (t.campus_id && !state.campusId && !t.name.includes(campusName(t.campus_id)) ? ` · ${campusName(t.campus_id)}` : '');
     const sel = members.find((m) => m.id === picked);
     const openIn = (s) => positions.reduce((a, p) => a + Math.max(0, (cells[`${s.id}:${p.id}`]?.needed || 0) - live(cells[`${s.id}:${p.id}`]).length), 0);
     const totalOpen = services.reduce((a, s) => a + openIn(s), 0);
@@ -98,17 +107,17 @@ export default async function schedule(el) {
           <h2 style="margin:0 0 0 6px">${monthLabel()}</h2>
           ${services.length ? html`<span class="pill ${totalOpen ? 'warn' : 'good'}">${totalOpen ? `${totalOpen} open ${totalOpen === 1 ? 'spot' : 'spots'}` : html`${icon('check')} All filled`}</span>` : ''}
         </div>
-        <div class="row sched-selects">
-          <label class="field">Services<select data-series>
+        <div class="sched-selects">
+          <label class="field sched-pick"><span>Services</span><span class="pick"><select data-series>
             <option value="">All services${state.campusId ? ` at ${campusName(state.campusId)}` : ''}</option>
             ${series.map((t) => html`<option value="${t.id}" ${t.id === seriesId ? raw('selected') : ''}>${t.campus_short || t.campus_name} · ${t.default_title || t.name}</option>`)}
-          </select></label>
-          <label class="field">Team<select data-team>
+          </select>${icon('down')}</span></label>
+          <label class="field sched-pick"><span>Team</span><span class="pick ${team ? 'has-dot' : ''}">${team ? html`<span class="dot" style="background:${team.color}"></span>` : ''}<select data-team>
             <option value="">All teams</option>
-            ${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? raw('selected') : ''}>${t.name}${t.campus_id ? '' : ' (all campuses)'}</option>`)}
-          </select></label>
+            ${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? raw('selected') : ''}>${t.name}${teamCampus(t)}</option>`)}
+          </select>${icon('down')}</span></label>
+          ${teamId ? '' : html`<p class="muted small sched-hint">Pick a team to fill the month.</p>`}
         </div>
-        ${teamId ? '' : html`<p class="muted small" style="margin:8px 0 0">Choose a team to fill. “Fill the month” works on one team at a time.</p>`}
       </div>
       <div class="sched-layout ${teamId ? 'with-side' : ''}">
         <div class="card sched-card">
@@ -159,7 +168,8 @@ export default async function schedule(el) {
     return html`<aside class="card sched-side">
       <div class="card-head"><h2>Team</h2>${sel ? html`<button class="btn small ghost" data-unpick>Done</button>` : ''}</div>
       ${members.length ? html`<div class="sched-people">${members.map((m) => html`<button type="button" class="sched-person ${m.id === picked ? 'on' : ''}" data-person="${m.id}" draggable="true">
-          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}
+          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}${reachPill(m)}
+            ${m.reachable === false ? html`<span class="muted small">${reachShort(m.unreachable_reason)}</span>` : ''}
             <span class="muted small">${m.position_ids.map((id) => posName[id]).filter(Boolean).join(', ') || 'No position yet'}</span>
             ${m.away.map((b) => html`<span class="small away-note">Away ${fmtDate(b.start_date < month1 ? month1 : b.start_date, { month: 'short', day: 'numeric' })}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date, { month: 'short', day: 'numeric' })}` : ''}</span>`)}</span>
           <span class="count ${m.month_count ? '' : 'zero'}" title="Days serving this month">${m.month_count}×</span></button>`)}</div>`
