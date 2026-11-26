@@ -83,7 +83,7 @@ screenshot. Every row should say **Yes**, or **Check** for things you've decided
 | Check says No | Fix |
 |---|---|
 | Test sign-in is off | Remove `MB_DEV_LOGIN` in Render → Environment |
-| Real visitor addresses | Set `MB_TRUST_PROXY` to exactly `1` |
+| Real visitor addresses | Set `MB_TRUST_PROXY` to `2` (Render's Cloudflare edge plus its load balancer), then check the next row matches a what-is-my-IP site |
 | Offline mode is off | Remove `MB_OFFLINE` |
 | Email can be sent | Set `MB_SMTP_USER` and `MB_SMTP_PASS`. This is a No even if you only use Google sign-in, because schedule requests and reminders go by email |
 | People have a way to sign in | Google or email settings (checklist 1.4) |
@@ -195,7 +195,7 @@ Names only, never values. Render → the service → **Environment**.
 | Name | Needed | Shape |
 |---|---|---|
 | `PUBLIC_URL` | Yes | The hub's address, `https://…`, no trailing slash. Email links and Google sign-in use it |
-| `MB_TRUST_PROXY` | Yes | Exactly `1` |
+| `MB_TRUST_PROXY` | Yes | `2` on Render (verified 26 Nov 2026: with `1` the hub saw Cloudflare's address; with `2` it sees the visitor's) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | For Google sign-in and Drive backups | From Google Cloud |
 | `GOOGLE_WORKSPACE_DOMAIN` | Optional | The church's email domain |
 | `MB_SMTP_USER`, `MB_SMTP_PASS` | Yes (email codes, schedule emails) | Gmail address and app password |

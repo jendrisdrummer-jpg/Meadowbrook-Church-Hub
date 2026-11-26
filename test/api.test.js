@@ -2566,10 +2566,12 @@ test('production checks: admins only; test sign-in, proxy setting and duplicates
   const hosted = byId({ RENDER: 'true', MB_DEV_LOGIN: '1', MB_TRUST_PROXY: 'true', MB_SMTP_PASS: 'super-secret-value' });
   assert.equal(hosted.dev_login.status, 'bad');
   assert.equal(hosted.trust_proxy.status, 'bad');
-  assert.match(hosted.trust_proxy.detail, /exactly 1/);
+  assert.match(hosted.trust_proxy.detail, /number of proxy hops/);
   const good = byId({ RENDER: 'true', MB_TRUST_PROXY: '1' });
   assert.equal(good.dev_login.status, 'ok');
   assert.equal(good.trust_proxy.status, 'ok');
+  assert.equal(byId({ RENDER: 'true', MB_TRUST_PROXY: '2' }).trust_proxy.status, 'ok', 'Render: Cloudflare edge + load balancer');
+  assert.equal(byId({ RENDER: 'true', MB_TRUST_PROXY: '3' }).trust_proxy.status, 'bad');
   assert.ok(!JSON.stringify(productionChecks(db, { RENDER: 'true', MB_SMTP_PASS: 'super-secret-value' })).includes('super-secret-value'), 'never shows a secret');
   assert.equal(byId({}).trust_proxy.status, 'info', 'not hosted: information only');
 });
