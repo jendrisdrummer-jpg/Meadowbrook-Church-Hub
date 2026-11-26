@@ -1,7 +1,8 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
-import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, DAYS } from './lib.js';
+import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, fmtTime, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
 import { impactNote } from './guards.js';
+import { findClash } from './service-clash.js';
 
 const REPEATS = [
   { value: 0, label: 'Does not repeat' },
@@ -103,6 +104,9 @@ export async function newServiceDialog(date) {
       if (!b.how) throw new Error('Please choose One time or Repeats first.');
       if (b.how === 'once') b.every_weeks = '0';
       const needs = picker?.get() || [];
+      // A warning, not a block: the same campus at the same start time is usually a slip, but not always.
+      const same = findClash(await get(`/services?from=${b.date}&to=${b.date}&campus_id=${b.campus_id}`).catch(() => []), b.campus_id, `${b.date}T${b.time}`);
+      if (same && !(await confirm('There’s already a service then', `${same.title || same.series || 'A service'} is already at this campus at ${fmtTime(same.starts_at)} on ${fmtDate(same.starts_at.slice(0, 10))}. Add another at the same time?`, 'Add it anyway', { danger: false }))) return false;
       if (b.every_weeks !== '0') {
         const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs, template_id: b.template_id || null });
         openId = r.first_service_id;
