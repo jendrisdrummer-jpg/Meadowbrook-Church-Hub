@@ -134,10 +134,14 @@ export default function appRoutes(db, { uploadDir } = {}) {
 
   // Everything the app needs to draw itself. Public: guests use the app without signing in.
   r.get('/app/config', (req, res) => {
+    // Only series that have started and not ended, and one row per campus, day and time even when
+    // two series repeat the same slot.
+    const seen = new Set();
     const times = db.prepare(`SELECT t.day_of_week, t.start_time, t.default_title, t.name, c.id campus_id, c.name campus_name, c.short_name campus_short, c.address
       FROM service_types t JOIN campuses c ON c.id = t.campus_id
-      WHERE t.archived = 0 AND c.active = 1 AND t.day_of_week IS NOT NULL AND (t.ends_on IS NULL OR t.ends_on >= date('now'))
-      ORDER BY c.sort, t.day_of_week, t.start_time`).all();
+      WHERE t.archived = 0 AND c.active = 1 AND t.day_of_week IS NOT NULL AND (t.starts_on IS NULL OR t.starts_on <= date('now')) AND (t.ends_on IS NULL OR t.ends_on >= date('now'))
+      ORDER BY c.sort, t.day_of_week, t.start_time`).all()
+      .filter((t) => { const k = `${t.campus_id}|${t.day_of_week}|${t.start_time}`; return seen.has(k) ? false : (seen.add(k), true); });
     res.json({
       church_name: getSetting(db, 'church_name', 'Church'),
       brand_color: getSetting(db, 'brand_color', '#135fd1'),

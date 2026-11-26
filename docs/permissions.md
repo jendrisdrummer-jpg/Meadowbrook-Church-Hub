@@ -124,9 +124,11 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 ### Team leaders and other teams
 
 A leader who isn't staff sees **full detail only for the teams they lead** (`team_members.is_leader = 1`):
-declined people and their reasons, drafts not yet sent, phone and email, open spots. For every other
-team they see what a volunteer sees: people who were asked and haven't declined, names and photo only,
-with no needed counts. The helper is `server/team-scope.js` (`ledTeamIds`, `seesTeamDetail`,
+declined people and their reasons, drafts not yet sent, member phone and email on the team page, away
+reasons, open spots. For every other team they see what a volunteer sees: people who were asked and
+haven't declined, names and photo only, with no needed counts. Not limited: `GET /people` and search
+still return every person (with their contact details) at the leader's campuses, as leaders have always
+had People; the limit is on the team page and on away reasons. The helper is `server/team-scope.js` (`ledTeamIds`, `seesTeamDetail`,
 `ledPositionsClause`); staff and admins are unlimited (campus scoping still applies). This is about
 what can be *seen*; who may *schedule* is still `canSchedule` and the `schedule_role` setting.
 
@@ -141,6 +143,12 @@ what can be *seen*; who may *schedule* is still `canSchedule` and the `schedule_
 Home's attention counts (`attention()` in `dashboard.js`) are limited to the person's campuses and, for a leader who isn't staff, to the teams they lead. Connect cards and app sign-ups use the same filters as their pages (leader+, campus-scoped). New form responses are counted for staff only, and only on forms they manage (`manages()` in `forms.js`: church-wide forms need an account with no campus limit). Volunteers get zeros.
 
 | `GET /people/:id` (upcoming) | A row only if it's their team, or it was sent and not declined |
+| `GET /people/:id` (away dates) | Dates always; the `reason` only when the person is on a team the leader leads |
+| `GET /teams/:id` | Members' `email` and `phone` only for teams they lead |
+| `PUT /teams/:id/members/:personId` | 403 for a person at a campus outside the leader's campuses (no campus is fine) |
+| `POST /services/:id/assignments` | `allow_other_campus` works only for staff and up, or an account with no campus limit |
+| `POST /services/:id/remind` | Without `team_id`, nothing they may remind gives `{reminded: 0, skipped: 0}`, not 403 |
+| Decline notifications | The person who sent the request hears of a decline only while they still lead that team or are staff |
 
 ## Campus-limited admins
 

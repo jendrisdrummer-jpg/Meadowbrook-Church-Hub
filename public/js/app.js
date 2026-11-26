@@ -159,10 +159,11 @@ async function boot() {
 
 // Counts on menu items: unread chat messages, and my tasks due today or late.
 const badgeCounts = {};
+const MORE_KINDS = ['tasks', 'forms', 'connect'];
 function setBadge(kind, n) {
   badgeCounts[kind] = n;
   // The phone's More button carries the counts for pages that aren't on the bottom bar.
-  if (kind === 'tasks') setBadge('more', n);
+  if (MORE_KINDS.includes(kind)) setBadge('more', MORE_KINDS.reduce((sum, k) => sum + (badgeCounts[k] || 0), 0));
   document.querySelectorAll(`[data-badge="${kind}"]`).forEach((b) => { b.textContent = n > 99 ? '99+' : n; b.classList.toggle('hidden', !n); });
 }
 // Paint the last known counts onto badges that were just drawn (the More sheet is built on demand).

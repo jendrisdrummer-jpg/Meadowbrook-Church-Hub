@@ -390,7 +390,9 @@ export default function serviceRoutes(db) {
     if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(personId)) throw notFound('Person');
     // Enforced here, not just in the screen: someone who doesn't serve at this campus needs an explicit override.
     const elig = eligibility(personId, s);
-    if (!elig.eligible && !req.body?.allow_other_campus) {
+    // The override is for staff and up, or someone with no campus limit; a campus-limited leader can't use it.
+    const mayOverride = rank(req.user.role) >= rank('staff') || !req.user.campusIds;
+    if (!elig.eligible && !(req.body?.allow_other_campus && mayOverride)) {
       return res.status(409).json({ error: elig.eligibility_reason, other_campus: true });
     }
     const conflicts = conflictsFor(personId, s, positionId);
@@ -572,7 +574,9 @@ export default function serviceRoutes(db) {
     const all = db.prepare(`SELECT a.id, ps.team_id, a.nudged_at, a.reminded_at FROM assignments a JOIN positions ps ON ps.id = a.position_id
       WHERE a.service_id = ? AND a.status = 'pending' AND a.sent_at IS NOT NULL AND (? IS NULL OR ps.team_id = ?) LIMIT 500`).all(s.id, teamId, teamId);
     const list = all.filter((a) => canSchedule(req, s, a.team_id));
-    if (teamId ? !canSchedule(req, s, teamId) : all.length && !list.length) throw forbidden();
+    if (teamId && !canSchedule(req, s, teamId)) throw forbidden();
+    // Nothing this caller may remind: say so plainly, without hinting at other teams' pending requests.
+    if (!list.length) return res.json({ reminded: 0, skipped: 0 });
     const cutoff = Date.now() - 12 * 3600e3;
     const recent = (v) => v && Date.parse(`${v.replace(' ', 'T')}Z`) > cutoff;
     const due = list.filter((a) => !recent(a.nudged_at) && !recent(a.reminded_at));

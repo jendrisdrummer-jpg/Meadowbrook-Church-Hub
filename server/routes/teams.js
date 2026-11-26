@@ -74,6 +74,8 @@ export default function teamRoutes(db) {
 
   r.get('/teams/:id', requireRole('leader'), (req, res) => {
     const t = team(req, req.params.id);
+    // Contact details only for teams this person leads (staff see all); others get names and photos.
+    const detail = seesTeamDetail(db, req.user, t.id);
     res.json({
       ...t,
       can_manage: canManage(req, t),
@@ -82,7 +84,7 @@ export default function teamRoutes(db) {
       members: db.prepare(`SELECT tm.person_id, tm.position_id, tm.is_leader, p.first_name, p.last_name, p.nickname, p.photo, p.email, p.phone,
           EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
         FROM team_members tm JOIN people p ON p.id = tm.person_id WHERE tm.team_id = ? AND p.archived = 0
-        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map((m) => ({ ...m, has_account: Boolean(m.has_account) })),
+        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map(({ email, phone, ...m }) => ({ ...m, ...(detail ? { email, phone } : {}), has_account: Boolean(m.has_account) })),
     });
   });
 
@@ -161,6 +163,8 @@ export default function teamRoutes(db) {
     const personId = int(req.params.personId);
     const person = db.prepare('SELECT id, campus_id FROM people WHERE id = ? AND archived = 0').get(personId);
     if (!person) throw notFound('Person');
+    // A campus-limited leader can't add someone from a campus they can't reach. No campus is fine.
+    if (person.campus_id != null && !canCampus(req.user, person.campus_id)) throw forbidden();
     const valid = new Set(db.prepare('SELECT id FROM positions WHERE team_id = ?').all(t.id).map((p) => p.id));
     const positionIds = (req.body?.position_ids || []).map((x) => int(x)).filter((x) => valid.has(x));
     const leader = req.body?.is_leader ? 1 : 0;

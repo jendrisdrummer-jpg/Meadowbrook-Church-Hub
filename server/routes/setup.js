@@ -209,12 +209,12 @@ export default function setupRoutes(db, { uploadDir } = {}) {
         return { ...u, suggestion: sg && canCampus(req.user, sgCampus) ? suggestion : null };
       });
     // People sharing one email (trimmed, case ignored), to tidy before suggestions work well. A campus-limited
-    // admin sees a group only when every person in it is in their reach.
+    // admin sees a group only when every person in it is in their reach (checked across the whole group, then the list is trimmed for display).
     const shared = db.prepare(`SELECT lower(trim(email)) e FROM people WHERE archived = 0 AND trim(email) != '' GROUP BY e HAVING COUNT(*) > 1 ORDER BY e LIMIT 300`).all()
       .map(({ e }) => ({ email: e, people: db.prepare(`SELECT p.id, p.first_name, p.last_name, p.campus_id, c.short_name campus_short, c.name campus_name FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
-        WHERE p.archived = 0 AND lower(trim(p.email)) = ? ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 20`).all(e) }))
+        WHERE p.archived = 0 AND lower(trim(p.email)) = ? ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(e) }))
       .filter((g) => g.people.every((p) => canCampus(req.user, p.campus_id))).slice(0, 100)
-      .map((g) => ({ email: g.email, people: g.people.map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`.trim(), campus: p.campus_id == null ? '' : (p.campus_short || p.campus_name) })) }));
+      .map((g) => ({ email: g.email, people: g.people.slice(0, 20).map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`.trim(), campus: p.campus_id == null ? '' : (p.campus_short || p.campus_name) })) }));
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)

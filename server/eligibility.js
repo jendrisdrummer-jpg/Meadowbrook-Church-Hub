@@ -26,7 +26,7 @@ export function campusEligibility(db, personId, campusId) {
 }
 
 // Adults only: not marked a child, no school grade, and (if we know it) at least 18. Small groups
-// and automatic account linking share this rule. ADULT_SQL is the same rule for queries on `p`.
+// and account-link suggestions share this rule. ADULT_SQL is the same rule for queries on `p`.
 export const ADULT_SQL = "p.household_role != 'child' AND p.grade IS NULL AND (p.birthdate IS NULL OR p.birthdate <= date('now', '-18 years'))";
 export function isAdult(p) {
   if (p.household_role === 'child' || p.grade != null) return false;

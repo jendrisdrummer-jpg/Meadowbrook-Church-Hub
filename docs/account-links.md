@@ -22,8 +22,9 @@ only: **nothing is linked at sign-in or anywhere else**, and sign-in code is unc
   names are never used.
 - It is shown only when that person is **in the admin's reach** (a campus-limited admin does not see people at
   other campuses; people with no campus count as in reach, as everywhere else).
-- A note says when the match deserves a second look: "listed as a child", "a child or under 18" (the same adult
-  rule as small groups, `isAdult` in `server/eligibility.js`), or "already has an account" (no one-click button
+- **No suggestion is made for a child** (marked a child, has a school grade, or under 18: the same adult rule as
+  small groups, `isAdult` in `server/eligibility.js`). An admin can still link by hand.
+- A note says when the match deserves a second look: "already has an account" (no one-click button
   is offered, since linking would be refused with 409).
 - Settings → Accounts → "Accounts not linked to a person" shows "Same email as Jo Smith (North)" with a
   **Link to Jo Smith** button. It asks the admin to confirm, then uses the usual `PATCH /users/:id`

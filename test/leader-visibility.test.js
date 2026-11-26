@@ -203,3 +203,55 @@ test('leaders keep full access to their own team when scheduling is admin-only',
     assert.equal((await api('lena', 'GET', `/services/${ids.svc}/candidates?position_id=${ids.posA}`)).status, 200);
   } finally { setSetting(db, 'schedule_role', 'team_leaders'); }
 });
+
+test('team page: contact details only for a team the leader leads', async () => {
+  const other = (await api('lena', 'GET', `/teams/${ids.B}`)).data.members;
+  assert.ok(other.length);
+  for (const m of other) { assert.equal('phone' in m, false); assert.equal('email' in m, false); }
+  const own = (await api('lena', 'GET', `/teams/${ids.A}`)).data.members;
+  assert.ok(own.every((m) => m.phone && m.email));
+  assert.ok((await api('staff', 'GET', `/teams/${ids.B}`)).data.members.every((m) => m.phone && m.email));
+});
+
+test('person page: away reasons only for people on a team the leader leads', async () => {
+  const b = (await api('lena', 'GET', `/people/${ids.Bob}`)).data.blockouts;
+  assert.equal(b.length, 1);
+  assert.ok(b[0].start_date); assert.equal('reason' in b[0], false);
+  assert.equal((await api('lena', 'GET', `/people/${ids.Ann}`)).data.blockouts[0].reason, 'Trip A');
+  assert.equal((await api('staff', 'GET', `/people/${ids.Bob}`)).data.blockouts[0].reason, 'Trip B');
+});
+
+test('adding a team member: campus check, no-campus people allowed, staff unchanged', async () => {
+  const put = (role, p) => api(role, 'PUT', `/teams/${ids.A}/members/${p}`, { position_ids: [ids.posA] });
+  assert.equal((await put('lena', ids.Sue)).status, 403);
+  const nobody = Number(db.prepare("INSERT INTO people (first_name, last_name) VALUES ('Nocampus', 'Test')").run().lastInsertRowid);
+  assert.equal((await put('lena', nobody)).status, 200);
+  assert.equal((await put('staff', ids.Sue)).status, 200);
+});
+
+test('assignments: allow_other_campus is for staff and up, not a campus-limited leader', async () => {
+  // Sue serves only at South (her home campus), so North needs the override.
+  const body = { position_id: ids.posA, person_id: ids.Sue, allow_other_campus: true };
+  assert.equal((await api('lena', 'POST', `/services/${ids.svc}/assignments`, body)).status, 409);
+  assert.equal((await api('staff', 'POST', `/services/${ids.svc}/assignments`, body)).status, 201);
+});
+
+test('remind with nothing the leader may remind is a quiet zero, not a 403', async () => {
+  const r = await api('lena', 'POST', `/services/${ids.svc}/remind`, {});
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data, { reminded: 0, skipped: 0 });
+  assert.equal((await api('lena', 'POST', `/services/${ids.svc}/remind`, { team_id: ids.B })).status, 403);
+});
+
+test('a decline is sent to the original sender only while they can still see that team', async () => {
+  const { notifyResponse } = await import('../server/notify.js');
+  const uid = (k) => db.prepare('SELECT id FROM users WHERE email = ?').get(`${k}@mb.org`).id;
+  const aid = db.prepare("SELECT a.id FROM assignments a WHERE a.person_id = ? AND a.service_id = ?").get(ids.Bob, ids.svc).id;
+  const count = (k) => db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND kind = 'declined'").get(uid(k)).n;
+  db.prepare('UPDATE assignments SET sent_by = ? WHERE id = ?').run(uid('lena'), aid);
+  notifyResponse(db, aid, 'declined');
+  assert.equal(count('lena'), 0);
+  db.prepare('UPDATE assignments SET sent_by = ? WHERE id = ?').run(uid('staff'), aid);
+  notifyResponse(db, aid, 'declined');
+  assert.equal(count('staff'), 1);
+});

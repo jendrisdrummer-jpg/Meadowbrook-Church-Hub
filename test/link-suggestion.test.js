@@ -63,15 +63,13 @@ test('no suggestion for a shared email, an archived person, a phone number or no
   for (const u of [uShared, uArch, uPhone, uNone]) assert.equal(await suggestion('admin', u), null);
 });
 
-test('children and people who already have an account are suggested with a note, never linked', async () => {
+test('children get no suggestion; a person who already has an account is suggested with a note, never linked', async () => {
   const kid = person({ household_role: 'child' }); const uKid = account(emailOf(kid));
   const grade = person({ grade: '5' }); const uGrade = account(emailOf(grade));
   const minor = person({ birthdate: '2099-01-01' }); const uMinor = account(emailOf(minor));
   const taken = person({ email: 'taken@example.com' }); account('someone-else@example.com', taken);
   const uTaken = account('taken@example.com');
-  assert.match((await suggestion('admin', uKid)).note, /listed as a child/);
-  assert.match((await suggestion('admin', uGrade)).note, /child or under 18/);
-  assert.match((await suggestion('admin', uMinor)).note, /child or under 18/);
+  for (const u of [uKid, uGrade, uMinor]) assert.equal(await suggestion('admin', u), null);
   assert.equal((await suggestion('admin', uTaken)).note, 'already has an account');
   for (const u of [uKid, uGrade, uMinor, uTaken]) assert.equal(personOf(u), null);
 });
