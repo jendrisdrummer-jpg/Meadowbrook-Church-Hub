@@ -66,7 +66,7 @@ export default async function service(el, id) {
 
   mount(el, html`
     <div class="row muted" style="margin:-6px 0 12px"><span class="campus-tag"><span class="dot" style="background:${s.campus.color}"></span>${s.campus.name}</span>
-      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span>· ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
+      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span title="Series">· Series: ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
     ${s.locked ? html`<div class="alert" style="margin-bottom:12px">${icon('lock', 'ic small-ic')} This service is locked, so its order of service and schedule can’t be changed${can('admin') ? ' (you can still edit as an admin)' : ''}.</div>` : ''}
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <style>@media (max-width: 520px) { .svc-tabs button { padding: 10px 9px; font-size: 13.5px; } }</style>

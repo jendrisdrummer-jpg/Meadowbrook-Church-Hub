@@ -27,7 +27,7 @@ export function openSearch(pages, go) {
     <div class="sp-input"></div>
     <div class="sp-results" id="sp-results" role="listbox"></div>
     <div class="sp-foot"><span><kbd>↑</kbd><kbd>↓</kbd> to move</span><span><kbd>Enter</kbd> to open</span></div></div>`;
-  mount(box.querySelector('.sp-input'), html`${icon('search')}<input type="search" placeholder="Search people, songs, services, teams, events…" autocomplete="off" spellcheck="false" aria-controls="sp-results"><kbd>Esc</kbd>`);
+  mount(box.querySelector('.sp-input'), html`${icon('search')}<input type="search" placeholder="${window.matchMedia('(max-width: 640px)').matches ? 'Search people, songs…' : 'Search people, songs, services, teams, events…'}" autocomplete="off" spellcheck="false" aria-controls="sp-results"><kbd>Esc</kbd>`);
   document.body.append(box);
   open = box;
   const input = box.querySelector('input');
