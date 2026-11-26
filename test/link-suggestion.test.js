@@ -23,8 +23,8 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
   db.exec("INSERT INTO campuses (id, name, short_name, timezone) VALUES (1, 'North', 'N', 'America/Chicago'), (2, 'South', 'S', 'America/Chicago')");
-  for (const [key, email, campuses] of [['admin', 'admin@mb.org', null], ['north', 'north-admin@mb.org', '[1]']]) {
-    const id = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES (?, 'admin', ?)").run(email, campuses).lastInsertRowid;
+  for (const [key, email, campuses, role] of [['admin', 'admin@mb.org', null, 'admin'], ['north', 'north-admin@mb.org', '[1]', 'admin'], ['staff', 'staff@mb.org', null, 'staff'], ['vol', 'vol@mb.org', null, 'volunteer']]) {
+    const id = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES (?, ?, ?)").run(email, role, campuses).lastInsertRowid;
     startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
   }
 });
@@ -108,4 +108,31 @@ test('linking a suggestion is the existing admin action: audited, confirmed by t
   // A South person is outside the North admin's reach: refused even with the id.
   const far = person({ campus_id: 2 }); const uf = account(emailOf(far));
   assert.equal((await api('north', 'PATCH', `/users/${uf}`, { person_id: far })).status, 403);
+});
+
+test('People sharing an email: groups, case and spaces, archived excluded, admin only, reach-limited', async () => {
+  const north1 = person({ email: 'family@example.com', campus_id: 1 });
+  const north2 = person({ email: '  FAMILY@Example.com ', campus_id: 1 });
+  const gone = person({ email: 'family@example.com', campus_id: 1, archived: 1 }); // archived: not counted
+  const lone = person({ email: 'alone@example.com', campus_id: 1 });
+  const pairArchived = person({ email: 'pair@example.com' }); person({ email: 'pair@example.com', archived: 1 }); // one active only: not a group
+  const mixedN = person({ email: 'mixed@example.com', campus_id: 1 }); const mixedS = person({ email: 'mixed@example.com', campus_id: 2 });
+  const southA = person({ email: 'south@example.com', campus_id: 2 }); const southB = person({ email: 'south@example.com', campus_id: 2 });
+  person({ email: '' }); person({ email: '  ' }); // blanks never group
+  const full = (await api('admin', 'GET', '/users')).data.shared_emails;
+  const byEmail = Object.fromEntries(full.map((g) => [g.email, g.people]));
+  assert.deepEqual(byEmail['family@example.com'].map((p) => p.id).sort(), [north1, north2].sort());
+  assert.ok(byEmail['family@example.com'].every((p) => p.campus === 'N' && p.name.startsWith('Pat')));
+  assert.ok(lone && !byEmail['alone@example.com'] && !byEmail['pair@example.com'] && !byEmail['']);
+  assert.ok(!byEmail['family@example.com'].some((p) => p.id === gone));
+  assert.equal(byEmail['mixed@example.com'].length, 2);
+  assert.ok(byEmail['south@example.com']);
+  assert.ok(pairArchived && mixedN && mixedS && southA && southB);
+  // a campus-limited admin sees only groups wholly inside their campuses
+  const limited = Object.fromEntries((await api('north', 'GET', '/users')).data.shared_emails.map((g) => [g.email, g.people]));
+  assert.ok(limited['family@example.com']);
+  assert.ok(!limited['mixed@example.com'], 'a group reaching another campus is hidden');
+  assert.ok(!limited['south@example.com']);
+  // staff and below are refused
+  for (const who of ['staff', 'vol']) assert.equal((await api(who, 'GET', '/users')).status, 403);
 });

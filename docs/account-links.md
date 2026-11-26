@@ -30,6 +30,16 @@ only: **nothing is linked at sign-in or anywhere else**, and sign-in code is unc
   (`person_id`), so every existing rule applies: reach, one account per person, the team-leader rule, and the
   `user.link` audit row.
 
+## People sharing an email
+
+Settings → Accounts has a folded, read-only card **People sharing an email** under the unlinked list, to tidy
+the data before suggestions are used and before an import. `GET /users` (admin only, like the rest of that
+route) returns `shared_emails`: groups of **non-archived** people whose email is the same after trimming and
+ignoring case (blank emails never group), each with `{id, name, campus}` per person. Each name links to the
+person page, where the admin fixes the email. A campus-limited admin sees a group only when **every** person in
+it is in their reach (a group that reaches another campus is hidden, so nothing about other campuses is shown).
+Nothing is changed by the list.
+
 ## Check the data: `scripts/audit-account-links.js`
 
 Read-only: it opens the database with `readOnly: true` and changes nothing. It follows `MB_DB` like the

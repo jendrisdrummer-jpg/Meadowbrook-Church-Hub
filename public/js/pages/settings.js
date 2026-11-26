@@ -366,7 +366,13 @@ async function accounts(panel, q = '') {
         ${u.suggestion ? html`<div class="small muted">Same email as ${u.suggestion.name}${u.suggestion.campus_short ? ` (${u.suggestion.campus_short})` : ''}${u.suggestion.note ? `, ${u.suggestion.note}` : ''}</div>` : ''}
         <div class="small muted">${u.link_requested_at ? `Asked to be linked ${fmtUtcDate(u.link_requested_at)} · ` : ''}Last sign-in ${u.last_login ? fmtUtcDate(u.last_login) : 'never'}</div></div>
       <div class="row" style="gap:6px;flex-wrap:wrap">${u.suggestion && u.suggestion.note !== 'already has an account' ? html`<button class="btn small primary" data-link-suggested="${u.id}">Link to ${u.suggestion.name}</button>` : ''}<button class="btn small" data-link-account="${u.id}">Link to person…</button></div></div>`) : html`<p class="muted">Every account is linked to a person.</p>`}
-  </div>`);
+  </div>
+  ${list.shared_emails?.length ? html`<details class="card" style="margin-top:14px" data-shared-emails>
+    <summary><b>People sharing an email</b> <span class="muted small">${list.shared_emails.length} ${list.shared_emails.length === 1 ? 'email' : 'emails'}</span></summary>
+    <p class="muted small">An email that belongs to more than one person can’t be matched to an account automatically, and a sign-in could be linked to the wrong person. Open each person and give them their own email, or remove it. Nothing here changes by itself.</p>
+    ${list.shared_emails.map((g) => html`<div style="padding:8px 0;border-top:1px solid var(--line, rgba(128,128,128,.25))"><div class="small" style="overflow-wrap:anywhere"><b>${g.email}</b></div>
+      ${g.people.map((p) => html`<div class="small"><a href="#/people/${p.id}">${p.name}</a>${p.campus ? html` <span class="muted">· ${p.campus}</span>` : ''}</div>`)}</div>`)}
+  </details>` : ''}`);
   const signin = panel.querySelector('[data-signin]');
   if (signin) signin.onsubmit = async (e) => {
     e.preventDefault();
