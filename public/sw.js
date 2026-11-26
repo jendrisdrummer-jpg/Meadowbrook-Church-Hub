@@ -1,9 +1,9 @@
 // The app's service worker:
 // - keeps the check-in screen loading when a tablet loses its internet connection (only the
-//   check-in page and its files are cached; everything else goes straight to the network);
+//   check-in page, its files and the fonts are cached; everything else goes straight to the network);
 // - shows push notifications, and lets people accept a serving spot right from one.
-const CACHE = 'mb-checkin-v3';
-const FILES = ['/checkin', '/css/app.css', '/css/checkin.css', '/js/checkin.js', '/js/checkin-rules.js', '/js/lib.js', '/js/theme.js'];
+const CACHE = 'mb-checkin-v4';
+const FILES = ['/checkin', '/css/app.css', '/css/checkin.css', '/js/checkin.js', '/js/checkin-rules.js', '/js/lib.js', '/js/theme.js', '/fonts/inter.woff2', '/fonts/fraunces-roman.woff2', '/fonts/fraunces-italic.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
