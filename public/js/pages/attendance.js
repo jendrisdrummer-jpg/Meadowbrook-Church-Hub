@@ -1,4 +1,4 @@
-// Weekly attendance per campus: adults (headcounts), kids (check-ins) and volunteers serving.
+// Weekly attendance per campus: counted adults and students (headcount, or names when there is no headcount), kids (check-ins) and volunteers serving.
 import { get, html, mount, fmtDate, avatar, displayName } from '../lib.js';
 import { state, setTitle, campusName, visibleCampuses, campusQuery } from '../app.js';
 
@@ -10,6 +10,8 @@ export default async function attendance(el) {
   const start = new Date(`${d.from}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - start.getUTCDay() + 7);
   for (let w = new Date(start); w <= new Date(); w.setUTCDate(w.getUTCDate() + 7)) weeks.push(w.toISOString().slice(0, 10));
+  const sourceOf = (campusId, week) => d.source.find((r) => r.week === week && r.campus_id === campusId)?.source;
+  const sourceLabel = { headcount: 'Headcount', names: 'Names', mixed: 'Mixed' };
   const sum = (list, campusId, week) => list.filter((r) => r.week === week && (!campusId || r.campus_id === campusId)).reduce((a, r) => a + r.total, 0);
 
   const chart = (campusId) => {
@@ -31,12 +33,13 @@ export default async function attendance(el) {
       <div class="card"><h2>First-time guests this month</h2>
         ${follow.first_time.length ? follow.first_time.map((p) => personRow(p, `First visit ${fmtDate(p.first_at.slice(0, 10))}`)) : html`<p class="muted">No first-time visits marked this month.</p>`}</div>
     </div>
-    <div class="legend" style="margin-bottom:12px"><span><i></i>Headcount</span><span><i class="kids"></i>Kids checked in</span></div>
+    <p class="row" style="margin:0 0 12px"><span class="muted small">Record attendance from a service.</span> <a class="btn small" href="#/take-attendance">Take attendance</a></p>
+    <div class="legend" style="margin-bottom:12px"><span><i></i>Counted</span><span><i class="kids"></i>Kids checked in</span></div>
     ${camps.length ? camps.map((c) => html`<div class="card"><h2>${c.name}</h2>${chart(c.id)}
-      <div class="table-wrap" style="margin-top:12px"><table class="list"><thead><tr><th>Week of</th><th>Headcount</th><th>Kids</th><th>Total</th><th>On the roll</th><th>Volunteers</th></tr></thead>
-      <tbody>${weeks.slice().reverse().map((w) => {
+      <div class="table-wrap" style="margin-top:12px"><table class="list"><thead><tr><th>Week of</th><th>Counted</th><th>Source</th><th>Kids</th><th>Total</th><th>On the roll</th><th>Volunteers</th></tr></thead>
+      <tbody>${weeks.slice().reverse().filter((w) => sum(d.adults, c.id, w) || sum(d.kids, c.id, w) || sum(d.marked, c.id, w) || sum(d.volunteers, c.id, w)).map((w) => {
         const a = sum(d.adults, c.id, w); const k = sum(d.kids, c.id, w);
-        return html`<tr><td>${fmtDate(w)}</td><td class="num">${a || '—'}</td><td class="num">${k || '—'}</td><td class="num"><b>${a + k || '—'}</b></td><td class="num">${sum(d.marked, c.id, w) || '—'}</td><td class="num">${sum(d.volunteers, c.id, w) || '—'}</td></tr>`;
+        return html`<tr><td>${fmtDate(w)}</td><td class="num">${a || '—'}</td><td class="small muted nowrap">${sourceLabel[sourceOf(c.id, w)] || '—'}</td><td class="num">${k || '—'}</td><td class="num"><b>${a + k || '—'}</b></td><td class="num">${sum(d.marked, c.id, w) || '—'}</td><td class="num">${sum(d.volunteers, c.id, w) || '—'}</td></tr>`;
       })}</tbody></table></div></div>`) : html`<div class="card empty">Add a campus in Settings first.</div>`}
-    <p class="muted small">Enter headcounts on each service’s Attendance tab. ${camps.length > 1 ? `Showing ${camps.map((c) => campusName(c.id)).join(' and ')}.` : ''}</p>`);
+    <p class="muted small">Counted is the headcount when one was entered, otherwise the names on the roll (kids checked in aren’t counted twice). Enter them with Take attendance, or on each service’s Attendance tab. ${camps.length > 1 ? `Showing ${camps.map((c) => campusName(c.id)).join(' and ')}.` : ''}</p>`);
 }

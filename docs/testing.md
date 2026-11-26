@@ -45,6 +45,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 4 | Create a repeating service and an order of service from a template | Staff | Services appear on the calendar; plan filled |
 | 5 | Schedule a volunteer, send requests, accept and decline; remind those who haven’t replied | Leader → volunteer | Push/inbox; decline reaches leader; reminders skip accepted/declined/unsent and repeat only after 12 hours; conflicts and away dates respected |
 | 6 | Roll call and kids' check-in/out (also from a paired station) | Leader / station | Attendance recorded; name tags; check-out by code |
+| 6a | Take attendance on a phone: pick a service, mark names and a family, add a guest and a child, enter a headcount; try a person page, People and Schedule by URL | Volunteer with the Attendance switch | Attendance saved and audited when late; every other page refused; kids' check-in still refused (`test/attendance-access.test.js`) |
 | 7 | Create an event with sign-up questions (and a paid one) | Staff → guest | Event in app calendar; sign-up recorded; capacity honoured |
 | 8 | Send an announcement (now and scheduled) | Announcements flag | Inbox + push; guests get push; audience respected |
 | 9 | Chat: team chat, group, reply, mention, file, task card | Volunteer / leader | Live updates; unread counts; only members see it |

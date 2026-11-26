@@ -1,9 +1,10 @@
 // Roll call: the attendance team marks who they see at each service, plus the reports built on it
 // (each person's history, who hasn't been in a while, first-time guests).
 import { Router } from 'express';
-import { requireRole, canCampus, campusFilter } from '../auth.js';
+import { requireRole, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
 import { tx } from '../db.js';
-import { notFound, forbidden, int } from '../http.js';
+import { bad, notFound, forbidden, int, str, isDate, audit, localNow, HttpError } from '../http.js';
+import { ensureServices } from './series.js';
 
 // "Was here" = marked on the roll, or a child checked in to that service.
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
@@ -15,12 +16,43 @@ export default function attendanceRoutes(db) {
   function service(req, id) {
     const s = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
     if (!s) throw notFound('Service');
-    if (!canCampus(req.user, s.campus_id)) throw forbidden();
+    if (!canAttendCampus(db, req.user, s.campus_id)) throw forbidden();
     return s;
   }
 
+  // A change made after the service's own (local) date is a correction. Attendance-only accounts
+  // have no time limit, so every such change is written to the audit log.
+  const isCorrection = (req, s) => {
+    if (rank(req.user.role) >= rank('leader')) return false;
+    const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(s.campus_id)?.timezone || 'UTC';
+    return localNow(tz).date > s.starts_at.slice(0, 10);
+  };
+  const GUESTS_PER_DAY = 30;
+
+  // The services an attendance account can take attendance for: by default the last two weeks and
+  // tomorrow; ?from= (and ?to=) pick any other dates (up to 62 days at a time) for older services.
+  r.get('/attendance/services', requireAttendance, (req, res) => {
+    const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+    const from = isDate(req.query.from) ? req.query.from : day(-14);
+    let to = isDate(req.query.to) ? req.query.to : (isDate(req.query.from) ? new Date(Date.parse(`${from}T12:00:00Z`) + 14 * 864e5).toISOString().slice(0, 10) : day(1));
+    if (Date.parse(to) < Date.parse(from)) to = from;
+    if (Date.parse(to) - Date.parse(from) > 62 * 864e5) throw bad('Pick a range of two months or less.');
+    ensureServices(db, to);
+    const cf = campusFilter(req.user, 's.campus_id');
+    const rows = db.prepare(`SELECT s.id, s.title, s.starts_at, s.campus_id, c.name campus_name, c.short_name campus_short, c.attendance_mode,
+        (SELECT COUNT(*) FROM attendance a WHERE a.service_id = s.id) roll_count
+      FROM services s JOIN campuses c ON c.id = s.campus_id
+      WHERE s.starts_at >= ? AND s.starts_at <= ? AND ${cf.sql} ORDER BY s.starts_at DESC LIMIT 200`).all(from, `${to}T23:59`, ...cf.args)
+      .filter((s) => canAttendCampus(db, req.user, s.campus_id)).slice(0, 100);
+    const counts = db.prepare('SELECT area, count FROM headcounts WHERE service_id = ?');
+    res.json({ from, to, services: rows.map((s) => {
+      const headcounts = counts.all(s.id);
+      return { ...s, headcounts, headcount_total: headcounts.reduce((a, h) => a + h.count, 0) };
+    }) });
+  });
+
   // Everyone who might be at this service, regulars first, with who's already marked present.
-  r.get('/services/:id/roll', requireRole('leader'), (req, res) => {
+  r.get('/services/:id/roll', requireAttendance, (req, res) => {
     const s = service(req, req.params.id);
     const since = new Date(Date.parse(`${s.starts_at.slice(0, 10)}T12:00:00Z`) - 8 * 7 * 864e5).toISOString().slice(0, 10);
     const people = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo, p.status, p.household_role, p.household_id,
@@ -36,7 +68,7 @@ export default function attendanceRoutes(db) {
   });
 
   // Body: { person_ids: [..], present: true|false } – one person or a whole family at once.
-  r.post('/services/:id/roll', requireRole('leader'), (req, res) => {
+  r.post('/services/:id/roll', requireAttendance, (req, res) => {
     const s = service(req, req.params.id);
     const ids = (req.body?.person_ids || []).map((x) => int(x, 'Person')).filter(Boolean).slice(0, 50);
     const present = req.body?.present !== false;
@@ -55,7 +87,43 @@ export default function attendanceRoutes(db) {
         else db.prepare('DELETE FROM attendance WHERE service_id = ? AND person_id = ?').run(s.id, pid);
       }
     });
+    if (isCorrection(req, s)) audit(db, req, 'attendance.correct', { service_id: s.id, person_ids: ids, present });
     res.json({ present: db.prepare('SELECT COUNT(*) n FROM attendance WHERE service_id = ?').get(s.id).n });
+  });
+
+  // A new guest for a service, for attendance-only accounts (who can't use People): a new family, or
+  // a child added to a family already on this roll (never an adult: every adult in a family counts as
+  // an approved pickup, which only staff may grant). Marked present at once. The duplicate check
+  // matches on name alone so nothing about an existing person leaks; `force` adds them anyway.
+  r.post('/services/:id/roll/guest', requireAttendance, (req, res) => {
+    const s = service(req, req.params.id);
+    const first = str(req.body?.first_name, 60);
+    const last = str(req.body?.last_name, 60);
+    if (!first) throw bad('First name is required.');
+    const householdId = int(req.body?.household_id, 'Family');
+    if (householdId != null) {
+      if (req.body?.role !== 'child') throw new HttpError(403, 'Adding an adult to an existing family is for staff, because every adult in a family can pick up their children. Ask a staff member, or add a child instead.');
+      const hh = db.prepare('SELECT campus_id FROM households WHERE id = ?').get(householdId);
+      const onRoll = db.prepare(`SELECT 1 FROM people p WHERE p.household_id = ? AND p.id IN (SELECT person_id FROM attendance WHERE service_id = ?
+        UNION SELECT person_id FROM checkins WHERE service_id = ?) LIMIT 1`).get(householdId, s.id, s.id);
+      if (!hh || !onRoll || !canCampus(req.user, hh.campus_id)) throw forbidden();
+    }
+    const used = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'attendance.guest' AND user_id = ? AND at >= datetime('now', '-1 day')").get(req.user.id).n;
+    if (used >= GUESTS_PER_DAY) return res.status(429).json({ error: `You’ve added ${GUESTS_PER_DAY} new guests today. Ask a staff member to add anyone else.` });
+    if (!req.body?.force) {
+      const cf = campusFilter(req.user, 'campus_id');
+      const dup = db.prepare(`SELECT id, first_name, last_name FROM people WHERE archived = 0 AND lower(first_name) = lower(?) AND lower(last_name) = lower(?) AND ${cf.sql} LIMIT 1`).get(first, last, ...cf.args);
+      if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: dup });
+    }
+    const id = tx(db, () => {
+      const hid = householdId ?? Number(db.prepare('INSERT INTO households (name, campus_id) VALUES (?, ?)').run(`${last || first} Household`, s.campus_id).lastInsertRowid);
+      const pid = Number(db.prepare("INSERT INTO people (first_name, last_name, status, campus_id, household_id, household_role) VALUES (?, ?, 'guest', ?, ?, ?)")
+        .run(first, last, s.campus_id, hid, householdId != null ? 'child' : 'adult').lastInsertRowid);
+      db.prepare('INSERT OR IGNORE INTO attendance (service_id, person_id, marked_by) VALUES (?, ?, ?)').run(s.id, pid, req.user.id);
+      return pid;
+    });
+    audit(db, req, 'attendance.guest', { service_id: s.id, person_id: id, household_id: householdId, late: isCorrection(req, s) });
+    res.status(201).json({ id, first_name: first, last_name: last });
   });
 
   // People to follow up: regulars missing for 3+ weeks, and first-time guests this month.
