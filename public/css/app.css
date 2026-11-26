@@ -1193,3 +1193,7 @@ select.status-pick:not([multiple]):not([size]) { width: auto; min-height: 0; pad
 .att-spark-dot { position: absolute; width: 8px; height: 8px; margin: 0 0 -4px -4px; border-radius: 50%; background: var(--accent); }
 .att-time-inline { display: none; }
 @media (max-width: 600px) { .att-time { display: none; } .att-time-inline { display: inline; } .att-services td, .att-services th { padding-left: 8px; padding-right: 8px; } .att-services th { letter-spacing: .04em; } table.list.att-services td:first-child { min-width: 0; max-width: none; } .att-time-inline { white-space: nowrap; } }
+/* Attendance: the "We've missed…" heading and its week choice wrap on a phone. */
+[data-missing-card] .card-head { flex-wrap: wrap; gap: 8px; }
+[data-missing-card] .seg { max-width: 100%; }
+[data-missing-card] .seg button { white-space: nowrap; }

@@ -57,7 +57,7 @@ export default async function attendance(el) {
     el.querySelectorAll('[data-missing-weeks] button').forEach((b) => b.classList.toggle('on', Number(b.dataset.w) === weeks));
     const m = await get(`/attendance/missing?weeks=${weeks}${state.campusId ? `&campus_id=${state.campusId}` : ''}`);
     mount(missList, m.people.length
-      ? m.people.slice(0, 50).map((p) => personRow(p, `Missed ${p.missed} Sunday${p.missed === 1 ? '' : 's'} · last here ${fmtDate(p.last_at)}`))
+      ? m.people.slice(0, 50).map((p) => html`<a class="row" href="#/people/${p.id}" style="padding:6px 0;color:inherit;flex-wrap:nowrap">${avatar(p)}<span style="flex:1;min-width:0">${displayName(p)}<br><small class="muted">Missed ${p.missed} Sunday${p.missed === 1 ? '' : 's'} · last here ${fmtDate(p.last_at)}</small></span></a>`)
       : html`<p class="muted">Everyone’s been around lately.</p>`);
   };
   el.querySelector('[data-missing-weeks]').addEventListener('click', (e) => { const b = e.target.closest('button[data-w]'); if (b) loadMissing(Number(b.dataset.w)).catch(fail); });
