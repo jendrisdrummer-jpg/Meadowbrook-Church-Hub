@@ -1,5 +1,5 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage, fmtUtcDate } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
@@ -94,7 +94,7 @@ export default async function person(el, id) {
           ${att.recent.length ? html`<table class="list"><tbody>${att.recent.slice(0, 8).map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
             <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>`
             : html`<p class="muted">No attendance marked yet.</p>`}
-          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${new Date(c.checked_in_at).toLocaleDateString()} · ${c.room || c.kind}</div>`)}` : ''}
+          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}</div>`)}` : ''}
         </div>
         ${staff && !p.archived ? html`<button class="btn danger" data-archive>${icon('trash')} Archive this person</button>` : ''}
       </div>

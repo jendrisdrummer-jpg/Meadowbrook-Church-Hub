@@ -29,7 +29,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Accounts, roles, campus limits (including campus-limited admins), Finance/Announcements/Kids' check-in flags, sign-in policy | Verified | `auth.js`, `routes/setup.js` | Settings → Sign-in & accounts |
 | Global search (Ctrl/⌘K) | Verified | `routes/search.js` | `js/search.js` |
 | New sign-ups from the app, connect cards, follow-up lists | Verified | `routes/app.js` | `pages/connect.js` |
-| Dashboard (Home: greeting, this week's services, open spots, away this week) | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
+| Dashboard (Home: greeting, this week's services, open spots, away this week; Accept / Can't make it on your next times serving). Phone: More sheet in the bottom bar | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
 | Member directory | Not built (Stage 2) | | |
 
 ## Planning and volunteers (FT)

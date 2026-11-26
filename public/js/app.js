@@ -1,5 +1,5 @@
 // App shell: sign-in check, navigation, campus switcher and a small hash router.
-import { get, post, patch, html, mount, icon, avatar, $, fail } from './lib.js';
+import { get, post, patch, html, raw, mount, icon, avatar, $, fail } from './lib.js';
 import { initSearch, searchButton, openSearch } from './search.js';
 
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
@@ -20,7 +20,7 @@ const NAV = [
     { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
   ] },
   { group: 'Planning', items: [
-    { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer', mobile: true },
+    { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer' },
     { path: '/schedule', label: 'Schedule', icon: 'teams', min: 'leader' },
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
     { path: '/events', label: 'Events', icon: 'calendar', min: 'staff' },
@@ -39,7 +39,7 @@ const NAV = [
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
   ] },
   { group: 'Check-in', items: [
-    { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true, mobile: true },
+    { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true },
     { path: '/stations', label: 'Check-in stations', icon: 'phone', min: 'staff' },
   ] },
   { group: 'Admin', items: [
@@ -145,9 +145,19 @@ async function boot() {
 }
 
 // Counts on menu items: unread chat messages, and my tasks due today or late.
+const badgeCounts = {};
 function setBadge(kind, n) {
+  badgeCounts[kind] = n;
+  // The phone's More button carries the counts for pages that aren't on the bottom bar.
+  if (kind === 'tasks') setBadge('more', n);
   document.querySelectorAll(`[data-badge="${kind}"]`).forEach((b) => { b.textContent = n > 99 ? '99+' : n; b.classList.toggle('hidden', !n); });
 }
+// Paint the last known counts onto badges that were just drawn (the More sheet is built on demand).
+const paintBadges = (root) => root.querySelectorAll('[data-badge]').forEach((b) => {
+  const n = badgeCounts[b.dataset.badge] || 0;
+  b.textContent = n > 99 ? '99+' : n;
+  b.classList.toggle('hidden', !n);
+});
 export async function refreshChatBadge() {
   try { setBadge('chat', (await get('/chats/unread')).total); } catch { /* try again later */ }
 }
@@ -198,18 +208,78 @@ function drawChrome() {
   $('[data-search]').onclick = () => openSearch(searchPages, go);
   const link = (n, label = n.label) => html`<a href="${n.external ? n.path : '#' + n.path}" data-path="${n.path}">${icon(n.icon)}<span>${label}</span>${n.badge ? html`<span class="nav-badge hidden" data-badge="${n.badge}"></span>` : ''}</a>`;
   mount($('[data-nav]'), groups.map((g) => html`${g.group ? html`<div class="nav-group">${g.group}</div>` : ''}${g.items.map((n) => link(n))}`));
-  mount($('[data-bottomnav]'), groups.flatMap((g) => g.items).filter((n) => n.mobile).map((n) => link(n, n.short || n.label)));
-  const camps = visibleCampuses();
+  mount($('[data-bottomnav]'), html`${groups.flatMap((g) => g.items).filter((n) => n.mobile).map((n) => link(n, n.short || n.label))}
+    <button type="button" data-more aria-haspopup="dialog">${icon('menu')}<span>More</span><span class="nav-badge hidden" data-badge="more"></span></button>`);
+  $('[data-more]').onclick = openMore;
+  paintBadges(document);
   const sel = $('[data-campus]');
+  fillCampusSelect(sel);
+  sel.closest('label').classList.toggle('hidden', visibleCampuses().length < 2);
+  sel.onchange = () => pickCampus(sel.value);
+  drawMe();
+}
+
+function fillCampusSelect(sel) {
+  const camps = visibleCampuses();
   mount(sel, html`${camps.length > 1 || !state.me.campusIds ? html`<option value="">All campuses</option>` : ''}${camps.map((c) => html`<option value="${c.id}">${c.name}</option>`)}`);
   sel.value = state.campusId ?? '';
-  sel.closest('label').classList.toggle('hidden', camps.length < 2);
-  sel.onchange = () => {
-    state.campusId = Number(sel.value) || null;
-    localStorage.setItem('mb.campus', state.campusId ?? '');
-    route();
-  };
-  drawMe();
+}
+function pickCampus(value) {
+  state.campusId = Number(value) || null;
+  localStorage.setItem('mb.campus', state.campusId ?? '');
+  document.querySelectorAll('[data-campus]').forEach((s) => { s.value = state.campusId ?? ''; });
+  route();
+}
+
+// ---------------------------------------------------------------- phone "More" sheet
+// Everything the sidebar offers on a laptop, for the phone: the same visibleNav() groups (so what
+// someone can see never changes), minus what already sits on the bottom bar.
+async function signOut() {
+  await fetch('/auth/logout', { method: 'POST', headers: { 'x-mb': '1' } }).catch(() => {});
+  location.href = '/login';
+}
+function openMore() {
+  if (document.querySelector('dialog.sheet')) return;
+  const here = (location.hash.slice(1) || '/').split('?')[0];
+  const onBar = new Set(visibleNav().flatMap((g) => g.items).filter((n) => n.mobile).map((n) => n.path));
+  const footer = new Set(['/help', '/feedback']);
+  const groups = visibleNav().map((g) => ({ ...g, items: g.items.filter((n) => !onBar.has(n.path) && !footer.has(n.path)) })).filter((g) => g.items.length);
+  const tile = (n) => html`<a class="sheet-tile ${here === n.path || (n.path !== '/' && here.startsWith(n.path)) ? 'on' : ''}" href="${n.external ? n.path : '#' + n.path}">${icon(n.icon)}<span>${n.short || n.label}</span>${n.badge ? html`<span class="nav-badge hidden" data-badge="${n.badge}"></span>` : ''}</a>`;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'sheet';
+  dlg.setAttribute('aria-labelledby', 'more-title');
+  const camps = visibleCampuses();
+  mount(dlg, html`<div class="sheet-body">
+    <div class="sheet-head"><h2 id="more-title">More</h2><button type="button" class="icon-btn" data-close aria-label="Close">${icon('x')}</button></div>
+    ${camps.length > 1 ? html`<label class="field">Campus<select data-campus></select></label>` : ''}
+    ${groups.map((g) => html`<section aria-label="${g.group || 'Everyday'}"><div class="sheet-group">${g.group || 'Everyday'}</div><div class="sheet-tiles">${g.items.map(tile)}</div></section>`)}
+    <div class="sheet-group">Appearance</div>
+    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${state.me.theme === v}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
+    <div class="sheet-foot">
+      <a href="#/help">${icon('info')} Help</a>
+      <a href="#/feedback">${icon('chat')} Feedback</a>
+      <button type="button" data-logout>${icon('logout')} Sign out</button>
+    </div>
+  </div>`);
+  document.body.append(dlg);
+  const csel = dlg.querySelector('[data-campus]');
+  if (csel) { fillCampusSelect(csel); csel.onchange = () => pickCampus(csel.value); }
+  paintBadges(dlg);
+  const close = () => dlg.close();
+  dlg.addEventListener('close', () => { dlg.remove(); window.removeEventListener('hashchange', close); });
+  window.addEventListener('hashchange', close);
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg || e.target.closest('[data-close]') || e.target.closest('a')) return close();
+    const pick = e.target.closest('[data-theme-pick]');
+    if (pick) {
+      state.me.theme = pick.dataset.themePick;
+      applyTheme(state.me.theme, state.settings.brand_color);
+      patch('/me', { theme: state.me.theme }).catch(fail);
+      dlg.querySelectorAll('[data-theme-pick]').forEach((b) => { const on = b === pick; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    }
+    if (e.target.closest('[data-logout]')) signOut();
+  });
+  dlg.showModal();
 }
 
 // The signed-in person's menu: appearance and sign out.
@@ -234,12 +304,17 @@ function drawMe(open = false, sel = '[data-me]') {
       return drawMe(true, sel);
     }
     if (e.target.closest('[data-logout]')) {
-      await fetch('/auth/logout', { method: 'POST', headers: { 'x-mb': '1' } }).catch(() => {});
-      location.href = '/login';
-      return;
+      return signOut();
     }
     if (!e.target.closest('.menu')) drawMe(!open, sel);
   };
+  // Never let the menu run off the screen, whatever the layout puts the avatar next to.
+  const menu = box.querySelector('.menu');
+  if (menu) {
+    const r = menu.getBoundingClientRect();
+    const shift = r.left < 8 ? 8 - r.left : r.right > innerWidth - 8 ? innerWidth - 8 - r.right : 0;
+    if (shift) menu.style.transform = `translateX(${shift}px)`;
+  }
 }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('[data-me], [data-me-top]') && document.querySelector('[data-me] .menu, [data-me-top] .menu')) drawMe(false);
@@ -260,6 +335,8 @@ async function route() {
     const p = a.dataset.path;
     a.classList.toggle('on', p === '/' ? path === '/' : path.startsWith(p));
   });
+  // On a page that lives under More, light up More so people know where they are.
+  document.querySelector('[data-more]')?.classList.toggle('on', !document.querySelector('[data-bottomnav] a.on'));
   if (!hit) { setTitle('Not found'); mount(content, html`<div class="empty">That page doesn’t exist.</div>`); return; }
   const [m, page] = hit;
   if (PAGE_RULES[page] && !PAGE_RULES[page](state.me)) {

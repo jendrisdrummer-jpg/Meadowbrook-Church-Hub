@@ -138,6 +138,12 @@ export function avatar(p, cls = '') {
 // Services store campus-local "YYYY-MM-DDTHH:MM"; format them without time-zone shifts.
 const asLocal = (s) => new Date(`${s.length === 10 ? `${s}T12:00` : s}:00`);
 export const fmtDate = (s, opts = { weekday: 'short', month: 'short', day: 'numeric' }) => (s ? asLocal(s).toLocaleDateString(undefined, opts) : '');
+// A UTC timestamp (SQLite "YYYY-MM-DD HH:MM:SS" or ISO) shown as the viewer's local date, in the same format as every other date.
+export const fmtUtcDate = (s, opts) => {
+  if (!s) return '';
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s.replace(' ', 'T')}Z`);
+  return Number.isNaN(d.getTime()) ? '' : fmtDate(d.toLocaleDateString('en-CA'), opts);
+};
 export const fmtTime = (s) => (s ? asLocal(s).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
 export const fmtDateTime = (s) => `${fmtDate(s)} · ${fmtTime(s)}`;
 export const today = () => new Date().toLocaleDateString('en-CA');
