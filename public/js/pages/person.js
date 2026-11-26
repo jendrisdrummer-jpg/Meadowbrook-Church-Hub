@@ -4,6 +4,9 @@ import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
 
+// Households are called families in the interface; the data keeps its name ("Diaz Household" reads "Diaz family").
+const familyName = (n) => String(n || '').replace(/\s+household$/i, ' family');
+
 const ROLE_LABEL = { volunteer: 'Volunteer', leader: 'Leader', staff: 'Staff', admin: 'Admin' };
 const ROLE_HELP = {
   volunteer: 'Their own schedule and the services they serve at',
@@ -24,7 +27,8 @@ export default async function person(el, id) {
   const [p, att] = await Promise.all([get(`/people/${id}`), get(`/people/${id}/attendance`)]);
   const staff = can('staff');
   setTitle(displayName(p), html`${staff ? html`<button class="btn" data-edit>${icon('edit')} Edit</button>` : ''}
-    ${can('admin') ? html`<button class="btn" data-merge title="Merge a duplicate record into this one">${icon('copy')} Merge duplicate</button>` : ''}`);
+    ${can('admin') ? html`<span class="kebab"><button class="icon-btn" data-kebab aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${icon('dots')}</button>
+      <div class="kebab-menu hidden" role="menu"><button type="button" role="menuitem" data-merge title="Merge a duplicate record into this one">${icon('copy')} Merge duplicate</button></div></span>` : ''}`);
   const now = new Date().toLocaleDateString('en-CA');
   const h = p.household;
 
@@ -56,43 +60,40 @@ export default async function person(el, id) {
             ${can('admin') && (p.account ? p.account.editable !== false : p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
         </div>
 
-        <div class="stack" data-profile></div>
-
         <div class="card">
-          <div class="card-head"><h2>${h ? h.name : 'Household'}</h2>
+          <div class="card-head"><h2>${h ? familyName(h.name) : 'Family'}</h2>
             ${staff ? html`${h ? html`<button class="btn small" data-edit-household>${icon('edit')}</button>` : ''}
-            <button class="btn small" data-add-member>${icon('plus')} ${h ? 'Add to household' : 'Start household'}</button>` : ''}</div>
+            <button class="btn small" data-add-member>${icon('plus')} ${h ? 'Add to family' : 'Start family'}</button>` : ''}</div>
           ${h ? html`
             ${h.address ? html`<p class="muted small">${h.address}${h.city ? `, ${h.city}` : ''} ${h.state} ${h.zip}</p>` : ''}
             ${h.members.map((m) => html`<a class="row" href="#/people/${m.id}" style="padding:6px 0;color:inherit">${avatar(m)}<span>${displayName(m)}</span>
               <span class="muted small">${m.household_role === 'child' ? `Child${m.birthdate ? ` · ${ageLabel(m.birthdate, now)}` : ''}` : 'Adult'}</span></a>`)}
             ${h.pickups ? html`<h3 style="margin-top:14px">Also allowed to pick up kids</h3>
             ${h.pickups.length ? h.pickups.map((pu) => html`<div class="row small" style="padding:3px 0"><span>${pu.name}</span><span class="muted">${pu.relationship} ${pu.phone}</span>
-              ${staff ? html`<button class="icon-btn" data-del-pickup="${pu.id}" title="Remove">${icon('x')}</button>` : ''}</div>`) : html`<p class="muted small">Only adults in this household.</p>`}` : ''}
+              ${staff ? html`<button class="icon-btn" data-del-pickup="${pu.id}" title="Remove">${icon('x')}</button>` : ''}</div>`) : html`<p class="muted small">Only adults in this family.</p>`}` : ''}
             ${staff ? html`<button class="btn small" data-add-pickup>${icon('plus')} Add pickup person</button>` : ''}
-          ` : html`<p class="muted">Not part of a household yet.</p>`}
+          ` : html`<p class="muted">Not part of a family yet.</p>`}
         </div>
+        <div class="stack" data-profile></div>
       </div>
 
       <div class="stack">
-        <div class="card"><div class="card-head"><h2>Serves at</h2>${staff ? html`<button class="btn small" data-serves>${icon('edit')} Edit</button>` : ''}</div>
-          <p style="margin:0">${servesText(p)}</p>
-          ${!p.serving_campuses.length && p.campus_id == null ? html`<p class="muted small" style="margin-bottom:0">${staff ? 'Set a home campus or pick campuses so scheduling knows where they can serve.' : 'No campus is set yet.'}</p>` : ''}
-        </div>
-        <div class="card"><h2>Teams</h2>
+        <div class="card"><div class="card-head"><h2>Teams and serving</h2>${staff ? html`<button class="btn small" data-serves>${icon('edit')} Edit</button>` : ''}</div>
           ${p.teams.length ? p.teams.map((t) => html`<a class="row" href="#/teams/${t.id}" style="padding:4px 0;color:inherit"><span class="dot" style="background:${t.color}"></span>${t.name}
             ${t.position ? html`<span class="muted">· ${t.position}</span>` : ''}${t.is_leader ? html`<span class="pill info">Leader</span>` : ''}</a>`) : html`<p class="muted">Not on a team.</p>`}
-        </div>
-        <div class="card"><h2>Scheduled to serve</h2>
+          <h3 style="margin-top:12px">Scheduled to serve</h3>
           ${p.upcoming.length ? html`<table class="list"><tbody>${p.upcoming.map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
             <td>${fmtDate(a.starts_at)} <span class="muted small">${fmtTime(a.starts_at)} ${a.campus}</span></td><td>${a.position}</td>
             <td><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : ''}">${a.status}</span></td></tr>`)}</tbody></table>`
-            : html`<p class="muted">Nothing upcoming.</p>`}
+            : html`<p class="muted" style="margin:0">Nothing upcoming.</p>`}
           ${p.blockouts.length ? html`<h3 style="margin-top:12px">Away</h3>${p.blockouts.map((b) => html`<div class="small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''} <span class="muted">${b.reason}</span></div>`)}` : ''}
+          <p class="small" style="margin:12px 0 0"><span class="muted">Serves at:</span> ${servesText(p)}</p>
+          ${!p.serving_campuses.length && p.campus_id == null ? html`<p class="muted small" style="margin-bottom:0">${staff ? 'Set a home campus or pick campuses so scheduling knows where they can serve.' : 'No campus is set yet.'}</p>` : ''}
         </div>
         <div class="card"><div class="card-head"><h2>Attendance</h2><span class="muted small">${att.weeks_attended_of_12} of the last 12 weeks</span></div>
-          ${att.recent.length ? html`<table class="list"><tbody>${att.recent.slice(0, 8).map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
-            <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>`
+          ${att.recent.length ? html`<table class="list"><tbody>${att.recent.slice(0, 8).map((a, i) => html`<tr class="click ${i >= 3 ? 'att-extra hidden' : ''}" data-href="#/services/${a.service_id}">
+            <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>
+            ${att.recent.length > 3 ? html`<button class="btn small ghost" data-att-all style="margin-top:6px">Show all</button>` : ''}`
             : html`<p class="muted">No attendance marked yet.</p>`}
           ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}</div>`)}` : ''}
         </div>
@@ -103,6 +104,15 @@ export default async function person(el, id) {
   const reload = () => person(el, id);
   const top = document.querySelector('[data-actions]');
   top.querySelector('[data-edit]')?.addEventListener('click', async () => { if (await personDialog(p)) reload(); });
+  const kebab = top.querySelector('[data-kebab]');
+  if (kebab) {
+    const menu = kebab.parentElement.querySelector('.kebab-menu');
+    const setOpen = (o) => { menu.classList.toggle('hidden', !o); kebab.setAttribute('aria-expanded', o); };
+    kebab.onclick = (e) => { e.stopPropagation(); setOpen(menu.classList.contains('hidden')); };
+    menu.onclick = () => setOpen(false);
+    const away = () => { if (!menu.isConnected) document.removeEventListener('click', away); else setOpen(false); };
+    document.addEventListener('click', away);
+  }
   top.querySelector('[data-merge]')?.addEventListener('click', async () => {
     const dup = await pickPerson('Which record is the duplicate?', { filter: (x) => x.id !== p.id });
     if (!dup) return;
@@ -142,6 +152,7 @@ export default async function person(el, id) {
     const b = e.target.closest('button');
     if (!b) return;
     try {
+      if (b.matches('[data-att-all]')) { el.querySelectorAll('.att-extra').forEach((r) => r.classList.remove('hidden')); b.remove(); }
       if (b.matches('[data-archive]') && await confirm('Archive this person?', 'They’ll be hidden from lists and check-in. You can restore them later.', 'Archive')) {
         await patch(`/people/${p.id}`, { archived: true }); go('/people');
       }
@@ -153,19 +164,19 @@ export default async function person(el, id) {
           return reload();
         }
         const choice = await dialog({
-          title: `Add to ${h.name}`, submit: null,
+          title: `Add to ${familyName(h.name)}`, submit: null,
           body: html`<div class="stack"><button type="button" class="btn" data-new>Someone new (e.g. a child)</button><button type="button" class="btn" data-existing>Someone already in the directory</button></div>`,
           onOpen: (d, close) => { d.querySelector('[data-new]').onclick = () => close('new'); d.querySelector('[data-existing]').onclick = () => close('existing'); },
         });
         if (choice === 'new' && await personDialog({ household_id: h.id, last_name: p.last_name, campus_id: p.campus_id, household_role: 'child' })) reload();
         if (choice === 'existing') {
-          const other = await pickPerson('Who should join this household?');
+          const other = await pickPerson('Who should join this family?');
           if (other) { await patch(`/people/${other.id}`, { household_id: h.id }); reload(); }
         }
       }
       if (b.matches('[data-edit-household]')) {
         const ok = await dialog({
-          title: 'Household',
+          title: 'Family',
           body: html`<div class="form"><label class="field wide">Name<input type="text" name="name" value="${h.name}" required></label>
             <label class="field wide">Address<input type="text" name="address" value="${h.address}"></label>
             <label class="field">City<input type="text" name="city" value="${h.city}"></label>
