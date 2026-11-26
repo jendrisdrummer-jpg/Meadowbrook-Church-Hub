@@ -79,6 +79,7 @@ function toUser(row) {
     theme: row.theme || 'light',
     photo: row.photo || null,
     finance: Boolean(row.finance),
+    attendance: Boolean(row.attendance),
     announce: Boolean(row.announce) || row.role === 'admin',
   };
 }
@@ -99,6 +100,25 @@ export function requireRole(min) {
     if (rank(req.user.role) < rank(min)) return res.status(403).json({ error: 'You don’t have access to that.' });
     next();
   };
+}
+
+// Taking attendance (roll call, families, new guests, headcounts): leaders and above as before,
+// plus any account an admin gave the Attendance switch. The switch is for volunteer-level accounts
+// and opens nothing else: every other route keeps its own guard. canCheckin (kids' check-in) is a
+// separate rule and is not affected.
+export const canTakeAttendance = (user) => Boolean(user) && (rank(user.role) >= rank('leader') || Boolean(user.attendance));
+export function requireAttendance(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+  if (!canTakeAttendance(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
+  next();
+}
+// Is this campus one the account may take attendance at? Leaders: as canCampus. A switch-only
+// account must have a campus list when the church has more than one campus (the account dialog
+// requires one); with no list on a multi-campus church it fails closed rather than meaning "all".
+export function canAttendCampus(db, user, campusId) {
+  if (!user) return false;
+  if (rank(user.role) < rank('leader') && !user.campusIds && db.prepare('SELECT COUNT(*) n FROM campuses').get().n > 1) return false;
+  return canCampus(user, campusId);
 }
 
 // True when the user may work with this campus. A null campus (church-wide) is open to all.

@@ -22,6 +22,8 @@ const NAV = [
   { group: 'Services', items: [
     { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer' },
     { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
+    // For accounts with the Attendance switch who aren't leaders: the roll and headcount screens only.
+    { path: '/take-attendance', label: 'Attendance', icon: 'chart', min: 'volunteer', attendanceOnly: true, mobile: true },
     { path: '/schedule', label: 'Volunteer schedule', icon: 'roster', min: 'leader' },
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
     { path: '/templates', label: 'Templates', icon: 'copy', min: 'staff' },
@@ -81,6 +83,7 @@ const ROUTES = [
   [/^\/templates$/, 'templates'],
   [/^\/templates\/(\d+)$/, 'template'],
   [/^\/attendance$/, 'attendance'],
+  [/^\/take-attendance(?:\/(\d+))?$/, 'take-attendance'],
   [/^\/connect$/, 'connect'],
   [/^\/forms(?:\/(new|\d+)(?:\/(responses))?)?$/, 'forms'],
   [/^\/announcements$/, 'announcements'],
@@ -227,7 +230,7 @@ document.addEventListener('click', (e) => {
 // The pages this account can open. Finance pages are for accounts with the Finance permission,
 // whatever their role; Announcements likewise.
 const searchPages = () => [...visibleNav().flatMap((g) => g.items), ...HELP_LINKS.filter((n) => can(n.min))];
-const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce)) })).filter((g) => g.items.length);
+const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.attendanceOnly || (state.me.attendance && !can('leader')))) })).filter((g) => g.items.length);
 
 function drawChrome() {
   const groups = visibleNav();
@@ -352,7 +355,7 @@ document.addEventListener('click', (e) => {
 
 // Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
 // hold; this just shows the normal refusal instead of a form or an error).
-const PAGE_RULES = { giving: (me) => me.finance, settings: () => can('admin'), appbuilder: () => can('staff'), announcements: (me) => me.announce || can('admin') };
+const PAGE_RULES = { 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: () => can('staff'), announcements: (me) => me.announce || can('admin') };
 
 let renderSeq = 0;
 async function route() {

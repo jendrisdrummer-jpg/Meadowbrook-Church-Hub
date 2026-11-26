@@ -1,9 +1,14 @@
 // Take attendance for one service: tap people (or whole families) as you see them. Works on a phone.
 import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce, familyName } from './lib.js';
-import { state } from './app.js';
+import { state, can } from './app.js';
 import { duplicateOf, personLabel } from './guards.js';
 
-export async function drawRollCall(panel, s) {
+// opts.mode is the campus's attendance mode: 'names' (roll only), 'headcount' (headcount first, roll
+// folded away) or 'both' (today's screen). Accounts below leader have no People page, so their new
+// guests go through /services/:id/roll/guest (name only) and nothing links to a person page.
+export async function drawRollCall(panel, s, opts = {}) {
+  const simple = !can('leader');
+  const mode = opts.mode || 'both';
   const areas = state.settings.headcount_areas || ['Auditorium'];
   const value = (a) => s.headcounts.find((h) => h.area === a)?.count ?? '';
   let data = await get(`/services/${s.id}/roll`);
@@ -12,8 +17,7 @@ export async function drawRollCall(panel, s) {
   let filter = 'all';
   let q = '';
 
-  mount(panel, html`<div class="stack">
-    <div class="card">
+  const rollCard = html`<div class="card">
       <div class="card-head"><h2>Take attendance</h2><span class="pill good" data-count></span><span class="muted small" data-saved></span></div>
       <div class="row" style="margin-bottom:10px">
         <input type="search" placeholder="Find someone" data-q style="max-width:280px">
@@ -21,10 +25,14 @@ export async function drawRollCall(panel, s) {
         <span class="spacer"></span><button class="btn small" data-guest>${icon('plus')} New guest</button>
       </div>
       <div class="roll" data-list></div>
-    </div>
-    <details class="card"><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>
-      <form class="form" data-counts style="margin-top:12px">${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>
-    </details>
+    </div>`;
+  const countsCard = html`<form class="form" data-counts style="margin-top:12px">${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>`;
+  mount(panel, html`<div class="stack">
+    ${mode === 'headcount' ? html`<div class="card"><div class="card-head"><h2>Headcount</h2><span class="muted small" data-saved></span></div>
+        <p class="muted small" style="margin-top:-4px">Room totals, including people not on the roll.</p>${countsCard}</div>
+      <details class="card"><summary><b>Names</b> <span class="muted small">Mark who you see, if you want to</span></summary>${rollCard}</details>`
+    : mode === 'names' ? rollCard
+    : html`${rollCard}<details class="card"><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>${countsCard}</details>`}
   </div>`);
 
   const list = panel.querySelector('[data-list]');
@@ -35,7 +43,7 @@ export async function drawRollCall(panel, s) {
     const map = new Map();
     for (const p of data.people) {
       const key = p.household_id ? `h${p.household_id}` : `p${p.id}`;
-      if (!map.has(key)) map.set(key, { name: p.household_id ? p.household_name : null, members: [] });
+      if (!map.has(key)) map.set(key, { name: p.household_id ? p.household_name : null, household_id: p.household_id, members: [] });
       map.get(key).members.push(p);
     }
     return [...map.values()];
@@ -49,8 +57,9 @@ export async function drawRollCall(panel, s) {
     // A family of two or more takes a full row, its people laid out in the same columns, so
     // the single cards around it keep an even grid instead of leaving gaps.
     mount(list, shown.length ? shown.map((g) => html`<div class="roll-family ${g.name && g.members.length > 1 ? 'multi' : ''}">
-      ${g.name && g.members.length > 1 ? html`<div class="roll-head"><span>${familyName(g.name)}</span>
-        <button type="button" class="btn small" data-family="${g.members.map((m) => m.id).join(',')}">${g.members.every(isHere) ? html`${icon('check')} All here` : 'Mark family'}</button></div>` : ''}
+      ${g.name && (g.members.length > 1 || (simple && g.members.some(isHere))) ? html`<div class="roll-head"><span>${familyName(g.name)}</span><span class="row" style="gap:6px">
+        ${simple && g.household_id && g.members.some(isHere) ? html`<button type="button" class="btn small ghost" data-add-child="${g.household_id}">${icon('plus')} Child</button>` : ''}
+        ${g.members.length > 1 ? html`<button type="button" class="btn small" data-family="${g.members.map((m) => m.id).join(',')}">${g.members.every(isHere) ? html`${icon('check')} All here` : 'Mark family'}</button>` : ''}</span></div>` : ''}
       ${g.members.map((p) => html`<button type="button" class="roll-person ${isHere(p) ? 'here' : ''}" data-person="${p.id}" ${kids.has(p.id) ? 'disabled' : ''} aria-pressed="${isHere(p)}">
         <span class="roll-check">${icon('check')}</span>${avatar(p)}
         <span class="roll-name">${displayName(p)}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}${p.status === 'guest' ? html` <span class="pill warn">Guest</span>` : ''}</span>
@@ -107,25 +116,30 @@ export async function drawRollCall(panel, s) {
     return answer;
   };
 
-  panel.querySelector('[data-guest]').onclick = async () => {
+  // Adds a guest (or, with householdId, a child into that family) and marks them here.
+  async function addGuest({ householdId = null } = {}) {
     let person;
     let existing = false;
     await dialog({
-      title: 'New guest', submit: 'Add and mark here',
+      title: householdId ? 'Add a child to this family' : 'New guest', submit: 'Add and mark here',
       body: html`<div class="form"><label class="field">First name<input type="text" name="first_name" required></label>
         <label class="field">Last name<input type="text" name="last_name"></label>
-        <label class="field">Mobile phone<input type="tel" name="phone"></label>
-        <label class="field">Email<input type="email" name="email"></label></div>`,
+        ${simple ? '' : html`<label class="field">Mobile phone<input type="tel" name="phone"></label>
+        <label class="field">Email<input type="email" name="email"></label>`}</div>`,
       onSubmit: async (f) => {
-        const fields = { ...formData(f), status: 'guest', campus_id: s.campus_id, new_household: true };
+        const base = formData(f);
+        // Below leader there is no People page: the roll's own endpoint adds them (name only).
+        const create = (extra = {}) => simple
+          ? post(`/services/${s.id}/roll/guest`, { first_name: base.first_name, last_name: base.last_name, ...(householdId ? { household_id: householdId, role: 'child' } : {}), ...extra })
+          : post('/people', { ...base, status: 'guest', campus_id: s.campus_id, new_household: true, ...extra });
         try {
-          person = await post('/people', fields);
+          person = await create();
         } catch (e) {
           const m = duplicateOf(e);
           if (!m) throw e;
           const pick = await askSame(m);
           if (!pick) return false;
-          if (pick === 'same') { person = m; existing = true; } else person = await post('/people', { ...fields, force: true });
+          if (pick === 'same') { person = m; existing = true; } else person = await create({ force: true });
         }
       },
     });
@@ -135,7 +149,12 @@ export async function drawRollCall(panel, s) {
     data = await get(`/services/${s.id}/roll`);
     present = new Set(data.present);
     draw();
-  };
+  }
+  panel.querySelector('[data-guest]').onclick = () => addGuest();
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-add-child]');
+    if (b) addGuest({ householdId: Number(b.dataset.addChild) });
+  });
 
   const form = panel.querySelector('[data-counts]');
   form.addEventListener('input', debounce(async () => {
