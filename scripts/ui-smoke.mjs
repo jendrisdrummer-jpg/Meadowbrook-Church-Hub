@@ -156,6 +156,9 @@ async function main() {
           await page.click('[data-actions] [data-save]');
           const res = await sent;
           if (!res || res.status() !== 201) problems.push(`Create form did not POST /api/admin/forms (got ${res ? res.status() : 'no request'})`);
+          // Let the page finish moving to the new form before the next step navigates, or its late header lands on the next page.
+          await page.waitForURL(/#\/forms\/\d+/, { timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(500);
           results.push({ area: 'hub', page: '/forms/new (click Save)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
         // Add a person, then "Save and add another" into the same family: the second person must land in the family the first one started.
@@ -212,7 +215,7 @@ async function main() {
           results.push({ area: 'hub', page: '/ (More sheet and account menu)', who, size, ok: !problems.length, problems, screenshot: `hub-${who}-phone-more-sheet.png` });
         }
         // Phone People list: filters hide behind a button, rows carry a call link, and Merge is in the "…" menu (admin only).
-        if (size === 'phone' && only !== 'app' && who !== 'volunteer') {
+        if (size === 'phone' && only !== 'app' && ['admin', 'staff', 'leader'].includes(who)) {
           problems = [];
           await page.goto(`${base}/#/people`);
           await page.reload(); // closes the account menu left open by the step before
@@ -225,7 +228,7 @@ async function main() {
           await page.goto(`${base}/#/people`);
           await page.waitForSelector('.prow');
           await page.locator('.prow').first().click();
-          await page.waitForSelector('[data-actions]');
+          await page.waitForSelector('[data-actions]', { state: 'attached' });
           await page.waitForTimeout(500);
           const menuBtn = page.locator('[data-actions] [data-kebab]');
           if (who === 'admin') {
