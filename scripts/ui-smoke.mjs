@@ -15,7 +15,6 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,7 +44,9 @@ const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390
 
 async function main() {
   const { chromium } = loadPlaywright();
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-ui-'));
+  // Inside data/ (git-ignored): the demo seed refuses to write anywhere else.
+  fs.mkdirSync(path.join(root, 'data', 'ui-smoke-work'), { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(root, 'data', 'ui-smoke-work', 'run-'));
   const env = { ...process.env, MB_DB: path.join(tmp, 'demo.db'), MB_UPLOADS: path.join(tmp, 'uploads'), MB_DEV_LOGIN: '1' };
   // Never reach real outside services from a test run.
   for (const k of ['STRIPE_SECRET_KEY', 'MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MB_DAILY_API_KEY', 'YOUTUBE_API_KEY', 'MB_SMTP_HOST', 'GOOGLE_CLIENT_ID']) delete env[k];
