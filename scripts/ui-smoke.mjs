@@ -143,6 +143,32 @@ async function main() {
           await page.screenshot({ path: path.join(out, `hub-${who}-phone-account-menu.png`) });
           results.push({ area: 'hub', page: '/ (More sheet and account menu)', who, size, ok: !problems.length, problems, screenshot: `hub-${who}-phone-more-sheet.png` });
         }
+        // Phone People list: filters hide behind a button, rows carry a call link, and Merge is in the "…" menu (admin only).
+        if (size === 'phone' && only !== 'app' && who !== 'volunteer') {
+          problems = [];
+          await page.goto(`${base}/#/people`);
+          await page.reload(); // closes the account menu left open by the step before
+          await page.waitForSelector('.prow');
+          if (await page.locator('[data-fpanel]').isVisible()) problems.push('Filters were open before the button was tapped');
+          await page.click('[data-filters]');
+          if (!(await page.locator('[data-fpanel]').isVisible())) problems.push('The Filters button did not open the filters');
+          if (!(await page.locator('.prow a[href^="tel:"]').count())) problems.push('No call link on the People list');
+          if (who === 'admin') await page.screenshot({ path: path.join(out, 'hub-admin-phone-people-filters.png') });
+          await page.goto(`${base}/#/people`);
+          await page.waitForSelector('.prow');
+          await page.locator('.prow').first().click();
+          await page.waitForSelector('[data-actions]');
+          await page.waitForTimeout(500);
+          const menuBtn = page.locator('[data-actions] [data-kebab]');
+          if (who === 'admin') {
+            if (!(await menuBtn.count())) problems.push('No "…" menu on the person page for an admin');
+            else {
+              await menuBtn.click();
+              if (!(await page.locator('[data-actions] [data-merge]').isVisible())) problems.push('Merge is not in the "…" menu');
+            }
+          } else if (await page.locator('[data-merge]').count()) problems.push('Merge duplicate is shown to someone who is not an admin');
+          results.push({ area: 'hub', page: '/people (phone filters, call link, Merge menu)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
         await ctx.close();
       }
     }
