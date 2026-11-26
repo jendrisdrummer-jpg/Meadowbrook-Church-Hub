@@ -21,9 +21,13 @@ export function productionChecks(db, env = process.env, { ip, codeCapHitAt = 0 }
     dev ? 'MB_DEV_LOGIN is on: anyone who opens the sign-in page can sign in as anyone. Remove it in the host’s environment settings.' : 'MB_DEV_LOGIN isn’t set.');
 
   const tp = (env.MB_TRUST_PROXY ?? '').trim();
-  add('trust_proxy', 'Real visitor addresses (MB_TRUST_PROXY = 1)', tp === '1' ? 'ok' : hosted ? 'bad' : 'info',
-    tp === '1' ? 'Set to 1: one proxy hop, as on Render.'
-      : `Set to “${tp || '(not set)'}”. On Render it must be exactly 1, or rate limits see the proxy’s address (or a forged one) instead of the visitor’s.`);
+  // A small number of proxy hops (Render today: its Cloudflare edge plus its load balancer = 2). The
+  // number is right when "Your address as this server sees it" matches a what-is-my-IP site; "true"
+  // or a list would let visitors forge their address, so only 1–2 count as set.
+  const hops = /^[12]$/.test(tp);
+  add('trust_proxy', 'Real visitor addresses (MB_TRUST_PROXY)', hops ? 'ok' : hosted ? 'bad' : 'info',
+    hops ? `Set to ${tp} proxy hop${tp === '1' ? '' : 's'}. Check the next row matches a “what is my IP” site; on Render it is 2.`
+      : `Set to “${tp || '(not set)'}”. On a host it must be a number of proxy hops (on Render, 2), or rate limits see the proxy’s address (or a forged one) instead of the visitor’s.`);
 
   if (ip) {
     add('your_address', 'Your address as this server sees it', 'info',

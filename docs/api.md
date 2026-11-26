@@ -81,7 +81,7 @@ without the owner's approval.**
 | Daily | Video calls in chats | `daily.js`, `routes/calls.js` | `MB_DAILY_API_KEY` | `MB_DAILY_API_URL` |
 | YouTube | Channel sync, live detection (Data API key optional) | `media.js` | channel in Media → Setup; `YOUTUBE_API_KEY` | `MB_YOUTUBE_SITE`, `MB_YOUTUBE_API` |
 | Mux | Live stream key, recordings, uploads, trims, podcast audio (polled every minute, no webhook) | `mux.js`, `podcast.js` | `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` | `MB_MUX_API` |
-| Render | Hosting, disk, env vars | `Dockerfile` | `MB_TRUST_PROXY=1`, `PUBLIC_URL`, `MB_APP_URL` | |
+| Render | Hosting, disk, env vars | `Dockerfile` | `MB_TRUST_PROXY=2`, `PUBLIC_URL`, `MB_APP_URL` | |
 
 Other environment variables: `PORT`, `MB_DB`, `MB_UPLOADS`, `MB_BACKUP_PASSWORD`,
 `MB_BACKUP_DIR`, `MB_ADMIN_EMAILS`, `MB_DEV_LOGIN` (never in production). See `.env.example`.
