@@ -4,6 +4,13 @@ How we get from `milestone-1` to staff using the hub, then ministry leaders, saf
 the **earliest** stage that needs it. Kids' check-in is **not** in any of these stages: it stays on
 Subsplash until the separate child-safety release is approved ([plans/child-safety](plans/child-safety/)).
 
+**Status, 26 November 2026.** The current milestone is **personal testing and the leadership
+preview**, in the existing Church Hub: the owner tests on the live site and shows it to church
+leadership, using the [leadership preview guide](leadership-preview.md). That happens **after** the
+deploy of `milestone-1`, which **still needs the owner's written approval** (1.1); nothing has been
+deployed. There is no separate test environment. On the live site, use a test team and test service
+with only yourself on them: requests, reminders and announcements reach real people.
+
 **Who:** **O** = owner · **A** = an admin · **D** = developer (agent) · **S** = staff testers.
 **Dates** follow [roadmap §7](master-product-roadmap.md#7-beta-plan): staff in mid-December, before the
 19 Dec – 3 Jan freeze; worship and production in late January; other ministries February to early
@@ -56,7 +63,7 @@ duplicates. **If it has to be rolled back:** prefer fixing forward; if not, foll
 | 2.6 | Email delivery (§B) | S + D | Codes and schedule emails arrive in Gmail and Outlook inboxes, not spam | Blocked (after the deploy, needs 1.4's SMTP settings) |
 | 2.7 | Kids' check-in access list empty or minimal | A | Settings → Accounts: only those who must have it (check-in stays on Subsplash; see 1.15) | Owner |
 | 2.8 | Feedback route agreed | O | Who triages the Feedback page weekly; a named person for problems | Owner |
-| 2.9 | Staff walkthrough (30 minutes) | O + D | Sign in, install on phone, notifications on, My schedule, Chat, Tasks, Help, Feedback. Announcements send real pushes and inbox messages to everyone in their audience, so don't demonstrate one to the whole church † | Owner (after the deploy; D can prepare it now) |
+| 2.9 | Staff walkthrough (30 minutes) | O + D | Sign in, install on phone, notifications on, My schedule, Chat, Tasks, Help, Feedback. Announcements send real pushes and inbox messages to everyone in their audience, so don't demonstrate one to the whole church †. The [leadership demo guide](leadership-preview.md#c-leadership-demo-guide-3045-minutes) can be reused | Owner (after the deploy; D can prepare it now) |
 | 2.10 | Tell staff what isn't in the beta | O | Kids' check-in, giving and media stay where they are | Owner |
 
 Staff use: chat, tasks, people, planning, announcements, feedback, Help. **Not before the freeze ends:**

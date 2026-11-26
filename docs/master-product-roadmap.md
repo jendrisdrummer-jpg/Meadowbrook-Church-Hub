@@ -9,8 +9,8 @@ This page sets the **order, stages, release gates and adoption plan**. [roadmap.
 
 **Status, 26 November 2026.** Milestone 1 is **complete** on the `milestone-1` integration branch and **not
 deployed** (`main` is unchanged; see [merge-log.md](merge-log.md)). The current milestone is **"Personal Testing &
-Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide, all in the existing
-Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
+Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide
+([leadership-preview.md](leadership-preview.md)), all in the existing Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
 testing environment.
 **No new features** in this milestone. Open owner decisions are listed once, in §13.
 
