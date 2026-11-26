@@ -24,24 +24,43 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 
 | Router | Main paths | Guard |
 |---|---|---|
-| `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin |
-| `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv` | leader+ (edit staff, merge/import admin) |
+| `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin. Church-wide admin routes (settings, app icon, campus create, backups, import, profile fields) refuse campus-limited admins with 403, and `GET /users` returns them only accounts in reach: see [permissions.md](permissions.md#campus-limited-admins). `POST`/`PATCH /users` set `person_id` only when the admin sends one (409 if that person already has an account; audited `user.link` / `user.unlink`). `GET /users` also returns `unlinked` (each row has a `suggestion` `{person_id, name, campus_short, note}` when exactly one non-archived person shares the account's email and the admin has that person in reach, else `null`; a hint only, [account-links.md](account-links.md)) `shared_emails` (groups of non-archived people sharing one email, trimmed and case-insensitive: `{email, people: [{id, name, campus}]}`; a campus-limited admin gets only groups wholly in reach) and `duplicate_links` (people with more than one account, empty when healthy). |
+| `people.js` | `/people`, `/households` (and `/households/:id/pickups`, `/pickups/:id`: staff, household's campus must be one of yours), `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff); `POST /people` with `household_id` needs staff unless `household_role` is `child` | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
-| `teams.js` | `/teams`, `/positions`, members | leader+ |
-| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill | volunteer+ read, leader+ write |
-| `series.js`, `templates.js` | repeating services, templates | leader+/staff |
+| `teams.js` | `/teams`, `/positions`, members. For leader+, `GET /teams` also returns `leader_names`, `mine` (they lead it) and `open_next` (`{service_id, starts_at, needed, open}` for the next service in 7 days; `null` for a team a leader doesn't lead, or when nothing is coming up); volunteers get the plain list. `GET /teams/:id` members carry `has_account` (yes or no: an active account) | leader+ |
+| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill (`POST /schedule/autofill` and `/services/:id/autofill` need a valid `team_id`, one team at a time: none gives 400 "Choose one team to fill.", an unknown team 404, a team the person can't schedule 403; both return `{added, open}`: `open` is spots still empty, so the screen can say "all filled" or "no one free"), `POST /services/:id/remind`. For leaders who aren't staff, detail is limited to the teams they lead (see [permissions.md](permissions.md#team-leaders-and-other-teams)): `/services` counts, `/services/:id` positions (`detail` flag), `/schedule` (also returns `led_team_ids`, `decline_reason` per assignment, and 403 for another team's `team_id`) and `/services/:id/candidates` (403 for other teams) | volunteer+ read, leader+ write |
+| `series.js`, `templates.js` | repeating services, templates; read-only counts of scheduled volunteers before an edit or delete: `GET /series/:id/impact?from=` (this and following) and `GET /services/:id/impact` return `{services, volunteers, assignments, accepted}` | leader+/staff (impact: staff, campus-scoped) |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
-| `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance | leader+ (or station) |
+| `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance; `GET /checkin/campuses` lists the campuses the account may set a station up for | leader+ (or station) |
 | `stations.js` | `/checkin/pair`, `/checkin/station`, `/checkin/devices` | public pairing; staff devices |
+| `groups.js` | `/groups`, `/groups/:id`, `/groups/:id/candidates`, `/groups/:id/members/:personId` | volunteer+; staff manage, a group's leaders run its roster (campus-bound finder, 30 adds/day, no contact details) |
 | `chat.js`, `calls.js`, `tasks.js` | chats, messages, files, SSE stream, calls, tasks | volunteer+ and membership |
 | `notifications.js` | inbox, preferences, push subscriptions | volunteer+ |
 | `announcements.js` | announcements, guest push | `announce` flag |
 | `app.js` | `/app/config` (public), App Builder, connect cards, sign-ups, email reply links | mixed |
 | `events.js` | `/events` (public), `/admin/events/*` | staff for admin |
+| `forms.js` | `/public/forms/:slug` (public), `/forms` (signed-in forms), `/admin/forms/*`, `/admin/form-responses/*` | staff for admin; admin deletes |
 | `giving.js`, `finance.js` | checkout (public), my giving, `/finance/*` | `requireFinance` |
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
-| `search.js`, `dashboard.js` | global search, home | volunteer+ (results filtered by role/campus) |
+| `checks.js` | `GET /admin/production-checks` (includes an info row with the admin's own address as the server sees it) | admin |
+| `search.js`, `dashboard.js` | global search, home. `GET /dashboard` returns `attention` (open spots, haven't replied, declines to cover, connect cards, app sign-ups, new form responses; leader+ only, zeros for volunteers) and `my_teams` (teams the person leads: next service, open/not-replied/declines, member count, `chat_id`). `GET /attention` is the light version for the menu badges (same numbers, `?campus_id=` optional). Dates use each campus's own calendar day | volunteer+ (results filtered by role/campus) |
+
+### Forms (`routes/forms.js`)
+
+| Route | Who | Notes |
+|---|---|---|
+| `GET /public/forms/:slug` | guest (signed-in forms: needs a session) | Active forms only (else 404). Returns title, intro, which contact fields to ask and the questions (`id, label, type, options, required`); nothing else. A signed-in form seen by a guest returns `needs_sign_in: true` and no questions. |
+| `POST /public/forms/:slug` | guest (signed-in forms: 401 without a session) | Body `{name, email, phone, answers, website}`. A filled `website` (honeypot) is dropped silently. Rate-limited per address (IPv6 by /64, and per /48 at 16 times these numbers): 30 tries and 10 successful submissions per 10 minutes, and per form 200 per hour: 429. Signed-in forms at another campus than the account's: 404. Returns `{ok: true}` only (no response id). Required fields, choices, dates and lengths are checked: 400. Records `user_id`/`person_id` only from the session. Notifies `notify_user_id` (if still eligible; at most one notice per form per person per 15 minutes) with no answer text. |
+| `GET /forms` | volunteer+ | Active signed-in forms (titles) for the app's More tab, campus-filtered. |
+| `GET /admin/forms`, `GET /admin/forms/:id` | staff | Forms at the account's campuses plus church-wide ones; `can_manage` and response counts only where the account may read responses. |
+| `GET /admin/forms/notify-options` | staff | `?campus_id=` (none = church-wide). Names (`id`, `name`) of active staff/admins who could be told about that form's responses; nothing else. Empty for a campus the account can't access. |
+| `POST /admin/forms`, `PATCH /admin/forms/:id` | staff | Campus-limited staff: their own campuses only, never church-wide. `active: false` archives (audited as `form.archive`). Audited `form.create`, `form.edit`. The slug is chosen at create and then fixed. |
+| `GET /admin/forms/:id/responses`, `.../responses.csv` | staff who manage the form | Church-wide forms: only staff with no campus limit. CSV cells starting `=`, `+`, `-`, `@` are defused (`toCsv`). The CSV export is audited as `form.export` (title and row count). |
+| `PATCH /admin/form-responses/:id` | staff who manage the form | `{done: bool}` marks done or reopens. |
+| `DELETE /admin/form-responses/:id` | admin who manages the form | Audited `form.response_delete`. |
+
+Question types and answer checking are shared with event sign-ups in `server/questions.js`.
 
 Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signature),
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`

@@ -1,7 +1,7 @@
 // Custom profile fields: milestones (baptism, Holy Ghost…), classes, leadership track and anything
 // else the church wants to track, grouped into sections on each person's profile.
 import { Router } from 'express';
-import { requireRole, canCampus, rank } from '../auth.js';
+import { requireRole, requireAllCampuses, canCampus, rank } from '../auth.js';
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit } from '../http.js';
 
@@ -100,7 +100,7 @@ export default function fieldRoutes(db) {
     res.json(visibleFields(db, req.user, { includeArchived: req.query.all === '1' && rank(req.user.role) >= rank('admin') }));
   });
 
-  r.post('/profile-fields', requireRole('admin'), (req, res) => {
+  r.post('/profile-fields', requireRole('admin'), requireAllCampuses, (req, res) => {
     const f = cleanDef(req.body || {}, false);
     if ((f.type === 'choice' || f.type === 'multi') && !JSON.parse(f.options || '[]').length) throw bad('Add at least one option.');
     f.options ??= '[]';
@@ -111,7 +111,7 @@ export default function fieldRoutes(db) {
     res.status(201).json(getField(info.lastInsertRowid));
   });
 
-  r.patch('/profile-fields/:id', requireRole('admin'), (req, res) => {
+  r.patch('/profile-fields/:id', requireRole('admin'), requireAllCampuses, (req, res) => {
     const old = getField(req.params.id);
     const f = cleanDef(req.body || {}, true);
     // Changing the type would make stored values meaningless.
@@ -123,7 +123,7 @@ export default function fieldRoutes(db) {
     res.json(getField(old.id));
   });
 
-  r.put('/profile-fields/order', requireRole('admin'), (req, res) => {
+  r.put('/profile-fields/order', requireRole('admin'), requireAllCampuses, (req, res) => {
     const upd = db.prepare('UPDATE profile_fields SET sort = ? WHERE id = ?');
     tx(db, () => (req.body?.ids || []).forEach((id, i) => upd.run(i, int(id))));
     res.json({ ok: true });

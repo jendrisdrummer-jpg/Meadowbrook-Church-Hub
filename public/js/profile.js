@@ -53,10 +53,18 @@ export async function drawProfile(el, personId) {
   }
   const { fields, values, can_edit: canEdit } = data;
   if (!fields.length) return mount(el, '');
-  mount(el, html`${bySection(fields).map(([section, list]) => html`<div class="card">
+  // Sections with nothing recorded fold into one Profile card, so a new person isn't a wall of empty cards.
+  const filled = (v) => !(v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && !v.length));
+  const sections = bySection(fields);
+  const used = sections.filter(([, list]) => list.some((f) => filled(values[f.id])));
+  const empty = sections.filter(([, list]) => !list.some((f) => filled(values[f.id])));
+  mount(el, html`${used.map(([section, list]) => html`<div class="card">
     <div class="card-head"><h2>${section}</h2>${canEdit ? html`<button class="btn small" data-edit-section="${section}">${icon('edit')} Edit</button>` : ''}</div>
     <dl class="facts">${list.map((f) => html`<dt>${f.label}</dt><dd>${showValue(f, values[f.id])}</dd>`)}</dl>
-  </div>`)}`);
+  </div>`)}
+  ${empty.length ? html`<div class="card"><div class="card-head"><h2>Profile</h2></div>
+    ${empty.map(([section]) => html`<div class="row" style="padding:4px 0"><span>${section}</span><span class="muted small">nothing recorded yet</span><span class="spacer"></span>
+      ${canEdit ? html`<button class="btn small" data-edit-section="${section}">${icon('edit')} Edit</button>` : ''}</div>`)}</div>` : ''}`);
   el.onclick = async (e) => {
     const b = e.target.closest('[data-edit-section]');
     if (!b) return;

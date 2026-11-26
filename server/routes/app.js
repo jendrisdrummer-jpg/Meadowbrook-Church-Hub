@@ -1,9 +1,10 @@
 // The member app (app.<church domain>): what's on it, set in the dashboard's App Builder, and
 // what guests can do without signing in (see service times, fill in a connect card).
 import { Router } from 'express';
-import { requireRole, canCampus, campusFilter } from '../auth.js';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
+import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, audit } from '../http.js';
+import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -114,20 +115,11 @@ export const appConfig = (db) => {
   return cfg;
 };
 
-// A tiny per-address limit so the public form can't be used to flood the inbox.
-const recent = new Map();
-function rateLimit(key, max = 5, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
-
 export default function appRoutes(db, { uploadDir } = {}) {
   const r = Router();
+  // A per-address limit so the public connect card can't be used to flood the inbox. One per app,
+  // so a test (or a restart) starts clean. IPv6 counts per /64 and /48 (server/ratelimit.js).
+  const limits = createLimiter();
   const imageDir = path.join(uploadDir || 'data/uploads', 'app');
 
   // Pictures for home screen widgets. Everyone sees the app, so these are public (/uploads/app/).
@@ -142,10 +134,14 @@ export default function appRoutes(db, { uploadDir } = {}) {
 
   // Everything the app needs to draw itself. Public: guests use the app without signing in.
   r.get('/app/config', (req, res) => {
+    // Only series that have started and not ended, and one row per campus, day and time even when
+    // two series repeat the same slot.
+    const seen = new Set();
     const times = db.prepare(`SELECT t.day_of_week, t.start_time, t.default_title, t.name, c.id campus_id, c.name campus_name, c.short_name campus_short, c.address
       FROM service_types t JOIN campuses c ON c.id = t.campus_id
-      WHERE t.archived = 0 AND c.active = 1 AND t.day_of_week IS NOT NULL AND (t.ends_on IS NULL OR t.ends_on >= date('now'))
-      ORDER BY c.sort, t.day_of_week, t.start_time`).all();
+      WHERE t.archived = 0 AND c.active = 1 AND t.day_of_week IS NOT NULL AND (t.starts_on IS NULL OR t.starts_on <= date('now')) AND (t.ends_on IS NULL OR t.ends_on >= date('now'))
+      ORDER BY c.sort, t.day_of_week, t.start_time`).all()
+      .filter((t) => { const k = `${t.campus_id}|${t.day_of_week}|${t.start_time}`; return seen.has(k) ? false : (seen.add(k), true); });
     res.json({
       church_name: getSetting(db, 'church_name', 'Church'),
       brand_color: getSetting(db, 'brand_color', '#135fd1'),
@@ -195,7 +191,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
   r.post('/public/connect', (req, res) => {
     const b = req.body || {};
     if (b.website) return res.status(201).json({ ok: true }); // a hidden field only bots fill in
-    if (!rateLimit(req.ip)) throw bad('Thanks! We already have your card. Please try again later if you need to send another.');
+    if (!ipAllowed(limits, 'card', req.ip, 5, 10 * 60e3, { wide: 16 })) throw new HttpError(429, 'We couldn’t send your card just now. Please try again in a few minutes.');
     const first = required(b.first_name, 'First name').slice(0, 60);
     const email = str(b.email, 200).toLowerCase();
     const phone = str(b.phone, 40);
@@ -236,7 +232,9 @@ export default function appRoutes(db, { uploadDir } = {}) {
       FROM connect_cards k LEFT JOIN campuses c ON c.id = k.campus_id LEFT JOIN people p ON p.id = k.person_id
       WHERE ${open ? 'k.done_at IS NULL' : 'k.done_at IS NOT NULL'} AND ${cf.sql}
       ORDER BY k.created_at DESC LIMIT 200`).all(...cf.args);
-    res.json(rows.map((k) => ({ ...k, interests: JSON.parse(k.interests || '[]') })));
+    // The message (often a prayer request or something personal) is for staff only.
+    const staff = rank(req.user.role) >= rank('staff');
+    res.json(rows.map(({ message, ...k }) => ({ ...k, ...(staff ? { message } : { has_message: Boolean(message) }), interests: JSON.parse(k.interests || '[]') })));
   });
 
   // Body: { done?: bool, person_id?: id|null }

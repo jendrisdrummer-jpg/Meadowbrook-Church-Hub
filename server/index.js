@@ -23,17 +23,22 @@ import appRoutes from './routes/app.js';
 import eventRoutes from './routes/events.js';
 import searchRoutes from './routes/search.js';
 import backupRoutes from './routes/backups.js';
+import checkRoutes from './routes/checks.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
 import { muxTick } from './mux.js';
 import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
+import { isOffline, enableOffline, listenHost } from './offline.js';
 import announcementRoutes, { sendDueAnnouncements } from './routes/announcements.js';
 import chatRoutes from './routes/chat.js';
+import groupRoutes from './routes/groups.js';
 import taskRoutes, { sendTaskReminders } from './routes/tasks.js';
 import callRoutes, { syncCalls } from './routes/calls.js';
 import givingRoutes, { stripeWebhook } from './routes/giving.js';
 import financeRoutes from './routes/finance.js';
+import feedbackRoutes from './routes/feedback.js';
+import formRoutes from './routes/forms.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -62,7 +67,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use(requireAppHeader);
 
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
-  authRoutes(app, db);
+  const auth = authRoutes(app, db);
 
   const api = express.Router();
   // Paired iPads (no one signed in) may use check-in, and nothing else.
@@ -84,13 +89,17 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));
+  api.use(checkRoutes(db, { codeCapHitAt: auth.codeCapHitAt }));
   api.use(mediaRoutes(db));
   api.use(announcementRoutes(db));
   api.use(chatRoutes(db, { uploadDir }));
+  api.use(groupRoutes(db));
   api.use(taskRoutes(db));
   api.use(callRoutes(db));
   api.use(givingRoutes(db));
   api.use(financeRoutes(db));
+  api.use(feedbackRoutes(db));
+  api.use(formRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 
@@ -183,7 +192,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
 }
 
 // MB_TRUST_PROXY: a number of proxy hops ("1" on Render, Railway or Fly), "true", or a list of addresses.
-function trustProxy(v) {
+export function trustProxy(v) {
+  v = String(v ?? '').trim(); // pasted values often pick up stray spaces; the Checks page trims too
   if (!v) return 'loopback, linklocal, uniquelocal';
   if (/^\d+$/.test(v)) return Number(v);
   if (v === 'true' || v === 'false') return v === 'true';
@@ -197,26 +207,35 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     console.warn('Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (see README), or MB_DEV_LOGIN=1 for local testing.');
   }
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
-  createApp({ db }).listen(port, () => console.log(`Meadowbrook Church Hub on http://localhost:${port}`));
-  // Serving reminders go out a day or two ahead (Settings: reminder_hours); task reminders the
-  // morning before and the morning of.
-  const remind = () => {
-    try { sendReminders(db); } catch (e) { console.error('Reminders failed:', e.message); }
-    try { sendTaskReminders(db); } catch (e) { console.error('Task reminders failed:', e.message); }
-  };
-  setTimeout(remind, 60e3).unref();
-  setInterval(remind, 15 * 60e3).unref();
-  // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
-  setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
-  setInterval(() => sendDueAnnouncements(db), 60e3).unref();
-  // Nightly backup (from 3 a.m. church time; see Settings → Backups).
-  setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
-  // Media: new videos from the YouTube channel every hour; around service times, every two
-  // minutes, whether we're live.
-  const mediaSync = () => syncMedia(db).catch((e) => console.error('Media sync failed:', e.message));
-  setTimeout(mediaSync, 2 * 60e3).unref();
-  setInterval(mediaSync, 60 * 60e3).unref();
-  setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
-  // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
-  setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
+  const offline = isOffline();
+  if (offline) {
+    enableOffline();
+    console.warn('OFFLINE MODE: no push, Drive, payments, video or media calls, and no background jobs. For restore drills and local copies only.');
+  }
+  createApp({ db }).listen(port, listenHost(), () => console.log(`Meadowbrook Church Hub on http://localhost:${port}${offline ? ' (this computer only)' : ''}`));
+  // Background jobs. Not in offline mode: they would reach real people and services.
+  if (!offline) startJobs();
+  function startJobs() {
+    // Serving reminders go out a day or two ahead (Settings: reminder_hours); task reminders the
+    // morning before and the morning of.
+    const remind = () => {
+      try { sendReminders(db); } catch (e) { console.error('Reminders failed:', e.message); }
+      try { sendTaskReminders(db); } catch (e) { console.error('Task reminders failed:', e.message); }
+    };
+    setTimeout(remind, 60e3).unref();
+    setInterval(remind, 15 * 60e3).unref();
+    // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
+    setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
+    setInterval(() => sendDueAnnouncements(db), 60e3).unref();
+    // Nightly backup (from 3 a.m. church time; see Settings → Backups).
+    setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
+    // Media: new videos from the YouTube channel every hour; around service times, every two
+    // minutes, whether we're live.
+    const mediaSync = () => syncMedia(db).catch((e) => console.error('Media sync failed:', e.message));
+    setTimeout(mediaSync, 2 * 60e3).unref();
+    setInterval(mediaSync, 60 * 60e3).unref();
+    setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
+    // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
+    setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
+  }
 }

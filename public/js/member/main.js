@@ -1,6 +1,6 @@
 // The member app: what's on it comes from the dashboard's App Builder. Anyone can use it;
 // signing in adds the person's serving schedule, service plans and notifications.
-import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
@@ -12,6 +12,8 @@ import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
+import { helpList } from '../help-content.js';
+import { formPage } from './forms.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -90,6 +92,8 @@ async function route() {
   window.scrollTo(0, 0);
   try {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
+    if (parts[0] === 'help') { drawTabs('more'); return await helpPage(el); }
+    if (parts[0] === 'form' && parts[1]) { drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
       drawTabs('more');
@@ -134,7 +138,11 @@ async function home(el, tab) {
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
     const ctx = { app, mine, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
-    mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
+    // A request waiting for an answer comes first, before the "You're serving" widget.
+    const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
+    const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
+    const replyCard = waiting.length ? html`<a class="m-reply" href="#/${serveTab}"><span class="grow"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</span><span class="tap">Tap to reply ›</span></a>` : '';
+    mount(el, html`${installBanner()}${replyCard}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
   tickCountdowns(el);
@@ -194,7 +202,8 @@ async function serve(el, tab, q) {
   const switcher = html`<div class="seg m-seg" role="tablist"><a href="#/${tab.id}" class="${all ? '' : 'on'}">My schedule</a><a href="#/${tab.id}?view=all" class="${all ? 'on' : ''}">All services</a></div>`;
   if (all) return allServices(el, tab, switcher);
   if (!app.user.linked) {
-    mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>, but your account isn’t linked to the church directory yet, so there’s no schedule to show.</p><p class="muted small">Ask a church admin to link your account. You can still look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
+    mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>. Your account isn’t connected to your record in the church directory yet, so there’s no schedule to show.</p><p>We’ve let the church office know. They’ll connect your account and you’ll see your schedule here; there’s nothing else you need to do.</p><p class="muted small">In the meantime you can look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
+    post('/me/link-request', {}).catch(() => {});
     return;
   }
   const decline = q.get('decline');
@@ -402,6 +411,7 @@ async function more(el, tab, q) {
   const extra = app.config.tabs.filter((t) => !t.on && t.type !== 'more' && ['page', 'link', 'watch', 'give', 'connect'].includes(t.type));
   const share = html`<svg class="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
   const showInstall = !isInstalled() && (isMobile || q.get('install'));
+  const forms = app.user && !preview ? await get('/forms').catch(() => []) : []; // forms for signed-in people
   mount(el, html`<div class="card">${app.user
       ? html`<div class="row"><b>${app.user.name}</b><span class="spacer"></span><button class="btn small ghost" data-logout>Sign out</button></div>`
       : html`<div class="row"><span>Signed out</span><span class="spacer"></span><a class="btn small primary" href="${signInHref('/more')}">Sign in</a></div>`}</div>
@@ -414,13 +424,29 @@ async function more(el, tab, q) {
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
+      <div data-groups style="display:contents"></div>
       ${app.user && !tasksTab()?.on ? html`<a href="#/tasks">${icon('check')}<span class="grow">Tasks</span><span class="nav-badge hidden" data-badge="tasks"></span></a>` : ''}
+      ${forms.map((x) => html`<a href="#/form/${x.slug}">${icon('file')}<span class="grow">${x.title}</span></a>`)}
       ${extra.map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''}>${icon(t.icon)}<span class="grow">${t.label}</span></a>`)}
       ${app.campuses.filter((c) => c.address).map((c) => html`<a href="https://maps.google.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${icon('map')}<span class="grow">${c.name}<br><span class="muted small">${c.address}</span></span></a>`)}
       ${app.user ? html`<button data-theme-cycle>${icon('settings')}<span class="grow">Appearance</span><span class="muted small">${{ light: 'Light', dark: 'Dark', device: 'Match my device' }[document.documentElement.dataset.theme] || 'Light'}</span></button>` : ''}
+      ${app.user ? html`<a href="#/help">${icon('info')}<span class="grow">Help</span></a>` : ''}
+      ${app.user ? html`<button data-feedback>${icon('chat')}<span class="grow">Send feedback</span></button>` : ''}
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
-  if (app.user) drawNotifyCard(el.querySelector('[data-notify]'), { ui: 'app', role: app.user.role }).catch(() => {});
+  if (app.user) myGroups(el.querySelector('[data-groups]'));
+  if (app.user) {
+    const nbox = el.querySelector('[data-notify]');
+    // Fold "Which notifications" into one row, every time the card redraws.
+    const fold = () => nbox.querySelectorAll('details:not(.m-fold)').forEach((d) => {
+      d.classList.add('m-fold');
+      d.open = false;
+      const sum = d.querySelector('summary');
+      if (sum) { sum.classList.remove('small'); sum.textContent = 'Choose which notifications'; }
+    });
+    new MutationObserver(fold).observe(nbox, { childList: true });
+    drawNotifyCard(nbox, { ui: 'app', role: app.user.role }).catch(() => {});
+  }
   else guestPushCard(el.querySelector('[data-guest-push]')).catch(() => {});
   el.onclick = async (e) => {
     const b = e.target.closest('button');
@@ -430,6 +456,18 @@ async function more(el, tab, q) {
       location.href = '/app/';
     }
     if (b.matches('[data-install]')) { await promptInstall(); more(el, tab, q); }
+    if (b.matches('[data-feedback]')) {
+      const sent = await dialog({
+        title: 'Send feedback',
+        submit: 'Send',
+        body: html`<div class="stack">
+          <label class="field">What kind<select name="category">${options([['bug', 'Something isn’t working'], ['frustration', 'It works, but it’s hard or slow'], ['missing', 'I can’t do something I need'], ['request', 'A new feature'], ['idea', 'An idea for my ministry']].map(([value, label]) => ({ value, label })), 'bug')}</select></label>
+          <label class="field">How much does it matter?<select name="severity">${options([['nice_to_have', 'Nice to have'], ['slows_me_down', 'Slows me down'], ['blocks_sunday', 'Blocks Sunday']].map(([value, label]) => ({ value, label })), 'slows_me_down')}</select></label>
+          <label class="field">What happened, or what would help?<textarea name="body" rows="4" maxlength="2000" required></textarea></label></div>`,
+        onSubmit: (f) => post('/feedback', { ...formData(f), page: 'app' }),
+      });
+      if (sent) toast('Thank you, we’ve got it.');
+    }
     if (b.matches('[data-theme-cycle]')) {
       const order = ['light', 'dark', 'device'];
       const next = order[(order.indexOf(document.documentElement.dataset.theme) + 1) % 3];
@@ -439,6 +477,21 @@ async function more(el, tab, q) {
       more(el, tab, q);
     }
   };
+}
+
+// Short how-to guides for this person's role (the same words as the hub's Help page).
+function helpPage(el) {
+  setTitle('Help', html`<a class="btn small ghost" href="#/more">Back</a>`);
+  mount(el, html`<div class="help-page"><p class="muted" style="margin-top:0">Quick steps for the things you’ll do most. Tap a heading to open it. Stuck? Ask the church office.</p>${helpList('app', app.user?.role || 'volunteer')}</div>`);
+}
+
+// My small groups, each opening its chat. Quietly absent when you're in none.
+async function myGroups(box) {
+  try {
+    const { groups } = await get('/groups');
+    if (!groups.length || !box.isConnected) return;
+    mount(box, html`<div class="m-list-head muted small" style="padding:10px 4px 2px">My groups</div>${groups.map((g) => html`<a href="#/chat/${g.chat_id}">${icon('people')}<span class="grow">${g.name}<br><span class="muted small">${g.members} ${g.members === 1 ? 'person' : 'people'} · Group chat</span></span></a>`)}`);
+  } catch { /* the rest of More still works */ }
 }
 
 // ---------------------------------------------------------------- tasks

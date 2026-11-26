@@ -4,16 +4,26 @@ import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAllCampuses, accountInReach, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
+import { closeStreams } from '../live.js';
+import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
+import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
 const PERSON_FIELDS = ['first_name', 'last_name', 'nickname', 'email', 'phone', 'birthdate', 'gender', 'grade', 'campus_id',
   'status', 'allergies', 'medical_notes', 'notes', 'household_id', 'household_role'];
 const HOUSEHOLD_FIELDS = ['name', 'campus_id', 'address', 'city', 'state', 'zip', 'phone', 'notes'];
+// Health information and private notes: staff and up only (see GET /people/:id).
+const PRIVATE_PERSON_FIELDS = ['allergies', 'medical_notes', 'notes'];
+const NAME_MAX = 100;
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// isDate plus a real calendar day (2026-02-30 is not one).
+const isRealDate = (v) => isDate(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const withoutKeys = (row, keys) => Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 
 export function digits(s) {
   return String(s || '').replace(/\D/g, '');
@@ -31,15 +41,31 @@ export default function peopleRoutes(db, { uploadDir }) {
     return p;
   }
 
+  // A household the signed-in user may work with: it exists and sits at one of their campuses
+  // (or has no campus yet). Everything that hangs off a household goes through this.
+  function visibleHousehold(req, id) {
+    const h = getHousehold(id);
+    if (!h) throw notFound('Household');
+    if (!canCampus(req.user, h.campus_id)) throw forbidden();
+    return h;
+  }
+
   // Cleans an incoming person body; `partial` allows leaving required fields out.
   function personFields(b, partial) {
     const out = {};
     if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
     for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
-    if (b.email !== undefined) out.email = str(b.email, 200).toLowerCase();
+    for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
+      if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
+    }
+    if (b.email !== undefined) {
+      out.email = str(b.email, 200).toLowerCase();
+      if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
+    }
     if (b.phone !== undefined) out.phone = str(b.phone, 40);
     if (b.birthdate !== undefined) {
-      if (b.birthdate && !isDate(b.birthdate)) throw bad('Birthdate must be a date.');
+      if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
+      if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
       out.birthdate = b.birthdate || null;
     }
     if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
@@ -105,15 +131,36 @@ export default function peopleRoutes(db, { uploadDir }) {
   });
 
   // ---------------------------------------------------------------- one person
+  // The account linked to a person, as shown on their page. For an admin it says whether they may
+  // change it (`editable`): a campus-limited admin can't touch their own, an admin's or another campus's.
+  function accountFor(req, personId) {
+    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.person_id,
+        u.password_hash IS NOT NULL has_password, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?`).get(personId);
+    if (!u) return null;
+    const { person_id: _p, person_campus_id: campusId, ...account } = u;
+    return req.user.role === 'admin' ? { ...account, editable: accountInReach(req.user, { ...u, person_campus_id: campusId }) } : account;
+  }
+
+  // Leaders (including people who get leader access just by leading a team) see contact and
+  // serving details here, but not health information, private notes or the pickup list: those
+  // are for staff and up. Check-in has its own, narrower roster for kids' safety.
   r.get('/people/:id', requireRole('leader'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
-    const household = p.household_id ? getHousehold(p.household_id) : null;
+    const staff = rank(req.user.role) >= rank('staff');
+    // A household at a campus this user can't reach isn't shown, with its notes and pickups.
+    const hh = p.household_id ? getHousehold(p.household_id) : null;
+    const household = hh && canCampus(req.user, hh.campus_id) ? hh : null;
+    const showReasons = staff || db.prepare('SELECT DISTINCT team_id FROM team_members WHERE person_id = ?').all(p.id).some((m) => seesTeamDetail(db, req.user, m.team_id));
+    const person = staff ? p : withoutKeys(p, PRIVATE_PERSON_FIELDS);
+    // A leader who isn't staff sees another team's serving rows only when they were asked and haven't declined.
+    const ledPos = ledPositionsClause(req.user, 'a.position_id');
+    const upcomingLimit = staff ? { sql: '1 = 1', args: [] } : { sql: `(${ledPos.sql} OR (a.sent_at IS NOT NULL AND a.status != 'declined'))`, args: ledPos.args };
     res.json({
-      ...p,
+      ...person,
       household: household && {
-        ...household,
+        ...(staff ? household : withoutKeys(household, ['notes'])),
         members: db.prepare('SELECT id, first_name, last_name, nickname, household_role, birthdate, photo FROM people WHERE household_id = ? AND archived = 0 ORDER BY household_role, birthdate').all(household.id),
-        pickups: db.prepare('SELECT * FROM household_pickups WHERE household_id = ?').all(household.id),
+        ...(staff ? { pickups: db.prepare('SELECT * FROM household_pickups WHERE household_id = ?').all(household.id) } : {}),
       },
       teams: db.prepare(`SELECT t.id, t.name, t.color, tm.is_leader, ps.name position FROM team_members tm
         JOIN teams t ON t.id = tm.team_id LEFT JOIN positions ps ON ps.id = tm.position_id
@@ -121,12 +168,15 @@ export default function peopleRoutes(db, { uploadDir }) {
       upcoming: db.prepare(`SELECT a.id, a.status, a.sent_at, s.id service_id, s.starts_at, s.title, ps.name position, c.short_name campus
         FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id
         JOIN campuses c ON c.id = s.campus_id
-        WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at LIMIT 20`).all(p.id),
-      blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),
+        WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') AND ${upcomingLimit.sql} ORDER BY s.starts_at LIMIT 20`).all(p.id, ...upcomingLimit.args),
+      // Campuses they can serve at (empty = home campus only, or any if they have none; see eligibility.js).
+      serving_campuses: servingList(p.id),
+      // Away reasons are private to staff and the leaders of a team this person is on.
+      blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id)
+        .map((b) => (showReasons ? b : withoutKeys(b, ['reason']))),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
         WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
-      account: db.prepare(`SELECT id, role, email, active, last_login, campus_ids, role_auto, finance, announce, password_hash IS NOT NULL has_password
-        FROM users WHERE person_id = ?`).get(p.id) || null,
+      account: accountFor(req, p.id),
     });
   });
 
@@ -143,8 +193,14 @@ export default function peopleRoutes(db, { uploadDir }) {
       if (f.household_id && (!hh || (hh.campus_id != null && hh.campus_id !== f.campus_id))) throw forbidden();
     }
     if (!canCampus(req.user, f.campus_id)) throw forbidden();
+    // Below staff (leaders, check-in stations) may add a child to a family, never an adult: check-in
+    // treats every adult in a household as an approved pickup, which only staff may grant (audited).
+    if (f.household_id && rank(req.user.role) < rank('staff') && f.household_role !== 'child') {
+      throw new HttpError(403, 'Adding an adult to an existing family is for staff, because every adult in a family can pick up their children. Ask a staff member, or add a child instead.');
+    }
+    if (f.household_id) visibleHousehold(req, f.household_id);
     if (!b.force) {
-      const dup = findDuplicate(f);
+      const dup = findDuplicate(req, f);
       if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: dup });
     }
     const id = tx(db, () => {
@@ -156,26 +212,57 @@ export default function peopleRoutes(db, { uploadDir }) {
       return db.prepare(`INSERT INTO people (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...Object.values(f)).lastInsertRowid;
     });
     audit(db, req, 'person.create', `${f.first_name} ${f.last_name || ''}`);
+    if (f.household_id) audit(db, req, 'household.member_add', { person_id: Number(id), household_id: f.household_id, role: f.household_role || 'adult', new_household: !!b.new_household });
     res.status(201).json(getPerson(id));
   });
 
-  function findDuplicate(f) {
+  // Only people at the caller's campuses are compared. Below staff (leaders, stations) the match
+  // is just a name, so contact details and birthdates never leak through the 409.
+  function findDuplicate(req, f) {
+    const cf = campusFilter(req.user, 'campus_id');
     const same = db.prepare(`SELECT id, first_name, last_name, email, phone, birthdate FROM people
-      WHERE archived = 0 AND lower(first_name) = lower(?) AND lower(last_name) = lower(?)`).all(f.first_name, f.last_name || '');
-    return same.find((p) => !f.email && !f.phone && !f.birthdate
+      WHERE archived = 0 AND lower(first_name) = lower(?) AND lower(last_name) = lower(?) AND ${cf.sql}`).all(f.first_name, f.last_name || '', ...cf.args);
+    const hit = same.find((p) => !f.email && !f.phone && !f.birthdate
       || (f.email && p.email === f.email)
       || (f.phone && digits(p.phone) && digits(p.phone) === digits(f.phone))
       || (f.birthdate && p.birthdate === f.birthdate)) || null;
+    if (hit && rank(req.user.role) < rank('staff')) return { id: hit.id, first_name: hit.first_name, last_name: hit.last_name };
+    return hit;
   }
+
+  const servingList = (id) => db.prepare('SELECT campus_id FROM serving_campuses WHERE person_id = ? ORDER BY campus_id').all(id).map((x) => x.campus_id);
+
+  // Sets the campuses someone can serve at. Campus-limited staff can only add or remove campuses
+  // they can access; anything else already on the list stays as it is.
+  r.put('/people/:id/serving-campuses', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    if (!Array.isArray(req.body?.campus_ids)) throw bad('Choose which campuses this person serves at.');
+    const wanted = [...new Set(req.body.campus_ids.map((x) => int(x, 'Campus')).filter((x) => x != null))];
+    for (const id of wanted) if (!db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(id)) throw bad('One of those campuses doesn’t exist.');
+    const current = servingList(p.id);
+    const changed = [...wanted.filter((x) => !current.includes(x)), ...current.filter((x) => !wanted.includes(x))];
+    if (changed.some((id) => !canCampus(req.user, id))) throw forbidden();
+    tx(db, () => {
+      db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(p.id);
+      for (const id of wanted) db.prepare('INSERT INTO serving_campuses (person_id, campus_id) VALUES (?, ?)').run(p.id, id);
+    });
+    audit(db, req, 'person.serving_campuses', { id: p.id, from: current, to: wanted });
+    res.json({ serving_campuses: wanted });
+  });
 
   r.patch('/people/:id', requireRole('staff'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
     const f = personFields(req.body || {}, true);
     if (f.campus_id !== undefined && !canCampus(req.user, f.campus_id)) throw forbidden();
-    if (f.household_id && !getHousehold(f.household_id)) throw bad('That household doesn’t exist.');
+    if (f.household_id) {
+      if (!getHousehold(f.household_id)) throw bad('That household doesn’t exist.');
+      visibleHousehold(req, f.household_id);
+    }
     if (req.body?.archived !== undefined) f.archived = req.body.archived ? 1 : 0;
     updateFields(db, 'people', p.id, f, [...PERSON_FIELDS, 'archived']);
-    audit(db, req, 'person.update', { id: p.id, fields: Object.keys(f) });
+    const moved = f.household_id !== undefined && f.household_id !== p.household_id;
+    audit(db, req, 'person.update', { id: p.id, fields: Object.keys(f), ...(moved ? { household_id: { from: p.household_id, to: f.household_id } } : {}) });
+    if (moved) audit(db, req, p.household_id ? 'household.member_move' : 'household.member_add', { person_id: p.id, from: p.household_id, to: f.household_id, role: f.household_role ?? p.household_role });
     res.json(getPerson(p.id));
   });
 
@@ -185,6 +272,23 @@ export default function peopleRoutes(db, { uploadDir }) {
     const dupId = int(req.body?.duplicate_id, 'Duplicate');
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
+    // One person, one account: merging two people who both have accounts would leave two on one person.
+    const dupUsers = db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id);
+    const dupUser = dupUsers[0];
+    // Merging re-links the duplicate's account, so a campus-limited admin may only do it for accounts they could edit.
+    if (req.user.campusIds) {
+      const out = db.prepare('SELECT u.*, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?').all(dup.id).some((u) => !accountInReach(req.user, u));
+      if (out) throw new HttpError(403, 'That person’s account is outside your campuses. Ask an admin who covers every campus to merge them.');
+    }
+    if (dupUser && db.prepare('SELECT 1 FROM users WHERE person_id = ?').get(keep.id)) {
+      throw new HttpError(409, 'Both of these people have an account. In Settings → Accounts, unlink one of them first, then merge.');
+    }
+    // The kept person inherits the duplicate's household when they have none, so it must be one the caller may use.
+    if (!keep.household_id && dup.household_id) {
+      const hh = getHousehold(dup.household_id);
+      if (hh && !canCampus(req.user, hh.campus_id)) throw new HttpError(403, 'The duplicate belongs to a family at a campus you don’t cover, so it can’t be merged here. Ask an admin who covers that campus to merge them.');
+    }
+    const movedUsers = []; // accounts whose linked person changes: their live chat reconnects
     tx(db, () => {
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
         db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
@@ -194,7 +298,15 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE OR IGNORE profile_values SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
+      // Small groups: the kept person leads if either of them did. Same for serving campuses.
+      db.prepare(`UPDATE group_members SET is_leader = 1 WHERE person_id = ? AND is_leader = 0
+        AND group_id IN (SELECT group_id FROM group_members WHERE person_id = ? AND is_leader = 1)`).run(keep.id, dup.id);
+      db.prepare('UPDATE OR IGNORE group_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM group_members WHERE person_id = ?').run(dup.id);
+      db.prepare('UPDATE OR IGNORE serving_campuses SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(dup.id);
       db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
+      movedUsers.push(...db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id).map((u) => u.id));
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       // Fill blanks on the kept record from the duplicate.
       const fill = {};
@@ -204,7 +316,12 @@ export default function peopleRoutes(db, { uploadDir }) {
       updateFields(db, 'people', keep.id, fill, Object.keys(fill));
       db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || ? || ')') WHERE id = ?").run(keep.id, dup.id);
     });
+    for (const id of movedUsers) closeStreams({ userId: id });
     audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
+    if (!keep.household_id && dup.household_id) audit(db, req, 'household.member_add', { person_id: keep.id, household_id: dup.household_id, role: getPerson(keep.id).household_role, via: 'merge' });
+    // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
+    for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
+    syncLeaderAccessFor(db, keep.id, req); // leadership may have moved with the merge (no-op without an account)
     res.json(getPerson(keep.id));
   });
 
@@ -235,13 +352,12 @@ export default function peopleRoutes(db, { uploadDir }) {
     if (!canCampus(req.user, campusId)) throw forbidden();
     const info = db.prepare('INSERT INTO households (name, campus_id, address, city, state, zip, phone) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(required(b.name, 'Household name'), campusId, str(b.address), str(b.city), str(b.state), str(b.zip), str(b.phone));
+    audit(db, req, 'household.create', { id: Number(info.lastInsertRowid), name: str(b.name), campus_id: campusId });
     res.status(201).json(getHousehold(info.lastInsertRowid));
   });
 
   r.patch('/households/:id', requireRole('staff'), (req, res) => {
-    const h = getHousehold(req.params.id);
-    if (!h) throw notFound('Household');
-    if (!canCampus(req.user, h.campus_id)) throw forbidden();
+    const h = visibleHousehold(req, req.params.id);
     const b = { ...req.body };
     if (b.campus_id !== undefined) {
       b.campus_id = int(b.campus_id);
@@ -249,20 +365,26 @@ export default function peopleRoutes(db, { uploadDir }) {
     }
     if (b.name !== undefined) b.name = required(b.name, 'Household name');
     updateFields(db, 'households', h.id, b, HOUSEHOLD_FIELDS);
+    const campusChanged = b.campus_id !== undefined && b.campus_id !== h.campus_id;
+    audit(db, req, 'household.update', { id: h.id, fields: HOUSEHOLD_FIELDS.filter((k) => b[k] !== undefined), ...(campusChanged ? { from_campus: h.campus_id, to_campus: b.campus_id } : {}) });
     res.json(getHousehold(h.id));
   });
 
   r.post('/households/:id/pickups', requireRole('staff'), (req, res) => {
-    const h = getHousehold(req.params.id);
-    if (!h) throw notFound('Household');
+    const h = visibleHousehold(req, req.params.id);
     const b = req.body || {};
     const info = db.prepare('INSERT INTO household_pickups (household_id, name, phone, relationship) VALUES (?, ?, ?, ?)')
       .run(h.id, required(b.name, 'Name'), str(b.phone, 40), str(b.relationship, 60));
+    audit(db, req, 'pickup.add', { household_id: h.id, name: str(b.name) });
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
   r.delete('/pickups/:id', requireRole('staff'), (req, res) => {
-    db.prepare('DELETE FROM household_pickups WHERE id = ?').run(req.params.id);
+    const pk = db.prepare('SELECT * FROM household_pickups WHERE id = ?').get(req.params.id);
+    if (!pk) throw notFound('Pickup person');
+    visibleHousehold(req, pk.household_id);
+    db.prepare('DELETE FROM household_pickups WHERE id = ?').run(pk.id);
+    audit(db, req, 'pickup.remove', { household_id: pk.household_id, name: pk.name });
     res.json({ ok: true });
   });
 
@@ -276,7 +398,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   r.post('/blockouts', requireRole('volunteer'), (req, res) => {
     const b = req.body || {};
     const p = blockoutPerson(req, int(b.person_id) ?? req.user.personId);
-    if (!isDate(b.start_date) || !isDate(b.end_date || b.start_date)) throw bad('Pick the dates you’re away.');
+    if (!isRealDate(b.start_date) || !isRealDate(b.end_date || b.start_date)) throw bad('Pick the dates you’re away.');
     const end = b.end_date || b.start_date;
     if (end < b.start_date) throw bad('The last day can’t be before the first day.');
     const info = db.prepare('INSERT INTO blockouts (person_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)')
@@ -323,7 +445,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     return map;
   }
 
-  r.post('/import/preview', requireRole('admin'), express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
+  r.post('/import/preview', requireRole('admin'), requireAllCampuses, express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
     const { headers, records } = csvRecords(req.body);
     if (!headers.length) throw bad('That file looks empty.');
     const custom = visibleFields(db, req.user);
@@ -340,7 +462,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     });
   });
 
-  r.post('/import/people', requireRole('admin'), express.json({ limit: '25mb' }), (req, res) => {
+  r.post('/import/people', requireRole('admin'), requireAllCampuses, express.json({ limit: '25mb' }), (req, res) => {
     const { csv, mapping = {}, campus_id: defaultCampus = null, dry_run: dryRun = false } = req.body || {};
     const { records } = csvRecords(csv || '');
     if (!records.length) throw bad('Nothing to import.');
@@ -368,7 +490,7 @@ export default function peopleRoutes(db, { uploadDir }) {
         const first = val(rec, 'first_name');
         if (!first) { summary.skipped.push({ row: i + 2, reason: 'no first name' }); return; }
         const last = val(rec, 'last_name');
-        const email = val(rec, 'email').toLowerCase();
+        const email = val(rec, 'email').trim().toLowerCase();
         const ext = val(rec, 'external_id');
         const birth = parseDate(val(rec, 'birthdate'));
         const campusId = campusFor(val(rec, 'campus'));

@@ -5,13 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Sign in</title>
   <script src="/js/theme.js"></script>
+  <script>
+    // Nobody has chosen a theme before signing in, so follow the device's light or dark setting.
+    try { if (!localStorage.getItem('mb.theme')) document.documentElement.dataset.theme = 'device'; } catch (e) { document.documentElement.dataset.theme = 'device'; }
+  </script>
   <link rel="stylesheet" href="/css/app.css">
   <style>
     body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
     .login { width: min(400px, 100%); }
     .login .head { text-align: center; }
-    .login .brand-mark { width: 56px; height: 56px; font-size: 24px; margin: 0 auto 14px; border-radius: 16px; }
-    .login h1 { margin-bottom: 4px; }
+    .login .brand-mark { width: 56px; height: 56px; font-size: 28px; margin: 0 auto 14px; border-radius: 16px; }
+    .login { padding: 28px; border-radius: 20px; }
+    .login h1 { margin-bottom: 4px; font-size: 32px; }
     .login form, .login .view { display: grid; gap: 12px; margin-top: 18px; }
     .login .btn.wide { width: 100%; min-height: 46px; justify-content: center; }
     .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 6px 0 -4px; }

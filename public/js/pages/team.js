@@ -1,13 +1,15 @@
 // One team: its positions (chips) and a roster grid of who serves in which position.
 import { get, post, patch, put, del, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, confirm, pickPeople, debounce } from '../lib.js';
 import { can, setTitle, campusName } from '../app.js';
+import { teamChats } from '../scheduling.js';
 
 // opts.adding: reopen the new-position box (after saving one); opts.added: highlight that person.
 export default async function team(el, id, opts = {}) {
   const t = await get(`/teams/${id}`);
   const manage = t.can_manage;
   const staff = can('staff');
-  setTitle(t.name, manage ? html`<button class="btn" data-edit>${icon('edit')} Edit team</button>` : '');
+  const chatId = (await teamChats()).get(t.id);
+  setTitle(t.name, html`${chatId ? html`<a class="btn" href="#/chat/${chatId}" data-message-team>${icon('chat')} Message team</a>` : ''}${manage ? html` <button class="btn" data-edit>${icon('edit')} Edit team</button>` : ''}`);
 
   // One row per person, with the set of positions they serve in.
   const people = new Map();
@@ -45,7 +47,8 @@ export default async function team(el, id, opts = {}) {
       ${roster.length ? html`<div class="table-wrap roster-wrap"><table class="roster">
         <thead><tr><th>Person</th>${t.positions.map((p) => html`<th>${p.name}</th>`)}${staff ? html`<th>Leader</th>` : ''}${manage ? html`<th></th>` : ''}</tr></thead>
         <tbody>${roster.map((m) => html`<tr data-person="${m.person_id}" class="${m.person_id === opts.added ? 'just-added' : ''}">
-          <td><a class="person-cell" href="#/people/${m.person_id}" style="color:inherit">${avatar(m)}<span><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}</span></a></td>
+          <td><a class="person-cell" href="#/people/${m.person_id}" style="color:inherit">${avatar(m)}<span><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}
+            ${m.has_account ? html` <span class="pill good" title="They can sign in to the hub and the app">Has account</span>` : html` <span class="pill" title="They haven’t got a sign-in yet, so they can’t use the app">No account</span>`}</span></a></td>
           ${t.positions.map((p) => html`<td><button type="button" class="tick ${m.positions.has(p.id) ? 'on' : ''}" data-toggle="${p.id}" ${manage ? '' : 'disabled'}
             aria-label="${displayName(m)} serves as ${p.name}" aria-pressed="${m.positions.has(p.id)}">${icon('check')}</button></td>`)}
           ${staff ? html`<td><button type="button" class="tick ${m.is_leader ? 'on' : ''}" data-leader aria-label="${displayName(m)} is a leader" aria-pressed="${Boolean(m.is_leader)}">${icon('check')}</button></td>` : ''}

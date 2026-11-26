@@ -1,6 +1,7 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
-import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, DAYS } from './lib.js';
+import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
+import { impactNote } from './guards.js';
 
 const REPEATS = [
   { value: 0, label: 'Does not repeat' },
@@ -13,7 +14,7 @@ const REPEATS = [
 export function repeatLabel(series) {
   if (!series) return '';
   const every = series.every_weeks > 1 ? `Every ${series.every_weeks} weeks on ${DAYS[series.day_of_week]}` : `Every ${DAYS[series.day_of_week]}`;
-  return `${every} at ${fmtClock(series.start_time)}${series.ends_on ? `, until ${new Date(`${series.ends_on}T12:00`).toLocaleDateString()}` : ''}`;
+  return `${every} at ${fmtClock(series.start_time)}${series.ends_on ? `, until ${fmtDate(series.ends_on)}` : ''}`;
 }
 
 export const fmtClock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -55,26 +56,52 @@ export async function newServiceDialog(date) {
       <label class="field">Date<input type="date" name="date" value="${date || ''}" required></label>
       <label class="field">Starts<input type="time" name="time" value="09:00" required></label>
       <label class="field">Length (minutes)<input type="number" name="duration_min" value="75" min="5"></label>
-      <label class="field">Repeats<select name="every_weeks">${options(REPEATS, 1)}</select></label>
-      <label class="field" data-ends>Ends<input type="date" name="ends_on"><span class="muted small">Leave empty to keep going.</span></label>
+      <fieldset class="field wide" style="border:0;padding:0;margin:0;min-width:0" data-how>
+        <legend style="padding:0;margin-bottom:6px">How often</legend>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          <label class="check"><input type="radio" name="how" value="once"> One time</label>
+          <label class="check"><input type="radio" name="how" value="repeat"> Repeats</label>
+        </div>
+        <span class="muted small">A one-off, like Christmas Eve, is one time. Choose Repeats for a regular service.</span>
+      </fieldset>
+      <label class="field hidden" data-every>Repeat every<select name="every_weeks">${options(REPEATS.filter((r) => r.value > 0), 1)}</select></label>
+      <label class="field hidden" data-ends>Ends<input type="date" name="ends_on"><span class="muted small">Leave empty to keep going.</span></label>
       <label class="field">Title (optional)<input type="text" name="title" placeholder="Sunday Morning"></label>
       <label class="field">Start from template<select name="template_id">${options(templates.map((t) => ({ value: t.id, label: t.name, campus: t.campus_id })), '', { blank: 'Blank order of service' })}</select>
         <span class="muted small" data-tpl-note>Repeating services fill each new date from it.</span></label>
     </div>
-    <h3 style="margin-top:16px">Positions needed</h3>
-    <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
-    <div data-needs></div>`,
+    <details class="needs-fold" data-needs-fold open style="margin-top:16px">
+      <summary style="cursor:pointer;min-height:32px;display:flex;align-items:center;gap:8px"><h3 style="margin:0;display:inline">Positions needed</h3><span class="muted small" data-needs-note></span></summary>
+      <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
+      <div data-needs></div>
+    </details>`,
     onOpen: async (d) => {
       const f = d.querySelector('form');
       const ends = d.querySelector('[data-ends]');
-      const sync = () => ends.classList.toggle('hidden', f.every_weeks.value === '0');
-      f.every_weeks.onchange = sync;
+      const every = d.querySelector('[data-every]');
+      const sync = () => {
+        const repeats = f.how.value === 'repeat';
+        every.classList.toggle('hidden', !repeats);
+        ends.classList.toggle('hidden', !repeats);
+      };
+      f.how.forEach((r) => { r.onchange = sync; });
       sync();
+      // With a template chosen its positions are used, so the list folds up (open it to override them).
+      const fold = d.querySelector('[data-needs-fold]');
+      const foldSync = () => {
+        const chosen = Boolean(f.template_id.value);
+        fold.open = !chosen;
+        d.querySelector('[data-needs-note]').textContent = chosen ? 'From the template. Open to change.' : '';
+      };
+      f.template_id.onchange = foldSync;
+      foldSync();
       picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value);
       f.campus_id.onchange = async () => { picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value, picker.get()); };
     },
     onSubmit: async (f) => {
       const b = formData(f);
+      if (!b.how) throw new Error('Please choose One time or Repeats first.');
+      if (b.how === 'once') b.every_weeks = '0';
       const needs = picker?.get() || [];
       if (b.every_weeks !== '0') {
         const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs, template_id: b.template_id || null });
@@ -87,6 +114,14 @@ export async function newServiceDialog(date) {
   });
   return openId;
 }
+
+// Counts of volunteers scheduled on the services a change would touch (null = nobody, or unreadable).
+async function impactFor(url, one = false) {
+  try { return impactNote(await get(url), { one }); } catch { return null; }
+}
+const nextDay = (d) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+// The usual message with the volunteer count in bold ahead of it; unchanged when nobody is scheduled.
+const withImpact = (message, note, after) => (note ? html`<b>${note.lead}</b>${note.rest} ${after}${message ? html`<br><br>${message}` : ''}` : message);
 
 // Asks "just this one or this and all following?" for a service in a series. null = cancelled.
 async function askScope(s, verb) {
@@ -129,17 +164,20 @@ export async function editServiceDialog(s) {
         const scope = await askScope(s, 'Delete');
         if (!scope) return;
         if (scope === 'future') {
-          if (!(await confirm('Delete this and all following?', 'Their orders of service and schedules will be removed too.'))) return;
+          const note = await impactFor(`/series/${s.type.id}/impact?from=${s.starts_at.slice(0, 10)}`);
+          if (!(await confirm('Delete this and all following?', withImpact('Their orders of service and schedules will be removed too.', note, 'They’ll lose these assignments.')))) return;
           await del(`/series/${s.type.id}?from=${s.starts_at.slice(0, 10)}`);
         } else {
-          if (!(await confirm('Delete this service?', 'Its order of service and schedule will be removed.'))) return;
+          const note = await impactFor(`/services/${s.id}/impact`, true);
+          if (!(await confirm('Delete this service?', withImpact('Its order of service and schedule will be removed.', note, 'They’ll lose these assignments.')))) return;
           await del(`/services/${s.id}`);
         }
         outcome = 'deleted';
         close();
       };
       d.querySelector('[data-stop]')?.addEventListener('click', async () => {
-        if (!(await confirm('Stop repeating?', 'This service stays. Services after it are removed, along with their plans and schedules.', 'Stop repeating'))) return;
+        const note = await impactFor(`/series/${s.type.id}/impact?from=${nextDay(s.starts_at.slice(0, 10))}`);
+        if (!(await confirm('Stop repeating?', withImpact('This service stays. Services after it are removed, along with their plans and schedules.', note, 'They’ll lose these assignments.'), 'Stop repeating'))) return;
         await patch(`/series/${s.type.id}`, { ends_on: s.starts_at.slice(0, 10) });
         toast('This is now the last one.');
         outcome = true;
@@ -224,7 +262,15 @@ export async function seriesDialog(t) {
       const needs = picker.get();
       const key = (list) => JSON.stringify([...list].map((n) => [n.position_id, n.count]).sort((x, y) => x[0] - y[0]));
       if (key(needs) !== key(t.needs)) body.needs = needs;
-      if (b.ends_on && b.ends_on !== t.ends_on && !(await confirm('End this repeating service?', `Services after ${new Date(`${b.ends_on}T12:00`).toLocaleDateString()} will be removed, with their plans and schedules.`, 'End it'))) return false;
+      if (b.ends_on && b.ends_on !== t.ends_on) {
+        const note = await impactFor(`/series/${t.id}/impact?from=${nextDay(b.ends_on)}`);
+        if (!(await confirm('End this repeating service?', withImpact(`Services after ${fmtDate(b.ends_on)} will be removed, with their plans and schedules.`, note, 'They’ll lose these assignments.'), 'End it'))) return false;
+      }
+      // Changing the positions rewrites them on every upcoming service; people already scheduled stay on the schedule.
+      if (body.needs) {
+        const note = await impactFor(`/series/${t.id}/impact?from=${today}`);
+        if (note && !(await confirm('Reset positions on upcoming services?', withImpact('Positions needed will be reset on every upcoming service in this series.', note, 'Their assignments stay, so check anyone in a position you removed.'), 'Save changes', { danger: false }))) return false;
+      }
       await patch(`/series/${t.id}`, body);
       toast('Repeating service updated.');
       outcome = true;
@@ -241,7 +287,19 @@ export async function deleteSeries(t) {
     title: 'Delete repeating service?', submit: 'Delete', danger: true,
     body: html`<p><b>${t.default_title || t.name}</b> · ${repeatLabel(t)}</p>
       <label class="field">Remove services from<input type="date" name="from" value="${today}" min="${today}" required></label>
-      <p class="muted small">Services from that date on are deleted, with their orders of service and schedules. Past services and their attendance stay.</p>`,
+      <p class="muted small">Services from that date on are deleted, with their orders of service and schedules. Past services and their attendance stay.</p>
+      <div class="alert warn small" data-impact hidden></div>`,
+    onOpen: (d) => {
+      const input = d.querySelector('input[name=from]');
+      const box = d.querySelector('[data-impact]');
+      const show = async () => {
+        const note = input.value ? await impactFor(`/series/${t.id}/impact?from=${input.value}`) : null;
+        box.hidden = !note;
+        if (note) mount(box, withImpact('', note, 'They’ll lose these assignments.'));
+      };
+      input.addEventListener('change', show);
+      show();
+    },
     onSubmit: async (f) => {
       const r = await del(`/series/${t.id}?from=${f.from.value}`);
       toast(`Deleted ${r.removed} upcoming ${r.removed === 1 ? 'service' : 'services'}.`);

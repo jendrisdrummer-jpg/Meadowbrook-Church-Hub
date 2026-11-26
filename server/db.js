@@ -3,6 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 // Each entry runs once, in order. Never edit a shipped migration: add a new one.
 const MIGRATIONS = [
@@ -854,16 +855,197 @@ const MIGRATIONS = [
   ALTER TABLE media ADD COLUMN audio_status TEXT NOT NULL DEFAULT '';       -- '' | making | ready | failed
   ALTER TABLE media ADD COLUMN audio_size INTEGER;
   `,
+  // 30: when an account that isn't linked to a person last asked the office to link it, so admins
+  // are told once (not on every visit).
+  `
+  ALTER TABLE users ADD COLUMN link_requested_at TEXT;
+  `,
+  // 31: feedback from staff and leaders (bugs, frustrations, ideas), triaged by admins, with what
+  // was done ("You said, we did"). Deliberately small: not a project tracker.
+  `
+  CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    role TEXT NOT NULL DEFAULT '',                        -- the sender's role when they sent it
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    page TEXT NOT NULL DEFAULT '',                        -- where they were in the hub or app
+    category TEXT NOT NULL,                               -- bug | frustration | missing | workflow | request | idea
+    severity TEXT NOT NULL,                               -- blocks_sunday | slows_me_down | nice_to_have
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'received',              -- received | looking | planned | done | not_now
+    admin_note TEXT NOT NULL DEFAULT '',                  -- for admins only
+    done_note TEXT NOT NULL DEFAULT '',                   -- what we did / why not now; shown to everyone
+    done_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX feedback_status ON feedback(status, created_at);
+  `,
+  // 32: the campuses each volunteer can serve at. Teams can be shared across campuses, people can't
+  // be everywhere. No rows = their home campus only (people.campus_id); see server/eligibility.js.
+  `
+  CREATE TABLE serving_campuses (
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    campus_id INTEGER NOT NULL REFERENCES campuses(id) ON DELETE CASCADE,
+    PRIMARY KEY (person_id, campus_id)
+  );
+  `,
+  // 33: small groups (Bible study, home groups, men's/women's ministry). Their own model, apart from
+  // serving teams: a group never grants leader access and is never scheduled. Each group has a chat
+  // (chats.group_id, kind 'smallgroup') whose members are the roster. campus_id NULL = church-wide.
+  `
+  CREATE TABLE groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE group_members (
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    is_leader INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (group_id, person_id)
+  );
+  CREATE INDEX group_members_person ON group_members (person_id);
+  ALTER TABLE chats ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE;
+  CREATE UNIQUE INDEX chats_group ON chats (group_id) WHERE group_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS audit_log_action_user ON audit_log (action, user_id, at);
+  `,
+  // 34: when a leader last nudged someone who hadn't replied (Remind people), kept apart from
+  // reminded_at so a manual nudge never cancels the automatic reminder.
+  `
+  ALTER TABLE assignments ADD COLUMN nudged_at TEXT;
+  `,
+  // 35: basic forms. Staff set up simple forms (volunteer interest, a request, a survey) in the hub;
+  // guests or signed-in people fill them in on a phone. One model, not a form builder. Every
+  // response is staff-only. person_id is set only from a signed-in account's linked person, never
+  // from a typed name or email.
+  `
+  CREATE TABLE forms (
+    id INTEGER PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,                            -- in the public link; never changes
+    title TEXT NOT NULL,
+    intro TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,   -- NULL = church-wide
+    questions TEXT NOT NULL DEFAULT '[]',                 -- [{id, label, type, options, required}]
+    audience TEXT NOT NULL DEFAULT 'public',              -- public | signed_in
+    ask_contact TEXT NOT NULL DEFAULT '{"name":"required","email":"optional","phone":"off"}',  -- off | optional | required
+    active INTEGER NOT NULL DEFAULT 1,
+    notify_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE form_responses (
+    id INTEGER PRIMARY KEY,
+    form_id INTEGER NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,   -- only from the signed-in account's linked person
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    answers TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'new',                   -- new | done
+    done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    done_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX form_responses_form ON form_responses(form_id, created_at);
+  `,
 ];
+
+// The schema version a fully migrated database has (PRAGMA user_version).
+export const SCHEMA_VERSION = MIGRATIONS.length;
 
 export function openDb(file = process.env.MB_DB || 'data/meadowbrook.db') {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   migrate(db);
+  hashSessionTokens(db);
+  ensureAccountLinkIndex(db, { log: true });
   return db;
 }
 
+// One person, one account. A unique index on users.person_id enforces it, but only when no person
+// already has two accounts: creating it over duplicates would fail, and a migration that fails
+// would stop the deploy. So this runs after the migrations, changes no data, and when it finds
+// duplicates it skips the index and warns (Settings → Accounts shows the same list to admins).
+// Safe to call repeatedly; docs/account-links.md explains how to resolve duplicates.
+export function duplicateAccountLinks(db) {
+  const people = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 100').all();
+  const accounts = db.prepare(`SELECT u.id, u.email, u.role, u.active, u.last_login, u.created_at FROM users u WHERE u.person_id = ? ORDER BY u.id`);
+  const person = db.prepare('SELECT first_name, last_name FROM people WHERE id = ?');
+  return people.map(({ person_id }) => {
+    const p = person.get(person_id);
+    return { person_id, name: p ? `${p.first_name} ${p.last_name}`.trim() : null, accounts: accounts.all(person_id) };
+  });
+}
+
+export function ensureAccountLinkIndex(db, { log = false } = {}) {
+  // Count and create under one write lock; never stops the server from starting.
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = linkIndexStep(db, log);
+      db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  } catch (e) {
+    console.warn(`One-account-per-person index not created this time (${e.code || e.message}). No data was changed.`);
+    return { indexed: false, error: true };
+  }
+}
+
+function linkIndexStep(db, log) {
+  const dupes = db.prepare('SELECT COUNT(*) n FROM (SELECT 1 FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1)').get().n;
+  if (dupes) {
+    if (log) {
+      const ids = db.prepare('SELECT person_id FROM users WHERE person_id IS NOT NULL GROUP BY person_id HAVING COUNT(*) > 1 ORDER BY person_id LIMIT 50').all().map((r) => r.person_id);
+      console.warn(`WARNING: ${dupes} ${dupes === 1 ? 'person has' : 'people have'} more than one account (person ids: ${ids.join(', ')}). `
+        + 'The one-account-per-person rule is not enforced by the database until this is fixed. See Settings → Accounts and docs/account-links.md. No data was changed.');
+    }
+    return { indexed: false, duplicates: dupes };
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_person_unique ON users (person_id) WHERE person_id IS NOT NULL');
+  return { indexed: true, duplicates: 0 };
+}
+
+
+// Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
+export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
+
+// One-off conversion for sessions made before tokens were hashed: any token that isn't a 64-char
+// hex hash is replaced by its hash. Real tokens are 43-char base64url, so the shape can't be
+// confused. Runs on every start, in one transaction, and does nothing once everything is hashed;
+// it keeps people signed in, and leaves no plaintext fallback in the sign-in path.
+// Converted sessions also end within a day, so a backup or copy made before this release (which
+// still holds the raw tokens) stops being usable within 24 hours. BEGIN IMMEDIATE takes the write
+// lock up front, so two servers starting at once can't trip each other. If it fails anyway, the
+// server still starts: unconverted sessions simply don't match any more (those people sign in again).
+export function hashSessionTokens(db, now = new Date()) {
+  const cap = new Date(now.getTime() + 24 * 3600e3).toISOString();
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const upd = db.prepare('UPDATE sessions SET token = ?, expires_at = MIN(expires_at, ?) WHERE token = ?');
+      for (const { token } of db.prepare('SELECT token FROM sessions').all()) {
+        if (!/^[0-9a-f]{64}$/.test(token)) upd.run(hashToken(token), cap, token);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  } catch (e) {
+    console.error(`Session conversion failed (${e.message}); people signed in before this release will need to sign in again.`);
+  }
+}
 function migrate(db) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
   for (let v = version; v < MIGRATIONS.length; v++) {

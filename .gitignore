@@ -5,3 +5,12 @@ data/uploads/
 data/backups/
 .env
 data/ui-smoke/
+# Restore drills and copies of real data: never commit them.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.enc
+*.db.gz
+drill*
+data/ui-smoke-work/

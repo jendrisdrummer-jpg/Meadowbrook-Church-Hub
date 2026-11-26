@@ -64,10 +64,15 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 // ---------------------------------------------------------------- icons (inline SVG, Lucide-style)
 const PATHS = {
+  dots: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.7-.3 4.8 1.4 5.5 4.4"/>',
   teams: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  groups: '<circle cx="12" cy="7" r="3"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/><path d="M8 21c.4-2.2 2-3.5 4-3.5s3.6 1.3 4 3.5"/>',
+  roster: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/><circle cx="12" cy="12" r="2"/><path d="M8.5 18c.4-2 1.8-3 3.5-3s3.1 1 3.5 3"/>',
+  event: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m12 12.5.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z"/>',
+  tablet: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M11 18h2"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   checkin: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
@@ -107,6 +112,7 @@ const PATHS = {
   bellOff: '<path d="M8.7 3.7A6 6 0 0 1 18 8c0 2.6.4 4.6 1 6M17 17H3s3-2 3-9c0-.6.1-1.2.3-1.8"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0M3 3l18 18"/>',
   back: '<path d="m15 18-6-6 6-6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
   forward: '<path d="m9 18 6-6-6-6"/>',
   coffee: '<path d="M6 2v2M10 2v2M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/>',
   shirt: '<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
@@ -136,6 +142,12 @@ export function avatar(p, cls = '') {
 // Services store campus-local "YYYY-MM-DDTHH:MM"; format them without time-zone shifts.
 const asLocal = (s) => new Date(`${s.length === 10 ? `${s}T12:00` : s}:00`);
 export const fmtDate = (s, opts = { weekday: 'short', month: 'short', day: 'numeric' }) => (s ? asLocal(s).toLocaleDateString(undefined, opts) : '');
+// A UTC timestamp (SQLite "YYYY-MM-DD HH:MM:SS" or ISO) shown as the viewer's local date, in the same format as every other date.
+export const fmtUtcDate = (s, opts) => {
+  if (!s) return '';
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s.replace(' ', 'T')}Z`);
+  return Number.isNaN(d.getTime()) ? '' : fmtDate(d.toLocaleDateString('en-CA'), opts);
+};
 export const fmtTime = (s) => (s ? asLocal(s).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
 export const fmtDateTime = (s) => `${fmtDate(s)} · ${fmtTime(s)}`;
 export const today = () => new Date().toLocaleDateString('en-CA');
@@ -204,7 +216,17 @@ export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger
   });
 }
 
-export const confirm = (title, message, submit = 'Delete') => dialog({ title, body: html`<p>${message}</p>`, submit, danger: true });
+// danger: false for a confirm that isn't destructive (e.g. sending a reminder), so it isn't red.
+export const confirm = (title, message, submit = 'Delete', { danger = true } = {}) => dialog({ title, body: html`<p>${message}</p>`, submit, danger });
+
+// Campus choices in the access dialogs: "All campuses" and specific campuses exclude each other,
+// so what's ticked is exactly what's saved.
+export function exclusiveCampusBoxes(d, onChange = () => {}) {
+  const all = d.querySelector('input[name="all"]');
+  const boxes = [...d.querySelectorAll('[data-campus]')];
+  all?.addEventListener('change', () => { if (all.checked) boxes.forEach((c) => { if (!c.disabled) c.checked = false; }); onChange(); });
+  boxes.forEach((c) => c.addEventListener('change', () => { if (c.checked && all && !all.disabled) all.checked = false; onChange(); }));
+}
 
 export function formData(form) {
   const out = {};

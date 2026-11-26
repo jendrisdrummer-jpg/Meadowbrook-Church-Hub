@@ -9,10 +9,11 @@ what was run, as whom, at what size, and what was seen. "Should work" is not a r
 
 | Layer | Tool | Command | What it covers |
 |---|---|---|---|
-| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js` |
+| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test) |
 | Shared rules | `node:test` | `npm test` | Check-in room rules (`test/rules.test.js`), service worker (`test/sw.test.js`) |
-| Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
+| Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page (including Help, `#/help`, in both) as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
 | Workflow checks | Playwright scripts or by hand | — | The workflows below, for features that changed |
+| CI | GitHub Actions (`.github/workflows/test.yml`) | automatic | `npm test` on every pull request and push to `main` |
 
 Installing Playwright once on a computer (free): `npm i -g playwright && npx playwright install
 chromium`. Claude Code's cloud sessions already have it.
@@ -42,7 +43,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 2 | Merge a duplicate person | Admin | One record left, history kept |
 | 3 | Add someone to a team and position | Leader | Roster updated; team chat membership follows |
 | 4 | Create a repeating service and an order of service from a template | Staff | Services appear on the calendar; plan filled |
-| 5 | Schedule a volunteer, send requests, accept and decline | Leader → volunteer | Push/inbox; decline reaches leader; conflicts and away dates respected |
+| 5 | Schedule a volunteer, send requests, accept and decline; remind those who haven’t replied | Leader → volunteer | Push/inbox; decline reaches leader; reminders skip accepted/declined/unsent and repeat only after 12 hours; conflicts and away dates respected |
 | 6 | Roll call and kids' check-in/out (also from a paired station) | Leader / station | Attendance recorded; name tags; check-out by code |
 | 7 | Create an event with sign-up questions (and a paid one) | Staff → guest | Event in app calendar; sign-up recorded; capacity honoured |
 | 8 | Send an announcement (now and scheduled) | Announcements flag | Inbox + push; guests get push; audience respected |
@@ -53,10 +54,16 @@ Run the affected ones for every change, and all of them before a significant rel
 | 13 | Media: new video arrives, edit title/trim, watch in app | Staff → member | Trimmed playback; library filters |
 | 14 | Sign in by Google / email code / password; sign out | Anyone | Correct role and campuses; policy respected |
 | 15 | Permissions sweep | Volunteer, campus staff | Staff-only pages refused; other campus invisible (`npm run test:ui` covers page level) |
+| 16 | Set up a form (questions, campus, who's told), copy its link, fill it in on a phone as a guest, read and finish the response, export CSV | Staff → guest | Response listed with answers; notice has no answer text; CSV opens with formulas defused; a signed-in form asks a guest to sign in; campus-limited staff don't see other campuses' responses (`test/forms.test.js`; `npm run test:ui` covers `/forms` pages and `/app/#/form/volunteer-interest` on a phone) |
+
+`test/qa-pass.test.js` (pre-demo QA pass) covers team-leader access following the roster, campus-limited admins, email reply links, reminder timing, small-group chat privacy and campus edges. It also covers the fixed QA findings (household campus checks, account campus choices, person validation, check-in setup campuses, month autofill in a fixed far-future month). A test marked `todo` asserts the safe behaviour for a known open bug: it fails without failing the run, so turn `todo` off when the bug is fixed. None are open now.
+
+Campus eligibility tests (`campus eligibility:` in `test/api.test.js`) build two campuses, a church-wide
+team and volunteers with a home campus, a list and no campus at all. Dates come from `nextSunday()`.
 
 ## Mobile and browser checks
 
-- `npm run test:ui` must pass (it fails on any sideways scroll at 390px).
+- `npm run test:ui` must pass (it fails on any sideways scroll at 390px, measured against the real 390px width, because on a phone `innerWidth` grows to fit wide content and would hide it).
 - Look at the phone screenshots of changed pages: tap targets, text wrapping, bottom bars.
 - For member app changes, also check light and dark theme.
 - Real-device checks the automated run can't do (note them in the PR as "not tested" if skipped):

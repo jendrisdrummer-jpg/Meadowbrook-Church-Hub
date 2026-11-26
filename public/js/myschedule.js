@@ -5,12 +5,22 @@ import { isIOS, isMobile, isInstalled, pushSupported, canPromptInstall, promptIn
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 
+// The "Can’t make it?" question, shared by My Schedule and Home. Resolves true once it's saved.
+export function declineAssignment(id) {
+  return dialog({
+    title: 'Can’t make it?', submit: 'Let my leader know',
+    body: html`<label class="field">Reason (optional)<input type="text" name="reason" placeholder="Out of town"></label>`,
+    onSubmit: (f) => patch(`/assignments/${id}`, { status: 'declined', reason: formData(f).reason }),
+  });
+}
+
 // planHref(a): link to that service's order of service. decline: an assignment id to ask about
 // straight away (from a notification's "Can't make it").
 export async function drawSchedule(el, { planHref, decline: askDecline, notifyCard } = {}) {
   const d = await get('/my/schedule');
   if (!d.linked) {
-    mount(el, html`<div class="alert info">Your sign-in isn’t linked to a person in the church directory yet, so there’s no schedule to show. Ask a church admin to link your account in Settings → Accounts.</div>`);
+    mount(el, html`<div class="alert info">Your account isn’t connected to your record in the church directory yet, so there’s no schedule to show. We’ve let the church office know; they’ll connect it, and your schedule will appear here.</div>`);
+    post('/me/link-request', {}).catch(() => {});
     return;
   }
   const status = (a) => ({
@@ -19,11 +29,10 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
     declined: html`<span class="pill bad">Declined</span>`,
   })[a.status];
 
-  mount(el, html`${notifyCard ? html`<div class="card app-card" data-app-card style="margin-bottom:16px"></div>` : ''}
-  <div class="grid two">
-    <div class="stack">
-      <h2>Coming up</h2>
-      ${d.assignments.length ? d.assignments.map((a) => html`<div class="card">
+  // Requests still waiting for a reply come first; accepted (and declined) ones follow by date.
+  const waiting = d.assignments.filter((a) => a.status === 'pending');
+  const rest = d.assignments.filter((a) => a.status !== 'pending');
+  const card = (a) => html`<div class="card" data-assignment="${a.id}">
         <div class="row"><span class="dot" style="background:${a.team_color}"></span><b>${fmtDate(a.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })}</b><span class="spacer"></span>${status(a)}</div>
         <div style="margin-top:6px"><b>${a.position}</b> <span class="muted">· ${a.team}</span></div>
         <div class="muted small">${fmtTime(a.starts_at)} at ${a.campus}${a.title ? ` · ${a.title}` : ''}</div>
@@ -33,7 +42,15 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
           ${a.status !== 'declined' ? html`<button class="btn small" data-decline="${a.id}">Can’t make it</button>` : ''}
           <a class="btn small ghost" href="${planHref(a)}">Order of service</a>
         </div>
-      </div>`) : html`<div class="card empty">Nothing scheduled yet.</div>`}
+      </div>`;
+
+  mount(el, html`<div class="grid two">
+    <div class="stack">
+      ${waiting.length ? html`<h2 data-please-reply>Please reply</h2>
+        <p class="muted small" style="margin:-6px 0 0">${waiting.length === 1 ? 'Someone is waiting to hear if you can serve.' : 'Your team is waiting to hear if you can serve.'}</p>
+        ${waiting.map(card)}` : ''}
+      <h2>Coming up</h2>
+      ${rest.length ? rest.map(card) : html`<div class="card empty">${waiting.length ? 'Nothing else yet. Once you reply, it shows up here.' : 'Nothing scheduled yet.'}</div>`}
     </div>
     <div class="stack">
       <div class="card"><div class="card-head"><h2>Dates I’m away</h2><button class="btn small" data-away>${icon('plus')} I’ll be away…</button></div>
@@ -42,6 +59,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
           <td style="text-align:right"><button class="icon-btn" data-remove-away="${b.id}" title="Remove">${icon('trash')}</button></td></tr>`)}</tbody></table>`
           : html`<p class="muted">Let your team leaders know when you’re out of town, and you won’t be scheduled.</p>`}
       </div>
+      ${notifyCard ? html`<div class="card app-card notify-banner" data-app-card></div>` : ''}
       <div class="card"><h2>My teams</h2>
         ${d.teams.length ? d.teams.map((t) => html`<div class="row" style="padding:4px 0"><span class="dot" style="background:${t.color}"></span>${t.name}${t.position ? html`<span class="muted">· ${t.position}</span>` : ''}${t.is_leader ? html`<span class="pill info">Leader</span>` : ''}</div>`)
           : html`<p class="muted">You’re not on a team yet.</p>`}
@@ -49,16 +67,11 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
     </div>
   </div>`);
 
-  if (notifyCard) drawNotifyCard(el.querySelector('[data-app-card]'), notifyCard).catch(fail);
+  if (notifyCard) drawNotifyCard(el.querySelector('[data-app-card]'), { ...notifyCard, compact: true }).catch(fail);
 
   const reload = () => drawSchedule(el, { planHref, notifyCard });
   const decline = async (id) => {
-    const ok = await dialog({
-      title: 'Can’t make it?', submit: 'Let my leader know',
-      body: html`<label class="field">Reason (optional)<input type="text" name="reason" placeholder="Out of town"></label>`,
-      onSubmit: (f) => patch(`/assignments/${id}`, { status: 'declined', reason: formData(f).reason }),
-    });
-    if (ok) reload();
+    if (await declineAssignment(id)) reload();
   };
   el.onclick = async (e) => {
     const t = e.target.closest('button');
@@ -88,7 +101,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
 // Installing the app and turning notifications on for this phone or computer.
 // ui: 'app' (member app) or 'hub' (dashboard). appLink: where the member app lives, shown in
 // the dashboard instead of install steps.
-export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appLink = '' } = {}) {
+export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appLink = '', compact = false } = {}) {
   const [info, sub] = await Promise.all([get('/me/notify'), currentSubscription().catch(() => null)]);
   const installed = isInstalled();
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
@@ -98,10 +111,10 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
     announcement: 'Announcements from the church', media: 'When we go live, and new messages',
     scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
     declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
-    connect: 'New connect cards from guests', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', email: 'Also send me emails',
+    connect: 'New connect cards from guests', form: 'New responses to my forms', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', email: 'Also send me emails',
   };
   const atLeast = (r) => ROLES.indexOf(role) >= ROLES.indexOf(r);
-  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : k === 'connect' ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
+  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : ['connect', 'form'].includes(k) ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
 
   let install = '';
   if (ui === 'hub' && appLink) {
@@ -127,7 +140,18 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
       <p class="muted small" style="margin:6px 0 0">Get a notice when you’re scheduled, and accept right from it.</p>`;
   }
 
-  mount(box, html`<div class="card-head"><h2>${ui === 'app' ? 'Notifications' : 'App &amp; notifications'}</h2></div>
+  // Compact (My Schedule in the dashboard): one line saying where things stand, options folded away.
+  const again = () => drawNotifyCard(box, { ui, role, appLink, compact });
+  if (compact) {
+    const state = !pushSupported() || perm === 'denied' ? push
+      : on ? html`<div class="notify-line"><span><b>Notifications</b> are on for this device</span><span class="row"><button class="btn small ghost" data-test>Send a test</button><button class="btn small ghost" data-off>Turn off</button></span></div>`
+      : html`<div class="notify-line"><span><b>Notifications</b> are off on this device. Get a notice when you’re scheduled.</span><button class="btn small primary" data-on>Turn on</button></div>`;
+    mount(box, html`${state}
+      <details class="notify-options"><summary class="small">Choose which notices you get (${kinds.length} option${kinds.length === 1 ? '' : 's'})</summary>
+        ${kinds.map((k) => html`<label class="toggle-row small"><span>${labels[k]}</span><input type="checkbox" data-pref="${k}" ${info.prefs[k] ? raw('checked') : ''}></label>`)}
+        ${install ? html`<div style="margin-top:10px">${install}</div>` : ''}
+        ${info.devices.length > (on ? 1 : 0) ? html`<p class="muted small" style="margin:8px 0 0">Also on: ${info.devices.filter((x) => x.endpoint !== sub?.endpoint).map((x) => x.device || 'another device').join(', ')}</p>` : ''}</details>`);
+  } else mount(box, html`<div class="card-head"><h2>${ui === 'app' ? 'Notifications' : 'App & notifications'}</h2></div>
     ${install ? html`<div style="margin-bottom:14px">${install}</div>` : ''}
     ${push}
     <details style="margin-top:10px" ${on ? '' : raw('open')}><summary class="small">Which notifications</summary>
@@ -146,7 +170,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
       }
       if (b.matches('[data-off]')) { await disablePush(); toast('Notifications are off for this device.'); }
       if (b.matches('[data-test]')) { await post('/push/test'); toast('Sent. It should arrive in a few seconds.'); }
-      drawNotifyCard(box, { ui, role, appLink });
+      again();
     } catch (err) { fail(err); }
   };
   box.onchange = (e) => {

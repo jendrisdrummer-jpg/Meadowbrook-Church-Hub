@@ -2,6 +2,7 @@
 // (Check-in → Stations) with a name and campus. The iPad then works as a station with no one
 // signed in, until it's removed in the hub. A station can only use check-in, at its campus.
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import crypto from 'node:crypto';
 import { requireRole, canCampus } from '../auth.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
@@ -11,17 +12,6 @@ const PAIR_MIN = 15;
 const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I
 const makeCode = () => Array.from(crypto.randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join('');
-
-const recent = new Map();
-function rateLimit(key, max = 20, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
 
 // What a paired station may do: check-in itself, list campuses, and add a new guest family.
 const stationMay = (req) => req.path.startsWith('/checkin/') || req.path === '/campuses' || (req.method === 'POST' && req.path === '/people');
@@ -44,12 +34,15 @@ export function stationAuth(db) {
 
 export default function stationRoutes(db) {
   const r = Router();
+  // Limits for pairing and pairing-code tries; one limiter per app (IPv6 per /64 and /48).
+  const limits = createLimiter();
+  const rateLimit = (key, max = 20, windowMs = 10 * 60e3) => limits.hit(key, max, windowMs);
   db.prepare("DELETE FROM device_pairings WHERE expires_at < datetime('now')").run();
 
   // ---------------------------------------------------------------- the iPad
   // Starts pairing: a code to show, and a secret to collect the result with.
   r.post('/checkin/pair', (req, res) => {
-    if (!rateLimit(req.ip)) throw new HttpError(429, 'Too many tries. Wait a few minutes.');
+    if (!ipAllowed(limits, 'pair', req.ip, 20, 10 * 60e3, { wide: 8 })) throw new HttpError(429, 'Too many tries. Wait a few minutes.');
     db.prepare("DELETE FROM device_pairings WHERE expires_at < datetime('now')").run();
     const secret = crypto.randomBytes(24).toString('hex');
     let code;

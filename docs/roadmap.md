@@ -1,6 +1,6 @@
 # Product roadmap and backlog
 
-Owned by the Product Innovation agent, decided by the owner. Every item says whether it's
+Kept by the Product Manager agent (fed by Product Innovation's research), decided by the owner. Every item says whether it's
 **existing** (built: see [features.md](features.md)), **missing** (a gap people would expect), or
 **proposed** (a new idea), who it helps and why. Nothing here is approved until the owner says so.
 
@@ -11,6 +11,31 @@ kids' check-in, chat and tasks, notifications and announcements, member app with
 events with sign-ups and payments, giving, media library, backups. Built and awaiting real-world
 setup: Mux streaming, uploads, podcast. This already replaces most of Faith Teams, Google Chat and
 the Subsplash app.
+
+## Order and phases
+
+**[master-product-roadmap.md](master-product-roadmap.md) sets the order:** phases, release gates, the adoption and
+migration plan, and when each old system retires. This page stays the **backlog**: what each item is, its ID, size and
+gap analysis. Where the two differ on order or phase, the master roadmap governs. The "Critical / High / Medium" groups
+below describe importance, not sequence.
+
+**New items from the master roadmap (Nov 2026, revision 2: "better Faith Teams first"):**
+
+| ID | Item | Size | Stage |
+|---|---|---|---|
+| N1 | Interim privacy fix: health data, private notes, household notes and pickups staff-only on person pages; no adult health data at check-in (PR #51) | S | Stage 1, now |
+| N2 | Member tier below volunteer, plus team-scoped leader access (C4), on one grants table | M | Stage 2 entry gate |
+| N3 | Per-volunteer campus serving eligibility (`serving_campuses`), honoured by candidates and autofill | M | Stage 1 (A) |
+| N4 | Platform readiness: restore drill, deploy window, uptime and error alerting (CI is H12) | S | Stage 1 (A) |
+| N5 | Push: sign-out removes the device; batched fan-out (Stage 1 if many devices); retries and delivery log | S–M | Stage 1 / 2 |
+| N6 | Invitations and safe account linking (leaders in Stage 1; members in Stage 2) | M | Stage 1 / 2 |
+| N7 | First-run flow, accessibility pass, "Needs attention" on Home, other UX polish | S–M | Stage 1 (B) / 2 |
+| N8 | Adult direct messages with minimal chat safeguarding; message search | M | Stage 2 |
+| N9 | Security Mediums: leader-grant audit (Stage 1), connect-card visibility, offboarding, chat and upload limits, announcement campus scope | M | Stage 1 / 2 |
+| N10 | Adoption view and in-app feedback link with a "you said, we did" status list | S | **Feedback shipped** (#55: Feedback page, triage, "You said, we did"); adoption view not built |
+| N11 | Interim check-in roster guard: staff, stations and leader accounts an admin authorises (`checkin_user_ids`) only (Security F1) | S | **Shipped** (#52) |
+| N12 | Weekly scheduling loop: remind non-responders, "Message team", volunteer app shows pending requests first | S–M | **Shipped** (#58) |
+| N13 | Kids' teams and photos hidden from plain accounts; no group with a minor without two adults (if minors have accounts) | S | Stage 1 |
 
 ## Product vision
 
@@ -32,7 +57,7 @@ reviewed and approved in direction by the owner.
 
 | ID | Item | Status |
 |---|---|---|
-| CS | Child-safety program: unique pickup codes, child-by-child check-out, custody / do-not-release alerts, authorized pickup verification, kids'-area permissions, check-in audit (covers C1, C2) | Chief Architect implementation plan with Security, QA and Church Operations reviews; awaiting owner approval |
+| CS | Child-safety program: unique pickup codes, child-by-child check-out, custody / do-not-release alerts, authorized pickup verification, kids'-area permissions, check-in audit (covers C1, C2) | Version 1 strategy in [plans/child-safety/v1-strategy.md](plans/child-safety/v1-strategy.md) (about 205–240 team hours, about 9 weeks); full design revision 3.1 in [plans/child-safety/plan.md](plans/child-safety/plan.md) as amended by revision 3.2, with operational policy, 135-item approval checklist and Security, QA and Church Operations reviews; awaiting owner approval |
 
 ## Prioritized backlog
 
@@ -41,7 +66,7 @@ IDs match the strategy report. Size: S days · M 1–3 weeks · L a month or mor
 ### Critical
 | ID | Item | Size | Notes |
 |---|---|---|---|
-| C3 | Clearance-gated scheduling for kids and youth teams (background check / training dates, autofill skips, expiry reminders) | M | Next after CS; vendor is an owner decision |
+| C3 | Clearance-gated scheduling for kids and youth teams (background check / training dates, autofill skips, expiry reminders) | M | Next after CS; vendor is an owner decision ([master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)) |
 | C4 | Private pastoral notes; staff-only `notes`; team-scoped leader access instead of automatic directory-wide leader | M | Permission change: owner approval + security review |
 | C5 | Small groups as their own concept (roster, meetings with roll call, group chat, tasks, finder, request to join) | M–L | Not built on serving teams; after C4 |
 | C6 | Follow-up inbox: owners, states, notes, due dates, template message, Monday push, automatic guest thank-you | M | Unifies connect cards, sign-ups, first-timers, "missing" |
@@ -98,7 +123,7 @@ serving teams.
 
 ## Gap analysis vs. the services being replaced
 
-Baseline from the code as of this document; the Product Innovation agent keeps it current and
+Baseline from the code as of this document; the Product Manager agent keeps it current from Product Innovation's research and
 verifies competitor details before relying on them.
 
 | Area | Faith Teams / Subsplash / Google Chat offer | Here | Status |
@@ -109,7 +134,7 @@ verifies competitor details before relying on them.
 | Watch library on the church's own website | Embeddable media (SS) | App only | missing |
 | Sermon notes, Bible reader | In-app notes and Bible (SS) | — | proposed |
 | Prayer requests | Prayer wall/requests (SS) | Connect card free text only | missing |
-| Text messaging (SMS) | SMS to groups (SS, some ChMS) | Push and email only | missing (would need a paid SMS provider: owner decision) |
+| Text messaging (SMS) | SMS to groups (SS, some ChMS) | Push and email only | missing (would need a paid SMS provider: owner decision, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)) |
 | Email to groups | Bulk email/newsletters | Announcements push + inbox; transactional email | missing |
 | Direct messages | 1:1 chat (GC) | Team chats and groups | verify: groups of two may cover it |
 | Background checks / child-safety clearance | Common in ChMS | Profile fields could track dates | proposed |
@@ -124,7 +149,7 @@ verifies competitor details before relying on them.
   episodes, reminders all come from the plan the team already writes.
 - **Built for volunteers on phones**: accept/decline from a notification, away dates, plans.
 
-## Backlog rules (for the Product Innovation agent)
+## Backlog rules (for the Product Manager and Product Innovation agents)
 
 - Each proposal: problem, who has it (role), how often, what they do today, the proposal,
   expected benefit, rough size (S/M/L), dependencies, and status (existing/missing/proposed).

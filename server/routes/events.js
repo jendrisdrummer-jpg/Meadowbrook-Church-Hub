@@ -3,6 +3,7 @@
 // price per person paid by card through Stripe. Guests can sign up without an account; a private
 // key on each sign-up lets them see (and, for free events, cancel) their own.
 import { Router } from 'express';
+import { createLimiter, ipAllowed } from '../ratelimit.js';
 import crypto from 'node:crypto';
 import { requireRole, canCampus, campusFilter, siteOrigin, rank } from '../auth.js';
 import { getSetting, tx } from '../db.js';
@@ -10,23 +11,13 @@ import { HttpError, bad, notFound, forbidden, int, str, required, oneOf, isDateT
 import { stripe, stripeConfigured, publishableKey } from '../stripe.js';
 import { sendMail, canSendMail } from '../mail.js';
 import { notify } from '../notify.js';
+import { toCsv } from '../csv.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
+import { cleanQuestions, cleanAnswers, answerOf, EVENT_TYPES } from '../questions.js';
 
 const money = (c) => `$${(c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 const HOLD_MIN = 35; // a spot is held this long while someone pays (Stripe's checkout lasts 30)
-const QTYPES = ['text', 'choice', 'yesno'];
 const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
-
-const recent = new Map();
-function rateLimit(key, max = 20, windowMs = 10 * 60e3) {
-  const now = Date.now();
-  const hits = (recent.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= max) return false;
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  return true;
-}
 
 // "Saturday, October 19 · 6:00 PM", for emails.
 function when(e) {
@@ -36,6 +27,8 @@ function when(e) {
 }
 
 export default function eventRoutes(db) {
+  // Public sign-ups are limited per address (IPv6 per /64 and /48); one limiter per app.
+  const limits = createLimiter();
   const r = Router();
   const tz = () => db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC';
   const nowLocal = () => { const n = localNow(tz()); return `${n.date}T${n.time}`; };
@@ -83,7 +76,7 @@ export default function eventRoutes(db) {
 
   // Body: { name, email, phone, count, answers: { [question id]: value } }
   r.post('/events/:id/signups', async (req, res) => {
-    if (!rateLimit(req.ip)) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
+    if (!ipAllowed(limits, 'signup', req.ip, 20, 10 * 60e3, { wide: 16 })) throw new HttpError(429, 'Too many tries. Please wait a few minutes.');
     const e = db.prepare(`${EVENT} WHERE e.id = ?`).get(int(req.params.id));
     if (!visible(req, e)) throw notFound('Event');
     const ev = parse(e);
@@ -139,19 +132,6 @@ export default function eventRoutes(db) {
       throw new HttpError(502, err.message);
     }
   });
-
-  function cleanAnswers(questions, given) {
-    const out = {};
-    for (const q of questions) {
-      let v = given[q.id];
-      if (q.type === 'yesno') v = v === true || v === 'yes' ? 'Yes' : v === false || v === 'no' ? 'No' : '';
-      else v = str(v, 1000);
-      if (q.type === 'choice' && v && !q.options.includes(v)) throw bad(`Pick one of the choices for “${q.label}”.`);
-      if (q.required && !v) throw bad(`Please answer “${q.label}”.`);
-      if (v) out[q.id] = v;
-    }
-    return out;
-  }
 
   // A sign-up's own page (the key comes back from signing up, and in the confirmation email).
   const own = (req) => {
@@ -258,17 +238,7 @@ export default function eventRoutes(db) {
     if (price && price < 100) throw bad('Paid events cost at least $1.');
     e.price_cents = price;
     const qs = b.questions ?? (old.questions ? JSON.parse(old.questions) : []);
-    if (!Array.isArray(qs)) throw bad('Questions must be a list.');
-    e.questions = JSON.stringify(qs.slice(0, 12).map((q, i) => {
-      const type = oneOf(q.type, QTYPES, 'text');
-      const out = { id: str(q.id, 20).replace(/[^\w-]/g, '') || `q${i + 1}`, label: required(q.label, 'Question').slice(0, 200), type, required: Boolean(q.required) };
-      if (type === 'choice') {
-        out.options = [...new Set((Array.isArray(q.options) ? q.options : []).map((o) => str(o, 80)).filter(Boolean))].slice(0, 20);
-        if (!out.options.length) throw bad(`Add choices for “${out.label}”.`);
-      }
-      return out;
-    }));
-    if (new Set(JSON.parse(e.questions).map((q) => q.id)).size !== JSON.parse(e.questions).length) throw bad('Two questions have the same id.');
+    e.questions = JSON.stringify(cleanQuestions(qs, EVENT_TYPES));
     return e;
   }
 
@@ -312,10 +282,9 @@ export default function eventRoutes(db) {
 
   r.get('/admin/events/:id/signups.csv', requireRole('staff'), (req, res) => {
     const e = parse(getEvent(req, req.params.id));
-    const cell = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => s.answers[q.id] || ''), (s.amount_cents / 100).toFixed(2), s.created_at].map(cell).join(','));
+    const rows = signupRows(e.id).filter((s) => s.status === 'confirmed').map((s) => [s.name, s.email, s.phone, s.count, ...e.questions.map((q) => answerOf(s.answers, q.id) || ''), (s.amount_cents / 100).toFixed(2), s.created_at]);
     res.setHeader('Content-Disposition', `attachment; filename="${e.title.replace(/[^\w -]/g, '').slice(0, 60) || 'event'} sign-ups.csv"`);
-    res.type('text/csv').send([['Name', 'Email', 'Phone', 'People', ...e.questions.map((q) => q.label), 'Paid', 'Signed up'].map(cell).join(','), ...rows].join('\n'));
+    res.type('text/csv').send(toCsv([['Name', 'Email', 'Phone', 'People', ...e.questions.map((q) => q.label), 'Paid', 'Signed up'], ...rows]));
   });
 
   // Staff add someone who signed up in person or by phone (paid at the door, or free).

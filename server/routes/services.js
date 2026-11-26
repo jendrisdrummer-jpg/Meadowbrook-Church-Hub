@@ -2,11 +2,13 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
-import { notifyScheduled, notifyResponse, notifyUnscheduled, assignmentRow } from '../notify.js';
+import { campusEligibility } from '../eligibility.js';
+import { ledTeamIds, seesTeamDetail, ledPositionsClause } from '../team-scope.js';
+import { notifyScheduled, notifyResponse, remindPending, notifyUnscheduled, assignmentRow } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -62,15 +64,19 @@ export default function serviceRoutes(db) {
       extra += ' AND s.id IN (SELECT service_id FROM assignments WHERE person_id = ? AND sent_at IS NOT NULL)';
       args.push(req.user.personId ?? -1);
     }
+    // A leader who isn't staff counts only the positions of teams they lead.
+    const lim = rank(req.user.role) >= rank('leader') && !isStaff(req);
+    const lpn = lim ? ledPositionsClause(req.user, 'n.position_id') : { sql: '1 = 1', args: [] };
+    const lpa = lim ? ledPositionsClause(req.user, 'a.position_id') : { sql: '1 = 1', args: [] };
     const rows = db.prepare(`SELECT s.*, st.name type_name, c.name campus_name, c.short_name campus_short, c.color campus_color,
         (SELECT a.status FROM assignments a WHERE a.service_id = s.id AND a.person_id = ? AND a.sent_at IS NOT NULL ORDER BY a.status = 'declined' LIMIT 1) my_status,
-        (SELECT COALESCE(SUM(count), 0) FROM service_needs n WHERE n.service_id = s.id) needed, st.every_weeks,
+        (SELECT COALESCE(SUM(count), 0) FROM service_needs n WHERE n.service_id = s.id AND ${lpn.sql}) needed, st.every_weeks,
         (SELECT COUNT(*) FROM plan_items i WHERE i.service_id = s.id AND i.placeholder = 1) to_fill,
-        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status != 'declined') filled,
-        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'accepted') accepted,
-        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'declined') declined
+        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status != 'declined' AND ${lpa.sql}) filled,
+        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'accepted' AND ${lpa.sql}) accepted,
+        (SELECT COUNT(*) FROM assignments a WHERE a.service_id = s.id AND a.status = 'declined' AND ${lpa.sql}) declined
       FROM services s JOIN campuses c ON c.id = s.campus_id LEFT JOIN service_types st ON st.id = s.service_type_id
-      WHERE s.starts_at >= ? AND s.starts_at <= ? AND ${cf.sql}${extra} ORDER BY s.starts_at, c.sort`).all(req.user.personId ?? -1, ...args);
+      WHERE s.starts_at >= ? AND s.starts_at <= ? AND ${cf.sql}${extra} ORDER BY s.starts_at, c.sort`).all(req.user.personId ?? -1, ...lpn.args, ...lpa.args, ...lpa.args, ...lpa.args, ...args);
     res.json(rows);
   });
 
@@ -120,9 +126,17 @@ export default function serviceRoutes(db) {
     // Anyone signed in can look at any service's plan and who's serving, but volunteers only
     // see requests that were sent, without contact details or reasons for declining.
     const volunteer = rank(req.user.role) < rank('leader');
+    const asVolunteer = (a) => ({ id: a.id, position_id: a.position_id, person_id: a.person_id, status: a.status, sent_at: a.sent_at, first_name: a.first_name, last_name: a.last_name, nickname: a.nickname, photo: a.photo });
+    // A leader who isn't staff sees full detail only for teams they lead; other teams get the
+    // volunteer view (asked or accepted, names and photo), and the position's needed count is hidden.
+    const led = volunteer ? null : ledTeamIds(db, req.user);
+    const teamOf = new Map(db.prepare('SELECT id, team_id FROM positions').all().map((p) => [p.id, p.team_id]));
+    const detailFor = (positionId) => led === null || led.has(teamOf.get(positionId));
     if (volunteer) {
-      assignments = assignments.filter((a) => a.sent_at && a.status !== 'declined')
-        .map((a) => ({ id: a.id, position_id: a.position_id, person_id: a.person_id, status: a.status, sent_at: a.sent_at, first_name: a.first_name, last_name: a.last_name, nickname: a.nickname, photo: a.photo }));
+      assignments = assignments.filter((a) => a.sent_at && a.status !== 'declined').map(asVolunteer);
+    } else if (led) {
+      assignments = assignments.filter((a) => detailFor(a.position_id) || (a.sent_at && a.status !== 'declined'))
+        .map((a) => (detailFor(a.position_id) ? a : asVolunteer(a)));
     }
     const needs = db.prepare('SELECT position_id, count FROM service_needs WHERE service_id = ?').all(s.id);
     // Every position of every team at this campus (or church-wide), plus anything someone was
@@ -140,10 +154,11 @@ export default function serviceRoutes(db) {
       items: planItems(s.id),
       positions: positions.map((p) => ({
         ...p,
-        needed: needs.find((n) => n.position_id === p.id)?.count ?? 0,
+        needed: detailFor(p.id) ? needs.find((n) => n.position_id === p.id)?.count ?? 0 : 0,
         can_schedule: canSchedule(req, s, p.team_id),
+        ...(volunteer ? {} : { detail: detailFor(p.id) }),
         assignments: assignments.filter((a) => a.position_id === p.id),
-      })).filter((p) => !volunteer || p.assignments.length),
+      })).filter((p) => (!volunteer && detailFor(p.id)) || p.assignments.length),
       headcounts: db.prepare('SELECT area, count FROM headcounts WHERE service_id = ?').all(s.id),
     });
   });
@@ -334,8 +349,17 @@ export default function serviceRoutes(db) {
     const positionId = int(req.query.position_id, 'Position');
     const pos = db.prepare('SELECT * FROM positions WHERE id = ?').get(positionId);
     if (!pos) throw notFound('Position');
+    // Candidates come with a team's roster and conflicts: only for teams you lead or may schedule.
+    if (!seesTeamDetail(db, req.user, pos.team_id) && !canSchedule(req, s, pos.team_id)) throw forbidden();
     res.json(candidates(s, pos));
   });
+
+  // eligible = may serve at this service's campus; eligibility_reason is the short why-not (or
+  // 'Campus not set' for someone with no home campus and no list, who counts as eligible anywhere).
+  function eligibility(personId, s) {
+    const e = campusEligibility(db, personId, s.campus_id);
+    return { eligible: e.eligible, eligibility_reason: e.reason };
+  }
 
   function candidates(s, pos) {
     const rows = db.prepare(`SELECT DISTINCT p.id, p.first_name, p.last_name, p.nickname, p.photo, p.campus_id,
@@ -349,8 +373,9 @@ export default function serviceRoutes(db) {
       FROM team_members tm JOIN people p ON p.id = tm.person_id
       WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id`).all(pos.id, s.starts_at, s.id, s.starts_at, s.starts_at, pos.id, s.id, s.starts_at, s.starts_at, pos.team_id);
     return rows
-      .map((p) => ({ ...p, plays_position: Boolean(p.plays_position), conflicts: conflictsFor(p.id, s, pos.id) }))
-      .sort((a, b) => (a.conflicts.some((c) => c.level === 'block') - b.conflicts.some((c) => c.level === 'block'))
+      .map((p) => ({ ...p, plays_position: Boolean(p.plays_position), conflicts: conflictsFor(p.id, s, pos.id), ...eligibility(p.id, s) }))
+      .sort((a, b) => (a.eligible === b.eligible ? 0 : a.eligible ? -1 : 1)
+        || (a.conflicts.some((c) => c.level === 'block') - b.conflicts.some((c) => c.level === 'block'))
         || (b.plays_position - a.plays_position)
         // Doing the same job the week before or after counts extra, so people get weeks off.
         || ((a.recent_count + 2 * a.nearby) - (b.recent_count + 2 * b.nearby))
@@ -363,6 +388,13 @@ export default function serviceRoutes(db) {
     const personId = int(req.body?.person_id, 'Person');
     requireSchedule(req, s, positionId);
     if (!db.prepare('SELECT 1 FROM people WHERE id = ? AND archived = 0').get(personId)) throw notFound('Person');
+    // Enforced here, not just in the screen: someone who doesn't serve at this campus needs an explicit override.
+    const elig = eligibility(personId, s);
+    // The override is for staff and up, or someone with no campus limit; a campus-limited leader can't use it.
+    const mayOverride = rank(req.user.role) >= rank('staff') || !req.user.campusIds;
+    if (!elig.eligible && !(req.body?.allow_other_campus && mayOverride)) {
+      return res.status(409).json({ error: elig.eligibility_reason, other_campus: true });
+    }
     const conflicts = conflictsFor(personId, s, positionId);
     if (conflicts.some((c) => c.level === 'block') && !req.body?.force) {
       return res.status(409).json({ error: conflicts.filter((c) => c.level === 'block').map((c) => c.text).join('; '), conflicts });
@@ -378,9 +410,10 @@ export default function serviceRoutes(db) {
     res.status(201).json({ ok: true, id: a.id, conflicts });
   });
 
-  // Fills open spots with the best available people (no blockouts or double-booking),
+  // Fills open spots with the best available people (no blockouts, double-booking or other-campus people),
   // optionally only one team's positions.
-  function autofill(req, s, teamId = null) {
+  // `open` (optional) counts spots still empty afterwards, so the screen can say "all filled" vs "no one free".
+  function autofill(req, s, teamId = null, open = { n: 0 }) {
     const needs = db.prepare(`SELECT n.position_id, n.count FROM service_needs n JOIN positions ps ON ps.id = n.position_id
       WHERE n.service_id = ? AND (? IS NULL OR ps.team_id = ?)`).all(s.id, teamId, teamId);
     const added = [];
@@ -390,19 +423,31 @@ export default function serviceRoutes(db) {
       let filled = db.prepare("SELECT COUNT(*) n FROM assignments WHERE service_id = ? AND position_id = ? AND status != 'declined'").get(s.id, pos.id).n;
       for (const c of candidates(s, pos)) {
         if (filled >= n.count) break;
-        if (!c.plays_position || c.conflicts.length) continue;
+        if (!c.plays_position || c.conflicts.length || !c.eligible) continue;
         const info = db.prepare("INSERT OR IGNORE INTO assignments (service_id, position_id, person_id) VALUES (?, ?, ?)").run(s.id, pos.id, c.id);
         if (!info.changes) continue;
         added.push({ id: Number(info.lastInsertRowid), service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
         filled++;
       }
+      open.n += Math.max(0, n.count - filled);
     }
     return added;
   }
 
+  function fillTeam(req) {
+    const teamId = int(req.body?.team_id);
+    if (!teamId) throw bad('Choose one team to fill.');
+    if (!db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw notFound('Team');
+    return teamId;
+  }
+
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    res.json({ added: tx(db, () => autofill(req, s)) });
+    // One team at a time, so nobody can fill every team in one tap.
+    const teamId = fillTeam(req);
+    if (!canSchedule(req, s, teamId)) throw s.locked ? bad('This service is locked. An admin can unlock it.') : forbidden();
+    const open = { n: 0 };
+    res.json({ added: tx(db, () => autofill(req, s, teamId, open)), open: open.n });
   });
 
   // ---------------------------------------------------------------- month schedule
@@ -413,6 +458,9 @@ export default function serviceRoutes(db) {
     const seriesId = int(req.query.series_id);
     const campusId = int(req.query.campus_id);
     const teamId = int(req.query.team_id);
+    // A leader who isn't staff sees only the teams they lead here.
+    const led = ledTeamIds(db, req.user);
+    if (led && teamId && !led.has(teamId)) throw forbidden();
     ensureServices(db);
     const cf = campusFilter(req.user, 's.campus_id');
     const services = db.prepare(`SELECT s.id, s.campus_id, s.service_type_id, s.title, s.starts_at, s.duration_min, s.locked,
@@ -423,7 +471,7 @@ export default function serviceRoutes(db) {
     const ids = services.map((x) => x.id);
     const inIds = `(${[...ids, -1].map(() => '?').join(',')})`;
     const needs = db.prepare(`SELECT service_id, position_id, count FROM service_needs WHERE service_id IN ${inIds}`).all(...ids, -1);
-    const assignments = db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, a.status, a.sent_at, p.first_name, p.last_name, p.nickname, p.photo
+    const assignments = db.prepare(`SELECT a.id, a.service_id, a.position_id, a.person_id, a.status, a.sent_at, a.decline_reason, p.first_name, p.last_name, p.nickname, p.photo
       FROM assignments a JOIN people p ON p.id = a.person_id WHERE a.service_id IN ${inIds} ORDER BY a.created_at`).all(...ids, -1);
     // Positions of teams at these campuses (or church-wide). Without a team picked, only
     // positions something is needed or scheduled for.
@@ -433,6 +481,7 @@ export default function serviceRoutes(db) {
       FROM positions ps JOIN teams t ON t.id = ps.team_id
       WHERE t.archived = 0 AND (t.campus_id IS NULL OR t.campus_id IN (${[...campuses, -1].map(() => '?').join(',')}))
       ORDER BY t.name COLLATE NOCASE, t.id, ps.sort, ps.id`).all(...campuses, -1)
+      .filter((p) => !led || led.has(p.team_id))
       .filter((p) => (teamId ? p.team_id === teamId : used.has(p.id)));
 
     const cells = {};
@@ -471,15 +520,18 @@ export default function serviceRoutes(db) {
       positions,
       cells,
       members,
+      led_team_ids: led ? [...led] : null,
     });
   });
 
   // Fills open spots across several services at once, in date order, so the load spreads over the month.
   r.post('/schedule/autofill', requireRole('leader'), (req, res) => {
     const ids = Array.isArray(req.body?.service_ids) ? req.body.service_ids.map((x) => int(x, 'Service')).slice(0, 200) : [];
-    const teamId = int(req.body?.team_id);
+    const teamId = fillTeam(req);
     const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId))) });
+    if (list.length && !list.some((s) => canSchedule(req, s, teamId))) throw forbidden();
+    const open = { n: 0 };
+    res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId, open))), open: open.n });
   });
 
   // ---------------------------------------------------------------- sending requests
@@ -509,6 +561,28 @@ export default function serviceRoutes(db) {
     notifyScheduled(db, list.map((a) => a.id)); // including the sender, if they scheduled themselves
     audit(db, req, 'schedule.send', `${list.length} requests`);
     res.json({ sent: list.length, people: new Set(list.map((a) => a.person_id)).size });
+  });
+
+  // Body: { team_id? } — nudges people who were asked but haven't replied, for the positions
+  // this person may schedule. Skips anyone nudged or auto-reminded in the last 12 hours.
+  r.post('/services/:id/remind', requireRole('leader'), (req, res) => {
+    const s = service(req, req.params.id);
+    const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(s.campus_id)?.timezone || 'UTC';
+    const now = localNow(tz);
+    if (s.starts_at <= `${now.date}T${now.time}`) throw bad('This service has already happened.');
+    const teamId = int(req.body?.team_id);
+    const all = db.prepare(`SELECT a.id, ps.team_id, a.nudged_at, a.reminded_at FROM assignments a JOIN positions ps ON ps.id = a.position_id
+      WHERE a.service_id = ? AND a.status = 'pending' AND a.sent_at IS NOT NULL AND (? IS NULL OR ps.team_id = ?) LIMIT 500`).all(s.id, teamId, teamId);
+    const list = all.filter((a) => canSchedule(req, s, a.team_id));
+    if (teamId && !canSchedule(req, s, teamId)) throw forbidden();
+    // Nothing this caller may remind: say so plainly, without hinting at other teams' pending requests.
+    if (!list.length) return res.json({ reminded: 0, skipped: 0 });
+    const cutoff = Date.now() - 12 * 3600e3;
+    const recent = (v) => v && Date.parse(`${v.replace(' ', 'T')}Z`) > cutoff;
+    const due = list.filter((a) => !recent(a.nudged_at) && !recent(a.reminded_at));
+    if (due.length) remindPending(db, due.map((a) => a.id));
+    audit(db, req, 'schedule.remind', `service ${s.id}: ${due.length} reminded, ${list.length - due.length} skipped`);
+    res.json({ reminded: due.length, skipped: list.length - due.length });
   });
 
   r.patch('/assignments/:id', requireRole('volunteer'), (req, res) => {

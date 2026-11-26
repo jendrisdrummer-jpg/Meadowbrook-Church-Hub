@@ -6,7 +6,7 @@ import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly } from './check
 
 const KEY = {
   station: 'mb.checkin.station',
-  token: 'mb.checkin.token', // a paired iPad's sign-in (from the hub's Check-in → Stations)
+  token: 'mb.checkin.token', // a paired iPad's sign-in (from the hub’s Check-in iPads page)
   roster: (campusId) => `mb.checkin.roster.${campusId}`,
   queue: 'mb.checkin.queue',
   today: (campusId, day) => `mb.checkin.today.${campusId}.${day}`,
@@ -65,6 +65,7 @@ async function boot() {
   if (!state.station) { await setup(); return; }
   state.roster = store.get(KEY.roster(state.station.campusId), null);
   await refreshRoster();
+  if (state.denied) { mount($main, html`<div class="alert bad">${state.denied}</div>`); return; }
   if (!state.roster) { mount($main, html`<div class="alert bad">This station has no family list yet. Connect to the internet and reload.</div>`); return; }
   drawHeader();
   setMode('in');
@@ -87,7 +88,8 @@ async function refreshRoster() {
     saveToday([...byId.values()]);
     drawStatus();
   } catch (e) {
-    if (e.status !== 401) console.warn('Roster refresh failed', e);
+    if (e.status === 403) state.denied = e.message;
+    else if (e.status !== 401) console.warn('Roster refresh failed', e);
   }
 }
 
@@ -120,7 +122,7 @@ async function pairScreen() {
     const code = `${pairing.code.slice(0, 3)}-${pairing.code.slice(3)}`;
     mount($main, html`<div class="k-pair">
       <h1>Set up this ${deviceName() === 'iPad' ? 'iPad' : 'device'} for check-in</h1>
-      <p>On a computer or phone, open the hub and go to <b>Check-in → Stations</b>, then choose <b>Add a station</b> and type this code:</p>
+      <p>On a computer or phone, open the hub and go to <b>Check-in iPads</b> (under More), then choose <b>Add a station</b> and type this code:</p>
       <div class="k-pair-code" aria-label="${pairing.code.split('').join(' ')}">${code}</div>
       <p class="muted small" data-pair-note>Waiting… The code changes every 15 minutes.</p>
       <p class="small"><a href="/login?next=%2Fcheckin">Or sign in as a leader instead</a></p></div>`);
@@ -151,11 +153,16 @@ async function setup() {
     await dialog({
       title: 'This check-in station', submit: false, cancel: 'Close',
       body: html`<p style="margin:0">This ${deviceName()} is <b>${state.station.name}</b>${state.roster?.campus ? html` at <b>${state.roster.campus.name}</b>` : ''}.</p>
-        <p class="muted small">To rename it, move it to another campus, turn labels on or off, or remove it, go to <b>Check-in → Stations</b> in the hub.</p>`,
+        <p class="muted small">To rename it, move it to another campus, turn labels on or off, or remove it, go to <b>Check-in iPads</b> (under More) in the hub.</p>`,
     });
     return;
   }
-  const camps = state.campuses.filter((c) => c.active);
+  // Only campuses this account can use; someone without check-in access hears so before the form.
+  let allowed = state.campuses;
+  try { allowed = await call('GET', '/checkin/campuses'); } catch (e) {
+    if (e.status === 403) { mount($main, html`<div class="alert bad">${e.message}</div>`); return; }
+  }
+  const camps = allowed.filter((c) => c.active);
   if (!camps.length) { mount($main, html`<div class="alert bad">Sign in, and make sure at least one campus is set up in Settings.</div>`); return; }
   const cur = state.station || {};
   let saved;

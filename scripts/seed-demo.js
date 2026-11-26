@@ -6,8 +6,12 @@ import crypto from 'node:crypto';
 import { openDb, tx, setSetting } from '../server/db.js';
 import { securityCode, roomFor } from '../public/js/checkin-rules.js';
 import { addMinutes } from '../server/routes/services.js';
+import { seedTargetProblem, SAMPLE_KEY } from '../server/sample.js';
 
 const file = process.env.MB_DB || 'data/demo.db';
+// This script deletes whatever MB_DB points at, so check first that it is a throwaway.
+const problem = seedTargetProblem(file);
+if (problem) { console.error(problem); process.exit(1); }
 for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true });
 const db = openDb(file);
 
@@ -25,6 +29,7 @@ const KIDS = ['Emma', 'Liam', 'Ava', 'Noah', 'Mia', 'Elijah', 'Ella', 'Lucas', '
 const ALLERGIES = ['', '', '', '', '', 'Peanuts', 'Dairy', 'Tree nuts', 'Bee stings'];
 
 tx(db, () => {
+  setSetting(db, SAMPLE_KEY, 1); // marks this file as made-up data: the seed and preview mode check it
   setSetting(db, 'church_name', 'Meadowbrook Church');
   setSetting(db, 'workspace_domain', 'meadowbrook.church');
   const north = ins('campuses', { name: 'Meadowbrook North', short_name: 'North', address: '100 Meadow Ln', timezone: 'America/Chicago', color: '#2f7d4f', sort: 0 });
@@ -102,6 +107,12 @@ tx(db, () => {
   const prod = team('Production', null, '#4f6bed', ['Sound', 'Lyrics / ProPresenter', 'Livestream', 'Lighting'], 9);
   needs[north].push([prod[0], 1], [prod[1], 1], [prod[2], 1]);
   needs[south].push([prod[0], 1], [prod[1], 1]);
+
+  // A small group at North (its chat is made too); the demo volunteer is a member.
+  const grp = ins('groups', { name: 'Tuesday Bible Study', description: 'Romans, Tuesdays at 7 pm', campus_id: north });
+  ins('chats', { kind: 'smallgroup', group_id: grp, name: 'Tuesday Bible Study' });
+  adults.filter((p) => p.campus === north).slice(0, 5).forEach((p, i) => ins('group_members', { group_id: grp, person_id: p.id, is_leader: i === 0 ? 1 : 0 }));
+  db.prepare('INSERT OR IGNORE INTO group_members (group_id, person_id) VALUES (?, ?)').run(grp, volunteer.id);
 
   // Repeating services, starting six Sundays ago.
   const firstSunday = daysFrom(-new Date().getDay() - 42);
@@ -199,6 +210,19 @@ tx(db, () => {
     if (rand() > 0.4) put(classes, JSON.parse(classes.options).filter(() => rand() > 0.5));
     if (rand() > 0.3) put(lead, pick(JSON.parse(lead.options)));
   }
+
+  // One simple form, with a couple of responses (made-up people).
+  const formId = ins('forms', {
+    slug: 'volunteer-interest', title: 'Volunteer interest', intro: 'We’d love to help you find a place to serve. Tell us a little about you and someone will be in touch.',
+    questions: JSON.stringify([
+      { id: 'area', label: 'Where would you like to serve?', type: 'multichoice', options: ['Kids', 'Music', 'Welcome team', 'Production'], required: true },
+      { id: 'days', label: 'Which days are best?', type: 'choice', options: ['Sundays', 'Wednesdays', 'Either'], required: false },
+      { id: 'about', label: 'Anything else we should know?', type: 'longtext', required: false },
+    ]),
+    ask_contact: JSON.stringify({ name: 'required', email: 'optional', phone: 'optional' }),
+  });
+  ins('form_responses', { form_id: formId, name: 'Taylor Sample', email: 'taylor@example.com', phone: '555-0142', answers: JSON.stringify({ area: ['Kids', 'Welcome team'], days: 'Sundays', about: 'I help with a youth group at my old church.' }) });
+  ins('form_responses', { form_id: formId, name: 'Jordan Example', answers: JSON.stringify({ area: ['Music'] }), status: 'done', done_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
 
   // A few away dates.
   for (const p of adults.slice(0, 5)) ins('blockouts', { person_id: p.id, start_date: iso(daysFrom(2)), end_date: iso(daysFrom(9)), reason: pick(['Vacation', 'Work trip', 'Family visit']) });

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Meadowbrook Church Hub</title>
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#f3ede4">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/app-icon/180.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,14 +17,14 @@
   <div class="shell">
     <aside class="side">
       <div class="brand"><span class="brand-mark">M</span><div><b data-church>Meadowbrook</b><small>Church Hub</small></div></div>
+      <label class="field side-campus">Campus<select data-campus></select></label>
       <nav class="nav" data-nav></nav>
       <div class="side-foot">
-        <label class="field">Campus<select data-campus></select></label>
-        <div class="me" data-me></div>
+        <div class="side-user"><div class="me" data-me></div><div class="side-links" data-side-links></div></div>
       </div>
     </aside>
     <main class="main">
-      <div class="topbar"><h1 data-title></h1><div class="row" data-actions></div><div data-search></div><div class="bell-wrap" data-bell></div><div class="me me-top" data-me-top></div></div>
+      <div class="topbar"><h1 data-title></h1><span class="pill info page-campus hidden" data-campus-tag></span><div class="row" data-actions></div><div data-search></div><div class="bell-wrap" data-bell></div><div class="me me-top" data-me-top></div></div>
       <div class="content" data-content></div>
     </main>
   </div>

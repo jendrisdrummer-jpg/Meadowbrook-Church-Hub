@@ -6,8 +6,10 @@
 //   staff     – also edits people, services, songs and rooms at their campuses
 //   admin     – everything, including campuses, accounts and imports
 // A user's campus_ids limits them to some campuses; NULL means every campus.
+import { createLimiter, ipAllowed } from './ratelimit.js';
 import crypto from 'node:crypto';
-import { getSetting } from './db.js';
+import { getSetting, hashToken, tx } from './db.js';
+import { closeStreams } from './live.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
@@ -36,14 +38,18 @@ function cookieFlags(req) {
 export function startSession(db, req, res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, expires);
+  // Only the hash is stored; the cookie keeps the raw token.
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(hashToken(token), userId, expires);
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(userId);
   res.setHeader('Set-Cookie', `${COOKIE}=${token}; Max-Age=${SESSION_DAYS * 86400}; ${cookieFlags(req)}`);
 }
 
 export function endSession(db, req, res) {
   const token = parseCookies(req)[COOKIE];
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  if (token) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(hashToken(token));
+    closeStreams({ token: hashToken(token) });
+  }
   res.setHeader('Set-Cookie', `${COOKIE}=; Max-Age=0; ${cookieFlags(req)}`);
 }
 
@@ -54,8 +60,10 @@ export function loadUser(db) {
     WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`);
   return (req, _res, next) => {
     const token = parseCookies(req)[COOKIE];
-    const row = token && find.get(token, new Date().toISOString());
+    const hash = token ? hashToken(token) : null;
+    const row = hash && find.get(hash, new Date().toISOString());
     req.user = row ? toUser(row) : null;
+    req.sessionHash = row ? hash : null;
     next();
   };
 }
@@ -100,6 +108,36 @@ export function canCampus(user, campusId) {
   return user.campusIds.includes(Number(campusId));
 }
 
+// A campus-limited admin (campusIds is a list, not null) may run their own campuses but must not
+// reach across the church. Church-wide admin routes use this guard after requireRole('admin').
+export const ALL_CAMPUSES_MESSAGE = 'That’s for admins who cover every campus. Ask one of them to make this change.';
+export function requireAllCampuses(req, res, next) {
+  if (req.user?.campusIds) return res.status(403).json({ error: ALL_CAMPUSES_MESSAGE });
+  next();
+}
+
+// Can this campus-limited admin manage this account? `t` is a users row plus person_campus_id (the
+// campus of the person it's linked to, or null). Never themselves, never an admin. A volunteer is in
+// reach when linked to a person at one of their campuses, or not linked at all. A leader or staff
+// account is in reach only when its own campus list is set and sits wholly inside theirs.
+// Unrestricted admins (campusIds null) reach every account.
+export function accountInReach(user, t) {
+  if (!user.campusIds) return true;
+  if (t.id === user.id || t.role === 'admin') return false;
+  // Finance and Announcements are church-wide, so accounts holding them are for unrestricted admins.
+  if (t.finance || t.announce) return false;
+  // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
+  // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
+  // A volunteer's own campus list, if set (e.g. staff who stepped down), must also sit inside theirs.
+  if (t.role === 'volunteer') {
+    const own = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
+    if (Array.isArray(own) && !own.every((c) => user.campusIds.includes(Number(c)))) return false;
+    return t.person_id == null || t.person_campus_id == null || user.campusIds.includes(Number(t.person_campus_id));
+  }
+  const ids = typeof t.campus_ids === 'string' ? JSON.parse(t.campus_ids) : t.campus_ids;
+  return Array.isArray(ids) && ids.every((c) => user.campusIds.includes(Number(c)));
+}
+
 // SQL fragment limiting a campus column to the user's campuses.
 export function campusFilter(user, column) {
   if (!user.campusIds) return { sql: '1 = 1', args: [] };
@@ -114,20 +152,18 @@ export function requireAppHeader(req, res, next) {
   res.status(403).json({ error: 'Missing app header.' });
 }
 
-// Finds the account for a verified email, creating one when the church allows it:
-// - anyone in People with that email gets a volunteer account the first time they sign in;
-// - someone not in People yet (when sign-ups are open) is added to People, flagged as new from
-//   the app, if we know their name (Google tells us; the email sign-up form asks).
-export function userForEmail(db, email, profile = {}) {
-  email = String(email).trim().toLowerCase();
-  const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (existing) return existing.active ? existing : null;
+// What a new sign-in for this email would be: the role it would get (null: not allowed to create an
+// account) and whether that email is already in People (only to decide whether sign-in is allowed, and
+// to avoid adding a second person; never to link). userForEmail and the code route share it.
+// True when signing in with this email would make an admin (MB_ADMIN_EMAILS, or a brand-new install).
+export const wouldBeAdmin = (db, email) => signUpRole(db, String(email).trim().toLowerCase()).role === 'admin';
 
+function signUpRole(db, email) {
   const adminEmails = (process.env.MB_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
   const noUsers = db.prepare('SELECT COUNT(*) n FROM users').get().n === 0;
   const domain = getSetting(db, 'workspace_domain', process.env.GOOGLE_WORKSPACE_DOMAIN || '');
   const policy = getSetting(db, 'sign_in_policy', 'anyone');
-  let person = db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 ORDER BY id LIMIT 1").get(email);
+  const inDirectory = Boolean(db.prepare("SELECT 1 FROM people WHERE lower(trim(email)) = ? AND archived = 0 LIMIT 1").get(email));
 
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
@@ -135,15 +171,38 @@ export function userForEmail(db, email, profile = {}) {
   const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
-  else if (canJoin(policy, { inDomain, inDirectory: Boolean(person) })) role = 'volunteer';
+  else if (canJoin(policy, { inDomain, inDirectory })) role = 'volunteer';
+  return { role, inDirectory };
+}
+
+// True when this email has an active account, or the sign-in policy would let it create one.
+export function mayHaveAccount(db, email) {
+  email = String(email).trim().toLowerCase();
+  const existing = db.prepare('SELECT active FROM users WHERE email = ?').get(email);
+  return existing ? Boolean(existing.active) : Boolean(signUpRole(db, email).role);
+}
+
+// Finds the account for a verified email, creating one when the church allows it.
+// The sign-in policy decides WHO MAY SIGN IN; it never decides WHO THEY ARE. A new account is
+// always created unlinked, and an admin links it to a person by hand (Settings → Accounts).
+// The one exception is someone brand new to the church (not in People, sign-ups open), who is
+// added to People as a new person, flagged as new from the app, when we know their name
+// (Google tells us; the email sign-up form asks). That never attaches to an existing person.
+export function userForEmail(db, email, profile = {}) {
+  email = String(email).trim().toLowerCase();
+  const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (existing) return existing.active ? existing : null;
+
+  const { role, inDirectory } = signUpRole(db, email);
   if (!role) return null;
 
   const first = String(profile.first_name || '').trim().slice(0, 60);
-  if (!person && role === 'volunteer' && !first) return { needsName: true };
-  if (!person && first) {
+  if (!inDirectory && role === 'volunteer' && !first) return { needsName: true };
+  let personId = null;
+  if (!inDirectory && first) {
     const info = db.prepare("INSERT INTO people (first_name, last_name, email, status, signed_up_at) VALUES (?, ?, ?, 'guest', datetime('now'))")
       .run(first, String(profile.last_name || '').trim().slice(0, 60), email);
-    person = { id: Number(info.lastInsertRowid) };
+    personId = Number(info.lastInsertRowid);
     const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('staff', 'admin')").all().map((u) => u.id);
     notify(db, staff, {
       kind: 'connect',
@@ -154,9 +213,7 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  // Someone who already leads a team starts with leader access (see teams: syncLeaderAccess).
-  const leads = role === 'volunteer' && person && db.prepare('SELECT 1 FROM team_members WHERE person_id = ? AND is_leader = 1').get(person.id);
-  const info = db.prepare('INSERT INTO users (email, role, person_id, role_auto) VALUES (?, ?, ?, ?)').run(email, leads ? 'leader' : role, person?.id ?? null, leads ? 1 : 0);
+  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, personId);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -178,16 +235,8 @@ export function checkPassword(pw, stored) {
 const codeHash = (email, code) => crypto.createHash('sha256').update(`${email.toLowerCase()}:${code}`).digest('hex');
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
 
-// In-memory limits per address/IP; enough to stop guessing and email flooding on one server.
-const hits = new Map();
-function limited(key, max, windowMs) {
-  const now = Date.now();
-  const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
-  list.push(now);
-  hits.set(key, list);
-  if (hits.size > 10000) hits.clear();
-  return list.length > max;
-}
+// The sign-in limits (in-memory, per process) live inside authRoutes so each app, and each restart,
+// starts clean. See server/ratelimit.js.
 
 // Who may create their own (volunteer) account just by signing in. Everyone else needs an admin
 // to add them in Settings → Accounts. New accounts only see their own schedule until given more.
@@ -200,6 +249,13 @@ function canJoin(policy, { inDomain, inDirectory }) {
 }
 
 export function authRoutes(app, db) {
+  // IP keys and email keys sit in separate limiters so a flood of made-up emails can't push
+  // out the IP limits (or the reverse); the server-wide code-email ceiling has its own tiny one.
+  const limits = createLimiter();
+  const emailLimits = createLimiter();
+  const codeCeiling = createLimiter({ cap: 10 });
+  let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
+  let capWarnedAt = 0;
   const devLogin = process.env.MB_DEV_LOGIN === '1';
   const google = () => ({
     // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
@@ -251,6 +307,7 @@ export function authRoutes(app, db) {
   app.get('/auth/google/drive', (req, res) => {
     const g = google();
     if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (req.user.campusIds) return res.redirect(`/#/settings/backups?drive_error=${encodeURIComponent(ALL_CAMPUSES_MESSAGE)}`); // backups are church-wide
     if (!g.id) return res.status(500).send('Google sign-in is not set up yet. See README → Google sign-in.');
     const state = crypto.randomBytes(16).toString('base64url');
     res.setHeader('Set-Cookie', `mb_drive=${state}; Max-Age=600; ${cookieFlags(req)}`);
@@ -263,6 +320,7 @@ export function authRoutes(app, db) {
   async function finishDrive(req, res) {
     const back = (msg) => res.redirect(`/#/settings/backups${msg ? `?drive_error=${encodeURIComponent(msg)}` : '?drive=connected'}`);
     if (!req.user || req.user.role !== 'admin') return res.redirect('/login');
+    if (req.user.campusIds) return back(ALL_CAMPUSES_MESSAGE);
     if (req.query.error) return back('Google Drive wasn’t connected.');
     const g = google();
     const r = await fetch(process.env.MB_GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {
@@ -334,42 +392,63 @@ export function authRoutes(app, db) {
   // Sign in with email and password.
   app.post('/auth/password', (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
-    if (limited(`pw:${email}`, 8, 15 * 60e3) || limited(`pwip:${req.ip}`, 40, 15 * 60e3)) {
+    const mismatch = () => res.status(401).json({ error: 'That email and password don’t match. First time here? Use “Email me a code”.' });
+    // Not an email address: nothing to look up, and no limiter key made for it.
+    if (!validEmail(email)) return mismatch();
+    // The address first, then the email: a refused client creates no new keys.
+    if (!ipAllowed(limits, 'pwip', req.ip, 40, 15 * 60e3, { wide: 8 }) || !emailLimits.hit(`pw:${email}`, 8, 15 * 60e3)) {
       return res.status(429).json({ error: 'Too many tries. Wait a few minutes, or use “Email me a code”.' });
     }
     const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
-    if (!user?.password_hash || !checkPassword(req.body?.password || '', user.password_hash)) {
-      return res.status(401).json({ error: 'That email and password don’t match. First time here? Use “Email me a code”.' });
-    }
+    if (!user?.password_hash || !checkPassword(req.body?.password || '', user.password_hash)) return mismatch();
     startSession(db, req, res, user.id);
     res.json({ ok: true });
   });
 
   // Emails a 6-digit code to prove the address belongs to them: for signing in the first time,
   // a forgotten password, or creating an account.
-  app.post('/auth/code', async (req, res) => {
+  app.post('/auth/code', (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (!validEmail(email)) return res.status(400).json({ error: 'Enter your email address.' });
     if (!canSendMail()) return res.status(503).json({ error: 'Email sign-in isn’t set up yet. Use Google, or ask the church office.' });
-    if (limited(`code:${email}`, 5, 60 * 60e3) || limited(`codeip:${req.ip}`, 20, 60 * 60e3)) {
-      return res.status(429).json({ error: 'We’ve sent several codes already. Check your inbox (and spam), or try again in an hour.' });
-    }
-    const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
-    db.prepare('UPDATE login_codes SET used_at = datetime(\'now\') WHERE email = ? AND used_at IS NULL').run(email);
-    db.prepare("INSERT INTO login_codes (email, code_hash, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))").run(email, codeHash(email, code));
-    const church = getSetting(db, 'church_name', 'Church');
+    const tooMany = () => res.status(429).json({ error: 'We’ve sent several codes already. Check your inbox (and spam), or try again in an hour.' });
+    // The address first, then the email: a refused client creates no new keys.
+    if (!ipAllowed(limits, 'codeip', req.ip, 20, 60 * 60e3, { wide: 8 }) || !emailLimits.hit(`code:${email}`, 5, 60 * 60e3)) return tooMany();
+    // Every valid request takes a slot from the server-wide ceiling the same way, whatever the
+    // account state, so filling it can't be used to learn who has an account (only new accounts are
+    // held back by it below; members are never refused because of it).
+    const ceiling = Number(getSetting(db, 'max_code_emails_per_hour', 200));
+    const maxPerHour = Number.isInteger(ceiling) && ceiling > 0 ? ceiling : 200;
+    const capOk = codeCeiling.hit('codes', maxPerHour, 60 * 60e3);
+    // Answer now, the same for everyone; the lookups, the code and the email happen afterwards, so
+    // neither the database work nor the email can be timed to tell whether an address has an account.
+    res.json({ ok: true });
     try {
-      await sendMail({
+      // No account, and the sign-in policy wouldn't let this email make one: send nothing, so the
+      // form can't be used to mail strangers.
+      if (!mayHaveAccount(db, email)) return;
+      // The ceiling only holds back emails that would create a new account.
+      if (!capOk && !db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+        const now = Date.now();
+        if (!capWarnedAt || now - capWarnedAt >= 60 * 60e3) console.warn(`Sign-in codes reached the limit of ${maxPerHour} an hour (max_code_emails_per_hour); new addresses get no code until it clears.`);
+        capWarnedAt = capHitAt = now;
+        return;
+      }
+      const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+      tx(db, () => {
+        db.prepare('UPDATE login_codes SET used_at = datetime(\'now\') WHERE email = ? AND used_at IS NULL').run(email);
+        db.prepare("INSERT INTO login_codes (email, code_hash, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))").run(email, codeHash(email, code));
+      });
+      const church = getSetting(db, 'church_name', 'Church');
+      sendMail({
         to: email,
         subject: `${code} is your ${church} sign-in code`,
         text: `Your code is ${code}\n\nEnter it to sign in or create your ${church} account. It works for 15 minutes.\n\nDidn’t ask for this? You can ignore this email.`,
         html: `<div style="font-family:system-ui,sans-serif;max-width:420px"><p>Your ${church} sign-in code:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:12px 0">${code}</p><p>Enter it to sign in or create your account. It works for 15 minutes.</p><p style="color:#777;font-size:13px">Didn’t ask for this? You can ignore this email.</p></div>`,
-      });
+      }).catch((e) => console.error('Sending the sign-in code failed:', e.message));
     } catch (e) {
-      console.error('Sending the sign-in code failed:', e.message);
-      return res.status(502).json({ error: 'We couldn’t send the email right now. Please try again in a minute.' });
+      console.error('Preparing the sign-in code failed:', e.message); // the answer has already gone
     }
-    res.json({ ok: true });
   });
 
   // Checks the code, then signs them in. Asks for a name (new to the church) or a password (first
@@ -394,7 +473,10 @@ export function authRoutes(app, db) {
     if (password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), user.id);
     db.prepare("UPDATE login_codes SET used_at = datetime('now') WHERE id = ?").run(row.id);
     // A new password signs out everywhere else.
-    if (password) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+    if (password) {
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      closeStreams({ userId: user.id });
+    }
     startSession(db, req, res, user.id);
     res.json({ ok: true });
   });
@@ -403,6 +485,8 @@ export function authRoutes(app, db) {
     endSession(db, req, res);
     res.json({ ok: true });
   });
+
+  return { limits, emailLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
 }
 
 const SIGN_IN_HINTS = {

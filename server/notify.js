@@ -4,9 +4,10 @@
 import crypto from 'node:crypto';
 import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
+import { seesTeamDetail } from './team-scope.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'chat', 'task', 'call', 'email'];
+export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'form', 'chat', 'task', 'call', 'email'];
 // Notices that stay off until someone turns them on.
 export const OFF_BY_DEFAULT = new Set(['accepted']);
 
@@ -189,7 +190,12 @@ export function notifyResponse(db, assignmentId, status) {
   const leaderPeople = db.prepare('SELECT DISTINCT person_id FROM team_members WHERE team_id = ? AND is_leader = 1').all(a.team_id).map((r) => r.person_id);
   const ids = new Set(usersOf(db, leaderPeople).map((u) => u.id));
   const sender = db.prepare('SELECT sent_by FROM assignments WHERE id = ?').get(a.id)?.sent_by;
-  if (sender) ids.add(sender);
+  // The sender hears a decline only while they can still schedule or see detail for that team.
+  if (sender) {
+    const su = db.prepare('SELECT role, person_id, campus_ids, active FROM users WHERE id = ?').get(sender);
+    const asUser = su && { role: su.role, personId: su.person_id };
+    if (asUser && seesTeamDetail(db, asUser, a.team_id)) ids.add(sender);
+  }
   // Not the person replying, and only active accounts.
   const users = ids.size ? db.prepare(`SELECT id, email, person_id, notify FROM users WHERE active = 1 AND id IN (${[...ids].map(() => '?').join(',')})`).all(...ids)
     .filter((u) => u.person_id !== a.person_id) : [];
@@ -226,6 +232,45 @@ function localNow(tz, plusHours = 0) {
   }
 }
 
+// One reminder (email and/or push) for one assignment: pending ones are asked to reply,
+// accepted ones get a heads-up. Returns true if it could be delivered anywhere.
+function remindOne(db, a, uid, to) {
+  const pending = a.status === 'pending';
+  const day = when(a.starts_at).split(' at ')[0];
+  if (to) {
+    mail(db, to, pending ? `Can you serve ${day}?` : `Reminder: you’re serving ${day}`,
+      [`Hi ${a.nickname || a.first_name},`, pending ? 'We haven’t heard back yet. Can you make it?' : `Thanks for serving! ${a.position} at ${when(a.starts_at)}, ${a.campus}.`], { spots: pending ? [a] : [] });
+  }
+  if (uid) {
+    notify(db, [uid], {
+      kind: 'reminder',
+      title: pending ? `Can you serve ${day}?` : `You’re serving ${day}`,
+      body: `${a.position} at ${when(a.starts_at).split(' at ')[1]} · ${a.campus_short || a.campus}.${pending ? ' Please accept or decline.' : ' Thank you!'}`,
+      url: pending ? '/#/my' : `/#/services/${a.service_id}`,
+      app_url: pending ? '/app/#/serve' : `/app/#/plan/${a.service_id}`,
+      tag: `assignment-${a.id}`,
+      actions: pending ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
+      data: { assignment_ids: [a.id] },
+    });
+  }
+  return Boolean(to || uid);
+}
+
+// A leader nudging people who haven't replied: re-sends the request reminder to these
+// assignments (only those still pending). Stamps nudged_at, not reminded_at, so the automatic
+// day-before reminder still goes out. Returns how many reminders could be delivered.
+export function remindPending(db, assignmentIds) {
+  const rows = assignmentRows(db, assignmentIds).filter((a) => a.status === 'pending');
+  if (!rows.length) return 0;
+  db.prepare(`UPDATE assignments SET nudged_at = datetime('now') WHERE id IN (${rows.map(() => '?').join(',')})`).run(...rows.map((a) => a.id));
+  const ids = [...new Set(rows.map((a) => a.person_id))];
+  const users = new Map(usersOf(db, ids).map((u) => [u.person_id, u.id]));
+  const emails = emailTargets(db, ids);
+  let n = 0;
+  for (const a of rows) if (remindOne(db, a, users.get(a.person_id), emails.get(a.person_id))) n++;
+  return n;
+}
+
 // Reminds people a day or two before they serve (Settings: reminder_hours; 0 = off).
 // Pending ones are asked to reply; accepted ones get a heads-up.
 export function sendReminders(db) {
@@ -233,36 +278,18 @@ export function sendReminders(db) {
   if (!hours) return 0;
   let sent = 0;
   for (const c of db.prepare('SELECT id, timezone FROM campuses').all()) {
-    const due = db.prepare(`SELECT a.id, a.sent_at FROM assignments a JOIN services s ON s.id = a.service_id
+    const due = db.prepare(`SELECT a.id, a.sent_at, a.status, a.nudged_at FROM assignments a JOIN services s ON s.id = a.service_id
       WHERE s.campus_id = ? AND a.status != 'declined' AND a.sent_at IS NOT NULL AND a.reminded_at IS NULL AND s.starts_at > ? AND s.starts_at <= ?`)
       .all(c.id, localNow(c.timezone), localNow(c.timezone, hours));
     if (!due.length) continue;
     db.prepare(`UPDATE assignments SET reminded_at = datetime('now') WHERE id IN (${due.map(() => '?').join(',')})`).run(...due.map((a) => a.id));
-    // Someone scheduled in the last few hours just got "you're scheduled"; skip the reminder.
-    const fresh = new Set(due.filter((a) => Date.parse(`${a.sent_at.replace(' ', 'T')}Z`) > Date.now() - 6 * 3600e3).map((a) => a.id));
+    // Someone scheduled, or nudged by a leader, in the last few hours already heard from us; skip it.
+    const recent = (v) => v && Date.parse(`${v.replace(' ', 'T')}Z`) > Date.now() - 6 * 3600e3;
+    const fresh = new Set(due.filter((a) => recent(a.sent_at) || (a.status === 'pending' && recent(a.nudged_at))).map((a) => a.id));
     const rows = assignmentRows(db, due.map((a) => a.id).filter((id) => !fresh.has(id)));
     const users = new Map(usersOf(db, [...new Set(rows.map((a) => a.person_id))]).map((u) => [u.person_id, u.id]));
     const emails = emailTargets(db, [...new Set(rows.map((a) => a.person_id))]);
-    for (const a of rows) {
-      const uid = users.get(a.person_id);
-      const pending = a.status === 'pending';
-      if (emails.has(a.person_id)) {
-        mail(db, emails.get(a.person_id), pending ? `Can you serve ${when(a.starts_at).split(' at ')[0]}?` : `Reminder: you’re serving ${when(a.starts_at).split(' at ')[0]}`,
-          [`Hi ${a.nickname || a.first_name},`, pending ? 'We haven’t heard back yet. Can you make it?' : `Thanks for serving! ${a.position} at ${when(a.starts_at)}, ${a.campus}.`], { spots: pending ? [a] : [] });
-      }
-      if (emails.has(a.person_id) || uid) sent++;
-      if (!uid) continue;
-      notify(db, [uid], {
-        kind: 'reminder',
-        title: pending ? `Can you serve ${when(a.starts_at).split(' at ')[0]}?` : `You’re serving ${when(a.starts_at).split(' at ')[0]}`,
-        body: `${a.position} at ${when(a.starts_at).split(' at ')[1]} · ${a.campus_short || a.campus}.${pending ? ' Please accept or decline.' : ' Thank you!'}`,
-        url: pending ? '/#/my' : `/#/services/${a.service_id}`,
-        app_url: pending ? '/app/#/serve' : `/app/#/plan/${a.service_id}`,
-        tag: `assignment-${a.id}`,
-        actions: pending ? [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Can’t make it' }] : undefined,
-        data: { assignment_ids: [a.id] },
-      });
-    }
+    for (const a of rows) if (remindOne(db, a, users.get(a.person_id), emails.get(a.person_id))) sent++;
   }
   return sent;
 }

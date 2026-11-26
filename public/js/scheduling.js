@@ -3,14 +3,20 @@ import { get, post, html, mount, icon, avatar, displayName, dialog, toast, fail,
 
 // Schedules one person, asking first if they're away or already serving then. Returns false if cancelled.
 export async function scheduleOne(serviceId, positionId, person) {
-  try {
-    await post(`/services/${serviceId}/assignments`, { position_id: positionId, person_id: person.id });
-  } catch (e) {
-    if (e.status !== 409) throw e;
-    if (!(await confirm('Schedule anyway?', `${displayName(person)}: ${e.message}`, 'Schedule anyway'))) return false;
-    await post(`/services/${serviceId}/assignments`, { position_id: positionId, person_id: person.id, force: true });
+  const body = { position_id: positionId, person_id: person.id };
+  // Each 409 is one thing to confirm (a different campus, then away or double-booked); the server
+  // asks again with the next one until everything has been agreed to.
+  for (;;) {
+    try {
+      await post(`/services/${serviceId}/assignments`, body);
+      return true;
+    } catch (e) {
+      if (e.status !== 409) throw e;
+      const campus = Boolean(e.data?.other_campus);
+      if (!(await confirm(campus ? 'Not usually at this campus' : 'Schedule anyway?', `${displayName(person)}: ${e.message}${campus ? '. Schedule them here anyway?' : ''}`, 'Schedule anyway'))) return false;
+      if (campus) body.allow_other_campus = true; else body.force = true;
+    }
   }
-  return true;
 }
 
 // Picks someone for one position at one service: people who play that position first, best
@@ -21,12 +27,13 @@ export async function assignDialog(serviceId, pos, taken, reload) {
   let showAll = false;
   let picked;
   const why = (c) => html`${c.conflicts.map((x) => html`<span class="pill ${x.level === 'block' ? 'bad' : 'warn'}">${x.text}</span> `)}
+    ${c.eligibility_reason ? html`<span class="pill ${c.eligible ? '' : 'warn'}">${c.eligibility_reason}</span> ` : ''}
     ${!c.plays_position ? html`<span class="pill">Not usually ${pos.name}</span> ` : ''}
     <div class="muted small">${c.last_served ? `Last served ${fmtDate(c.last_served)}` : 'Hasn’t served yet'}${c.recent_count ? ` · serving ${c.recent_count} other ${c.recent_count === 1 ? 'day' : 'days'} within 4 weeks` : ''}</div>`;
   // Only people assigned to this position, unless the scheduler asks for the whole team.
   const rows = () => (showAll ? available : available.filter((c) => c.plays_position));
   const others = available.filter((c) => !c.plays_position).length;
-  const listHtml = () => (rows().length ? html`<div class="picker-list">${rows().map((c, i) => html`<button type="button" data-i="${i}">${avatar(c)}<span>${displayName(c)}</span><span class="why">${why(c)}</span></button>`)}</div>`
+  const listHtml = () => (rows().length ? html`<div class="picker-list">${rows().map((c, i) => html`<button type="button" data-i="${i}" class="${c.eligible ? '' : 'dim'}">${avatar(c)}<span>${displayName(c)}</span><span class="why">${why(c)}</span></button>`)}</div>`
     : html`<p class="muted">No one is assigned to ${pos.name} yet. Tick people for it in the team’s roster.</p>`);
   await dialog({
     title: `Schedule ${pos.name}`, submit: null,
@@ -78,4 +85,20 @@ export async function sendRequests(serviceIds, teamId = null) {
   });
   if (result) toast(`Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`);
   return Boolean(result);
+}
+
+// Team id -> the id of that team's chat, for the chats this person can see (so "Message team"
+// only shows when it will open). Empty if chat can't be loaded.
+export async function teamChats() {
+  try {
+    return new Map((await get('/chats')).chats.filter((c) => c.kind === 'team' && c.team_id).map((c) => [c.team_id, c.id]));
+  } catch { return new Map(); }
+}
+
+// Asks, then re-sends the request to people on this service who were asked but haven't replied.
+export async function remindUnanswered(serviceId, count, teamId = null) {
+  if (!(await confirm('Remind people?', `Send a friendly reminder to ${count} ${count === 1 ? 'person' : 'people'} who haven’t replied yet? Anyone reminded in the last 12 hours is skipped.`, 'Send reminder', { danger: false }))) return false;
+  const r = await post(`/services/${serviceId}/remind`, teamId ? { team_id: teamId } : {});
+  toast(r.reminded ? `Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'}${r.skipped ? ` (${r.skipped} reminded recently, skipped)` : ''}.` : 'Everyone was already reminded in the last 12 hours.');
+  return true;
 }

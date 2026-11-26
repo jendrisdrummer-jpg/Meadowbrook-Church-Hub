@@ -94,6 +94,8 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   const drummer = (await api('admin', 'POST', '/people', { first_name: 'Dan', last_name: 'Drums', campus_id: 1, email: 'vol@mb.org' })).data;
   db.prepare('UPDATE users SET person_id = ? WHERE email = ?').run(drummer.id, 'vol@mb.org');
   await api('admin', 'PUT', `/teams/${team.data.id}/members/${drummer.id}`, { position_ids: [drums.id] });
+  // Serves at both campuses, so the clash below is about the overlap rather than the campus.
+  assert.equal((await api('admin', 'PUT', `/people/${drummer.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
 
   // Two repeating Sunday services starting next week, at overlapping times on different campuses.
   const sunday = nextSunday(7);
@@ -108,7 +110,7 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   assert.equal(north.starts_at, `${sunday}T09:00`);
   assert.equal(north.needed, 3);
 
-  const fill = await api('admin', 'POST', `/services/${north.id}/autofill`);
+  const fill = await api('admin', 'POST', `/services/${north.id}/autofill`, { team_id: team.data.id });
   assert.deepEqual(fill.data.added.map((a) => a.position), ['Drums']);
   // Same person can't be booked at the overlapping South service.
   const clash = await api('admin', 'POST', `/services/${south.id}/assignments`, { position_id: drums.id, person_id: drummer.id });
@@ -382,7 +384,7 @@ test('month schedule: grid, members and filling the month for one team', async (
   const firstCell = after.cells[`${after.services[0].id}:${door.id}`];
   if (after.services[0].starts_at.startsWith(first)) assert.notEqual(firstCell.assignments[0].person_id, people[0].id);
   // North-only staff can't schedule South services.
-  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id] })).status, 403);
+  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id], team_id: team.data.id })).status, 403);
 });
 
 test('notifications: scheduled, declined to leaders, reminders, push and preferences', async (t) => {
@@ -580,14 +582,14 @@ test('email sign-in: codes, passwords, new people from the app, and deleting acc
   assert.equal((await auth('/auth/password', { email: 'newbie@example.com', password: 'wrong password' })).status, 401);
   assert.equal((await auth('/auth/password', { email: 'NEWBIE@example.com', password: 'correct horse 1' })).status, 200);
 
-  // Someone already in People gets linked, not duplicated.
+  // Someone already in People can sign in, but isn't duplicated and isn't linked: an admin does that.
   const before = db.prepare('SELECT COUNT(*) n FROM people').get().n;
   await auth('/auth/code', { email: 'sarah@example.com' });
   r = await auth('/auth/code/verify', { email: 'sarah@example.com', code: lastCode('sarah@example.com'), password: 'sarahs password' });
   assert.equal(r.status, 200);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM people').get().n, before);
   const sarahUser = db.prepare("SELECT * FROM users WHERE email = 'sarah@example.com'").get();
-  assert.equal(sarahUser.person_id, db.prepare("SELECT id FROM people WHERE email = 'sarah@example.com'").get().id);
+  assert.equal(sarahUser.person_id, null);
 
   // The accounts list shows extra access only (search finds anyone); admins can delete accounts.
   const list = (await api('admin', 'GET', '/users')).data;
@@ -680,7 +682,12 @@ test('leading a team gives leader access, and takes it back only if it came from
   const role = () => db.prepare('SELECT role, role_auto FROM users WHERE person_id = ?').get(mia.id);
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [] });
   assert.equal(role(), undefined);
-  // Made a leader before ever signing in: an account is set up with leader access.
+  // Made a leader before having an account: no account is made from her email.
+  await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
+  assert.equal(role(), undefined);
+  // An admin adds her account and links it by hand: the team-leader rule applies at that moment.
+  assert.equal((await api('admin', 'POST', '/users', { email: 'mia@example.com', role: 'volunteer', person_id: mia.id })).status, 201);
+  assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
   await api('admin', 'PUT', `/teams/${tid}/members/${mia.id}`, { position_ids: [], is_leader: true });
   assert.deepEqual({ ...role() }, { role: 'leader', role_auto: 1 });
   assert.equal((await api('admin', 'GET', `/people/${mia.id}`)).data.account.role, 'leader');
@@ -693,6 +700,283 @@ test('leading a team gives leader access, and takes it back only if it came from
   await api('admin', 'PATCH', `/users/${uid}`, { role: 'staff' });
   await api('admin', 'DELETE', `/teams/${tid}/members/${mia.id}`);
   assert.deepEqual({ ...role() }, { role: 'staff', role_auto: 0 });
+});
+
+test('leaders see contact details but not health information, private notes or pickups', async () => {
+  // A family at North: a parent and a child, each with health information and private notes.
+  const hh = (await api('admin', 'POST', '/households', { name: 'Privacy Household', campus_id: 1 })).data;
+  const make = async (b) => (await api('admin', 'POST', '/people', { campus_id: 1, household_id: hh.id, force: true, ...b })).data;
+  const parent = await make({ first_name: 'Pat', last_name: 'Private', household_role: 'adult', email: 'pat@private.org',
+    allergies: 'PARENT-ALLERGY-CANARY', medical_notes: 'PARENT-MEDICAL-CANARY', notes: 'PASTORAL-CANARY' });
+  const child = await make({ first_name: 'Kit', last_name: 'Private', household_role: 'child', birthdate: '2019-05-01',
+    allergies: 'CHILD-ALLERGY-CANARY', medical_notes: 'CHILD-MEDICAL-CANARY', notes: 'CHILD-NOTES-CANARY' });
+  await api('admin', 'PATCH', `/households/${hh.id}`, { notes: 'HOUSEHOLD-NOTES-CANARY' });
+  await api('admin', 'POST', `/households/${hh.id}/pickups`, { name: 'Gran Private', relationship: 'Grandmother', phone: '555-0100' });
+
+  // Someone who gets leader access only because they lead a team (any team: here, parking).
+  const team = await api('admin', 'POST', '/teams', { name: 'Parking', campus_id: 1, positions: ['Lot'] });
+  const lee = (await api('admin', 'POST', '/people', { first_name: 'Lee', last_name: 'Lot', email: 'lee@lot.org', campus_id: 1 })).data;
+  await api('admin', 'POST', '/users', { email: 'lee@lot.org', role: 'volunteer', person_id: lee.id });
+  await api('admin', 'PUT', `/teams/${team.data.id}/members/${lee.id}`, { position_ids: [], is_leader: true });
+  const leeUser = db.prepare('SELECT id, role FROM users WHERE person_id = ?').get(lee.id);
+  assert.equal(leeUser.role, 'leader');
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.lee = v.split(';')[0]; } }, leeUser.id);
+
+  for (const id of [parent.id, child.id]) {
+    const seen = await api('lee', 'GET', `/people/${id}`);
+    assert.equal(seen.status, 200);
+    assert.ok(seen.data.first_name && seen.data.teams && seen.data.household.members.length === 2, 'contact and serving details still shown');
+    const text = JSON.stringify(seen.data);
+    assert.ok(!/CANARY/.test(text), `no health information, private notes or household notes for a leader: ${text.match(/[A-Z-]*CANARY/g)}`);
+    for (const k of ['allergies', 'medical_notes', 'notes']) assert.equal(k in seen.data, false, k);
+    assert.equal('pickups' in seen.data.household, false, 'pickup list is staff-only');
+    assert.equal('notes' in seen.data.household, false);
+  }
+
+  // Staff and admins still see everything, as before.
+  for (const role of ['admin', 'north']) {
+    const full = (await api(role, 'GET', `/people/${child.id}`)).data;
+    assert.equal(full.medical_notes, 'CHILD-MEDICAL-CANARY');
+    assert.equal(full.allergies, 'CHILD-ALLERGY-CANARY');
+    assert.equal(full.notes, 'CHILD-NOTES-CANARY');
+    assert.equal(full.household.notes, 'HOUSEHOLD-NOTES-CANARY');
+    assert.deepEqual(full.household.pickups.map((p) => p.name), ['Gran Private']);
+  }
+  assert.equal((await api('vol', 'GET', `/people/${child.id}`)).status, 403);
+
+  // Check-in keeps children's allergies and medical notes, but never sends an adult's.
+  // (Lee needs check-in authorisation first; see the check-in access test.)
+  await api('admin', 'PATCH', `/users/${leeUser.id}`, { checkin: true });
+  const roster = (await api('lee', 'GET', '/checkin/roster?campus_id=1')).data;
+  const family = roster.households.find((h) => h.id === hh.id);
+  const kid = family.members.find((m) => m.id === child.id);
+  const adult = family.members.find((m) => m.id === parent.id);
+  assert.equal(kid.allergies, 'CHILD-ALLERGY-CANARY');
+  assert.equal(kid.medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(adult.allergies, null);
+  assert.equal(adult.medical_notes, null);
+  assert.ok(!JSON.stringify(roster).includes('PARENT-'), 'no adult health information anywhere in the roster');
+  assert.ok(!JSON.stringify(roster).includes('PASTORAL-CANARY'));
+
+  // The same on the list of who is checked in today: the child's notes, never an adult's.
+  const today = roster.today;
+  const ins = db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES (?, 1, ?, ?, ?, datetime('now'))");
+  ins.run('privacy-kid', child.id, 'kid', today);
+  ins.run('privacy-adult', parent.id, 'volunteer', today);
+  const active = (await api('lee', 'GET', `/checkin/active?campus_id=1&day=${today}`)).data;
+  assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(active.find((c) => c.id === 'privacy-adult').allergies, null);
+  assert.ok(!JSON.stringify(active).includes('PARENT-'), 'no adult health information in the active list');
+  db.prepare("DELETE FROM checkins WHERE id LIKE 'privacy-%'").run();
+});
+
+test('kids check-in is for staff, stations and authorised accounts; card messages are staff only; leader access is audited', async () => {
+  // A leader only because they lead a non-kids team.
+  const team = await api('admin', 'POST', '/teams', { name: 'Greeters', campus_id: 1, positions: ['Door'] });
+  const gwen = (await api('admin', 'POST', '/people', { first_name: 'Gwen', last_name: 'Greet', email: 'gwen@greet.org', campus_id: 1 })).data;
+  await api('admin', 'POST', '/users', { email: 'gwen@greet.org', role: 'volunteer', person_id: gwen.id });
+  await api('admin', 'PUT', `/teams/${team.data.id}/members/${gwen.id}`, { position_ids: [], is_leader: true });
+  const user = db.prepare('SELECT id, role FROM users WHERE person_id = ?').get(gwen.id);
+  assert.equal(user.role, 'leader');
+  const granted = db.prepare("SELECT detail FROM audit_log WHERE action = 'user.leader_auto' ORDER BY id DESC LIMIT 1").get();
+  assert.deepEqual(JSON.parse(granted.detail), { user_id: user.id, person_id: gwen.id, granted: true });
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.gwen = v.split(';')[0]; } }, user.id);
+
+  // Not authorised: every check-in route refuses, with a plain reason.
+  const refused = [
+    await api('gwen', 'GET', '/checkin/roster?campus_id=1'),
+    await api('gwen', 'GET', '/checkin/active?campus_id=1'),
+    await api('gwen', 'POST', '/checkin/checkins', { campus_id: 1, checkins: [] }),
+    await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: [] }),
+    await api('gwen', 'DELETE', '/checkin/checkins/nope'),
+  ];
+  for (const r of refused) assert.equal(r.status, 403);
+  assert.match(refused[0].data.error, /authorised/);
+  // Staff still can, within their campus; volunteers can't.
+  assert.equal((await api('north', 'GET', '/checkin/roster?campus_id=1')).status, 200);
+  assert.equal((await api('north', 'GET', '/checkin/roster?campus_id=2')).status, 403);
+  assert.equal((await api('vol', 'GET', '/checkin/roster?campus_id=1')).status, 403);
+
+  // An admin authorises Gwen (children's ministry): she can use check-in; the account list shows it.
+  assert.equal((await api('north', 'PATCH', `/users/${user.id}`, { checkin: true })).status, 403, 'only admins grant it');
+  await api('admin', 'PATCH', `/users/${user.id}`, { checkin: true });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 200);
+  assert.equal((await api('gwen', 'GET', '/checkin/active?campus_id=1')).status, 200);
+  assert.equal((await api('admin', 'GET', '/users')).data.users.find((u) => u.id === user.id).checkin, true);
+  // Campus limits hold on every check-in route, asked directly through the API.
+  const southHh = (await api('admin', 'POST', '/households', { name: 'South Household', campus_id: 2 })).data;
+  const southKid = (await api('admin', 'POST', '/people', { first_name: 'Sam', last_name: 'South', household_id: southHh.id, household_role: 'child',
+    campus_id: 2, birthdate: '2019-03-01', medical_notes: 'SOUTH-MEDICAL-CANARY', force: true })).data;
+  const southDay = (await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.today;
+  db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES ('south-guard-1', 2, ?, 'kid', ?, datetime('now'))").run(southKid.id, southDay);
+  await api('admin', 'PATCH', `/users/${user.id}`, { campus_ids: [1] });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=2')).status, 403);
+  assert.equal((await api('gwen', 'GET', '/checkin/active?campus_id=2')).status, 403);
+  assert.equal((await api('gwen', 'POST', '/checkin/checkins', { campus_id: 2, records: [{ id: 'south-guard-2', person_id: southKid.id, checked_in_at: new Date().toISOString() }] })).status, 403);
+  assert.equal((await api('gwen', 'POST', '/checkin/checkout', { campus_id: 2, ids: ['south-guard-1'] })).status, 403);
+  assert.equal((await api('gwen', 'DELETE', '/checkin/checkins/south-guard-1')).status, 403);
+  assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null, 'nothing changed');
+  // Their own campus's roster holds that campus's families and unassigned ones (Faith Teams has
+  // no campuses), but never a family assigned to another campus.
+  const looseHh = (await api('admin', 'POST', '/households', { name: 'Unassigned Household', campus_id: null })).data;
+  await api('admin', 'POST', '/people', { first_name: 'Una', last_name: 'Loose', household_id: looseHh.id, household_role: 'child', birthdate: '2020-01-01', force: true });
+  const northRoster = (await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data;
+  assert.equal(northRoster.households.some((h) => h.id === southHh.id), false);
+  assert.ok(!JSON.stringify(northRoster).includes('SOUTH-MEDICAL-CANARY'));
+  assert.equal(northRoster.households.some((h) => h.id === looseHh.id), true, 'unassigned families are included on purpose');
+  assert.equal((await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.households.some((h) => h.id === looseHh.id), true);
+  // Once staff assign the family a campus, it appears only there.
+  assert.equal((await api('admin', 'PATCH', `/households/${looseHh.id}`, { campus_id: 2 })).status, 200);
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).data.households.some((h) => h.id === looseHh.id), false);
+  assert.equal((await api('admin', 'GET', '/checkin/roster?campus_id=2')).data.households.some((h) => h.id === looseHh.id), true);
+  // Checking a South child in at North (by guessing their id) is skipped, so they never appear in
+  // North's list of who's checked in, with or without their notes.
+  const sneaky = await api('gwen', 'POST', '/checkin/checkins', { campus_id: 1, records: [{ id: 'south-guard-3', person_id: southKid.id, checked_in_at: new Date().toISOString() }] });
+  assert.equal(sneaky.status, 201);
+  assert.deepEqual(sneaky.data, []);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM checkins WHERE id = 'south-guard-3'").get().n, 0);
+  db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, day, checked_in_at) VALUES ('south-guard-4', 1, ?, 'kid', ?, datetime('now'))").run(southKid.id, southDay);
+  assert.ok(!JSON.stringify((await api('gwen', 'GET', `/checkin/active?campus_id=1&day=${southDay}`)).data).includes('SOUTH-MEDICAL-CANARY'), 'even a stray row never shows another campus\'s child');
+  // A checkout by ids at their own campus can't reach another campus's child either.
+  await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['south-guard-1'] });
+  assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null);
+  db.prepare("DELETE FROM checkins WHERE id LIKE 'south-guard-%'").run();
+  await api('admin', 'PATCH', `/users/${user.id}`, { campus_ids: 'all' });
+
+  // Taken away again: refused at once.
+  await api('admin', 'PATCH', `/users/${user.id}`, { checkin: false });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 403);
+  // Authorising a volunteer account doesn't give it check-in (leader access is still needed).
+  const volId = db.prepare("SELECT id FROM users WHERE email = 'vol@mb.org'").get().id;
+  await api('admin', 'PATCH', `/users/${volId}`, { checkin: true });
+  assert.equal((await api('vol', 'GET', '/checkin/roster?campus_id=1')).status, 403);
+  await api('admin', 'PATCH', `/users/${volId}`, { checkin: false });
+
+  // Connect cards: leaders see who and what they ticked, never the message; staff see it.
+  const sent = await fetch(base + '/api/public/connect', { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' },
+    body: JSON.stringify({ first_name: 'Casey', email: 'casey@visit.org', campus_id: 1, message: 'PRAYER-CANARY please pray for my family' }) });
+  assert.equal(sent.status, 201);
+  const forLeader = (await api('gwen', 'GET', '/connect-cards')).data.find((c) => c.first_name === 'Casey');
+  assert.equal(forLeader.has_message, true);
+  assert.equal('message' in forLeader, false);
+  assert.ok(!JSON.stringify((await api('gwen', 'GET', '/connect-cards')).data).includes('PRAYER-CANARY'));
+  assert.match((await api('north', 'GET', '/connect-cards')).data.find((c) => c.first_name === 'Casey').message, /PRAYER-CANARY/);
+
+  // No longer leading: leader access goes, and that's audited too.
+  await api('admin', 'DELETE', `/teams/${team.data.id}/members/${gwen.id}`);
+  const revoked = db.prepare("SELECT detail FROM audit_log WHERE action = 'user.leader_auto' ORDER BY id DESC LIMIT 1").get();
+  assert.deepEqual(JSON.parse(revoked.detail), { user_id: user.id, person_id: gwen.id, granted: false });
+  // Authorisation never lingers: dropping to volunteer or deleting the account removes it.
+  await api('admin', 'PATCH', `/users/${user.id}`, { checkin: true });
+  await api('admin', 'PATCH', `/users/${user.id}`, { role: 'volunteer' });
+  assert.equal((await api('admin', 'GET', '/users?q=gwen')).data.users.find((u) => u.id === user.id).checkin, false);
+  await api('admin', 'PATCH', `/users/${user.id}`, { role: 'leader' });
+  assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 403, 'it does not come back by itself');
+  const temp = (await api('admin', 'POST', '/users', { email: 'temp-checkin@example.org', role: 'leader', checkin: true })).data.id;
+  await api('admin', 'DELETE', `/users/${temp}`);
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'checkin_user_ids'").get().value.includes(String(temp)), false);
+});
+
+test('unlinked accounts: the office is told once, only an admin links them, and nothing links automatically', async () => {
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  // An account an admin added without choosing a person (nobody in People has this email).
+  const made = await api('admin', 'POST', '/users', { email: 'newstaff@example.org', role: 'volunteer' });
+  assert.equal(made.status, 201);
+  const uid = made.data.id;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.unlinked = v.split(';')[0]; } }, uid);
+  assert.equal((await api('unlinked', 'GET', '/my/schedule')).data.linked, false);
+  assert.equal((await api('unlinked', 'GET', '/app/config')).data.user.linked, false);
+
+  // Showing the "we've told the office" screen asks once; admins get one notification, not one per visit.
+  const notes = () => db.prepare("SELECT title, url FROM notifications WHERE user_id = ? AND kind = 'account'").all(adminId);
+  const before = notes().length;
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: false, notified: true });
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: false, notified: false });
+  assert.equal(notes().length, before + 1);
+  assert.match(notes().at(-1).title, /newstaff@example\.org/);
+  assert.equal(notes().at(-1).url, '/#/settings/accounts');
+  // Asking never links the account to anyone, even when People has someone who could match.
+  await api('admin', 'POST', '/people', { first_name: 'Newstaff', last_name: 'Example', campus_id: 1, force: true });
+  await api('unlinked', 'POST', '/me/link-request');
+  assert.equal(db.prepare('SELECT person_id FROM users WHERE id = ?').get(uid).person_id, null);
+
+  // Admins see it in the list of unlinked accounts; nobody else can see that list or link.
+  const list = await api('admin', 'GET', '/users');
+  assert.ok(list.data.unlinked.some((u) => u.id === uid && u.link_requested_at));
+  const person = (await api('admin', 'POST', '/people', { first_name: 'Nora', last_name: 'Newstaff', email: 'nora@church.org', campus_id: 1 })).data;
+  for (const role of ['north', 'vol', 'unlinked']) {
+    assert.equal((await api(role, 'GET', '/users')).status, 403, role);
+    assert.equal((await api(role, 'PATCH', `/users/${uid}`, { person_id: person.id })).status, 403, role);
+  }
+  assert.equal(db.prepare('SELECT person_id FROM users WHERE id = ?').get(uid).person_id, null);
+
+  // An admin links it to the person they chose; the account then sees that person's schedule.
+  assert.equal((await api('admin', 'PATCH', `/users/${uid}`, { person_id: 999999 })).status, 404);
+  assert.equal((await api('admin', 'PATCH', `/users/${uid}`, { person_id: person.id })).status, 200);
+  assert.equal((await api('unlinked', 'GET', '/my/schedule')).data.linked, true);
+  assert.equal((await api('admin', 'GET', '/users')).data.unlinked.some((u) => u.id === uid), false);
+  assert.deepEqual((await api('unlinked', 'POST', '/me/link-request')).data, { linked: true, notified: false });
+  // One person, one account: a second account can't be linked to the same person.
+  const other = (await api('admin', 'POST', '/users', { email: 'second@example.org', role: 'volunteer' })).data.id;
+  const dup = await api('admin', 'PATCH', `/users/${other}`, { person_id: person.id });
+  assert.equal(dup.status, 409);
+  assert.match(dup.data.error, /already has an account/);
+  // The same checks apply when an admin creates an account for a chosen person.
+  assert.equal((await api('admin', 'POST', '/users', { email: 'third@example.org', role: 'volunteer', person_id: person.id })).status, 409);
+  assert.equal((await api('admin', 'POST', '/users', { email: 'fourth@example.org', role: 'volunteer', person_id: 999999 })).status, 404);
+});
+
+test('feedback: anyone signed in sends it, admins triage it, and "You said, we did" shows what was done', async () => {
+  const adminId = db.prepare("SELECT id FROM users WHERE email = 'admin@mb.org'").get().id;
+  assert.equal((await api(null, 'POST', '/feedback', { body: 'hi' })).status, 401);
+  assert.equal((await api('vol', 'POST', '/feedback', { category: 'bug' })).status, 400, 'needs the text');
+  const sent = await api('vol', 'POST', '/feedback', { category: 'bug', severity: 'blocks_sunday', body: 'VOL-CANARY The accept button did nothing', page: '/services/3', campus_id: 1 });
+  assert.equal(sent.status, 201);
+  const note = db.prepare("SELECT title, body, url FROM notifications WHERE user_id = ? AND kind = 'feedback' ORDER BY id DESC LIMIT 1").get(adminId);
+  assert.match(note.title, /^Blocks Sunday: Bug from /);
+  assert.ok(!note.body.includes('VOL-CANARY'), 'the feedback text never goes into a notification');
+  assert.equal(note.url, '/#/feedback');
+  await api('north', 'POST', '/feedback', { category: 'idea', severity: 'nice_to_have', body: 'NORTH-CANARY a ministry idea' });
+
+  // Each person sees only their own; admins see everything, with who sent it and where from.
+  const volList = (await api('vol', 'GET', '/feedback')).data;
+  assert.equal(volList.length, 1);
+  assert.equal(volList[0].page, '/services/3');
+  assert.ok(!JSON.stringify(volList).includes('NORTH-CANARY'));
+  assert.equal('admin_note' in volList[0], false);
+  const all = (await api('admin', 'GET', '/feedback')).data;
+  const mine = all.find((f) => f.id === sent.data.id);
+  assert.equal(mine.sender_email, 'vol@mb.org');
+  assert.equal(mine.role, 'volunteer');
+  assert.ok(all.some((f) => /NORTH-CANARY/.test(f.body)));
+
+  // Only admins triage.
+  for (const role of ['vol', 'north']) assert.equal((await api(role, 'PATCH', `/feedback/${sent.data.id}`, { status: 'done' })).status, 403);
+  await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'planned', admin_note: 'ADMIN-ONLY-CANARY repro on iPhone' });
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].status, 'planned');
+  assert.ok(!JSON.stringify((await api('vol', 'GET', '/feedback')).data).includes('ADMIN-ONLY-CANARY'));
+  assert.equal((await api('admin', 'GET', '/feedback?status=planned')).data.every((f) => f.status === 'planned'), true);
+
+  // Done, with a note: the sender sees what happened, and everyone sees it under "You said, we did",
+  // without the sender's name or their original words.
+  const done = await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'done', done_note: 'Accept now works from the notification' });
+  assert.ok(done.data.done_at);
+  assert.equal((await api('vol', 'GET', '/feedback')).data[0].done_note, 'Accept now works from the notification');
+  const record = (await api('north', 'GET', '/feedback/done')).data;
+  assert.ok(record.some((d) => d.done_note === 'Accept now works from the notification'));
+  assert.ok(!JSON.stringify(record).match(/VOL-CANARY|vol@mb\.org|ADMIN-ONLY-CANARY/));
+  // A campus-limited admin sees only their campuses' feedback (and feedback with no campus); a sender
+  // can only tag a campus they belong to.
+  const southAdminId = db.prepare("INSERT INTO users (email, role, campus_ids) VALUES ('southadmin@mb.org', 'admin', '[2]')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.southadmin = v.split(';')[0]; } }, southAdminId);
+  const southView = (await api('southadmin', 'GET', '/feedback')).data;
+  assert.equal(southView.some((f) => f.id === sent.data.id), false, 'campus 1 feedback hidden from a campus 2 admin');
+  assert.ok(southView.some((f) => /NORTH-CANARY/.test(f.body)), 'feedback with no campus is shown');
+  const tagged = await api('north', 'POST', '/feedback', { category: 'idea', body: 'tag test', campus_id: 2 });
+  assert.equal(db.prepare('SELECT campus_id FROM feedback WHERE id = ?').get(tagged.data.id).campus_id, null);
+  db.prepare('DELETE FROM users WHERE id = ?').run(southAdminId); // later tests count admins
+  // Re-opening clears the done date.
+  assert.equal((await api('admin', 'PATCH', `/feedback/${sent.data.id}`, { status: 'looking' })).data.done_at, null);
 });
 
 test('chat: team chats follow the roster, messages, files, reactions, groups and live updates', async (t) => {
@@ -1336,10 +1620,12 @@ test('events: calendar, sign-ups with questions and a cap, paid sign-ups through
   assert.equal(list.rows.find((r) => r.status === 'canceled').name, 'Gus Guest');
   assert.ok(!('key' in list.rows[0]));
   await api('admin', 'POST', `/admin/events/${potluck.id}/signups`, { name: 'Phone Call Phil', count: 1, answers: { dish: 'Main' } });
+  await api('admin', 'POST', `/admin/events/${potluck.id}/signups`, { name: '=1+1', count: 1, answers: { dish: '@cmd' } });
   const csv = await fetch(`${base}/api/admin/events/${potluck.id}/signups.csv`, { headers: { cookie: cookies.admin } }).then((r) => r.text());
   assert.match(csv, /^Name,Email,Phone,People,What are you bringing\?,Bringing kids\?,Paid,Signed up/);
   assert.match(csv, /Phone Call Phil,,,1,Main/);
   assert.ok(!/Gus Guest/.test(csv));
+  assert.ok(csv.includes("'=1+1,") && csv.includes("'@cmd"), 'leading = and @ are defused in the sign-up CSV');
   assert.equal((await api('vol', 'GET', `/admin/events/${potluck.id}/signups`)).status, 403);
 
   // Paid events: checkout by card, confirmed by the webhook, which doesn't count as a gift.
@@ -1555,6 +1841,46 @@ test('backups: encrypted database copies, Google Drive, uploaded files, keeping 
   const restored = new DatabaseSync(copy);
   assert.equal(restored.prepare('SELECT COUNT(*) n FROM people').get().n, db.prepare('SELECT COUNT(*) n FROM people').get().n);
   restored.close();
+
+  // The restore check: whole, current schema, same counts; a damaged copy fails it; the script never overwrites.
+  const { checkRestored } = await import('../server/restore-check.js');
+  const { SCHEMA_VERSION } = await import('../server/db.js');
+  const good = checkRestored(copy);
+  assert.equal(good.ok, true, good.problems.join('; '));
+  assert.equal(good.integrity, 'ok');
+  assert.equal(good.version, SCHEMA_VERSION);
+  assert.equal(good.counts.people, db.prepare('SELECT COUNT(*) n FROM people').get().n);
+  assert.equal(good.counts.assignments, db.prepare('SELECT COUNT(*) n FROM assignments').get().n);
+  const broken = path.join(dir, 'broken.db');
+  const bytes = fs.readFileSync(copy);
+  fs.writeFileSync(broken, bytes.subarray(0, Math.floor(bytes.length / 2)));
+  assert.equal(checkRestored(broken).ok, false);
+  fs.writeFileSync(path.join(dir, 'junk.db'), 'not a database at all');
+  assert.equal(checkRestored(path.join(dir, 'junk.db')).ok, false);
+  const { execFileSync } = await import('node:child_process');
+  const script = path.resolve('scripts/restore-backup.js');
+  const env = { ...process.env, MB_BACKUP_PASSWORD: 'correct horse battery staple' };
+  const run = (...a) => { try { return { code: 0, out: execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', script, ...a], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  const drill = run(path.join(dir, local.data.name), 'drill.db', '--check');
+  assert.equal(drill.code, 0, drill.out);
+  assert.match(drill.out, /Restore check passed/);
+  const again = run(path.join(dir, local.data.name), 'drill.db', '--check');
+  assert.equal(again.code, 1);
+  assert.match(again.out, /never overwrites/);
+  assert.equal(fs.statSync(path.join(dir, 'drill.db')).mode & 0o777, 0o600, 'readable by you only');
+  // The password can come from a hidden prompt (piped here) instead of the environment.
+  const noEnv = { ...env }; delete noEnv.MB_BACKUP_PASSWORD;
+  let piped;
+  try { piped = { code: 0, out: execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', script, path.join(dir, local.data.name), 'prompted.db', '--check'], { cwd: dir, env: noEnv, input: 'correct horse battery staple\n', encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { piped = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(piped.code, 0, piped.out);
+  // Never inside the code folder; --check on something that isn't a database fails loudly.
+  const inRepo = run(path.join(dir, local.data.name), path.resolve('drill-in-repo.db'));
+  assert.equal(inRepo.code, 1);
+  assert.match(inRepo.out, /Not writing inside the code folder/);
+  assert.ok(!fs.existsSync(path.resolve('drill-in-repo.db')));
+  const notDb = run(path.join(dir, local.data.name), 'copy.sqlite', '--check');
+  assert.equal(notDb.code, 3);
+  assert.match(notDb.out, /Check skipped/);
 
   // Google Drive (a stand-in): the copy and new uploaded files go to a folder; unchanged files don't go again.
   const calls = [];
@@ -2038,4 +2364,313 @@ test('streaming through Mux: one stream key, live in the app during services, re
   // Left out of the podcast: gone from the feed.
   await api('admin', 'PATCH', `/media/${rec.id}`, { podcast: false });
   assert.ok(!(await (await fetch(`${base}/podcast.xml`)).text()).includes('<item>'));
+});
+
+test('remind people who haven’t replied: pending only, once per 12 hours, scoped to who may schedule', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Remind Crew', campus_id: 2, positions: ['Greeter'] })).data;
+  const other = (await api('admin', 'POST', '/teams', { name: 'Other Crew', campus_id: 2, positions: ['Parker'] })).data;
+  const [greeter] = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions;
+  const person = (first, role, key) => {
+    const p = Number(db.prepare('INSERT INTO people (first_name, last_name, campus_id) VALUES (?, ?, 2)').run(first, 'Remind').lastInsertRowid);
+    const u = Number(db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(`${first.toLowerCase()}@remind.org`, role, p).lastInsertRowid);
+    if (key) startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, u);
+    return { p, u };
+  };
+  const pend = person('Pia', 'volunteer'), acc = person('Abe', 'volunteer'), dec = person('Dee', 'volunteer'), draft = person('Dru', 'volunteer');
+  const lead = person('Lea', 'leader', 'remindLead'), otherLead = person('Olu', 'leader', 'remindOther'), vol = person('Vic', 'volunteer', 'remindVol');
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team.id, lead.p);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(other.id, otherLead.p);
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: `${nextSunday(49)}T10:00` })).data;
+  const add = async (who) => (await api('admin', 'POST', `/services/${svc.id}/assignments`, { position_id: greeter.id, person_id: who.p, force: true })).data;
+  const [aPend, aAcc, aDec] = [await add(pend), await add(acc), await add(dec)];
+  await api('admin', 'POST', '/assignments/send', { service_ids: [svc.id] });
+  await api('admin', 'PATCH', `/assignments/${aAcc.id}`, { status: 'accepted' });
+  await api('admin', 'PATCH', `/assignments/${aDec.id}`, { status: 'declined' });
+  await add(draft); // never sent
+  const inbox = (who) => db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND kind = 'reminder'").get(who.u).n;
+
+  // Not for volunteers, or a leader of a different team; a campus-limited scheduler can't reach another campus.
+  assert.equal((await api('remindVol', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  // Nothing of theirs to remind: a quiet zero, so it doesn't reveal another team's pending requests.
+  assert.deepEqual((await api('remindOther', 'POST', `/services/${svc.id}/remind`)).data, { reminded: 0, skipped: 0 });
+  assert.equal((await api('remindOther', 'POST', `/services/${svc.id}/remind`, { team_id: team.id })).status, 403);
+  assert.equal((await api('north', 'POST', `/services/${svc.id}/remind`)).status, 403);
+  assert.equal(inbox(pend), 0);
+
+  // The team's leader reminds: only the pending, sent request hears about it.
+  const r1 = await api('remindLead', 'POST', `/services/${svc.id}/remind`, { team_id: team.id });
+  assert.deepEqual([r1.status, r1.data.reminded, r1.data.skipped], [200, 1, 0]);
+  assert.deepEqual([inbox(pend), inbox(acc), inbox(dec), inbox(draft)], [1, 0, 0, 0]);
+  assert.match(db.prepare("SELECT title FROM notifications WHERE user_id = ? AND kind = 'reminder'").get(pend.u).title, /Can you serve/);
+
+  // Again straight away: skipped, nothing new sent.
+  const r2 = await api('remindLead', 'POST', `/services/${svc.id}/remind`);
+  assert.deepEqual([r2.data.reminded, r2.data.skipped], [0, 1]);
+  assert.equal(inbox(pend), 1);
+
+  // Twelve hours later it can go again, and the automatic reminder is unaffected (reminded_at untouched).
+  assert.equal(db.prepare('SELECT reminded_at FROM assignments WHERE id = ?').get(aPend.id).reminded_at, null);
+  db.prepare("UPDATE assignments SET nudged_at = datetime('now', '-13 hours') WHERE id = ?").run(aPend.id);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/remind`)).data.reminded, 1);
+  assert.equal(inbox(pend), 2);
+
+  // A service that has already happened: refused, nothing sent.
+  const tz = db.prepare('SELECT timezone FROM campuses WHERE id = 2').get().timezone || 'UTC';
+  const localAt = (h) => new Date(Date.now() + h * 3600e3).toLocaleString('sv-SE', { timeZone: tz, hour12: false }).replace(' ', 'T').slice(0, 16);
+  const pastSvc = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: localAt(-30) })).data;
+  db.prepare("INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, 'pending', datetime('now', '-3 days'))").run(pastSvc.id, greeter.id, pend.p);
+  assert.equal((await api('admin', 'POST', `/services/${pastSvc.id}/remind`)).status, 400);
+  assert.equal(inbox(pend), 2);
+
+  // Nudged a moment ago, then the automatic reminder window opens: no second message, but it is marked done.
+  const soon = (await api('admin', 'POST', '/services', { campus_id: 2, starts_at: localAt(20) })).data;
+  const aSoon = Number(db.prepare("INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, 'pending', datetime('now', '-3 days'))").run(soon.id, greeter.id, pend.p).lastInsertRowid);
+  assert.equal((await api('admin', 'POST', `/services/${soon.id}/remind`)).data.reminded, 1);
+  assert.equal(inbox(pend), 3);
+  sendReminders(db);
+  assert.equal(inbox(pend), 3);
+  assert.ok(db.prepare('SELECT reminded_at FROM assignments WHERE id = ?').get(aSoon).reminded_at);
+});
+
+test('campus eligibility: shared team, per-volunteer campuses, autofill and manual overrides', async () => {
+  const team = (await api('admin', 'POST', '/teams', { name: 'Shared Hosts', campus_id: null, positions: ['Host'] })).data;
+  const host = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];
+  const mk = async (name, campus_id) => {
+    const p = (await api('admin', 'POST', '/people', { first_name: name, last_name: 'Eligible', ...(campus_id ? { campus_id } : {}) })).data;
+    await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [host.id] });
+    return p;
+  };
+  const A = await mk('Ava', 1);    // home North
+  const B = await mk('Ben', 2);    // home South
+  const C = await mk('Cal', 1);    // North and South by list
+  const D = await mk('Dee', null); // no home campus, no list
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [1, 2] })).status, 200);
+
+  const day = nextSunday(120);
+  const mkService = async (campus_id, time) => {
+    const s = (await api('admin', 'POST', '/services', { campus_id, starts_at: `${day}T${time}` })).data;
+    await api('admin', 'PUT', `/services/${s.id}/needs`, { needs: [{ position_id: host.id, count: 4 }] });
+    return s;
+  };
+  const northSvc = await mkService(1, '08:00');
+  const southSvc = await mkService(2, '13:00');
+  const candList = async (svc) => (await api('admin', 'GET', `/services/${svc.id}/candidates?position_id=${host.id}`)).data;
+  const cands = async (svc) => Object.fromEntries((await candList(svc)).map((c) => [c.id, c]));
+
+  // Candidates: eligibility and the reason, ineligible people last.
+  const n = await cands(northSvc);
+  assert.equal(n[A.id].eligible, true);
+  assert.equal(n[B.id].eligible, false);
+  assert.equal(n[B.id].eligibility_reason, 'Serves at South only');
+  assert.equal(n[C.id].eligible, true);
+  assert.equal(n[D.id].eligible, true);
+  assert.equal(n[D.id].eligibility_reason, 'Campus not set');
+  const order = await candList(northSvc);
+  assert.equal(order[order.length - 1].id, B.id);
+  const s = await cands(southSvc);
+  assert.equal(s[A.id].eligible, false);
+  assert.equal(s[A.id].eligibility_reason, 'Serves at North only');
+  assert.ok(s[B.id].eligible && s[C.id].eligible && s[D.id].eligible);
+
+  // Autofill never assigns an ineligible person, even with spots left over.
+  const fillN = await api('admin', 'POST', `/services/${northSvc.id}/autofill`, { team_id: team.id });
+  assert.deepEqual(fillN.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ava', 'Cal', 'Dee']);
+  const fillS = await api('admin', 'POST', '/schedule/autofill', { service_ids: [southSvc.id], team_id: team.id });
+  assert.deepEqual(fillS.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ben', 'Cal', 'Dee']);
+
+  // Manual: refused for another campus unless the override is explicit.
+  const north2 = await mkService(1, '18:00');
+  const refused = await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, 'Serves at South only');
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, force: true })).status, 409);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: B.id, allow_other_campus: true })).status, 201);
+  assert.equal((await api('admin', 'POST', `/services/${north2.id}/assignments`, { position_id: host.id, person_id: A.id })).status, 201);
+
+  // The person record carries the list; an empty list falls back to the home campus.
+  assert.deepEqual((await api('admin', 'GET', `/people/${C.id}`)).data.serving_campuses, [1, 2]);
+  assert.deepEqual((await api('admin', 'GET', `/people/${A.id}`)).data.serving_campuses, []);
+  assert.equal((await api('admin', 'PUT', `/people/${C.id}/serving-campuses`, { campus_ids: [] })).status, 200);
+  assert.equal((await cands(southSvc))[C.id].eligible, false);
+  assert.equal((await cands(northSvc))[C.id].eligible, true);
+});
+
+test('campus eligibility: who can set serving campuses', async () => {
+  const p = (await api('admin', 'POST', '/people', { first_name: 'Pat', last_name: 'Serves', campus_id: 1 })).data;
+  const leaderId = db.prepare("INSERT INTO users (email, role) VALUES ('lead-elig@mb.org', 'leader')").run().lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.lead = v.split(';')[0]; } }, leaderId);
+  const url = `/people/${p.id}/serving-campuses`;
+
+  assert.equal((await api('vol', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('lead', 'PUT', url, { campus_ids: [1] })).status, 403);
+  // North-only staff can add North but not South.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  // South was set by an admin: North staff can't remove it, and keep it when saving other changes.
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1] })).status, 403);
+  assert.equal((await api('north', 'PUT', url, { campus_ids: [1, 2] })).status, 200);
+  assert.equal((await api('admin', 'PUT', url, { campus_ids: [9999] })).status, 400);
+  assert.equal((await api('admin', 'PUT', url, {})).status, 400);
+  assert.deepEqual((await api('admin', 'GET', `/people/${p.id}`)).data.serving_campuses, [1, 2]);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'person.serving_campuses'").get());
+});
+
+test('offline mode (restore drills): outgoing calls refused, this machine still reachable', async () => {
+  const { enableOffline } = await import('../server/offline.js');
+  const restore = enableOffline();
+  try {
+    await assert.rejects(fetch('https://fcm.googleapis.com/fcm/send/abc', { method: 'POST' }), /Offline mode: not contacting fcm\.googleapis\.com/);
+    await assert.rejects(fetch(new URL('https://www.googleapis.com/drive/v3/files')), /Offline mode/);
+    await assert.rejects(fetch(new Request('https://api.stripe.com/v1/charges')), /Offline mode/);
+    assert.equal((await fetch(`${base}/api/me`)).status, 401, 'the local hub still answers');
+    assert.equal(enableOffline(), restore, 'turning it on twice is harmless');
+    // A local address that redirects elsewhere is refused too.
+    const hop = http.createServer((_q, r) => { r.writeHead(302, { location: 'https://example.com/' }); r.end(); }).listen(0);
+    await new Promise((r) => hop.once('listening', r));
+    try { await assert.rejects(fetch(`http://127.0.0.1:${hop.address().port}/`)); } finally { hop.close(); }
+  } finally { restore(); }
+  assert.equal(fetch.offline, undefined);
+
+  // Email stays in the outbox in offline mode even if SMTP settings are present; no connection is made.
+  const { isOffline, listenHost } = await import('../server/offline.js');
+  const { sendMail } = await import('../server/mail.js');
+  const net = await import('node:net');
+  let connections = 0;
+  const smtp = net.createServer((c) => { connections++; c.destroy(); }).listen(0, '127.0.0.1');
+  await new Promise((r) => smtp.once('listening', r));
+  const keep = { ...process.env };
+  try {
+    Object.assign(process.env, { MB_OFFLINE: '1', MB_SMTP_USER: 'x@example.com', MB_SMTP_PASS: 'not-real', MB_SMTP_HOST: '127.0.0.1', MB_SMTP_PORT: String(smtp.address().port) });
+    const n = outbox.length;
+    await sendMail({ to: 'someone@example.com', subject: 'Offline test', text: 'hi' });
+    assert.equal(outbox.length, n + 1);
+    assert.equal(connections, 0);
+    assert.equal(listenHost(), '127.0.0.1', 'only this computer can connect');
+    for (const v of ['true', 'yes', 'on', 'TRUE']) { process.env.MB_OFFLINE = v; assert.equal(isOffline(), true, v); }
+    for (const v of ['', '0', 'false', 'no']) { process.env.MB_OFFLINE = v; assert.equal(isOffline(), false, `"${v}"`); }
+    assert.equal(listenHost(), undefined);
+  } finally {
+    smtp.close();
+    for (const k of ['MB_OFFLINE', 'MB_SMTP_USER', 'MB_SMTP_PASS', 'MB_SMTP_HOST', 'MB_SMTP_PORT']) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; }
+  }
+});
+
+test('production checks: admins only; test sign-in, proxy setting and duplicates are flagged without secrets', async () => {
+  assert.equal((await api('north', 'GET', '/admin/production-checks')).status, 403);
+  const r = await api('admin', 'GET', '/admin/production-checks');
+  assert.equal(r.status, 200);
+  assert.ok(r.data.checks.every((c) => ['ok', 'warn', 'bad', 'info'].includes(c.status) && c.label && c.detail));
+  const { productionChecks } = await import('../server/routes/checks.js');
+  const byId = (env) => Object.fromEntries(productionChecks(db, env).checks.map((c) => [c.id, c]));
+  const hosted = byId({ RENDER: 'true', MB_DEV_LOGIN: '1', MB_TRUST_PROXY: 'true', MB_SMTP_PASS: 'super-secret-value' });
+  assert.equal(hosted.dev_login.status, 'bad');
+  assert.equal(hosted.trust_proxy.status, 'bad');
+  assert.match(hosted.trust_proxy.detail, /exactly 1/);
+  const good = byId({ RENDER: 'true', MB_TRUST_PROXY: '1' });
+  assert.equal(good.dev_login.status, 'ok');
+  assert.equal(good.trust_proxy.status, 'ok');
+  assert.ok(!JSON.stringify(productionChecks(db, { RENDER: 'true', MB_SMTP_PASS: 'super-secret-value' })).includes('super-secret-value'), 'never shows a secret');
+  assert.equal(byId({}).trust_proxy.status, 'info', 'not hosted: information only');
+});
+
+test('Fill open spots works on one team at a time: needs a team, needs permission, touches only that team', async () => {
+  const mkTeam = async (name, position, first) => {
+    const team = (await api('admin', 'POST', '/teams', { name, positions: [position] })).data;
+    const pos = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];
+    const p = (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Onefill', campus_id: 1 })).data;
+    await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [pos.id] });
+    return { team, pos };
+  };
+  const A = await mkTeam('Fill Alpha', 'Alpha spot', 'Alma');
+  const B = await mkTeam('Fill Beta', 'Beta spot', 'Bert');
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${nextSunday(200)}T08:00` })).data;
+  await api('admin', 'PUT', `/services/${svc.id}/needs`, { needs: [{ position_id: A.pos.id, count: 1 }, { position_id: B.pos.id, count: 1 }] });
+
+  // No team (or a made-up one): a kind 400, and nothing is filled.
+  const none = await api('admin', 'POST', `/services/${svc.id}/autofill`);
+  assert.equal(none.status, 400);
+  assert.match(none.data.error, /Choose one team to fill/);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/autofill`, { team_id: 999999 })).status, 404);
+  const none2 = await api('admin', 'POST', '/schedule/autofill', { service_ids: [svc.id] });
+  assert.equal(none2.status, 400);
+  assert.match(none2.data.error, /Choose one team to fill/);
+
+  // A person who can't schedule the team gets 403 on both routes.
+  assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'admin' })).status, 200);
+  try {
+    assert.equal((await api('north', 'POST', `/services/${svc.id}/autofill`, { team_id: A.team.id })).status, 403);
+    assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [svc.id], team_id: A.team.id })).status, 403);
+  } finally {
+    assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'team_leaders' })).status, 200);
+  }
+
+  // Filling one team adds only that team's people.
+  const one = await api('admin', 'POST', `/services/${svc.id}/autofill`, { team_id: A.team.id });
+  assert.equal(one.status, 200);
+  assert.deepEqual(one.data.added.map((a) => a.position), ['Alpha spot']);
+  let detail = (await api('admin', 'GET', `/services/${svc.id}`)).data;
+  assert.equal(detail.positions.find((p) => p.id === B.pos.id).assignments.length, 0);
+  const two = await api('admin', 'POST', '/schedule/autofill', { service_ids: [svc.id], team_id: B.team.id });
+  assert.deepEqual(two.data.added.map((a) => a.position), ['Beta spot']);
+  // New assignments are drafts: nobody has been told yet.
+  for (const a of [...one.data.added, ...two.data.added]) {
+    assert.equal(db.prepare('SELECT sent_at FROM assignments WHERE id = ?').get(a.id).sent_at, null);
+  }
+
+  // A leader of team A (and only A) may fill A, and only A gets filled.
+  const lead = (await api('admin', 'POST', '/people', { first_name: 'Lena', last_name: 'Leadfill', campus_id: 1 })).data;
+  await api('admin', 'PUT', `/teams/${A.team.id}/members/${lead.id}`, { position_ids: [A.pos.id], is_leader: true });
+  const leadUser = db.prepare("INSERT INTO users (email, role, person_id) VALUES ('leadfill@mb.org', 'leader', ?)").run(lead.id).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.leadfill = v.split(';')[0]; } }, leadUser);
+  const newSvc = async (daysOut, campus = 1) => {
+    const x = (await api('admin', 'POST', '/services', { campus_id: campus, starts_at: `${nextSunday(daysOut)}T08:00` })).data;
+    await api('admin', 'PUT', `/services/${x.id}/needs`, { needs: [{ position_id: A.pos.id, count: 1 }, { position_id: B.pos.id, count: 1 }] });
+    return x;
+  };
+  const filled = (id) => db.prepare('SELECT ps.name FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? ORDER BY ps.name').all(id).map((r) => r.name);
+  const s2 = await newSvc(300);
+  assert.equal((await api('leadfill', 'POST', `/services/${s2.id}/autofill`, { team_id: B.team.id })).status, 403, 'not their team');
+  assert.equal((await api('leadfill', 'POST', '/schedule/autofill', { service_ids: [s2.id], team_id: B.team.id })).status, 403);
+  assert.deepEqual(filled(s2.id), []);
+  const mine = await api('leadfill', 'POST', `/services/${s2.id}/autofill`, { team_id: A.team.id });
+  assert.equal(mine.status, 200);
+  assert.ok(mine.data.added.length >= 1 && mine.data.added.every((a) => a.position === 'Alpha spot'));
+  assert.deepEqual(filled(s2.id), ['Alpha spot'], 'only team A is filled');
+
+  // A locked service: staff get a kind 400, an admin may still fill it.
+  const s3 = await newSvc(310);
+  assert.equal((await api('admin', 'PATCH', `/services/${s3.id}`, { locked: true })).status, 200);
+  const locked = await api('north', 'POST', `/services/${s3.id}/autofill`, { team_id: A.team.id });
+  assert.equal(locked.status, 400);
+  assert.match(locked.data.error, /locked/);
+  assert.deepEqual(filled(s3.id), []);
+  const byAdmin = await api('admin', 'POST', `/services/${s3.id}/autofill`, { team_id: A.team.id });
+  assert.equal(byAdmin.status, 200);
+  assert.deepEqual(byAdmin.data.added.map((a) => a.position), ['Alpha spot']);
+
+  // Staff limited to North can't fill a South service, on either route.
+  const south = await newSvc(320, 2);
+  assert.equal((await api('north', 'POST', `/services/${south.id}/autofill`, { team_id: A.team.id })).status, 403);
+  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [south.id], team_id: A.team.id })).status, 403);
+  assert.deepEqual(filled(south.id), []);
+
+  // A mixed list (one locked) fills only the unlocked service for staff.
+  const open = await newSvc(330), shut = await newSvc(340);
+  assert.equal((await api('admin', 'PATCH', `/services/${shut.id}`, { locked: true })).status, 200);
+  const mixed = await api('north', 'POST', '/schedule/autofill', { service_ids: [open.id, shut.id], team_id: A.team.id });
+  assert.equal(mixed.status, 200);
+  assert.ok(mixed.data.added.length >= 1 && mixed.data.added.every((a) => a.service_id === open.id));
+  assert.deepEqual(filled(shut.id), [], 'locked service untouched');
+  assert.deepEqual(filled(open.id), ['Alpha spot']);
+  assert.ok([...mine.data.added, ...mixed.data.added].every((a) => db.prepare('SELECT sent_at FROM assignments WHERE id = ?').get(a.id).sent_at === null));
+});
+
+test('member app service times skip a series that has not started and repeat nothing', async () => {
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const camp = Number(db.prepare("INSERT INTO campuses (name, short_name) VALUES ('Times Campus', 'TC')").run().lastInsertRowid);
+  const add = (name, dow, time, starts) => db.prepare('INSERT INTO service_types (campus_id, name, day_of_week, start_time, starts_on) VALUES (?, ?, ?, ?, ?)').run(camp, name, dow, time, starts);
+  add('Now A', 0, '09:00', day(-7)); add('Now B', 0, '09:00', day(-14)); add('Later', 3, '19:30', day(30));
+  const mine = (await api(null, 'GET', '/app/config')).data.times.filter((t) => t.campus_id === camp);
+  assert.deepEqual(mine.map((t) => `${t.day_of_week} ${t.start_time}`), ['0 09:00']);
 });

@@ -76,7 +76,7 @@ export default function callRoutes(db) {
     const chatId = int(req.params.id, 'chat');
     const a = hooks.chatAccess(req, chatId);
     if (!a) throw notFound('Chat');
-    if (a.kind === 'team' && !a.member && !a.manage) throw forbidden();
+    if (a.kind !== 'group' && !a.member && !a.manage) throw forbidden();
     const b = req.body || {};
     let startsAt = null;
     if (b.starts_at) {

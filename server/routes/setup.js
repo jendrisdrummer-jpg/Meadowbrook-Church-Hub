@@ -2,9 +2,14 @@
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireRole, canCampus, ROLES, SIGN_IN_POLICIES } from '../auth.js';
-import { getSetting, setSetting, updateFields } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
+import { requireRole, requireAllCampuses, accountInReach, canCampus, ROLES, SIGN_IN_POLICIES, wouldBeAdmin } from '../auth.js';
+import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicateAccountLinks } from '../db.js';
+import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
+import { notify } from '../notify.js';
+import { closeStreams } from '../live.js';
+import { revokeCheckin } from './checkin.js';
+import { syncLeaderAccessFor } from './teams.js';
+import { linkSuggestion } from '../link-suggestion.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -13,7 +18,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   // ---------------------------------------------------------------- app icon
   // The installed app's home-screen icon, one PNG per size (the page resizes the upload).
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-  r.post('/app-icon/:size', requireRole('admin'), express.raw({ type: 'image/png', limit: '2mb' }), (req, res) => {
+  r.post('/app-icon/:size', requireRole('admin'), requireAllCampuses, express.raw({ type: 'image/png', limit: '2mb' }), (req, res) => {
     if (!['180', '192', '512'].includes(req.params.size)) throw bad('Sizes are 180, 192 and 512.');
     if (!Buffer.isBuffer(req.body) || !req.body.subarray(0, 4).equals(PNG)) throw bad('Send a PNG image.');
     fs.mkdirSync(path.join(uploadDir, 'app-icon'), { recursive: true });
@@ -21,7 +26,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     setSetting(db, 'app_icon_version', Date.now());
     res.json({ ok: true });
   });
-  r.delete('/app-icon', requireRole('admin'), (_req, res) => {
+  r.delete('/app-icon', requireRole('admin'), requireAllCampuses, (_req, res) => {
     fs.rmSync(path.join(uploadDir, 'app-icon'), { recursive: true, force: true });
     setSetting(db, 'app_icon_version', Date.now());
     res.json({ ok: true });
@@ -32,7 +37,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     res.json(db.prepare('SELECT * FROM campuses ORDER BY active DESC, sort, name').all());
   });
 
-  r.post('/campuses', requireRole('admin'), (req, res) => {
+  r.post('/campuses', requireRole('admin'), requireAllCampuses, (req, res) => {
     const b = req.body || {};
     const info = db.prepare('INSERT INTO campuses (name, short_name, address, timezone, color, sort) VALUES (?, ?, ?, ?, ?, ?)')
       .run(required(b.name, 'Name'), str(b.short_name, 20), str(b.address), validTz(b.timezone), color(b.color), int(b.sort) ?? 0);
@@ -42,6 +47,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
 
   r.patch('/campuses/:id', requireRole('admin'), (req, res) => {
     if (!campus(req.params.id)) throw notFound('Campus');
+    if (!canCampus(req.user, req.params.id)) throw forbidden(); // a campus-limited admin edits only their own campuses
     const b = { ...req.body };
     if (b.timezone !== undefined) b.timezone = validTz(b.timezone);
     if (b.color !== undefined) b.color = color(b.color);
@@ -102,19 +108,22 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     headcount_areas: ['Auditorium', 'Overflow', 'Online'],
     reminder_hours: 48,
     app_short_name: '',
+    max_code_emails_per_hour: 200,             // server-wide ceiling on sign-in code emails
     video_minutes_limit: 9000,                 // Daily's free plan is 10,000 participant-minutes a month
   };
 
-  r.get('/settings', requireRole('volunteer'), (_req, res) => {
+  // Only admins see the server-wide code-email cap; knowing it helps no one else.
+  const ADMIN_ONLY = ['max_code_emails_per_hour'];
+  r.get('/settings', requireRole('volunteer'), (req, res) => {
     res.json({
-      ...Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, getSetting(db, k, v)])),
+      ...Object.fromEntries(Object.entries(SETTINGS).filter(([k]) => req.user.role === 'admin' || !ADMIN_ONLY.includes(k)).map(([k, v]) => [k, getSetting(db, k, v)])),
       app_icon_version: getSetting(db, 'app_icon_version', 0),
       custom_app_icon: fs.existsSync(path.join(uploadDir, 'app-icon', '512.png')),
       app_url: `${(process.env.MB_APP_URL || '').trim().replace(/\/+$/, '')}/app/`,
     });
   });
 
-  r.patch('/settings', requireRole('admin'), (req, res) => {
+  r.patch('/settings', requireRole('admin'), requireAllCampuses, (req, res) => {
     for (const [k, v] of Object.entries(req.body || {})) {
       if (!(k in SETTINGS)) continue;
       if (typeof v !== typeof SETTINGS[k] || Array.isArray(v) !== Array.isArray(SETTINGS[k])) throw bad(`Invalid value for ${k}.`);
@@ -123,6 +132,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (k === 'plan_edit_role' && !['leader', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
       if (k === 'reminder_hours' && !(Number.isInteger(v) && v >= 0 && v <= 168)) throw bad('Reminders can go out up to 168 hours (a week) ahead, or 0 for none.');
       if (k === 'schedule_role' && !['team_leaders', 'staff', 'admin'].includes(v)) throw bad('Unknown option.');
+      if (k === 'max_code_emails_per_hour' && !(Number.isInteger(v) && v >= 1 && v <= 100_000)) throw bad('Use a whole number from 1 to 100,000.');
       if (k === 'video_minutes_limit' && !(Number.isInteger(v) && v >= 0 && v <= 10_000_000)) throw bad('The limit is a number of minutes (0 turns video calls off).');
       setSetting(db, k, k === 'workspace_domain' ? str(v).toLowerCase().replace(/^@/, '') : v);
     }
@@ -131,6 +141,17 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   });
 
   // ---------------------------------------------------------------- users
+  // Campus-limited admins (req.user.campusIds is a list) manage only the accounts in reach (see
+  // accountInReach in auth.js) and can't hand out more than they have. The server is the guard;
+  // the Settings and person-page dialogs just hide what these rules would refuse.
+  const SELF_MSG = 'Ask an admin who covers every campus to change your own access.';
+  const OUT_MSG = 'That account is outside your campuses. Ask an admin who covers every campus.';
+  const WIDER_MSG = 'That access is for admins who cover every campus. Ask one of them to change it.';
+  const loadAccount = (id) => db.prepare('SELECT u.*, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.id = ?').get(id);
+  const within = (list, mine) => list.every((c) => mine.includes(Number(c)));
+  // campus lists are stored as JSON text or null; compare them as sets
+  const sameCampuses = (a, b) => (a == null || b == null ? a == null && b == null : JSON.stringify([...JSON.parse(a)].sort()) === JSON.stringify([...JSON.parse(b)].sort()));
+
   r.get('/me', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
     res.json(req.user);
@@ -144,52 +165,185 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     res.json({ ok: true });
   });
 
+  // An account that isn't linked to a person in People asks the office to link it. Admins are told
+  // (at most once a week per account); nothing is ever linked automatically: an admin picks the person.
+  r.post('/me/link-request', requireRole('volunteer'), (req, res) => {
+    if (req.user.personId) return res.json({ linked: true, notified: false });
+    const u = db.prepare('SELECT link_requested_at FROM users WHERE id = ?').get(req.user.id);
+    const recent = u?.link_requested_at && Date.parse(`${u.link_requested_at}Z`) > Date.now() - 7 * 864e5;
+    if (recent) return res.json({ linked: false, notified: false });
+    db.prepare("UPDATE users SET link_requested_at = datetime('now') WHERE id = ?").run(req.user.id);
+    const admins = db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin'").all().map((a) => a.id);
+    notify(db, admins, {
+      kind: 'account',
+      title: `Account needs linking: ${req.user.email}`,
+      body: 'They signed in, but their account isn’t linked to a person in People. Link it in Settings → Sign-in & accounts.',
+      url: '/#/settings/accounts',
+    });
+    audit(db, req, 'user.link_request', req.user.email);
+    res.json({ linked: false, notified: true });
+  });
+
   // Accounts with more than volunteer access, or (?q=) anyone matching a search. Everyone in
   // People gets a volunteer account by signing in, so those don't need listing.
   r.get('/users', requireRole('admin'), (req, res) => {
+    const limited = Boolean(req.user.campusIds);
+    const reach = (u) => !limited || accountInReach(req.user, u);
     const q = str(req.query.q, 100).toLowerCase();
     const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce,
-        u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name
+        u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name, p.campus_id person_campus_id
       FROM users u LEFT JOIN people p ON p.id = u.person_id
       WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1)"}
-      ORDER BY u.role = 'volunteer', u.email LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
+      ORDER BY u.role = 'volunteer', u.email LIMIT ${limited ? 5000 : 200}`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
+    const checkinIds = getSetting(db, 'checkin_user_ids', []);
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
-    res.json({ users: rows.map((u) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })), volunteers, people_with_email: withEmail });
+    // Active accounts not linked to anyone in People: an admin links each one by hand.
+    // (A campus-limited admin sees only the accounts they could manage, in all three lists.)
+    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce FROM users
+      WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT ${limited ? 5000 : 200}`).all()
+      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => {
+        // The person with the same email, shown only when this admin could link to them (a hint; an admin always confirms).
+        const sg = linkSuggestion(db, u);
+        const { campus_id: sgCampus, ...suggestion } = sg || {};
+        return { ...u, suggestion: sg && canCampus(req.user, sgCampus) ? suggestion : null };
+      });
+    // People sharing one email (trimmed, case ignored), to tidy before suggestions work well. A campus-limited
+    // admin sees a group only when every person in it is in their reach (checked across the whole group, then the list is trimmed for display).
+    const shared = db.prepare(`SELECT lower(trim(email)) e FROM people WHERE archived = 0 AND trim(email) != '' GROUP BY e HAVING COUNT(*) > 1 ORDER BY e LIMIT 300`).all()
+      .map(({ e }) => ({ email: e, people: db.prepare(`SELECT p.id, p.first_name, p.last_name, p.campus_id, c.short_name campus_short, c.name campus_name FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
+        WHERE p.archived = 0 AND lower(trim(p.email)) = ? ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(e) }))
+      .filter((g) => g.people.every((p) => canCampus(req.user, p.campus_id))).slice(0, 100)
+      .map((g) => ({ email: g.email, people: g.people.slice(0, 20).map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`.trim(), campus: p.campus_id == null ? '' : (p.campus_short || p.campus_name) })) }));
+    const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
+    res.json({
+      users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)
+        .map(({ person_campus_id: _p, ...u }) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })),
+      volunteers, people_with_email: withEmail, unlinked, shared_emails: shared, duplicate_links: duplicates,
+    });
   });
 
   // Removes the sign-in (and its sessions and devices). The person stays in People.
   r.delete('/users/:id', requireRole('admin'), (req, res) => {
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!u) throw notFound('Account');
+    if (req.user.campusIds) {
+      if (u.id === req.user.id) throw new HttpError(403, SELF_MSG);
+      if (!accountInReach(req.user, loadAccount(u.id))) throw new HttpError(403, OUT_MSG);
+      // Its next sign-in would make it an admin again (MB_ADMIN_EMAILS): leave that to an admin who covers every campus.
+      if (wouldBeAdmin(db, u.email)) throw new HttpError(403, OUT_MSG);
+    }
     if (u.id === req.user.id) throw bad('You can’t delete your own account. Ask another admin.');
     if (u.role === 'admin' && db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n <= 1) {
       throw bad('This is the only admin. Make someone else an admin first.');
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    closeStreams({ userId: u.id });
+    revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
+    ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     res.json({ ok: true });
   });
+
+  // The person an admin chose to link an account to: must exist, not be archived, and not already
+  // have another account (one person, one sign-in). null unlinks. Every write that sets a user's
+  // person goes through this (or the merge check in people.js), so the rule holds on every path.
+  function linkablePerson(value, userId, req) {
+    const pid = int(value);
+    if (pid == null) return null;
+    const p = db.prepare('SELECT campus_id FROM people WHERE id = ? AND archived = 0').get(pid);
+    if (!p) throw notFound('Person');
+    if (!canCampus(req.user, p.campus_id)) throw forbidden(); // a campus-limited admin links only their campuses' people
+    if (db.prepare('SELECT 1 FROM users WHERE person_id = ? AND id != ?').get(pid, userId ?? 0)) throw new HttpError(409, 'That person already has an account. Unlink it there first.');
+    return pid;
+  }
+
+  // Kids' check-in access for a leader account (staff and admins always have it). Kept as a
+  // setting until the child-safety plan's check-in access flag replaces it.
+  function setCheckin(userId, on) {
+    const ids = new Set(getSetting(db, 'checkin_user_ids', []));
+    if (on) ids.add(userId); else ids.delete(userId);
+    setSetting(db, 'checkin_user_ids', [...ids]);
+  }
 
   r.post('/users', requireRole('admin'), (req, res) => {
     const b = req.body || {};
     const email = required(b.email, 'Email').toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('That email doesn’t look right.');
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw bad('There is already an account for that email.');
-    const person = int(b.person_id) ?? db.prepare("SELECT id FROM people WHERE lower(email) = ? AND archived = 0 LIMIT 1").get(email)?.id ?? null;
+    // Only the person the admin chose, checked like any link. Never guessed from the email.
+    const role = oneOf(b.role, ROLES, 'volunteer');
+    let campusIds = b.campus_ids;
+    if (req.user.campusIds) {
+      // A campus-limited admin can't make an admin or grant church-wide flags, and the new account
+      // stays inside their campuses (it defaults to all of theirs).
+      if (role === 'admin' || b.finance || b.announce) throw new HttpError(403, WIDER_MSG);
+      if (campusIds === undefined) campusIds = [...req.user.campusIds];
+      else {
+        const l = campusList(campusIds);
+        if (l === null || !within(JSON.parse(l), req.user.campusIds)) throw new HttpError(403, WIDER_MSG);
+      }
+    }
+    const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(email, oneOf(b.role, ROLES, 'volunteer'), person, campusList(b.campus_ids), b.finance ? 1 : 0, b.announce ? 1 : 0);
-    audit(db, req, 'user.create', `${email} as ${b.role}`);
+      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0);
+    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
+    if (person) {
+      audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
+      // The dialogs always send a role; Volunteer (the default) isn't a hand choice of more access.
+      if (b.role === undefined || b.role === 'volunteer') syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
+    }
+    // Kids' check-in against the final access (after the team-leader rule); volunteers never have it.
+    if (b.checkin && db.prepare('SELECT role FROM users WHERE id = ?').get(Number(info.lastInsertRowid)).role !== 'volunteer') setCheckin(Number(info.lastInsertRowid), true);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
+
+  // The rules for a campus-limited admin editing an account. Fields the dialog re-sends unchanged are
+  // dropped (so they never error and never write); anything that would change is checked.
+  function dropUnchanged(b, changed, keepCampus) {
+    for (const k of ['finance', 'announce', 'active', 'checkin', 'person_id']) if (!changed[k]) delete b[k];
+    if (!changed.campus_ids && !keepCampus) delete b.campus_ids;
+  }
+  function scopePatch(req, u, b) {
+    const C = req.user.campusIds;
+    const wantCampus = b.campus_ids !== undefined ? campusList(b.campus_ids) : undefined;
+    const changed = {
+      campus_ids: wantCampus !== undefined && !sameCampuses(wantCampus, u.campus_ids),
+      finance: b.finance !== undefined && Boolean(b.finance) !== Boolean(u.finance),
+      announce: b.announce !== undefined && Boolean(b.announce) !== Boolean(u.announce),
+      active: b.active !== undefined && Boolean(b.active) !== Boolean(u.active),
+      checkin: b.checkin !== undefined && Boolean(b.checkin) !== getSetting(db, 'checkin_user_ids', []).includes(u.id),
+      person_id: b.person_id !== undefined && int(b.person_id) !== u.person_id,
+    };
+    if (b.role !== undefined) changed.role = true; // an unchanged role was already dropped
+    if (u.id === req.user.id) {
+      if (Object.values(changed).some(Boolean)) throw new HttpError(403, SELF_MSG);
+    } else {
+      if (!accountInReach(req.user, loadAccount(u.id))) throw new HttpError(403, OUT_MSG);
+      if (b.role === 'admin' || changed.finance || changed.announce) throw new HttpError(403, WIDER_MSG);
+      if (changed.campus_ids && (wantCampus === null || !within(JSON.parse(wantCampus), C))) throw new HttpError(403, WIDER_MSG);
+      if (['leader', 'staff'].includes(b.role ?? u.role)) {
+        const ids = changed.campus_ids ? JSON.parse(wantCampus) : u.campus_ids ? JSON.parse(u.campus_ids) : null;
+        if (ids == null) { b.campus_ids = [...C]; return dropUnchanged(b, changed, true); } // no list means every campus: give them the admin's own
+        if (!within(ids, C)) throw new HttpError(403, WIDER_MSG);
+      }
+    }
+    dropUnchanged(b, changed, false);
+  }
 
   r.patch('/users/:id', requireRole('admin'), (req, res) => {
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!u) throw notFound('Account');
     const b = { ...req.body };
     if (b.role !== undefined) b.role = oneOf(b.role, ROLES, u.role);
+    // The account dialog always sends the current role: an unchanged role isn't a hand change, so
+    // automatic (team-leader) access stays automatic and can still be taken back on unlink.
+    if (b.role !== undefined && b.role === u.role) delete b.role;
+    if (req.user.campusIds) scopePatch(req, u, b);
     if (b.campus_ids !== undefined) b.campus_ids = campusList(b.campus_ids);
-    if (b.person_id !== undefined) b.person_id = int(b.person_id);
+    // Only a changed person is checked, so an account that already shares a person (see docs/account-links.md)
+    // can still be edited, and unlinked.
+    if (b.person_id !== undefined) b.person_id = int(b.person_id) === u.person_id ? u.person_id : linkablePerson(b.person_id, u.id, req);
     // Never let the last admin lock everyone out.
     if (u.role === 'admin' && ((b.role && b.role !== 'admin') || b.active === false || b.active === 0)) {
       const admins = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n;
@@ -199,9 +353,30 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
+    if (b.person_id !== undefined && b.person_id !== u.person_id) {
+      audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
+    }
     // Access chosen by hand is never changed automatically by team leadership.
     if (b.role !== undefined) db.prepare('UPDATE users SET role_auto = 0 WHERE id = ?').run(u.id);
+    // Linking (an admin's choice): a team leader gets leader access, the usual team-leader rule.
+    // Unlinking: leader access that came only from leading a team goes with it.
+    if (b.role === undefined && b.person_id !== undefined && b.person_id !== u.person_id) {
+      if (b.person_id != null) syncLeaderAccessFor(db, b.person_id, req);
+      else if (u.role_auto && u.role === 'leader') {
+        db.prepare("UPDATE users SET role = 'volunteer', role_auto = 0 WHERE id = ?").run(u.id);
+        revokeCheckin(db, u.id);
+        audit(db, req, 'user.leader_auto', { user_id: u.id, person_id: u.person_id, granted: false });
+      }
+    }
+    // Kids' check-in last, against the final access (the team-leader rule above may have changed it):
+    // volunteers never keep it.
+    if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
+    if (db.prepare('SELECT role FROM users WHERE id = ?').get(u.id).role === 'volunteer') revokeCheckin(db, u.id);
+    // A link moved off a person can resolve a duplicate, so try the one-account rule again.
+    if (b.person_id !== undefined && b.person_id !== u.person_id && u.person_id != null) ensureAccountLinkIndex(db);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    // Open live pages end now; they reconnect with the new access, or fail if signed out.
+    if (['role', 'campus_ids', 'person_id', 'active'].some((k) => b[k] !== undefined)) closeStreams({ userId: u.id });
     audit(db, req, 'user.update', { id: u.id, ...req.body });
     res.json({ ok: true });
   });
@@ -212,7 +387,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
 function campusList(v) {
   if (v == null || v === 'all') return null;
   if (!Array.isArray(v)) throw bad('campus_ids must be a list or "all".');
-  return JSON.stringify(v.map((x) => int(x, 'Campus')));
+  // "All campuses" is the string 'all', never a list. A list is the exact campuses; an empty one would
+  // save an account that can reach none, which is never what the dialog shows, so it's refused.
+  const ids = [...new Set(v.map((x) => int(x, 'Campus')))];
+  if (!ids.length || ids.includes(null)) throw bad('Choose All campuses, or at least one campus.');
+  return JSON.stringify(ids);
 }
 
 function validTz(tz) {

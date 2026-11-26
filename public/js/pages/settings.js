@@ -1,18 +1,25 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
+import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, exclusiveCampusBoxes, options, toast, fail, displayName, pickPerson, chips, confirm, fmtUtcDate } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
 
-const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups']];
+const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
+
+// An admin limited to some campuses (state.me.campusIds is a list) can't change church-wide things;
+// the server refuses them, so these tabs are left out rather than shown as dead ends.
+const limitedAdmin = () => Boolean(state.me?.campusIds);
+const CHURCH_WIDE_TABS = ['church', 'fields', 'import', 'backups'];
+export const SCOPE_NOTE = 'Some options are for admins who cover every campus.';
 
 export default async function settings(el, tab = 'church') {
   setTitle('Settings');
-  mount(el, html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div><div data-panel></div>`);
+  if (limitedAdmin() && CHURCH_WIDE_TABS.includes(tab)) tab = 'accounts';
+  mount(el, html`<div class="tabs">${TABS.filter(([k]) => !limitedAdmin() || !CHURCH_WIDE_TABS.includes(k)).map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}</button>`)}</div><div data-panel></div>`);
   el.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) go(`/settings/${b.dataset.tab}`); };
   const panel = el.querySelector('[data-panel]');
   // Old links (#/settings/rooms) land on the section that now holds them.
-  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople, backups };
+  const pages = { church, campuses, checkin, rooms: checkin, fields: profileFields, accounts, import: importPeople, backups, checks };
   await (pages[tab] || church)(panel);
 }
 
@@ -124,7 +131,8 @@ function squarePng(file, size) {
 async function checkin(panel) {
   const s = await get('/settings');
   mount(panel, html`<div class="stack" style="max-width:820px">
-    <form class="card stack" data-labels>
+    ${limitedAdmin() ? html`<div class="alert info small">Name tags and headcount areas are the same for every campus, so an admin who covers every campus changes them. Kids' rooms for your campus are below.</div>` : ''}
+    ${limitedAdmin() ? '' : html`    <form class="card stack" data-labels>
       <h2>Name tags</h2>
       <label class="field">Label printer and size<select name="label_size">${options([
         { value: 'brother-62x29', label: 'Brother QL: 62 × 29 mm (DK-1209)' },
@@ -135,16 +143,16 @@ async function checkin(panel) {
       ], s.label_size)}</select></label>
       <label class="check"><input type="checkbox" name="checkin_print_parent_tag" ${s.checkin_print_parent_tag ? 'checked' : ''}> Print a parent pickup tag with each check-in</label>
       <div class="row end"><button class="btn primary">Save</button></div>
-    </form>
-    <div class="card"><h2>Headcount areas</h2>
-      <p class="muted small">The rooms you count on each service’s Attendance tab.</p><div data-areas></div></div>
+    </form>`}
+    ${limitedAdmin() ? '' : html`<div class="card"><h2>Headcount areas</h2>
+      <p class="muted small">The rooms you count on each service’s Attendance tab.</p><div data-areas></div></div>`}
     <div data-rooms></div>
   </div>`);
-  panel.querySelector('[data-labels]').onsubmit = async (e) => {
+  if (panel.querySelector('[data-labels]')) panel.querySelector('[data-labels]').onsubmit = async (e) => {
     e.preventDefault();
     try { await save(formData(e.target)); } catch (err) { fail(err); }
   };
-  chips(panel.querySelector('[data-areas]'), s.headcount_areas, (list) => save({ headcount_areas: list }).catch(fail), { placeholder: 'e.g. Balcony', addLabel: 'Add area' });
+  if (panel.querySelector('[data-areas]')) chips(panel.querySelector('[data-areas]'), s.headcount_areas, (list) => save({ headcount_areas: list }).catch(fail), { placeholder: 'e.g. Balcony', addLabel: 'Add area' });
   await rooms(panel.querySelector('[data-rooms]'));
 }
 
@@ -153,8 +161,8 @@ async function campuses(panel) {
   await refreshCampuses();
   const zones = Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone').filter((z) => z.startsWith('America/') || z.startsWith('Pacific/Honolulu')) : ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
   mount(panel, html`<div class="card">
-    <div class="card-head"><h2>Campuses</h2><button class="btn primary" data-add>${icon('plus')} Add campus</button></div>
-    ${state.campuses.length ? html`<table class="list"><tbody>${state.campuses.map((c) => html`<tr class="click" data-id="${c.id}">
+    <div class="card-head"><h2>Campuses</h2>${limitedAdmin() ? '' : html`<button class="btn primary" data-add>${icon('plus')} Add campus</button>`}</div>
+    ${state.campuses.length ? html`<table class="list"><tbody>${state.campuses.map((c) => html`<tr class="${!limitedAdmin() || state.me.campusIds.includes(c.id) ? 'click' : ''}" data-id="${!limitedAdmin() || state.me.campusIds.includes(c.id) ? c.id : ''}">
       <td><span class="dot" style="background:${c.color}"></span></td><td><b>${c.name}</b> <span class="muted">${c.short_name}</span><div class="muted small">${c.address}</div></td>
       <td class="muted small">${c.timezone}</td><td>${c.active ? '' : html`<span class="pill">Closed</span>`}</td></tr>`)}</tbody></table>`
       : html`<div class="empty">Add each of your campuses. You can add more whenever a new one opens.</div>`}
@@ -176,7 +184,7 @@ async function campuses(panel) {
   panel.onclick = (e) => {
     if (e.target.closest('[data-add]')) return edit();
     const tr = e.target.closest('tr[data-id]');
-    if (tr) edit(state.campuses.find((c) => c.id === Number(tr.dataset.id)));
+    if (tr && tr.dataset.id) edit(state.campuses.find((c) => c.id === Number(tr.dataset.id))); // other campuses aren't editable for a campus admin
   };
 }
 
@@ -186,6 +194,8 @@ const GRADES = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => ({ valu
 
 async function rooms(panel) {
   const list = await get('/rooms');
+  // A campus admin sees and adds rooms for their own campuses only (the server checks the same).
+  const mine = state.campuses.filter((c) => !limitedAdmin() || state.me.campusIds.includes(c.id));
   const describe = (r) => [
     r.min_grade != null ? `${gradeLabel(r.min_grade)} – ${gradeLabel(r.max_grade)}` : '',
     r.min_age_months != null ? `ages ${AGES.find((a) => a.value === r.min_age_months)?.label ?? `${r.min_age_months} mo`} – ${AGES.find((a) => a.value === r.max_age_months)?.label ?? `${r.max_age_months} mo`}` : '',
@@ -193,7 +203,7 @@ async function rooms(panel) {
   mount(panel, html`<div class="card">
     <div class="card-head"><h2>Kids’ rooms</h2><button class="btn primary" data-add>${icon('plus')} Add room</button></div>
     <p class="muted small">At check-in, school-age kids go to the room for their grade; younger kids go by age. Rooms are checked top to bottom.</p>
-    ${state.campuses.map((c) => html`<h3 style="margin-top:14px">${c.name}</h3>${list.filter((r) => r.campus_id === c.id).length
+    ${mine.map((c) => html`<h3 style="margin-top:14px">${c.name}</h3>${list.filter((r) => r.campus_id === c.id).length
       ? html`<table class="list"><tbody>${list.filter((r) => r.campus_id === c.id).map((r) => html`<tr class="click" data-id="${r.id}"><td><b>${r.name}</b></td><td class="muted small">${describe(r)}</td><td class="muted small">${r.capacity ? `Max ${r.capacity}` : ''}</td></tr>`)}</tbody></table>`
       : html`<p class="muted small">No rooms yet.</p>`}`)}
   </div>`);
@@ -201,7 +211,7 @@ async function rooms(panel) {
     const ok = await dialog({
       title: r.id ? r.name : 'New room',
       body: html`<div class="form">
-        <label class="field">Campus<select name="campus_id" ${r.id ? 'disabled' : ''}>${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), r.campus_id ?? state.campusId)}</select></label>
+        <label class="field">Campus<select name="campus_id" ${r.id ? 'disabled' : ''}>${options(mine.map((c) => ({ value: c.id, label: c.name })), r.campus_id ?? state.campusId)}</select></label>
         <label class="field">Room name<input type="text" name="name" value="${r.name || ''}" required placeholder="Nursery"></label>
         <label class="field">From age<select name="min_age_months">${options(AGES, r.min_age_months, { blank: '—' })}</select></label>
         <label class="field">Through age (months)<input type="number" name="max_age_months" value="${r.max_age_months ?? ''}" placeholder="e.g. 23 for under 2s"></label>
@@ -302,7 +312,9 @@ async function accounts(panel, q = '') {
     staff: 'Also edits people, services, rooms and all scheduling',
     admin: 'Everything, including settings and accounts',
   };
-  mount(panel, html`<form class="card stack" style="max-width:820px" data-signin>
+  const limited = limitedAdmin();
+  const mine = state.me.campusIds || [];
+  mount(panel, html`${limited ? html`<div class="alert small" data-scope-note>${SCOPE_NOTE} You can manage accounts for your own campuses.</div>` : html`<form class="card stack" style="max-width:820px" data-signin>
     <h2>Who can sign in</h2>
     ${auth.email === false ? html`<div class="alert warn small">Email sign-in (codes and passwords) isn’t set up yet, so people can only use Google. Add <code>MB_SMTP_USER</code> and <code>MB_SMTP_PASS</code> in your host’s settings (see README → Email).</div>` : ''}
     <label class="field">On their own, with Google or their email<select name="sign_in_policy">${options([
@@ -327,44 +339,74 @@ async function accounts(panel, q = '') {
     ], s.schedule_role)}</select>
       <span class="muted small">Staff can also <b>Lock</b> a single service so only admins can change it.</span></label>
     <div class="row end"><button class="btn primary">Save</button></div>
-  </form>
+  </form>`}
+  ${list.duplicate_links?.length ? html`<div class="card" style="margin-top:14px" data-duplicates>
+    <h2>${list.duplicate_links.length === 1 ? 'One person has' : `${list.duplicate_links.length} people have`} more than one account</h2>
+    <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
+    <div class="table-wrap"><table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
+    ${list.duplicate_links.map((d) => html`<tr><td>${d.name || 'Person'} <span class="muted small">#${d.person_id}</span></td>
+      <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? fmtUtcDate(a.last_login) : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
+    </tbody></table></div></div>` : ''}
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
-    <p class="muted small">Everyone in People with an email can sign in as a volunteer: no account needed. ${list.volunteers} of ${list.people_with_email} have so far. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
+    <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
     <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
-    <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
-      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
-      <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
-    </tbody></table></div>`);
-  panel.querySelector('[data-signin]').onsubmit = async (e) => {
+      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
+      <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td></tr>`)}
+    </tbody></table></div></div>
+  <div class="card" style="margin-top:14px" data-unlinked>
+    <h2>Accounts not linked to a person</h2>
+    <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically. Where the email matches one person in People you’ll see them suggested, and you confirm; otherwise choose the right person for each one.</p>
+    ${list.unlinked.length ? list.unlinked.map((u) => html`<div class="row" style="flex-wrap:wrap;gap:8px;padding:8px 0;border-top:1px solid var(--line, rgba(128,128,128,.25))">
+      <div style="flex:1;min-width:200px"><span style="overflow-wrap:anywhere">${u.email}</span> <span class="pill">${u.role}</span>
+        ${u.suggestion ? html`<div class="small muted">Same email as ${u.suggestion.name}${u.suggestion.campus_short ? ` (${u.suggestion.campus_short})` : ''}${u.suggestion.note ? `, ${u.suggestion.note}` : ''}</div>` : ''}
+        <div class="small muted">${u.link_requested_at ? `Asked to be linked ${fmtUtcDate(u.link_requested_at)} · ` : ''}Last sign-in ${u.last_login ? fmtUtcDate(u.last_login) : 'never'}</div></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${u.suggestion && u.suggestion.note !== 'already has an account' ? html`<button class="btn small primary" data-link-suggested="${u.id}">Link to ${u.suggestion.name}</button>` : ''}<button class="btn small" data-link-account="${u.id}">Link to person…</button></div></div>`) : html`<p class="muted">Every account is linked to a person.</p>`}
+  </div>
+  ${list.shared_emails?.length ? html`<details class="card" style="margin-top:14px" data-shared-emails>
+    <summary><b>People sharing an email</b> <span class="muted small">${list.shared_emails.length} ${list.shared_emails.length === 1 ? 'email' : 'emails'}</span></summary>
+    <p class="muted small">An email that belongs to more than one person can’t be matched to an account automatically, and a sign-in could be linked to the wrong person. Open each person and give them their own email, or remove it. Nothing here changes by itself.</p>
+    ${list.shared_emails.map((g) => html`<div style="padding:8px 0;border-top:1px solid var(--line, rgba(128,128,128,.25))"><div class="small" style="overflow-wrap:anywhere"><b>${g.email}</b></div>
+      ${g.people.map((p) => html`<div class="small"><a href="#/people/${p.id}">${p.name}</a>${p.campus ? html` <span class="muted">· ${p.campus}</span>` : ''}</div>`)}</div>`)}
+  </details>` : ''}`);
+  const signin = panel.querySelector('[data-signin]');
+  if (signin) signin.onsubmit = async (e) => {
     e.preventDefault();
     try { await save(formData(e.target)); } catch (err) { fail(err); }
   };
-  const edit = async (u = { role: 'volunteer', active: 1, campus_ids: null }) => {
+  const edit = async (u = { role: 'volunteer', active: 1, campus_ids: limited ? [...mine] : null }) => {
+    let campusTouched = !u.id; // a limited admin sends the campus list only when it was changed
     let personId = u.person_id ?? null;
     let personLabel = u.first_name ? `${u.first_name} ${u.last_name}` : '';
     const ok = await dialog({
       title: u.id ? u.email : 'Add account',
       body: html`<div class="stack">
         ${u.id ? '' : html`<label class="field">Email<input type="email" name="email" required></label>`}
-        <label class="field">Access<select name="role">${options(Object.keys(roleHelp).map((r) => ({ value: r, label: `${r[0].toUpperCase()}${r.slice(1)} — ${roleHelp[r]}` })), u.role)}</select></label>
+        <label class="field">Access<select name="role">${options(Object.keys(roleHelp).filter((r) => !limited || r !== 'admin').map((r) => ({ value: r, label: `${r[0].toUpperCase()}${r.slice(1)} — ${roleHelp[r]}` })), u.role)}</select></label>
         <div class="field"><span>Campuses</span>
-          <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''}> All campuses</label>
-          ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
-        <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
-        <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
-        <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button></div>
+          <label class="check"><input type="checkbox" name="all" ${!u.campus_ids ? 'checked' : ''} ${limited ? 'disabled' : ''}> All campuses</label>
+          ${state.campuses.map((c) => html`<label class="check"><input type="checkbox" data-campus="${c.id}" ${u.campus_ids?.includes(c.id) ? 'checked' : ''} ${limited && !mine.includes(c.id) ? 'disabled' : ''}> ${c.name}</label>`)}</div>
+        ${limited ? html`<p class="muted small" style="margin:0">${SCOPE_NOTE}</p>` : ''}
+        <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
+        <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
+        <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
+        <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
         ${u.id ? html`<p class="muted small" style="margin:0">${u.has_password ? 'Signs in with email and password (or Google).' : 'Hasn’t set a password; signs in with Google or an emailed code.'}</p>
           <div><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete account</button></div>` : ''}
       </div>`,
       onOpen: (d, close) => {
+        exclusiveCampusBoxes(d, () => { campusTouched = true; });
         d.querySelector('[data-delete]')?.addEventListener('click', async () => {
           if (!(await confirm('Delete this account?', `${u.email} can’t sign in until they set up again (as a volunteer, if they’re in People). Their record in People, attendance and serving history stay.`))) return;
           try { await del(`/users/${u.id}`); toast('Account deleted.'); close('deleted'); } catch (err) { fail(err); }
+        });
+        d.querySelector('[data-unlink]')?.addEventListener('click', (e) => {
+          personId = null; d.querySelector('[data-person]').textContent = 'not linked'; e.target.remove();
         });
         d.querySelector('[data-link]').onclick = async () => {
           const p = await pickPerson('Link to which person?');
@@ -373,7 +415,8 @@ async function accounts(panel, q = '') {
       },
       onSubmit: (f) => {
         const b = formData(f);
-        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        if (limited) { delete body.finance; delete body.announce; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
         if (u.id) body.active = b.active;
         else body.email = b.email;
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);
@@ -382,7 +425,26 @@ async function accounts(panel, q = '') {
     if (ok) accounts(panel, q);
   };
   panel.querySelector('[data-search]').onsubmit = (e) => { e.preventDefault(); accounts(panel, e.target.q.value.trim()); };
-  panel.onclick = (e) => {
+  panel.onclick = async (e) => {
+    const findBtn = e.target.closest('[data-find]');
+    if (findBtn) return accounts(panel, findBtn.dataset.find);
+    const linkBtn = e.target.closest('[data-link-account]');
+    if (linkBtn) {
+      const u = list.unlinked.find((x) => x.id === Number(linkBtn.dataset.linkAccount));
+      const p = await pickPerson(`Link ${u.email} to which person?`);
+      if (!p) return;
+      if (!(await dialog({ title: `Link this account to ${displayName(p)}?`, body: html`<p>${u.email} will see ${displayName(p)}’s schedule, teams and chats. Only link it if you’re sure this account belongs to them.</p>`, submit: 'Link' }))) return;
+      try { await patch(`/users/${u.id}`, { person_id: p.id }); toast('Account linked.'); accounts(panel, q); } catch (err) { fail(err); }
+      return;
+    }
+    const suggBtn = e.target.closest('[data-link-suggested]');
+    if (suggBtn) {
+      const u = list.unlinked.find((x) => x.id === Number(suggBtn.dataset.linkSuggested));
+      const sg = u.suggestion;
+      if (!(await dialog({ title: `Link this account to ${sg.name}?`, body: html`<p>${u.email} will see ${sg.name}’s schedule, teams and chats. Only link it if you’re sure this account belongs to them.</p>`, submit: 'Link' }))) return;
+      try { await patch(`/users/${u.id}`, { person_id: sg.person_id }); toast('Account linked.'); accounts(panel, q); } catch (err) { fail(err); }
+      return;
+    }
     if (e.target.closest('[data-clear]')) return accounts(panel);
     if (e.target.closest('[data-add]')) return edit();
     const tr = e.target.closest('tr[data-id]');
@@ -446,4 +508,19 @@ function drawMapping(box, csv, pv) {
         ${!r.dry_run ? html`<br><a href="#/people">Go to People →</a>` : ''}</div>`);
     } catch (err) { fail(err); } finally { b.disabled = false; }
   };
+}
+
+// ---------------------------------------------------------------- checks
+// Is this server set up safely for real use? Yes/no checks from the server; no secrets shown.
+async function checks(panel) {
+  const c = await get('/admin/production-checks');
+  const pill = { ok: ['good', 'Yes'], warn: ['warn', 'Check'], bad: ['bad', 'No'], info: ['info', 'Info'] };
+  mount(panel, html`<div class="card stack" style="max-width:820px">
+    <h2 style="margin:0">Checks</h2>
+    <p class="muted small" style="margin:0">${c.hosted ? 'This server is hosted, so these are the settings for real use.' : 'This isn’t the hosted server, so some checks are for information only.'} Settings marked “No” must be fixed before staff use the hub.</p>
+    ${c.ready ? html`<div class="alert good small">Nothing here blocks real use.</div>` : html`<div class="alert bad small">Some checks say “No”. Fix those first.</div>`}
+    <table class="list"><tbody>${c.checks.map((x) => html`<tr>
+      <td style="width:5.5em"><span class="pill ${pill[x.status][0]}">${pill[x.status][1]}</span></td>
+      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}</tbody></table>
+  </div>`);
 }
