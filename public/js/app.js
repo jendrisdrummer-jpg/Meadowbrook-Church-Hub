@@ -133,8 +133,11 @@ async function boot() {
   initSearch(searchPages, go);
   drawBell();
   refreshBadges();
+  refreshAttentionBadges(true);
   setInterval(() => { if (!document.hidden) { drawBell(); refreshBadges(); } }, 90e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawBell(); refreshBadges(); } });
+  setInterval(() => { if (!document.hidden) refreshAttentionBadges(true); }, 300e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawBell(); refreshBadges(); refreshAttentionBadges(); } });
+  window.addEventListener('focus', () => refreshAttentionBadges());
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // A notification tapped while the app is open moves it to that page.
@@ -164,6 +167,19 @@ export async function refreshChatBadge() {
 export async function refreshBadges() {
   refreshChatBadge();
   try { setBadge('tasks', (await get('/tasks/summary')).due); } catch { /* try again later */ }
+}
+
+// What's waiting for staff and leaders (connect cards, new form responses), for the menu badges.
+// Asked on load, when the tab is shown again, and every 5 minutes; other people's counts are zero.
+let attentionAt = 0;
+export async function refreshAttentionBadges(force = false) {
+  if (!force && Date.now() - attentionAt < 60e3) return;
+  attentionAt = Date.now();
+  try {
+    const a = await get(`/attention${campusQuery()}`);
+    setBadge('connect', a.connect_cards + a.signups);
+    setBadge('forms', a.forms_new);
+  } catch { /* try again later */ }
 }
 
 // ---------------------------------------------------------------- notifications bell
