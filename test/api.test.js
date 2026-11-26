@@ -110,7 +110,7 @@ test('teams, service types, scheduling, conflicts and responses', async () => {
   assert.equal(north.starts_at, `${sunday}T09:00`);
   assert.equal(north.needed, 3);
 
-  const fill = await api('admin', 'POST', `/services/${north.id}/autofill`);
+  const fill = await api('admin', 'POST', `/services/${north.id}/autofill`, { team_id: team.data.id });
   assert.deepEqual(fill.data.added.map((a) => a.position), ['Drums']);
   // Same person can't be booked at the overlapping South service.
   const clash = await api('admin', 'POST', `/services/${south.id}/assignments`, { position_id: drums.id, person_id: drummer.id });
@@ -384,7 +384,7 @@ test('month schedule: grid, members and filling the month for one team', async (
   const firstCell = after.cells[`${after.services[0].id}:${door.id}`];
   if (after.services[0].starts_at.startsWith(first)) assert.notEqual(firstCell.assignments[0].person_id, people[0].id);
   // North-only staff can't schedule South services.
-  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id] })).status, 403);
+  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [after.services[0].id], team_id: team.data.id })).status, 403);
 });
 
 test('notifications: scheduled, declined to leaders, reminders, push and preferences', async (t) => {
@@ -2472,7 +2472,7 @@ test('campus eligibility: shared team, per-volunteer campuses, autofill and manu
   assert.ok(s[B.id].eligible && s[C.id].eligible && s[D.id].eligible);
 
   // Autofill never assigns an ineligible person, even with spots left over.
-  const fillN = await api('admin', 'POST', `/services/${northSvc.id}/autofill`);
+  const fillN = await api('admin', 'POST', `/services/${northSvc.id}/autofill`, { team_id: team.id });
   assert.deepEqual(fillN.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ava', 'Cal', 'Dee']);
   const fillS = await api('admin', 'POST', '/schedule/autofill', { service_ids: [southSvc.id], team_id: team.id });
   assert.deepEqual(fillS.data.added.map((x) => x.person.split(' ')[0]).sort(), ['Ben', 'Cal', 'Dee']);
@@ -2571,4 +2571,45 @@ test('production checks: admins only; test sign-in, proxy setting and duplicates
   assert.equal(good.trust_proxy.status, 'ok');
   assert.ok(!JSON.stringify(productionChecks(db, { RENDER: 'true', MB_SMTP_PASS: 'super-secret-value' })).includes('super-secret-value'), 'never shows a secret');
   assert.equal(byId({}).trust_proxy.status, 'info', 'not hosted: information only');
+});
+
+test('Fill open spots works on one team at a time: needs a team, needs permission, touches only that team', async () => {
+  const mkTeam = async (name, position, first) => {
+    const team = (await api('admin', 'POST', '/teams', { name, positions: [position] })).data;
+    const pos = (await api('admin', 'GET', `/teams/${team.id}`)).data.positions[0];
+    const p = (await api('admin', 'POST', '/people', { first_name: first, last_name: 'Onefill', campus_id: 1 })).data;
+    await api('admin', 'PUT', `/teams/${team.id}/members/${p.id}`, { position_ids: [pos.id] });
+    return { team, pos };
+  };
+  const A = await mkTeam('Fill Alpha', 'Alpha spot', 'Alma');
+  const B = await mkTeam('Fill Beta', 'Beta spot', 'Bert');
+  const svc = (await api('admin', 'POST', '/services', { campus_id: 1, starts_at: `${nextSunday(200)}T08:00` })).data;
+  await api('admin', 'PUT', `/services/${svc.id}/needs`, { needs: [{ position_id: A.pos.id, count: 1 }, { position_id: B.pos.id, count: 1 }] });
+
+  // No team (or a made-up one): a kind 400, and nothing is filled.
+  const none = await api('admin', 'POST', `/services/${svc.id}/autofill`);
+  assert.equal(none.status, 400);
+  assert.match(none.data.error, /Choose one team to fill/);
+  assert.equal((await api('admin', 'POST', `/services/${svc.id}/autofill`, { team_id: 999999 })).status, 404);
+  const none2 = await api('admin', 'POST', '/schedule/autofill', { service_ids: [svc.id] });
+  assert.equal(none2.status, 400);
+  assert.match(none2.data.error, /Choose one team to fill/);
+
+  // A person who can't schedule the team gets 403 on both routes.
+  assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'admin' })).status, 200);
+  try {
+    assert.equal((await api('north', 'POST', `/services/${svc.id}/autofill`, { team_id: A.team.id })).status, 403);
+    assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [svc.id], team_id: A.team.id })).status, 403);
+  } finally {
+    assert.equal((await api('admin', 'PATCH', '/settings', { schedule_role: 'team_leaders' })).status, 200);
+  }
+
+  // Filling one team adds only that team's people.
+  const one = await api('admin', 'POST', `/services/${svc.id}/autofill`, { team_id: A.team.id });
+  assert.equal(one.status, 200);
+  assert.deepEqual(one.data.added.map((a) => a.position), ['Alpha spot']);
+  let detail = (await api('admin', 'GET', `/services/${svc.id}`)).data;
+  assert.equal(detail.positions.find((p) => p.id === B.pos.id).assignments.length, 0);
+  const two = await api('admin', 'POST', '/schedule/autofill', { service_ids: [svc.id], team_id: B.team.id });
+  assert.deepEqual(two.data.added.map((a) => a.position), ['Beta spot']);
 });

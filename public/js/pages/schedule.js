@@ -55,6 +55,8 @@ export default async function schedule(el) {
     // Drafts this person can send, across the services and team shown.
     const drafts = services.flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
       .flatMap((p) => (cells[`${sv.id}:${p.id}`]?.assignments || []).filter((a) => statusOf(a) === 'draft'))).length;
+    const fillBtn = document.querySelector('[data-actions] [data-fill]');
+    if (fillBtn) { fillBtn.disabled = !teamId; fillBtn.title = teamId ? '' : 'Choose a team to fill'; }
     sendBtn.classList.toggle('hidden', !drafts);
     sendBtn.textContent = `Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}`;
     const multiCampus = new Set(services.map((s) => s.campus_id)).size > 1;
@@ -86,6 +88,7 @@ export default async function schedule(el) {
             ${teams.map((t) => html`<option value="${t.id}" ${t.id === teamId ? raw('selected') : ''}>${t.name}${t.campus_id ? '' : ' (all campuses)'}</option>`)}
           </select></label>
         </div>
+        ${teamId ? '' : html`<p class="muted small" style="margin:8px 0 0">Choose a team to fill. “Fill the month” works on one team at a time.</p>`}
       </div>
       <div class="sched-layout ${teamId ? 'with-side' : ''}">
         <div class="card sched-card">
@@ -227,11 +230,12 @@ export default async function schedule(el) {
 
   document.querySelector('[data-actions] [data-fill]').addEventListener('click', async () => {
     const team = teams.find((t) => t.id === teamId);
+    if (!team) return toast('Choose a team to fill.');
     const ids = grid.services.map((s) => s.id);
     if (!ids.length) return toast('No services this month.');
     const ok = await dialog({
       title: 'Fill the month', submit: 'Fill open spots',
-      body: html`<p>Fill every open ${team ? html`<b>${team.name}</b>` : ''} spot in the ${ids.length} ${ids.length === 1 ? 'service' : 'services'} shown for ${monthLabel()}.</p>
+      body: html`<p>Fill every open spot for <b>${team.name}</b> in ${monthLabel()} (${ids.length} ${ids.length === 1 ? 'service' : 'services'} shown)?</p>
         <p class="muted small">Only people assigned to each position, never anyone away or already serving at that time, spreading the Sundays out fairly. Everyone already scheduled stays. Nobody is told yet: look it over, then use Send requests.</p>`,
     });
     if (!ok) return;

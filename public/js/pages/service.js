@@ -58,6 +58,8 @@ async function drawPeople(panel, s, chats) {
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   // Drafts haven't been sent yet; the volunteer doesn't know about them.
   const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
+  // The reason (when the server sent one) as a quiet line, since a phone can't hover.
+  const reason = (a) => (a.status === 'declined' && a.decline_reason ? html`<div class="muted small" style="margin:-2px 0 4px 36px">“${a.decline_reason}”</div>` : '');
   const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;
   // A team is "in" this service when it needs someone or has someone scheduled; the rest can be shown on demand.
   const active = (teamId) => s.positions.some((p) => p.team_id === teamId && (p.needed || p.assignments.length));
@@ -83,10 +85,10 @@ async function drawPeople(panel, s, chats) {
     <div class="card-head"><h2>Who’s serving</h2>
       ${drafts ? html`<button class="btn small primary" data-send title="Let everyone you've scheduled know, all at once">${icon('bell')} Send ${drafts} ${drafts === 1 ? 'request' : 'requests'}</button>` : ''}
       ${waiting ? html`<button class="btn small" data-remind title="Send a reminder to people who were asked but haven't replied">${icon('bell')} Remind ${waiting} who ${waiting === 1 ? 'hasn’t' : 'haven’t'} replied</button>` : ''}
-      ${anyScheduling && s.positions.some((p) => p.needed) ? html`<button class="btn small" data-autofill title="Fill open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
       ${can('staff') && (!s.locked || can('admin')) ? html`<button class="btn small" data-needs>${icon('edit')} Positions needed</button>` : ''}
       ${anyScheduling ? html`<button class="btn small ghost" data-add-position title="Schedule someone in a position this service doesn't usually need">${icon('plus')} Extra position</button>` : ''}</div>
-    ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px"><span class="dot" style="background:${team.color}"></span> ${team.name}
+    ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="dot" style="background:${team.color}"></span> ${team.name}
+        ${s.positions.some((p) => p.team_id === team.id && p.can_schedule) && teamStats(team) ? html`<button class="btn small" data-autofill="${team.id}" title="Fill this team’s open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
         ${chats.has(team.id) ? html`<a class="btn small ghost" href="#/chat/${chats.get(team.id)}" data-message-team style="margin-left:8px">${icon('chat')} Message team</a>` : ''}</h3>
       ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
       <div class="grid three">
@@ -96,7 +98,7 @@ async function drawPeople(panel, s, chats) {
         return html`<div class="position">
           <div class="position-head"><b>${p.name}</b>${p.needed ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
-            ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>`)}
+            ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
         </div>`;
@@ -123,7 +125,15 @@ async function drawPeople(panel, s, chats) {
       if (b.matches('[data-remind]') && (await remindUnanswered(s.id, waiting))) reload();
       if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();
       if (b.matches('[data-autofill]')) {
-        const r = await post(`/services/${s.id}/autofill`);
+        const team = allTeams.find((t) => t.id === Number(b.dataset.autofill));
+        const n = teamStats(team);
+        const label = `${team.name}${s.campus?.name ? ` · ${s.campus.name}` : ''}`;
+        const ok = await dialog({
+          title: 'Fill open spots', submit: 'Fill open spots',
+          body: html`<p>Fill ${n} open ${n === 1 ? 'spot' : 'spots'} for <b>${label}</b>?</p><p class="muted small">Nobody is told until you send requests.</p>`,
+        });
+        if (!ok) return;
+        const r = await post(`/services/${s.id}/autofill`, { team_id: team.id });
         toast(r.added.length ? `Added ${r.added.length}: ${r.added.map((a) => a.person).join(', ')}. Send requests when you’re ready.` : 'No one available to fill the open spots.');
         reload();
       }

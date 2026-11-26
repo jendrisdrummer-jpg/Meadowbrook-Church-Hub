@@ -56,10 +56,10 @@ const SECTIONS = [
       html`Under your team, tap ${b('Schedule someone')} next to an open position.`,
       html`Pick a person. The best choices are first. Labels warn you if someone is away, already serving at that time, or doesn’t usually serve at this campus.`,
       html`If a warning shows, you’ll be asked to confirm. Tap ${b('Schedule anyway')} only if you’ve already talked with them.`,
-      html`Short on time? Tap ${b('Fill open spots')} to add available people fairly. Look the names over and change any you don’t want (tap the ✕ beside a name).`,
+      html`Short on time? Under a team, tap ${b('Fill open spots')} to add available people fairly (one team at a time). Look the names over and change any you don’t want (tap the ✕ beside a name).`,
       html`People you add show a ${b('Not sent')} label. When you’re happy, tap ${b('Send requests')}, check the list, then tap ${b('Send to')} the people shown.`,
     ],
-    note: 'To plan a whole month, open Schedule in the menu and use Fill the month there.',
+    note: 'To plan a whole month, open Schedule in the menu and pick a team and use Fill the month there. Both fill one team at a time.',
   },
   {
     id: 'remind', title: 'Remind people who haven’t replied', min: 'leader',

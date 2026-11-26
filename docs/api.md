@@ -28,7 +28,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `people.js` | `/people`, `/households` (and `/households/:id/pickups`, `/pickups/:id`: staff, household's campus must be one of yours), `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff); `POST /people` with `household_id` needs staff unless `household_role` is `child` | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |
-| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill (`POST /schedule/autofill` and `/services/:id/autofill` return `{added, open}`: `open` is spots still empty, so the screen can say "all filled" or "no one free"), `POST /services/:id/remind` | volunteer+ read, leader+ write |
+| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill (`POST /schedule/autofill` and `/services/:id/autofill` need a valid `team_id`, one team at a time: none gives 400 "Choose one team to fill.", an unknown team 404, a team the person can't schedule 403; both return `{added, open}`: `open` is spots still empty, so the screen can say "all filled" or "no one free"), `POST /services/:id/remind` | volunteer+ read, leader+ write |
 | `series.js`, `templates.js` | repeating services, templates | leader+/staff |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
 | `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance; `GET /checkin/campuses` lists the campuses the account may set a station up for | leader+ (or station) |
