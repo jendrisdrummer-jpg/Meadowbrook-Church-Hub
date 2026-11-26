@@ -197,6 +197,12 @@ moving or adding a person into a household checks the household's campus as well
 the user can't reach. Pickup changes are audited (`pickup.add`, `pickup.remove`). Households with no
 campus are open to everyone, as for people.
 
+**Roll call.** `POST /services/:id/roll` with `present: true` checks every person ID first: the person
+must exist, not be archived, and pass `canCampus` (people with no campus are open to everyone, as on
+the roll list). Any failing ID refuses the whole request with 403 and marks no one. Unmarking
+(`present: false`) is not checked, so a wrong mark can always be undone. Check-in stations act as
+a leader limited to their own campus, so they follow the same rule.
+
 **Adding people to an existing family.** Check-in treats every adult in a household as an approved
 pickup, and only staff may grant pickups (audited). So below staff, including leaders and paired
 check-in stations, `POST /people` with a `household_id` is allowed only for `household_role: 'child'`;
