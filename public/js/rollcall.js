@@ -46,8 +46,10 @@ export async function drawRollCall(panel, s) {
   function draw() {
     countEl.textContent = `${new Set([...present, ...kids]).size} here`;
     const shown = groups().map((g) => ({ ...g, members: g.members.filter((p) => matches(p) && (filter === 'all' || (filter === 'here') === isHere(p))) })).filter((g) => g.members.length);
-    mount(list, shown.length ? shown.map((g) => html`<div class="roll-family">
-      ${g.name && g.members.length > 1 ? html`<div class="roll-head"><span>${g.name}</span>
+    // A family of two or more takes a full row, its people laid out in the same columns, so
+    // the single cards around it keep an even grid instead of leaving gaps.
+    mount(list, shown.length ? shown.map((g) => html`<div class="roll-family ${g.name && g.members.length > 1 ? 'multi' : ''}">
+      ${g.name && g.members.length > 1 ? html`<div class="roll-head"><span>${String(g.name).replace(/\s+household$/i, ' family')}</span>
         <button type="button" class="btn small" data-family="${g.members.map((m) => m.id).join(',')}">${g.members.every(isHere) ? html`${icon('check')} All here` : 'Mark family'}</button></div>` : ''}
       ${g.members.map((p) => html`<button type="button" class="roll-person ${isHere(p) ? 'here' : ''}" data-person="${p.id}" ${kids.has(p.id) ? 'disabled' : ''} aria-pressed="${isHere(p)}">
         <span class="roll-check">${icon('check')}</span>${avatar(p)}
