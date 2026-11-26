@@ -200,6 +200,7 @@ export default async function schedule(el) {
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
         ${a.status === 'declined' && a.decline_reason ? html`<p class="muted small">“${a.decline_reason}”</p>` : ''}
         <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : statusOf(a) === 'draft' ? 'draft' : ''}">${STATUS[statusOf(a)]}</span></p>
+        ${can && a.sent_at && a.status !== 'declined' ? html`<p class="small">${icon('info', 'ic small-ic')} If you remove them, they'll get a “No longer needed” notice.</p>` : ''}
         <p class="small"><a href="#/people/${a.person_id}">Open their profile</a> · <a href="#/services/${s.id}">Open the service</a></p>`,
     });
     if (r) { await del(`/assignments/${id}`); await load(); }
