@@ -374,7 +374,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
 function campusList(v) {
   if (v == null || v === 'all') return null;
   if (!Array.isArray(v)) throw bad('campus_ids must be a list or "all".');
-  return JSON.stringify(v.map((x) => int(x, 'Campus')));
+  // "All campuses" is the string 'all', never a list. A list is the exact campuses; an empty one would
+  // save an account that can reach none, which is never what the dialog shows, so it's refused.
+  const ids = [...new Set(v.map((x) => int(x, 'Campus')))];
+  if (!ids.length || ids.includes(null)) throw bad('Choose All campuses, or at least one campus.');
+  return JSON.stringify(ids);
 }
 
 function validTz(tz) {

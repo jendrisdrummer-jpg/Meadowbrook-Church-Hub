@@ -1,5 +1,5 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
+import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, exclusiveCampusBoxes, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
@@ -395,7 +395,7 @@ async function accounts(panel, q = '') {
           <div><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete account</button></div>` : ''}
       </div>`,
       onOpen: (d, close) => {
-        d.querySelectorAll('[data-campus]').forEach((c) => c.addEventListener('change', () => { campusTouched = true; }));
+        exclusiveCampusBoxes(d, () => { campusTouched = true; });
         d.querySelector('[data-delete]')?.addEventListener('click', async () => {
           if (!(await confirm('Delete this account?', `${u.email} can’t sign in until they set up again (as a volunteer, if they’re in People). Their record in People, attendance and serving history stay.`))) return;
           try { await del(`/users/${u.id}`); toast('Account deleted.'); close('deleted'); } catch (err) { fail(err); }
