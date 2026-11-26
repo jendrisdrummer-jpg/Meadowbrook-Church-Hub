@@ -1,5 +1,5 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
-import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, DAYS } from './lib.js';
+import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
 import { impactNote } from './guards.js';
 
@@ -14,7 +14,7 @@ const REPEATS = [
 export function repeatLabel(series) {
   if (!series) return '';
   const every = series.every_weeks > 1 ? `Every ${series.every_weeks} weeks on ${DAYS[series.day_of_week]}` : `Every ${DAYS[series.day_of_week]}`;
-  return `${every} at ${fmtClock(series.start_time)}${series.ends_on ? `, until ${new Date(`${series.ends_on}T12:00`).toLocaleDateString()}` : ''}`;
+  return `${every} at ${fmtClock(series.start_time)}${series.ends_on ? `, until ${fmtDate(series.ends_on)}` : ''}`;
 }
 
 export const fmtClock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -56,8 +56,16 @@ export async function newServiceDialog(date) {
       <label class="field">Date<input type="date" name="date" value="${date || ''}" required></label>
       <label class="field">Starts<input type="time" name="time" value="09:00" required></label>
       <label class="field">Length (minutes)<input type="number" name="duration_min" value="75" min="5"></label>
-      <label class="field">Repeats<select name="every_weeks">${options(REPEATS, 1)}</select></label>
-      <label class="field" data-ends>Ends<input type="date" name="ends_on"><span class="muted small">Leave empty to keep going.</span></label>
+      <fieldset class="field wide" style="border:0;padding:0;margin:0;min-width:0" data-how>
+        <legend style="padding:0;margin-bottom:6px">How often</legend>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          <label class="check"><input type="radio" name="how" value="once"> One time</label>
+          <label class="check"><input type="radio" name="how" value="repeat"> Repeats</label>
+        </div>
+        <span class="muted small">A one-off, like Christmas Eve, is one time. Choose Repeats for a regular service.</span>
+      </fieldset>
+      <label class="field hidden" data-every>Repeat every<select name="every_weeks">${options(REPEATS.filter((r) => r.value > 0), 1)}</select></label>
+      <label class="field hidden" data-ends>Ends<input type="date" name="ends_on"><span class="muted small">Leave empty to keep going.</span></label>
       <label class="field">Title (optional)<input type="text" name="title" placeholder="Sunday Morning"></label>
       <label class="field">Start from template<select name="template_id">${options(templates.map((t) => ({ value: t.id, label: t.name, campus: t.campus_id })), '', { blank: 'Blank order of service' })}</select>
         <span class="muted small" data-tpl-note>Repeating services fill each new date from it.</span></label>
@@ -68,14 +76,21 @@ export async function newServiceDialog(date) {
     onOpen: async (d) => {
       const f = d.querySelector('form');
       const ends = d.querySelector('[data-ends]');
-      const sync = () => ends.classList.toggle('hidden', f.every_weeks.value === '0');
-      f.every_weeks.onchange = sync;
+      const every = d.querySelector('[data-every]');
+      const sync = () => {
+        const repeats = f.how.value === 'repeat';
+        every.classList.toggle('hidden', !repeats);
+        ends.classList.toggle('hidden', !repeats);
+      };
+      f.how.forEach((r) => { r.onchange = sync; });
       sync();
       picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value);
       f.campus_id.onchange = async () => { picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value, picker.get()); };
     },
     onSubmit: async (f) => {
       const b = formData(f);
+      if (!b.how) throw new Error('Please choose One time or Repeats first.');
+      if (b.how === 'once') b.every_weeks = '0';
       const needs = picker?.get() || [];
       if (b.every_weeks !== '0') {
         const r = await post('/series', { campus_id: b.campus_id, starts_on: b.date, start_time: b.time, duration_min: b.duration_min, every_weeks: b.every_weeks, ends_on: b.ends_on || null, title: b.title, needs, template_id: b.template_id || null });
@@ -238,7 +253,7 @@ export async function seriesDialog(t) {
       if (key(needs) !== key(t.needs)) body.needs = needs;
       if (b.ends_on && b.ends_on !== t.ends_on) {
         const note = await impactFor(`/series/${t.id}/impact?from=${nextDay(b.ends_on)}`);
-        if (!(await confirm('End this repeating service?', withImpact(`Services after ${new Date(`${b.ends_on}T12:00`).toLocaleDateString()} will be removed, with their plans and schedules.`, note, 'They’ll lose these assignments.'), 'End it'))) return false;
+        if (!(await confirm('End this repeating service?', withImpact(`Services after ${fmtDate(b.ends_on)} will be removed, with their plans and schedules.`, note, 'They’ll lose these assignments.'), 'End it'))) return false;
       }
       // Changing the positions rewrites them on every upcoming service; people already scheduled stay on the schedule.
       if (body.needs) {

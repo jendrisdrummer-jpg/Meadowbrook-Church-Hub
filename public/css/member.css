@@ -116,6 +116,10 @@ a.w:hover { text-decoration: none; }
 .m-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
 .m-chips .chip { padding: 5px 12px; font-weight: 600; background: var(--panel); }
 .m-chips .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.m-evfilter { display: grid; gap: 6px; margin: 10px 0 4px; }
+.m-evfilter .field { margin: 0; }
+.m-evfilter select { width: 100%; min-height: 44px; }
+.m-evfilter .toggle-row { min-height: 44px; }
 .m-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 10px; text-align: center; }
 .m-cal .dow { font-size: 11px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
 .m-cal .day { aspect-ratio: 1; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 14px; color: var(--muted); position: relative; }
@@ -233,3 +237,17 @@ a.w:hover { text-decoration: none; }
 .w-live { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: #e5383b; color: #fff; font-size: 12px; font-weight: 700; }
 .w-live .ic { width: 14px; height: 14px; }
 .m-video video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
+
+/* Home: a pending "Please reply" request, ahead of everything else. */
+.m-reply { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 14px; border-radius: 16px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn); text-decoration: none; min-height: 44px; }
+.m-reply .grow { color: var(--text); font-size: 14px; }
+.m-reply b { display: block; color: var(--warn); font-size: 15px; }
+.m-reply .tap { font-weight: 650; color: var(--warn); white-space: nowrap; }
+
+/* More: the list of notification choices is one tappable row until opened. */
+.m-fold { margin-top: 10px; border-top: 1px solid var(--line); }
+.m-fold > summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; cursor: pointer; font-weight: 600; font-size: 15px; list-style: none; }
+.m-fold > summary::-webkit-details-marker { display: none; }
+.m-fold > summary::after { content: '›'; font-size: 22px; color: var(--muted); transition: transform .15s; }
+.m-fold[open] > summary::after { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .m-fold > summary::after { transition: none; } }

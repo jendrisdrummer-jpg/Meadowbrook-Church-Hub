@@ -4,6 +4,10 @@ import { get, post, patch, html, mount, icon, options, toast, fail, confirm, fmt
 import { state, setTitle, visibleCampuses } from '../app.js';
 
 const AUDIENCES = [['everyone', 'Everyone'], ['campus', 'A campus'], ['team', 'A team'], ['volunteers', 'Volunteers'], ['staff', 'Staff']];
+const AUD_HELP = {
+  volunteers: 'Volunteers means everyone with an account who is on at least one team, at any campus.',
+  staff: 'Staff means people with a staff or admin account.',
+};
 const STATUS = { scheduled: html`<span class="pill warn">Scheduled</span>`, sent: html`<span class="pill good">Sent</span>`, canceled: html`<span class="pill">Canceled</span>` };
 
 const localInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
@@ -18,7 +22,9 @@ export default async function announcements(el) {
     get('/announcements'), get('/app/config'), get('/teams').catch(() => []), get('/events?limit=30').catch(() => []),
   ]);
   const tabs = cfg.config.tabs.filter((t) => !['link', 'more'].includes(t.type));
-  const draft = { title: '', body: '', link: '', type: 'everyone', ids: [], later: false, send_at: localInput(new Date(Date.now() + 3600e3)) };
+  // With a campus chosen in the top bar, start with that campus rather than Everyone.
+  const startCampus = state.campusId && visibleCampuses().some((c) => c.id === state.campusId) ? state.campusId : null;
+  const draft = { title: '', body: '', link: '', type: startCampus ? 'campus' : 'everyone', ids: startCampus ? [startCampus] : [], later: false, send_at: localInput(new Date(Date.now() + 3600e3)) };
   let reachTimer;
 
   function draw() {
@@ -35,6 +41,7 @@ export default async function announcements(el) {
         <div class="field"><span>Send to</span><div class="seg ann-aud">${AUDIENCES.map(([k, label]) => html`<button type="button" class="${draft.type === k ? 'on' : ''}" data-aud="${k}">${label}</button>`)}</div>
           ${draft.type === 'campus' ? html`<div class="row ann-picks">${visibleCampuses().map((c) => html`<label class="check"><input type="checkbox" data-pick="${c.id}" ${draft.ids.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>` : ''}
           ${draft.type === 'team' ? html`<div class="row ann-picks">${teams.map((t) => html`<label class="check"><input type="checkbox" data-pick="${t.id}" ${draft.ids.includes(t.id) ? 'checked' : ''}> ${t.name}</label>`)}</div>` : ''}
+          ${AUD_HELP[draft.type] ? html`<p class="muted small" style="margin:6px 0 0">${AUD_HELP[draft.type]}</p>` : ''}
           <p class="muted small" style="margin:6px 0 0" data-reach>…</p></div>
         <div class="field"><span>When</span><div class="row" style="gap:16px"><label class="check"><input type="radio" name="when" value="now" ${draft.later ? '' : 'checked'}> Now</label>
           <label class="check"><input type="radio" name="when" value="later" ${draft.later ? 'checked' : ''}> Later</label>

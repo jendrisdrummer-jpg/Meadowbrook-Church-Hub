@@ -93,11 +93,12 @@ export default async function media(el, tab) {
 }
 
 function streamingCard(x, s) {
-  const steps = html`<ol class="small md-steps">
+  const steps = html`<p class="small" style="margin:0">One-time setup: the church needs a Mux account (the video service that carries the stream), and whoever manages the church’s hosting adds its two codes to the hub. After that, come back here for your stream key.</p>
+    <details class="small"><summary><b>Setup steps for whoever manages hosting</b></summary><ol class="small md-steps">
     <li>Sign up at <a href="https://dashboard.mux.com/signup" target="_blank" rel="noopener">dashboard.mux.com/signup</a> and add a card (Billing).</li>
     <li>In Mux: <b>Settings → Access Tokens → Generate new token</b>. Pick the <b>Production</b> environment and tick <b>Mux Video</b> with Read and Write.</li>
     <li>In Render → your service → <b>Environment</b>, add <code>MUX_TOKEN_ID</code> and <code>MUX_TOKEN_SECRET</code> with the two values it shows, and save. (Only there, never in an email or chat.)</li>
-    <li>Come back here for your stream key.</li></ol>`;
+    <li>Come back here for your stream key.</li></ol></details>`;
   if (!x.configured) {
     return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill">Not set up</span></h2>
       <p class="small" style="margin:0">Stream from vMix to the church’s own video host (Mux). The app plays it in its own player, with no YouTube, and every service lands here when it ends, ready to trim.</p>${steps}</div>`;
@@ -149,11 +150,11 @@ function drawSetup(el, setup, head) {
         ? html`<p class="small" style="margin:0">The hub can see your whole channel, with each video’s exact length and when you’re live.</p>
           <button class="btn" data-deep ${s.channel_id ? '' : 'disabled'}>${icon('download')} Bring in older videos</button>
           <span class="muted small">Goes back through the whole channel once. Full services land in the library; you can hide any.</span>`
-        : html`<p class="small" style="margin:0">Without this the hub sees your latest 15 videos, which is plenty week to week. To bring in older services too, add a free YouTube key (about 5 minutes):</p>
-          <ol class="small md-steps"><li>Go to <b>console.cloud.google.com</b>, in the same project you use for Google sign-in.</li>
+        : html`<p class="small" style="margin:0">Without this the hub sees your latest 15 videos, which is plenty week to week. To bring in older services too, ask whoever manages the church’s hosting to add a free YouTube key (about 5 minutes).</p>
+          <details class="small"><summary><b>Setup steps for whoever manages hosting</b></summary><ol class="small md-steps"><li>Go to <b>console.cloud.google.com</b>, in the same project you use for Google sign-in.</li>
             <li><b>APIs &amp; Services → Library</b>: find <b>YouTube Data API v3</b> and click <b>Enable</b>.</li>
             <li><b>APIs &amp; Services → Credentials → Create credentials → API key</b>. Click the key, under <b>API restrictions</b> pick <b>YouTube Data API v3</b>, and save.</li>
-            <li>In Render → your service → <b>Environment</b>, add <code>YOUTUBE_API_KEY</code> with that key.</li></ol>`}
+            <li>In Render → your service → <b>Environment</b>, add <code>YOUTUBE_API_KEY</code> with that key.</li></ol></details>`}
       <h2 style="margin:8px 0 0">In the app</h2>
       <p class="small" style="margin:0">The <b>Watch</b> tab shows the library with your titles, pictures and trims: search, and filter by speaker, series and topic. When you’re live, the live service is at the top. Add a <b>Latest message</b> widget to the home screen in the App Builder.</p>
     </div></div>`);
