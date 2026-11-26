@@ -4,6 +4,7 @@ import { requireRole, campusFilter, canCampus, rank } from '../auth.js';
 import { int, localNow } from '../http.js';
 import { ensureServices } from './series.js';
 import { ledTeamIds, ledPositionsClause } from '../team-scope.js';
+import { missingPeople } from '../attendance-missing.js';
 import { manages } from './forms.js';
 
 const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -84,7 +85,7 @@ export default function dashboardRoutes(db) {
   // What is waiting on this person, as plain counts. Everything is limited to the campuses they
   // can reach, and a leader who isn't staff only counts the teams they lead. Volunteers get zeros.
   function attention(user, campusId) {
-    const out = { open_spots: 0, open_next: null, not_replied: 0, declines: 0, declines_next: null, declines_service: null, connect_cards: 0, signups: 0, forms_new: 0, forms_title: null };
+    const out = { open_spots: 0, open_next: null, not_replied: 0, declines: 0, declines_next: null, declines_service: null, connect_cards: 0, signups: 0, forms_new: 0, forms_title: null, missing: 0 };
     if (rank(user.role) < rank('leader')) return out;
     const stand = standing(user);
     for (const s of weekServices(user, campusId)) {
@@ -104,6 +105,9 @@ export default function dashboardRoutes(db) {
     const cp = campusFilter(user, 'p.campus_id');
     out.signups = db.prepare(`SELECT COUNT(*) n FROM people p WHERE p.signed_up_at IS NOT NULL AND p.archived = 0 AND p.welcomed_at IS NULL AND ${cp.sql}${campusId ? ' AND p.campus_id = ?' : ''}`)
       .get(...cp.args, ...(campusId ? [campusId] : [])).n;
+    // Regulars who've missed the last 2+ Sundays when attendance was taken (their teams, for leaders).
+    const tz = db.prepare('SELECT timezone FROM campuses ORDER BY id LIMIT 1').get()?.timezone;
+    out.missing = missingPeople(db, user, { today: localToday(tz), campusId: campusId || null, minWeeks: 2 }).length;
     // New form responses are for staff, and only on the forms they manage.
     if (rank(user.role) >= rank('staff')) {
       const forms = db.prepare(`SELECT f.id, f.title, f.campus_id, (SELECT COUNT(*) FROM form_responses x WHERE x.form_id = f.id AND x.status = 'new') n FROM forms f`).all()

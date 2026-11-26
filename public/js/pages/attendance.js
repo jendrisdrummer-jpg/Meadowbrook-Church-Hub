@@ -1,7 +1,7 @@
 // Attendance: a dashboard to look back on (one number per service, by week and year), the follow-up lists,
 // and the older per-campus breakdown (counted adults and students, kids, volunteers serving) folded below.
-import { get, html, mount, fmtDate, avatar, displayName, options } from '../lib.js';
-import { state, setTitle, campusName, visibleCampuses, campusQuery } from '../app.js';
+import { get, html, mount, fmtDate, avatar, displayName, options, fail } from '../lib.js';
+import { state, can, setTitle, campusName, visibleCampuses, campusQuery } from '../app.js';
 import { trendChart, serviceCsv, pctChange, changeText } from '../attendance-chart.js';
 
 // Kept while the page is open so a leader's choices survive a campus switch.
@@ -33,9 +33,10 @@ export default async function attendance(el) {
   mount(el, html`
     <div data-dash></div>
     <div class="grid two" style="margin-bottom:14px">
-      <div class="card"><h2>Haven’t been here in 3+ weeks</h2>
-        <p class="muted small" style="margin-top:-4px">People who came at least 3 times in the last 12 weeks.</p>
-        ${follow.missing.length ? follow.missing.slice(0, 25).map((p) => personRow(p, `Last here ${fmtDate(p.last_at.slice(0, 10))}`)) : html`<p class="muted">Everyone’s been around lately.</p>`}</div>
+      <div class="card" data-missing-card><div class="card-head"><h2>We’ve missed…</h2>
+          <div class="seg" data-missing-weeks role="group" aria-label="Missed at least">${[2, 3, 4].map((n) => html`<button type="button" data-w="${n}" class="${n === 2 ? 'on' : ''}">${n}+ weeks</button>`)}</div></div>
+        <p class="muted small" style="margin-top:-4px">Regulars (here at least 3 times in the last 12 weeks) who missed recent Sundays when attendance was taken.${can('staff') ? '' : ' People on the teams you lead.'} A good list for a call or a note.</p>
+        <div data-missing-list><p class="muted">Loading…</p></div></div>
       <div class="card"><h2>First-time guests this month</h2>
         ${follow.first_time.length ? follow.first_time.map((p) => personRow(p, `First visit ${fmtDate(p.first_at.slice(0, 10))}`)) : html`<p class="muted">No first-time visits marked this month.</p>`}</div>
     </div>
@@ -50,6 +51,17 @@ export default async function attendance(el) {
       })}</tbody></table></div></div>`) : html`<div class="card empty">Add a campus in Settings first.</div>`}
     <p class="muted small">Counted is the headcount when one was entered, otherwise the names on the roll (kids checked in aren’t counted twice). Enter them with Take attendance, or on each service’s Attendance tab. ${camps.length > 1 ? `Showing ${camps.map((c) => campusName(c.id)).join(' and ')}.` : ''}</p></details>`);
   drawDashboard(el.querySelector('[data-dash]'));
+  // "We've missed…": 2, 3 or 4+ Sundays in a row, only counting Sundays attendance was taken.
+  const missList = el.querySelector('[data-missing-list]');
+  const loadMissing = async (weeks) => {
+    el.querySelectorAll('[data-missing-weeks] button').forEach((b) => b.classList.toggle('on', Number(b.dataset.w) === weeks));
+    const m = await get(`/attendance/missing?weeks=${weeks}${state.campusId ? `&campus_id=${state.campusId}` : ''}`);
+    mount(missList, m.people.length
+      ? m.people.slice(0, 50).map((p) => personRow(p, `Missed ${p.missed} Sunday${p.missed === 1 ? '' : 's'} · last here ${fmtDate(p.last_at)}`))
+      : html`<p class="muted">Everyone’s been around lately.</p>`);
+  };
+  el.querySelector('[data-missing-weeks]').addEventListener('click', (e) => { const b = e.target.closest('button[data-w]'); if (b) loadMissing(Number(b.dataset.w)).catch(fail); });
+  loadMissing(2).catch(fail);
 }
 
 const SOURCE_NOTE = { roll: 'from roll call', kids: 'kids check-in only' };

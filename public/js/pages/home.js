@@ -55,6 +55,8 @@ export default async function home(el) {
       href: a.declines_service ? `#/services/${a.declines_service}` : '#/schedule', tab: a.declines_service ? 'people' : null, team: true },
     a.connect_cards && { n: a.connect_cards, text: `connect ${plural(a.connect_cards, 'card', 'cards')} to follow up`, href: '#/connect' },
     a.signups && { n: a.signups, text: `app ${plural(a.signups, 'sign-up', 'sign-ups')} to welcome`, href: '#/connect?tab=signups' },
+    // Regulars missed the last 2+ Sundays attendance was taken (leaders: people on their teams).
+    a.missing && { n: a.missing, text: `${plural(a.missing, 'regular has', 'regulars have')} missed 2+ Sundays${staff ? '' : ' (your teams)'}`, href: '#/attendance', tab: null },
     staff && a.forms_new && { n: a.forms_new, text: `new ${plural(a.forms_new, 'response', 'responses')}${a.forms_title ? `: ${a.forms_title}` : ''}`, href: '#/forms' },
   ].filter(Boolean);
   const tileRow = tiles.length
