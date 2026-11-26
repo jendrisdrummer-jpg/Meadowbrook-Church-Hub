@@ -6,8 +6,12 @@ import crypto from 'node:crypto';
 import { openDb, tx, setSetting } from '../server/db.js';
 import { securityCode, roomFor } from '../public/js/checkin-rules.js';
 import { addMinutes } from '../server/routes/services.js';
+import { seedTargetProblem, SAMPLE_KEY } from '../server/sample.js';
 
 const file = process.env.MB_DB || 'data/demo.db';
+// This script deletes whatever MB_DB points at, so check first that it is a throwaway.
+const problem = seedTargetProblem(file);
+if (problem) { console.error(problem); process.exit(1); }
 for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true });
 const db = openDb(file);
 
@@ -25,6 +29,7 @@ const KIDS = ['Emma', 'Liam', 'Ava', 'Noah', 'Mia', 'Elijah', 'Ella', 'Lucas', '
 const ALLERGIES = ['', '', '', '', '', 'Peanuts', 'Dairy', 'Tree nuts', 'Bee stings'];
 
 tx(db, () => {
+  setSetting(db, SAMPLE_KEY, 1); // marks this file as made-up data: the seed and preview mode check it
   setSetting(db, 'church_name', 'Meadowbrook Church');
   setSetting(db, 'workspace_domain', 'meadowbrook.church');
   const north = ins('campuses', { name: 'Meadowbrook North', short_name: 'North', address: '100 Meadow Ln', timezone: 'America/Chicago', color: '#2f7d4f', sort: 0 });

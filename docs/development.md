@@ -35,7 +35,7 @@ How changes are made, tested and shipped. Applies to people and to every agent.
 |---|---|
 | `npm ci` | Install (Express only) |
 | `npm run dev` | Hub on :8090 with test sign-in and auto-restart (`MB_DEV_LOGIN=1`) |
-| `npm run demo` | Fresh demo database (made-up people), then the server. Sign in as `pastor@meadowbrook.church` (admin), `south@meadowbrook.church` (campus staff) or `volunteer@meadowbrook.church` |
+| `npm run demo` | Fresh demo database (made-up people) in `data/demo.db`, then the server. Sign in as `pastor@meadowbrook.church` (admin), `south@meadowbrook.church` (campus staff) or `volunteer@meadowbrook.church`. The seed deletes its target file, so it refuses to run on Render (`NODE_ENV=production` or `RENDER`), outside `data/`, or over an existing file that isn't marked as sample data (delete an old unmarked `data/demo.db` yourself once) |
 | `npm test` | API and rules tests (`node:test`, in-memory DB, stand-in servers). Must pass before every push. |
 | `npm run test:ui` | Browser smoke and regression run (see [testing.md](testing.md)). Needs Playwright installed globally; not a project dependency. |
 | `npm run restore -- <file> [out] [--check]` | Decrypt a backup (asks for the backup password without echo, or reads `MB_BACKUP_PASSWORD`); refuses to write inside the code folder; `--check` confirms a database copy is whole and lists its counts. Never overwrites a file. See [restore-drill.md](restore-drill.md) |

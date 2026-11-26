@@ -13,3 +13,4 @@ data/ui-smoke/
 *.enc
 *.db.gz
 drill*
+data/ui-smoke-work/
