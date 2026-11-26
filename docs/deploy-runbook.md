@@ -33,8 +33,17 @@ service with a disk can't run two copies at once). Pick a quiet time.
    `npm run test:ui` pass, and no new commits have landed since the restore drill.
 3. **Fresh backup** (checklist 1.9): Settings → Backups → **Back up now**, then **Download** it.
    Keep the file on your own computer, not a shared drive. This is what a real restore would use.
+   **Safeguard: don't merge until the developer has confirmed all three** (from your screenshots):
+   - the top row of Settings → Backups → Copies is from **today, minutes ago**, says **Google Drive ·
+     This server** and status **OK**;
+   - the downloaded file is on your computer: its name ends in `.db.gz.enc` and matches that row's
+     date and time (the file name uses UTC, so it may read a few hours ahead);
+   - no backup started after it is still running.
 4. **Write down the current live commit.** Render → the service → **Events**: note the latest
    successful deploy (date and the short commit code). That is what a rollback goes back to.
+
+5. **Safeguard: read the rollback cleanup below** ("Rollback", step B) before merging, so you know
+   exactly what it does if it's ever needed.
 
 ## The deploy (owner, about 10 minutes)
 
@@ -136,6 +145,24 @@ The database stays as it is. The new tables and columns are simply ignored by th
      (Rehearsed: with the old code, a stored hash sent as a cookie was accepted.)
    - `DROP INDEX` removes an index only; no data is lost. The old code links accounts by email at
      sign-in and moves accounts when merging people, and the index would make those fail.
+
+   **The line, part by part:**
+   | Part | In plain English |
+   |---|---|
+   | `node --disable-warning=ExperimentalWarning -e "…"` | Run the short program in quotes with the hub's own Node.js; hide a harmless "experimental" notice |
+   | `const {DatabaseSync}=require('node:sqlite')` | Load Node's built-in database tool (no download, nothing installed) |
+   | `new DatabaseSync(process.env.MB_DB)` | Open the hub's database at the path Render already uses (`/data/meadowbrook.db`, from the `Dockerfile`) |
+   | `d.prepare('DELETE FROM sessions').run().changes` | Delete every row in the `sessions` table and count them |
+   | `console.log('sessions removed:', …)` | Print how many were removed |
+   | `d.exec('DROP INDEX IF EXISTS users_person_unique')` | Remove the one-account rule; if it isn't there, do nothing |
+   | `console.log('done')` | Print "done" when finished |
+
+   **Exactly what it changes, and nothing else:** every row of the `sessions` table (sign-ins only:
+   a token, an account number and an expiry time each) and the `users_person_unique` index (a rule,
+   not data). No row in any other table is read, changed or deleted: people, households, accounts,
+   teams, services, schedules, chats, messages, check-ins, gifts, forms and the audit log are
+   untouched. Expected output: `sessions removed: <a number>` then `done`. If it prints anything
+   else, stop and send the developer the message.
 3. Everyone signs in again. Tell staff.
 
 **C. A real restore instead** (rare, needs your explicit decision). Only when data was lost or
