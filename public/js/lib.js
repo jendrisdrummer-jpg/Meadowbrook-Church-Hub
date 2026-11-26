@@ -271,6 +271,32 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
   }).then(() => chosen);
 }
 
+// Search-as-you-type family picker: matches the family's name or anyone in it, and shows who's in
+// each one. Resolves to the chosen family ({ id, name, people: [{ name, role }] }) or undefined.
+export function pickFamily(title = 'Choose a family', { exclude } = {}) {
+  let chosen;
+  const label = (n) => String(n || '').replace(/\s+household$/i, ' family');
+  return dialog({
+    title,
+    submit: null,
+    body: html`<input type="search" placeholder="Search by family name or anyone in it" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
+    onOpen: (d, close) => {
+      const list = $('[data-list]', d);
+      let rows = [];
+      const run = debounce(async (q) => {
+        if (q.trim().length < 2) return;
+        rows = (await get(`/households?q=${encodeURIComponent(q)}`)).filter((h) => h.id !== exclude);
+        mount(list, rows.length ? rows.map((h, i) => html`<button type="button" data-i="${i}"><span class="avatar">${icon('users')}</span><span>${label(h.name)}<br><small class="muted">${h.people.length ? h.people.map((m) => m.name).join(', ') : 'No one yet'}</small></span></button>`) : html`<div class="muted small">No family found.</div>`);
+      });
+      $('[data-q]', d).addEventListener('input', (e) => run(e.target.value));
+      list.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-i]');
+        if (b) { chosen = { ...rows[b.dataset.i], name: label(rows[b.dataset.i].name) }; close(chosen); }
+      });
+    },
+  }).then(() => chosen);
+}
+
 // Resizes an image file in the browser before upload (photos from phones are huge).
 export function shrinkImage(file, max = 640) {
   return new Promise((resolve, reject) => {
