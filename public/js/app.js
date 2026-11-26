@@ -4,48 +4,47 @@ import { initSearch, searchButton, openSearch } from './search.js';
 
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 
-// Sidebar sections. New areas (Discipleship, Media, Website, App…) slot in as their own groups.
+// Sidebar sections: five, and nothing hidden below the fold. New areas slot into the group they belong to.
+// Help and Feedback live beside the user's name (HELP_LINKS), not in a group. `badge` keys that nothing
+// fills yet ('connect', 'forms') stay hidden until a count is sent to setBadge().
 const NAV = [
   { group: '', items: [
     { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
     { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
     { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
     { path: '/tasks', label: 'Tasks', icon: 'tasks', min: 'volunteer', badge: 'tasks' },
-    { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
   ] },
   { group: 'People', items: [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
     { path: '/teams', label: 'Teams', icon: 'teams', min: 'leader' },
-    { path: '/groups', label: 'Groups', icon: 'people', min: 'volunteer' },
-    { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
+    { path: '/groups', label: 'Groups', icon: 'groups', min: 'volunteer' },
   ] },
-  { group: 'Planning', items: [
+  { group: 'Services', items: [
     { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer' },
-    { path: '/schedule', label: 'Schedule', icon: 'teams', min: 'leader' },
+    { path: '/attendance', label: 'Attendance', icon: 'chart', min: 'leader' },
+    { path: '/schedule', label: 'Volunteer schedule', icon: 'roster', min: 'leader' },
     { path: '/songs', label: 'Songs', icon: 'music', min: 'leader' },
-    { path: '/events', label: 'Events', icon: 'calendar', min: 'staff' },
     { path: '/templates', label: 'Templates', icon: 'copy', min: 'staff' },
   ] },
-  { group: 'Finance', items: [
-    { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
-  ] },
-  { group: 'Media', items: [
-    { path: '/media', label: 'Media', icon: 'play', min: 'staff' },
-  ] },
   { group: 'Church app', items: [
-    { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader' },
-    { path: '/forms', label: 'Forms', icon: 'file', min: 'staff' },
+    { path: '/events', label: 'Events', icon: 'event', min: 'staff' },
     { path: '/announcements', label: 'Announcements', icon: 'bell', min: 'volunteer', announce: true },
+    { path: '/forms', label: 'Forms', icon: 'file', min: 'staff', badge: 'forms' },
+    { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader', badge: 'connect' },
+    { path: '/media', label: 'Media', icon: 'play', min: 'staff' },
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'staff' },
   ] },
-  { group: 'Check-in', items: [
+  { group: 'More', items: [
+    { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
     { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true },
-    { path: '/stations', label: 'Check-in stations', icon: 'phone', min: 'staff' },
-  ] },
-  { group: 'Admin', items: [
+    { path: '/stations', label: 'Check-in iPads', icon: 'tablet', min: 'staff' },
     { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
-    { path: '/feedback', label: 'Feedback', icon: 'chat', min: 'volunteer' },
   ] },
+];
+// Beside the user's name in the sidebar, and in the footer of the phone More sheet. Still found by search.
+const HELP_LINKS = [
+  { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
+  { path: '/feedback', label: 'Feedback', icon: 'chat', min: 'volunteer' },
 ];
 
 const THEMES = [['light', 'Light'], ['dark', 'Dark'], ['device', 'Match my device']];
@@ -110,8 +109,19 @@ export const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] |
 export function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
   $('[data-title]').classList.remove('greeting');
+  drawCampusTag();
   document.title = `${title} · ${state.settings.church_name || 'Church Hub'}`;
   mount($('[data-actions]'), actions);
+}
+
+// "North only": shown beside the page title whenever a campus is picked, so nobody mistakes a
+// filtered list for the whole church.
+export function drawCampusTag() {
+  const tag = $('[data-campus-tag]');
+  if (!tag) return;
+  const on = state.campusId && visibleCampuses().length > 1;
+  tag.textContent = on ? `${campusName(state.campusId)} only` : '';
+  tag.classList.toggle('hidden', !on);
 }
 
 async function boot() {
@@ -215,7 +225,7 @@ document.addEventListener('click', (e) => {
 
 // The pages this account can open. Finance pages are for accounts with the Finance permission,
 // whatever their role; Announcements likewise.
-const searchPages = () => visibleNav().flatMap((g) => g.items);
+const searchPages = () => [...visibleNav().flatMap((g) => g.items), ...HELP_LINKS.filter((n) => can(n.min))];
 const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce)) })).filter((g) => g.items.length);
 
 function drawChrome() {
@@ -232,6 +242,8 @@ function drawChrome() {
   fillCampusSelect(sel);
   sel.closest('label').classList.toggle('hidden', visibleCampuses().length < 2);
   sel.onchange = () => pickCampus(sel.value);
+  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.label}" aria-label="${n.label}">${icon(n.icon)}</a>`));
+  drawCampusTag();
   drawMe();
 }
 
@@ -244,6 +256,7 @@ function pickCampus(value) {
   state.campusId = Number(value) || null;
   localStorage.setItem('mb.campus', state.campusId ?? '');
   document.querySelectorAll('[data-campus]').forEach((s) => { s.value = state.campusId ?? ''; });
+  drawCampusTag();
   route();
 }
 

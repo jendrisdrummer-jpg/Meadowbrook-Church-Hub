@@ -39,7 +39,18 @@ const freePort = () => new Promise((resolve) => {
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
   '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
-const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church']];
+// leader and finance are added to the throwaway database below; the others come from the demo seed.
+const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church'],
+  ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church']];
+// The sidebar each role should see, in order (the demo admin has the announce flag). Rules: min role per item, Giving needs the Finance flag, Announcements the announce flag.
+const EVERYDAY = ['Home', 'My Schedule', 'Chat', 'Tasks'];
+const NAV_WANT = {
+  volunteer: [...EVERYDAY, 'Groups', 'Services'],
+  finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
+  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
+  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads'],
+  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
+};
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
 
 async function main() {
@@ -51,6 +62,13 @@ async function main() {
   // Never reach real outside services from a test run.
   for (const k of ['STRIPE_SECRET_KEY', 'MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MB_DAILY_API_KEY', 'YOUTUBE_API_KEY', 'MB_SMTP_HOST', 'GOOGLE_CLIENT_ID']) delete env[k];
   execSync('node --disable-warning=ExperimentalWarning scripts/seed-demo.js', { cwd: root, env, stdio: 'ignore' });
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(env.MB_DB);
+    db.prepare("INSERT INTO users (email, role) VALUES ('leader@meadowbrook.church', 'leader')").run();
+    db.prepare("INSERT INTO users (email, role, finance) VALUES ('finance@meadowbrook.church', 'volunteer', 1)").run();
+    db.close();
+  }
   const port = await freePort();
   const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { cwd: root, env: { ...env, PORT: String(port) }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}`;
@@ -100,6 +118,30 @@ async function main() {
           const name = `${area}-${who}-${size}${p.replace(/\//g, '_') || '_'}.png`;
           await page.screenshot({ path: path.join(out, name), fullPage: true });
           results.push({ area, page: p, who, size, ok: !problems.length, denied: state.broken && denied, problems, screenshot: name });
+        }
+        // The menu is the first thing people see: check the sidebar lists exactly what this role should.
+        if (size === 'desktop' && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/`);
+          await page.waitForSelector('[data-nav] a');
+          const seen = await page.$$eval('[data-nav] a', (as) => as.map((a) => a.querySelector('span').textContent.trim()));
+          const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.getAttribute('aria-label')));
+          const want = NAV_WANT[who];
+          if (seen.join('|') !== want.join('|')) problems.push(`menu shows [${seen.join(', ')}] but should show [${want.join(', ')}]`);
+          if (links.join('|') !== 'Help|Feedback') problems.push(`Help and Feedback beside the name: saw [${links.join(', ')}]`);
+          if (!(await page.locator('.side [data-campus]').count()) || (await page.locator('.side [data-nav]').evaluate((n) => n.previousElementSibling?.matches('.side-campus')) !== true)) problems.push('campus picker is not at the top of the sidebar');
+          if (who === 'admin') {
+            const tag = page.locator('[data-campus-tag]');
+            await page.selectOption('.side [data-campus]', { index: 1 });
+            await page.goto(`${base}/#/people`);
+            await page.waitForTimeout(500);
+            if (!/ only$/.test(await tag.textContent()) || !(await tag.isVisible())) problems.push('no "… only" label with a campus picked');
+            await page.screenshot({ path: path.join(out, `hub-${who}-desktop-campus-picked.png`) });
+            await page.selectOption('.side [data-campus]', '');
+            await page.waitForTimeout(300);
+            if (await tag.isVisible()) problems.push('"… only" label still showing for all campuses');
+          }
+          results.push({ area: 'hub', page: '/ (sidebar menu)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
         // The forms editor's Save lives in the page header; once it silently did nothing. Click it for real.
         if (who === 'admin' && only !== 'app') {

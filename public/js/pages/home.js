@@ -72,7 +72,7 @@ export default async function home(el) {
     return html`<div class="home-svc">
       <div class="home-svc-main"><span class="dot" style="background:${s.campus_color}"></span><a href="#/services/${s.id}"><b>${fmtDate(s.starts_at)} · ${fmtTime(s.starts_at)}</b></a> <span class="muted">${s.campus_short || s.campus}</span>
         ${sub ? html`<div class="muted small">${sub}</div>` : ''}
-        ${s.items ? '' : html`<div class="small warn-text">No plan yet</div>`}</div>
+        ${s.items ? '' : html`<div class="small warn-text">No order of service yet</div>`}</div>
       <div class="home-svc-bar">${s.needed ? html`<div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div>
           <span class="muted small">${s.filled} of ${s.needed} filled${s.waiting ? ` · ${s.waiting} waiting to reply` : ''}${s.declined ? ` · ${s.declined} declined` : ''}</span>`
         : html`<span class="muted small">${s.accepted} accepted${s.waiting ? ` · ${s.waiting} waiting to reply` : ''}</span>`}</div>

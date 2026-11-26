@@ -87,7 +87,7 @@ export default async function person(el, id) {
             <td><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : ''}">${a.status}</span></td></tr>`)}</tbody></table>`
             : html`<p class="muted" style="margin:0">Nothing upcoming.</p>`}
           ${p.blockouts.length ? html`<h3 style="margin-top:12px">Away</h3>${p.blockouts.map((b) => html`<div class="small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''} <span class="muted">${b.reason}</span></div>`)}` : ''}
-          <p class="small" style="margin:12px 0 0"><span class="muted">Serves at:</span> ${servesText(p)}</p>
+          <p class="small" style="margin:12px 0 0"><span class="muted">Can serve at:</span> ${servesText(p)}</p>
           ${!p.serving_campuses.length && p.campus_id == null ? html`<p class="muted small" style="margin-bottom:0">${staff ? 'Set a home campus or pick campuses so scheduling knows where they can serve.' : 'No campus is set yet.'}</p>` : ''}
         </div>
         <div class="card"><div class="card-head"><h2>Attendance</h2><span class="muted small">${att.weeks_attended_of_12} of the last 12 weeks</span></div>
@@ -126,7 +126,7 @@ export default async function person(el, id) {
     const hidden = p.serving_campuses.filter((id) => !camps.some((c) => c.id === id));
     let saved;
     await dialog({
-      title: 'Serves at', submit: 'Save',
+      title: 'Can serve at', submit: 'Save',
       body: html`<p class="muted small" style="margin-top:0">Pick the campuses ${displayName(p)} can be scheduled at. Leave all unticked for ${p.campus_id ? `${campusName(p.campus_id)} only (their home campus)` : 'any campus, since no home campus is set'}.</p>
         ${camps.map((c) => html`<label class="check"><input type="checkbox" data-serve="${c.id}" ${p.serving_campuses.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}`,
       onSubmit: async (f) => {

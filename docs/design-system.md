@@ -112,11 +112,21 @@ four-column grid, styles card/soft/accent/color.
   that fails to load shows an `.alert.bad` with the message.
 - **Settings-style pages:** a checklist of steps (done ✓ / to do) with the next action as a button,
   as in Settings → Backups and Media → Setup.
+- **Sidebar (hub):** five groups (Everyday, People, Services, Church app, More), with Attendance
+  next to Services. The campus picker is the first thing under the church name, and a campus-filtered
+  page shows a "North only" pill beside its title (`.page-campus`, drawn by `drawCampusTag()` in
+  `app.js`, only when the account can see more than one campus). Help and Feedback are icon buttons
+  beside the user's name (`HELP_LINKS`, not NAV groups, but still found by search) and the name row
+  stays pinned at the bottom. Menu words: Volunteer schedule (not "Schedule"), Check-in iPads (not
+  "stations"), Take attendance (not "roll call"), Order of service (not "plan items"), Not asked yet
+  (not "Not sent"), Can serve at (not "Serves at"). Every NAV item has its own icon; give a new page
+  one nothing else uses. `badge: 'connect'` and `badge: 'forms'` are reserved: they stay hidden
+  until something calls `setBadge(kind, n)`.
 - **Phone bottom bar and More sheet (hub):** the bar is Home, My Schedule, Chat, People (leaders
   and up) and **More**. More opens a `dialog.sheet` (native `<dialog>`, so focus is trapped,
   Escape closes it and focus returns to the button) built from `visibleNav()`, so it can never show
   more than the sidebar would: groups as 3-column tiles (`.sheet-tile`), the campus picker when the
-  desktop would show it, Appearance as a segmented control, then Help, Feedback and Sign out. Pages
+  desktop would show it, Appearance as a segmented control, then Help, Feedback and Sign out (the same two links as beside the name on a laptop). Pages
   already on the bar are left out of the tiles. Unread counts use `data-badge` so they show on the
   bar, on More (for pages not on the bar) and on the tiles. A page that lives under More lights up
   More. To put a page on the bar, give its NAV item `mobile: true` (keep the bar to five).

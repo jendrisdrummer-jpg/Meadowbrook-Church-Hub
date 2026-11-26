@@ -51,11 +51,11 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Roll call by spotters (a New guest runs the normal duplicate check and asks “Is this the same person?” before adding); attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
+| Take attendance (roll call) by spotters (a New guest runs the normal duplicate check and asks “Is this the same person?” before adding); attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
 | Kids' check-in flow: rooms by age/grade, allergies, security codes, check-out, check-in access per account | Verified, **but not used for the beta**: check-in stays on Subsplash until the separate child-safety release | `routes/checkin.js`, `js/checkin-rules.js` | `checkin.html`, `js/checkin.js` |
 | Name-tag printing | Needs more testing (not tried with a real printer) | `routes/checkin.js` | `js/checkin.js` |
 | Child-safety V1 (unique pickup codes, custody alerts, full audit) | Partial: the plan is written; these requirements are not built ([plans/child-safety](plans/child-safety/README.md)) | | |
-| iPad stations paired with a code | Needs more testing (pairing a real iPad not tried) | `routes/stations.js` | `pages/stations.js` |
+| Check-in iPads (stations) paired with a code | Needs more testing (pairing a real iPad not tried) | `routes/stations.js` | `pages/stations.js` |
 
 ## Communication (GC, SS)
 | Feature | Status | Server | Hub / app |
