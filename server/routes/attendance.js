@@ -40,6 +40,15 @@ export default function attendanceRoutes(db) {
     const s = service(req, req.params.id);
     const ids = (req.body?.person_ids || []).map((x) => int(x, 'Person')).filter(Boolean).slice(0, 50);
     const present = req.body?.present !== false;
+    // Marking someone present needs a real, current person this account may see (church-wide people are
+    // fine, as on the roll). Unmarking is left alone so a wrong mark can always be undone.
+    if (present) {
+      const get = db.prepare('SELECT campus_id, archived FROM people WHERE id = ?');
+      for (const pid of ids) {
+        const p = get.get(pid);
+        if (!p || p.archived || !canCampus(req.user, p.campus_id)) throw forbidden();
+      }
+    }
     tx(db, () => {
       for (const pid of ids) {
         if (present) db.prepare('INSERT OR IGNORE INTO attendance (service_id, person_id, marked_by) VALUES (?, ?, ?)').run(s.id, pid, req.user.id);

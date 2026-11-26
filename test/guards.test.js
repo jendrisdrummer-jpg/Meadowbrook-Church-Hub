@@ -89,3 +89,21 @@ test('prompt wording helpers', () => {
   assert.equal(duplicateOf({ status: 403, data: { duplicate: dup } }), null);
   assert.equal(personLabel({ first_name: 'Nora', last_name: '' }), 'Nora');
 });
+
+test('roll call: marking someone present needs a current person at a campus you cover; unmarking stays open', async () => {
+  const mk = (n, campus, archived = 0) => Number(db.prepare('INSERT INTO people (first_name, last_name, campus_id, archived) VALUES (?, ?, ?, ?)').run(n, 'Rolltest', campus, archived).lastInsertRowid);
+  const own = mk('Own', 1), other = mk('Other', 2), none = mk('Nocampus', null), gone = mk('Gone', 1, 1);
+  const url = `/services/${svc[0]}/roll`;
+  const names = async () => (await api('leader', 'GET', url)).data.people.map((p) => p.first_name);
+
+  const bad = await api('leader', 'POST', url, { person_ids: [own, other], present: true });
+  assert.equal(bad.status, 403);
+  assert.ok(!(await names()).includes('Other'), 'other campus never shows on the roll');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM attendance WHERE service_id = ? AND person_id IN (?, ?)').get(svc[0], own, other).n, 0, 'nothing partly marked');
+  assert.equal((await api('leader', 'POST', url, { person_ids: [gone], present: true })).status, 403, 'archived');
+  assert.equal((await api('leader', 'POST', url, { person_ids: [987654], present: true })).status, 403, 'unknown');
+  assert.equal((await api('leader', 'POST', url, { person_ids: [own, none], present: true })).status, 200);
+  assert.equal((await api('admin', 'POST', url, { person_ids: [other], present: true })).status, 200, 'unrestricted admin');
+  // Unmarking someone outside the campus is still allowed.
+  assert.equal((await api('leader', 'POST', url, { person_ids: [other], present: false })).status, 200);
+});
