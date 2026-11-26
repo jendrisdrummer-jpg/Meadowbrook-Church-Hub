@@ -1,11 +1,10 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate, familyName } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
 
 // Households are called families in the interface; the data keeps its name ("Diaz Household" reads "Diaz family").
-const familyName = (n) => String(n || '').replace(/\s+household$/i, ' family');
 
 const ROLE_LABEL = { volunteer: 'Volunteer', leader: 'Leader', staff: 'Staff', admin: 'Admin' };
 const ROLE_HELP = {
@@ -172,7 +171,7 @@ export default async function person(el, id) {
           onOpen: (d, close) => { d.querySelectorAll('[data-c]').forEach((x) => { x.onclick = () => close(x.dataset.c); }); },
         });
         if (choice === 'start') {
-          const hh = await post('/households', { name: `${p.last_name || p.first_name} Household`, campus_id: p.campus_id });
+          const hh = await post('/households', { name: `${p.last_name || p.first_name} family`, campus_id: p.campus_id });
           await patch(`/people/${p.id}`, { household_id: hh.id });
           return reload();
         }

@@ -1,11 +1,10 @@
 // People directory: search, filter by status, add someone.
-import { get, post, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast, dialog, options } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast, dialog, options, familyName } from '../lib.js';
 import { state, can, setTitle, go, campusName } from '../app.js';
 import { personDialog } from './person.js';
 
 const STATUS = { member: 'good', regular: 'info', guest: 'warn', inactive: '' };
 const LABEL = { member: 'Member', regular: 'Regular', guest: 'Guest', inactive: 'Inactive' };
-const familyLabel = (n) => String(n || '').replace(/\s+household$/i, ' family');
 // Where the list was when someone opened a person, so coming back lands in the same place.
 const POS = 'mb.people.pos';
 
@@ -84,7 +83,7 @@ export default async function people(el) {
           <div class="prow-main"><div class="prow-name"><b>${displayName(p)}</b> ${can('staff') ? html`<select class="status-pick pill ${STATUS[p.status]}" data-status-of="${p.id}" aria-label="Status for ${displayName(p)}">
             ${Object.keys(LABEL).map((k) => html`<option value="${k}" ${k === p.status ? raw('selected') : ''}>${LABEL[k]}</option>`)}</select>`
             : html`<span class="pill ${STATUS[p.status]}">${LABEL[p.status] || p.status}</span>`}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}</div>
-            <div class="muted small">${[familyLabel(p.household_name), state.campuses.length > 1 ? campusName(p.campus_id) : ''].filter(Boolean).join(' · ')}</div></div>
+            <div class="muted small">${[familyName(p.household_name), state.campuses.length > 1 ? campusName(p.campus_id) : ''].filter(Boolean).join(' · ')}</div></div>
           <div class="prow-contact small">${p.email ? html`<span class="wide-only">${p.email}</span>` : ''}${p.phone ? html`<span class="wide-only muted">${p.phone}</span>` : ''}</div>
           ${p.phone ? html`<a class="icon-btn prow-call" href="tel:${p.phone}" aria-label="Call ${displayName(p)}" title="Call ${p.phone}">${icon('phone')}</a>` : ''}
         </div>`)}</div>`
@@ -161,7 +160,7 @@ export default async function people(el) {
     const fams = await Promise.all(famIds.map(async (id) => {
       const who = people.find((p) => p.household_id === id);
       const h = (await get(`/people/${who.id}`)).household;
-      return h && { id, name: familyLabel(h.name), members: h.members };
+      return h && { id, name: familyName(h.name), members: h.members };
     })).then((x) => x.filter(Boolean));
     const lead = people.find((p) => p.household_role !== 'child') || people[0];
     const newName = `${lead.last_name || lead.first_name} family`;
@@ -180,7 +179,7 @@ export default async function people(el) {
     const confirmed = await dialog({
       title: `Into ${target ? target.name : newName}?`, submit: 'Put them together',
       body: html`<p><b>Joining:</b> ${movers.map(displayName).join(', ')}</p>
-        ${leaving.length ? html`<p class="small">${icon('info', 'ic small-ic')} <b>Leaving their current family:</b> ${leaving.map((p) => `${displayName(p)} (${familyLabel(p.household_name)})`).join(', ')}</p>` : ''}
+        ${leaving.length ? html`<p class="small">${icon('info', 'ic small-ic')} <b>Leaving their current family:</b> ${leaving.map((p) => `${displayName(p)} (${familyName(p.household_name)})`).join(', ')}</p>` : ''}
         <p class="muted small">Adults stay adults and children stay children.</p>`,
     });
     if (!confirmed) return;

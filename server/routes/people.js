@@ -205,7 +205,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     }
     const id = tx(db, () => {
       if (b.new_household) {
-        const h = db.prepare('INSERT INTO households (name, campus_id) VALUES (?, ?)').run(`${f.last_name || f.first_name} Household`, f.campus_id);
+        const h = db.prepare('INSERT INTO households (name, campus_id) VALUES (?, ?)').run(`${f.last_name || f.first_name} family`, f.campus_id);
         f.household_id = Number(h.lastInsertRowid);
       }
       const keys = Object.keys(f);
@@ -507,7 +507,7 @@ export default function peopleRoutes(db, { uploadDir }) {
         const hKey = val(rec, 'household') || (val(rec, 'address') ? `${last}|${val(rec, 'address')}`.toLowerCase() : `${last}|${email || i}`);
         let householdId = existing?.household_id ?? householdIds.get(hKey);
         if (!householdId) {
-          const hName = val(rec, 'household') && !/^\d+$/.test(val(rec, 'household')) ? val(rec, 'household') : `${last || first} Household`;
+          const hName = val(rec, 'household') && !/^\d+$/.test(val(rec, 'household')) ? val(rec, 'household') : `${last || first} family`;
           householdId = Number(db.prepare('INSERT INTO households (name, campus_id, address, city, state, zip) VALUES (?, ?, ?, ?, ?, ?)')
             .run(hName, campusId, val(rec, 'address'), val(rec, 'city'), val(rec, 'state'), val(rec, 'zip')).lastInsertRowid);
           summary.households++;
