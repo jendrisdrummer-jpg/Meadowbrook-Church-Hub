@@ -954,6 +954,14 @@ const MIGRATIONS = [
   );
   CREATE INDEX form_responses_form ON form_responses(form_id, created_at);
   `,
+  // 36: attendance access. users.attendance is a per-account flag like finance and announce: a
+  // volunteer-level account with it may take attendance (roll call, families, new guests,
+  // headcounts) for services at its campuses, and nothing more. campuses.attendance_mode is which
+  // screen the phone opens first: 'names', 'headcount' or 'both' (the default, today's behaviour).
+  `
+  ALTER TABLE users ADD COLUMN attendance INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE campuses ADD COLUMN attendance_mode TEXT NOT NULL DEFAULT 'both';
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

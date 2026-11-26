@@ -48,6 +48,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
+| Take attendance: an account with the Attendance switch (Settings → Accounts, or the person's access dialog) opens Attendance → Take attendance on a phone: recent services (older dates by picking a date), roll call with new guests and children, and headcounts, in the campus's chosen order (names, headcount or both); no time limit on corrections, which are audited; nothing else opens; weekly report shows where each total came from | Needs more testing | `routes/attendance.js`, `routes/checkin.js`, `auth.js`, `routes/setup.js`, `db.js` (36) | `pages/take-attendance.js`, `rollcall.js`, `pages/attendance.js`, `pages/settings.js`, `pages/person.js`, `app.js` |
 | Roll call by spotters (a New guest runs the normal duplicate check and asks “Is this the same person?” before adding); attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
 | Kids' check-in flow: rooms by age/grade, allergies, security codes, check-out, check-in access per account | Verified, **but not used for the beta**: check-in stays on Subsplash until the separate child-safety release | `routes/checkin.js`, `js/checkin-rules.js` | `checkin.html`, `js/checkin.js` |
 | Name-tag printing | Needs more testing (not tried with a real printer) | `routes/checkin.js` | `js/checkin.js` |

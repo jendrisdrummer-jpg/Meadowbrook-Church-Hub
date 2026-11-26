@@ -40,6 +40,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const b = req.body || {};
     const info = db.prepare('INSERT INTO campuses (name, short_name, address, timezone, color, sort) VALUES (?, ?, ?, ?, ?, ?)')
       .run(required(b.name, 'Name'), str(b.short_name, 20), str(b.address), validTz(b.timezone), color(b.color), int(b.sort) ?? 0);
+    if (b.attendance_mode !== undefined) db.prepare('UPDATE campuses SET attendance_mode = ? WHERE id = ?').run(oneOf(b.attendance_mode, ['names', 'headcount', 'both'], 'both'), info.lastInsertRowid);
     audit(db, req, 'campus.create', b.name);
     res.status(201).json(campus(info.lastInsertRowid));
   });
@@ -51,7 +52,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.timezone !== undefined) b.timezone = validTz(b.timezone);
     if (b.color !== undefined) b.color = color(b.color);
     if (b.name !== undefined) b.name = required(b.name, 'Name');
-    updateFields(db, 'campuses', req.params.id, b, ['name', 'short_name', 'address', 'timezone', 'color', 'active', 'sort']);
+    if (b.attendance_mode !== undefined) b.attendance_mode = oneOf(b.attendance_mode, ['names', 'headcount', 'both'], 'both'); // which screen Take attendance opens first
+    updateFields(db, 'campuses', req.params.id, b, ['name', 'short_name', 'address', 'timezone', 'color', 'active', 'sort', 'attendance_mode']);
     res.json(campus(req.params.id));
   });
 
@@ -189,10 +191,10 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const limited = Boolean(req.user.campusIds);
     const reach = (u) => !limited || accountInReach(req.user, u);
     const q = str(req.query.q, 100).toLowerCase();
-    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce,
+    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce, u.attendance,
         u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name, p.campus_id person_campus_id
       FROM users u LEFT JOIN people p ON p.id = u.person_id
-      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1)"}
+      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1 OR u.attendance = 1)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT ${limited ? 5000 : 200}`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
     const checkinIds = getSetting(db, 'checkin_user_ids', []);
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
@@ -205,7 +207,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)
-        .map(({ person_campus_id: _p, ...u }) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })),
+        .map(({ person_campus_id: _p, ...u }) => ({ ...u, attendance: Boolean(u.attendance), has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })),
       volunteers, people_with_email: withEmail, unlinked, duplicate_links: duplicates,
     });
   });
@@ -231,6 +233,15 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     res.json({ ok: true });
   });
+
+  // The Attendance switch lets a volunteer-level account take attendance at its campuses. On a church with
+  // more than one campus the account must have a campus list (no list would mean every campus), and a
+  // campus-limited admin may only use campuses of their own. `list` is the stored JSON text or null.
+  function checkAttendanceCampuses(req, list) {
+    if (db.prepare('SELECT COUNT(*) n FROM campuses').get().n <= 1) return;
+    if (list == null) throw bad('Choose which campuses this person takes attendance at.');
+    if (req.user.campusIds && !within(JSON.parse(list), req.user.campusIds)) throw new HttpError(403, WIDER_MSG);
+  }
 
   // The person an admin chose to link an account to: must exist, not be archived, and not already
   // have another account (one person, one sign-in). null unlinks. Every write that sets a user's
@@ -272,9 +283,10 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       }
     }
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
-    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0);
-    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}`);
+    if (b.attendance) checkAttendanceCampuses(req, campusList(campusIds));
+    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0);
+    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}`);
     if (person) {
       audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
       // The dialogs always send a role; Volunteer (the default) isn't a hand choice of more access.
@@ -288,7 +300,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   // The rules for a campus-limited admin editing an account. Fields the dialog re-sends unchanged are
   // dropped (so they never error and never write); anything that would change is checked.
   function dropUnchanged(b, changed, keepCampus) {
-    for (const k of ['finance', 'announce', 'active', 'checkin', 'person_id']) if (!changed[k]) delete b[k];
+    for (const k of ['finance', 'announce', 'attendance', 'active', 'checkin', 'person_id']) if (!changed[k]) delete b[k];
     if (!changed.campus_ids && !keepCampus) delete b.campus_ids;
   }
   function scopePatch(req, u, b) {
@@ -298,6 +310,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       campus_ids: wantCampus !== undefined && !sameCampuses(wantCampus, u.campus_ids),
       finance: b.finance !== undefined && Boolean(b.finance) !== Boolean(u.finance),
       announce: b.announce !== undefined && Boolean(b.announce) !== Boolean(u.announce),
+      attendance: b.attendance !== undefined && Boolean(b.attendance) !== Boolean(u.attendance), // allowed inside their campuses; checked in PATCH
       active: b.active !== undefined && Boolean(b.active) !== Boolean(u.active),
       checkin: b.checkin !== undefined && Boolean(b.checkin) !== getSetting(db, 'checkin_user_ids', []).includes(u.id),
       person_id: b.person_id !== undefined && int(b.person_id) !== u.person_id,
@@ -339,7 +352,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     // Finance (who gave what) is its own permission, separate from staff/admin.
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
-    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce']);
+    if (b.attendance !== undefined) b.attendance = Boolean(b.attendance);
+    // Attendance needs a campus list (more than one campus); checked against the list the account will have.
+    const willAttend = b.attendance !== undefined ? b.attendance : Boolean(u.attendance);
+    if (willAttend && (b.attendance === true && !u.attendance || b.campus_ids !== undefined)) checkAttendanceCampuses(req, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
+    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance']);
     if (b.person_id !== undefined && b.person_id !== u.person_id) {
       audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
     }

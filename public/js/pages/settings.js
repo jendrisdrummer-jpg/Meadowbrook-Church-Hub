@@ -176,6 +176,8 @@ async function campuses(panel) {
         <label class="field wide">Address<input type="text" name="address" value="${c.address || ''}"></label>
         <label class="field">Time zone<select name="timezone">${options(zones.map((z) => ({ value: z, label: z.replace('America/', '').replace(/_/g, ' ') })), c.timezone || 'America/Chicago')}</select></label>
         <label class="field">Colour<input type="color" name="color" value="${c.color || '#2f7d4f'}" style="height:38px;width:100%"></label>
+        <label class="field wide">Take attendance opens with<select name="attendance_mode">${options([{ value: 'both', label: 'Names and headcount' }, { value: 'names', label: 'Names only (roll call)' }, { value: 'headcount', label: 'Headcount first' }], c.attendance_mode || 'both')}</select>
+          <span class="muted small">What the Take attendance screen on a phone shows first at this campus.</span></label>
         ${c.id ? html`<label class="check wide"><input type="checkbox" name="active" ${c.active ? 'checked' : ''}> Open (uncheck to hide a campus that has closed)</label>` : ''}</div>`,
       onSubmit: (f) => (c.id ? patch(`/campuses/${c.id}`, formData(f)) : post('/campuses', formData(f))),
     });
@@ -355,7 +357,7 @@ async function accounts(panel, q = '') {
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
-      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
+      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.attendance ? html` <span class="pill info">Attendance</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td></tr>`)}
     </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
@@ -388,6 +390,7 @@ async function accounts(panel, q = '') {
         ${limited ? html`<p class="muted small" style="margin:0">${SCOPE_NOTE}</p>` : ''}
         <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
         <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
+        <label class="check"><input type="checkbox" name="attendance" ${u.attendance ? 'checked' : ''}> <span><b>Attendance</b>: can take attendance (roll call, families, new guests, headcounts) at the campuses ticked above, and nothing else. Leaders and above already can. Needs a campus ticked.</span></label>
         <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
@@ -410,7 +413,7 @@ async function accounts(panel, q = '') {
       },
       onSubmit: (f) => {
         const b = formData(f);
-        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, attendance: b.attendance, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
         if (limited) { delete body.finance; delete body.announce; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
         if (u.id) body.active = b.active;
         else body.email = b.email;

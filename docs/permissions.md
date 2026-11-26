@@ -143,7 +143,7 @@ email is in `MB_ADMIN_EMAILS` (its next sign-in would make it an admin again).
 **What they can't do** (403 with a kind message; a value the dialog re-sends unchanged is fine):
 - change their own role, campuses, Finance, Announcements, "Can sign in" or check-in, link or unlink
   their own person, or delete themselves ("Ask an admin who covers every campus to change your own access.");
-- make anyone an admin, or give or take Finance or Announcements (giving and announcements are church-wide);
+- make anyone an admin, or give or take Finance or Announcements (giving and announcements are church-wide). They may give or take Attendance for accounts in reach, with a campus list inside their own campuses (403 outside);
 - set campuses to "all" or to a campus outside C. Leader and staff accounts always end up with a campus
   list inside C: left out on create, or when promoting someone with no list, it becomes C.
 
@@ -183,6 +183,7 @@ admin or an unrestricted actor keeps no campus list, so sees every campus.
 |---|---|---|
 | `finance` | Giving: gifts, donors, funds, batches, statements, finance dashboard (`requireFinance`) | **Never implied by role, not even admin.** Giving data is seen only by people explicitly given Finance. |
 | `announce` | Sending announcements to the congregation | Admins always have it. |
+| `attendance` | Taking attendance: the roll (`GET`/`POST /services/:id/roll`), new guests (`POST /services/:id/roll/guest`), headcounts (`PUT /services/:id/headcounts`) and the Take attendance services list (`GET /attendance/services`), for services at the account's campuses (`requireAttendance` + `canAttendCampus`) | For volunteer-level accounts; leaders and above already can, so it changes nothing for them. Opens nothing else: People, schedules, reports (`/attendance/people`, `/attendance/weekly`, a person's history) and kids' check-in (`canCheckin`, unchanged) keep their own guards. On a church with more than one campus the account must have a campus list (400 otherwise), and with none it fails closed (403). No time limit on past services; a change made after the service's own date is audited (`attendance.correct`, `headcount.correct`). New guests: a new family, or a child into a family already on that roll (never an adult), name-only duplicate check, 30 a day per account (429). A campus-limited admin can grant or take it inside their own campuses. |
 
 ## Campus limits
 

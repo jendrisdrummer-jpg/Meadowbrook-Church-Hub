@@ -2,7 +2,7 @@
 
 How to put `milestone-1` live on Render, what to watch afterwards, and how to undo it. Written for
 the owner, who presses the buttons; the developer prepares and stays on hand. It covers the
-**first** deploy from `milestone-1` (migrations 30–35). Later releases follow the same steps with
+**first** deploy from `milestone-1` (migrations 30–36). Later releases follow the same steps with
 their own notes in [merge-log.md](merge-log.md). Kids' check-in is a separate release with its own
 plan.
 
@@ -14,7 +14,7 @@ a secret (passwords, keys, the backup password) into chat, a document or a commi
 When the new code starts on Render it opens the database and, in this order (`openDb` in
 `server/db.js`):
 
-1. **Migrations 30–35.** New columns and tables only; nothing is removed or renamed. Rehearsed on a
+1. **Migrations 30–36.** New columns and tables only; nothing is removed or renamed. Migration 36 (attendance access) adds `users.attendance` and `campuses.attendance_mode`; nothing else reads or writes them but this release. Rehearsed on a
    made-up copy: see the rehearsal record below.
 2. **Session hashing.** Stored sign-in sessions are converted to hashes. People stay signed in, but
    those sessions now end within 24 hours, so everyone signs in again within a day.
@@ -171,7 +171,14 @@ damaged, not just because the code was rolled back: follow
 using the backup from step 3 of "Before the deploy". Anything entered since that backup is lost,
 so the developer writes the exact steps for that day.
 
-**After any rollback: no new migrations on `main`.** The database is now at version 35, so a
+**Rolling back after migration 36 (attendance access).** Safe: the change is additive and old code ignores
+both columns (`users.attendance`, `campuses.attendance_mode`). Accounts that were given the Attendance switch
+simply lose that access under the old code (it fails closed: they see the plain volunteer app). Leaders, staff
+and admins are unaffected. Never drop the columns. A backup taken at version 36 shows as "newer" in
+`restore-check`; that is expected when you restore it with the new code, and a reason not to restore it under old
+code.
+
+**After any rollback: no new migrations on `main`.** The database is now at version 36, so a
 migration added to `main`'s older list would be skipped silently. A hotfix must be made from
 `milestone-1` (whose migration list matches the database), not from `main`. This rule lasts until
 `milestone-1` is live.
@@ -182,7 +189,7 @@ Add a line to [merge-log.md](merge-log.md) under "Deployed to production" (the d
 in a pull request):
 
 ```
-| <date> | #<PR> | Deployed milestone-1 to production: migrations 30–35; one-account index <created / skipped, N duplicates>; rollback: none | Settings → Checks <all Yes / which said Check or No, and why>; smoke test passed | main |
+| <date> | #<PR> | Deployed milestone-1 to production: migrations 30–36; one-account index <created / skipped, N duplicates>; rollback: none | Settings → Checks <all Yes / which said Check or No, and why>; smoke test passed | main |
 ```
 and change "**Deployed to production:** nothing yet" to the date and PR.
 

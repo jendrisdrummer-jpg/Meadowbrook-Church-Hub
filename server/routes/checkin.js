@@ -4,9 +4,9 @@
 // with no internet. Each check-in gets its id and pickup code on the tablet, and uploads are
 // idempotent: re-sending a batch after a dropped connection never double-counts anyone.
 import { Router } from 'express';
-import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting, tx } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit } from '../http.js';
 import { roomFor, securityCode } from '../../public/js/checkin-rules.js';
 
 // Who may use kids' check-in (the family roster with children's allergies and medical notes,
@@ -163,10 +163,10 @@ export default function checkinRoutes(db) {
   });
 
   // ---------------------------------------------------------------- attendance
-  r.put('/services/:id/headcounts', requireRole('leader'), (req, res) => {
+  r.put('/services/:id/headcounts', requireAttendance, (req, res) => {
     const s = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!s) throw notFound('Service');
-    if (!canCampus(req.user, s.campus_id)) throw forbidden();
+    if (!canAttendCampus(db, req.user, s.campus_id)) throw forbidden();
     const counts = req.body?.counts || {};
     tx(db, () => {
       for (const [area, value] of Object.entries(counts)) {
@@ -176,18 +176,41 @@ export default function checkinRoutes(db) {
         else db.prepare('INSERT INTO headcounts (service_id, area, count) VALUES (?, ?, ?) ON CONFLICT(service_id, area) DO UPDATE SET count = excluded.count').run(s.id, str(area, 60), n);
       }
     });
+    // Attendance-only accounts have no time limit, so a change after the service's own date is audited.
+    if (rank(req.user.role) < rank('leader')) {
+      const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(s.campus_id)?.timezone || 'UTC';
+      if (localNow(tz).date > s.starts_at.slice(0, 10)) audit(db, req, 'headcount.correct', { service_id: s.id, counts });
+    }
     res.json(db.prepare('SELECT area, count FROM headcounts WHERE service_id = ?').all(s.id));
   });
 
-  // Weekly totals per campus: headcounts plus kids checked in.
+  // Weekly totals per campus: counted adults and students (headcount or names) plus kids checked in.
   r.get('/attendance/weekly', requireRole('leader'), (req, res) => {
     const weeks = Math.min(int(req.query.weeks) ?? 12, 104);
     const from = new Date(Date.now() - weeks * 7 * 864e5).toISOString().slice(0, 10);
     const cf = campusFilter(req.user, 's.campus_id');
     // Weeks start on Sunday: the date of that Sunday labels the week.
     const week = (col) => `date(${col}, '-' || strftime('%w', ${col}) || ' days')`;
-    const adults = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, SUM(h.count) total
-      FROM headcounts h JOIN services s ON s.id = h.service_id WHERE s.starts_at >= ? AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
+    // "Counted" per service: the headcount total when one was entered, otherwise the names on the roll
+    // minus anyone also checked in as a kid at that service (so no one counts twice). A week's source is
+    // 'headcount', 'names' or 'mixed' when some services used each. `adults` keeps its old name for the
+    // page: it is the counted total per campus and week.
+    const perService = db.prepare(`SELECT s.id, s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week,
+        (SELECT COUNT(*) FROM headcounts h WHERE h.service_id = s.id) areas,
+        (SELECT COALESCE(SUM(h.count), 0) FROM headcounts h WHERE h.service_id = s.id) headcount,
+        (SELECT COUNT(*) FROM attendance a WHERE a.service_id = s.id
+           AND a.person_id NOT IN (SELECT person_id FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid')) names
+      FROM services s WHERE s.starts_at >= ? AND ${cf.sql}`).all(from, ...cf.args);
+    const byWeek = new Map();
+    for (const sv of perService) {
+      const key = `${sv.campus_id}|${sv.week}`;
+      const w = byWeek.get(key) || { campus_id: sv.campus_id, week: sv.week, total: 0, kinds: new Set() };
+      if (sv.areas > 0) { w.total += sv.headcount; w.kinds.add('headcount'); }
+      else if (sv.names > 0) { w.total += sv.names; w.kinds.add('names'); }
+      byWeek.set(key, w);
+    }
+    const adults = [...byWeek.values()].filter((w) => w.kinds.size).map((w) => ({ campus_id: w.campus_id, week: w.week, total: w.total }));
+    const source = [...byWeek.values()].filter((w) => w.kinds.size).map((w) => ({ campus_id: w.campus_id, week: w.week, source: w.kinds.size > 1 ? 'mixed' : [...w.kinds][0] }));
     const cf2 = campusFilter(req.user, 'ci.campus_id');
     const kids = db.prepare(`SELECT ci.campus_id, ${week('ci.day')} week, COUNT(*) total
       FROM checkins ci WHERE ci.day >= ? AND ci.kind = 'kid' AND ${cf2.sql} GROUP BY 1, 2`).all(from, ...cf2.args);
@@ -195,7 +218,7 @@ export default function checkinRoutes(db) {
       FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.status = 'accepted' AND s.starts_at >= ? AND s.starts_at <= datetime('now') AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
     const marked = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, COUNT(DISTINCT a.person_id) total
       FROM attendance a JOIN services s ON s.id = a.service_id WHERE s.starts_at >= ? AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
-    res.json({ from, adults, kids, volunteers, marked });
+    res.json({ from, adults, kids, volunteers, marked, source });
   });
 
   return r;
