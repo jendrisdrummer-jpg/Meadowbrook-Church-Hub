@@ -48,7 +48,7 @@ export default async function person(el, id) {
           ${p.allergies ? html`<div class="alert bad" style="margin-top:12px"><span class="allergy">Allergies:</span> ${p.allergies}</div>` : ''}
           ${p.medical_notes ? html`<div class="alert" style="margin-top:8px"><b>Medical:</b> ${p.medical_notes}</div>` : ''}
           ${p.notes ? html`<p class="muted small" style="white-space:pre-wrap">${p.notes}</p>` : ''}
-          ${p.account || can('admin') ? html`<div class="row small" style="margin-top:10px">${icon('user', 'ic small-ic')}
+          ${p.account || can('admin') ? html`<div class="row small" style="margin-top:10px">
             <span class="muted">${p.account
               ? html`Account: <b>${ROLE_LABEL[p.account.role]}</b>${p.account.finance ? ' + Finance' : ''}${p.account.announce ? ' + Announcements' : ''}${p.account.role_auto ? ' (team leader)' : ''} · ${p.account.email}${p.account.active ? '' : ' · can’t sign in'} · ${p.account.last_login ? `last signed in ${fmtDate(p.account.last_login.slice(0, 10))}` : 'hasn’t signed in yet'}`
               : p.email ? 'No account yet; they get a volunteer account by signing in.' : 'No account (needs an email to sign in).'}</span>
