@@ -190,6 +190,17 @@ admin or an unrestricted actor keeps no campus list, so sees every campus.
 record and `campusFilter(user, column)` for lists. Any new campus-owned data must be filtered the
 same way.
 
+**Households** hang off a campus too. Every household-level route (`PATCH /households/:id`, adding a
+pickup person, removing one) refuses a campus-limited user for a household at another campus (403);
+moving or adding a person into a household checks the household's campus as well as the person's.
+`GET /people/:id` leaves out the household (with its notes and pickup list) when it sits at a campus
+the user can't reach. Pickup changes are audited (`pickup.add`, `pickup.remove`). Households with no
+campus are open to everyone, as for people.
+
+**Access dialog campuses.** In the account dialogs (person page, Settings → Accounts) "All campuses"
+and specific campuses are mutually exclusive. The server takes `campus_ids` as `'all'` (or null) or a
+non-empty list of campuses; an empty list is refused (400), duplicates collapse.
+
 **Serving campuses** (which campuses a volunteer may be scheduled at, `PUT /people/:id/serving-campuses`):
 staff and admins only; leaders and volunteers can't change them. Campus-limited staff can only add or
 remove campuses they can access (other campuses already on the list are left alone), and every change

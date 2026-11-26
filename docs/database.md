@@ -34,7 +34,7 @@ Arrows show the main references.
 | `campuses` | Campuses with time zone, colour, address. Most data is campus-scoped. |
 | `serving_campuses` → people, campuses | Campuses a volunteer can serve at (migration 32). No rows = home campus only (`people.campus_id`); no rows and no home campus = any campus. Rules in `server/eligibility.js`. |
 | `households` → campuses | Families: address, phone, notes. |
-| `people` → households, campuses | Everyone in the directory: contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
+| `people` → households, campuses | Everyone in the directory (names up to 100 characters; birthdate a real past date; email shaped like `x@y.z`): contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. |
 | `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme`, `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
 | `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. |
