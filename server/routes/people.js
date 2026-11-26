@@ -18,6 +18,10 @@ const PERSON_FIELDS = ['first_name', 'last_name', 'nickname', 'email', 'phone', 
 const HOUSEHOLD_FIELDS = ['name', 'campus_id', 'address', 'city', 'state', 'zip', 'phone', 'notes'];
 // Health information and private notes: staff and up only (see GET /people/:id).
 const PRIVATE_PERSON_FIELDS = ['allergies', 'medical_notes', 'notes'];
+const NAME_MAX = 100;
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// isDate plus a real calendar day (2026-02-30 is not one).
+const isRealDate = (v) => isDate(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
 const withoutKeys = (row, keys) => Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 
 export function digits(s) {
@@ -36,15 +40,31 @@ export default function peopleRoutes(db, { uploadDir }) {
     return p;
   }
 
+  // A household the signed-in user may work with: it exists and sits at one of their campuses
+  // (or has no campus yet). Everything that hangs off a household goes through this.
+  function visibleHousehold(req, id) {
+    const h = getHousehold(id);
+    if (!h) throw notFound('Household');
+    if (!canCampus(req.user, h.campus_id)) throw forbidden();
+    return h;
+  }
+
   // Cleans an incoming person body; `partial` allows leaving required fields out.
   function personFields(b, partial) {
     const out = {};
     if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
     for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
-    if (b.email !== undefined) out.email = str(b.email, 200).toLowerCase();
+    for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
+      if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
+    }
+    if (b.email !== undefined) {
+      out.email = str(b.email, 200).toLowerCase();
+      if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
+    }
     if (b.phone !== undefined) out.phone = str(b.phone, 40);
     if (b.birthdate !== undefined) {
-      if (b.birthdate && !isDate(b.birthdate)) throw bad('Birthdate must be a date.');
+      if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
+      if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
       out.birthdate = b.birthdate || null;
     }
     if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
@@ -126,7 +146,9 @@ export default function peopleRoutes(db, { uploadDir }) {
   r.get('/people/:id', requireRole('leader'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
     const staff = rank(req.user.role) >= rank('staff');
-    const household = p.household_id ? getHousehold(p.household_id) : null;
+    // A household at a campus this user can't reach isn't shown, with its notes and pickups.
+    const hh = p.household_id ? getHousehold(p.household_id) : null;
+    const household = hh && canCampus(req.user, hh.campus_id) ? hh : null;
     const person = staff ? p : withoutKeys(p, PRIVATE_PERSON_FIELDS);
     res.json({
       ...person,
@@ -164,6 +186,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       if (f.household_id && (!hh || (hh.campus_id != null && hh.campus_id !== f.campus_id))) throw forbidden();
     }
     if (!canCampus(req.user, f.campus_id)) throw forbidden();
+    if (f.household_id) visibleHousehold(req, f.household_id);
     if (!b.force) {
       const dup = findDuplicate(f);
       if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: dup });
@@ -213,7 +236,10 @@ export default function peopleRoutes(db, { uploadDir }) {
     const p = visiblePerson(req, req.params.id);
     const f = personFields(req.body || {}, true);
     if (f.campus_id !== undefined && !canCampus(req.user, f.campus_id)) throw forbidden();
-    if (f.household_id && !getHousehold(f.household_id)) throw bad('That household doesn’t exist.');
+    if (f.household_id) {
+      if (!getHousehold(f.household_id)) throw bad('That household doesn’t exist.');
+      visibleHousehold(req, f.household_id);
+    }
     if (req.body?.archived !== undefined) f.archived = req.body.archived ? 1 : 0;
     updateFields(db, 'people', p.id, f, [...PERSON_FIELDS, 'archived']);
     audit(db, req, 'person.update', { id: p.id, fields: Object.keys(f) });
@@ -304,9 +330,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   });
 
   r.patch('/households/:id', requireRole('staff'), (req, res) => {
-    const h = getHousehold(req.params.id);
-    if (!h) throw notFound('Household');
-    if (!canCampus(req.user, h.campus_id)) throw forbidden();
+    const h = visibleHousehold(req, req.params.id);
     const b = { ...req.body };
     if (b.campus_id !== undefined) {
       b.campus_id = int(b.campus_id);
@@ -318,16 +342,20 @@ export default function peopleRoutes(db, { uploadDir }) {
   });
 
   r.post('/households/:id/pickups', requireRole('staff'), (req, res) => {
-    const h = getHousehold(req.params.id);
-    if (!h) throw notFound('Household');
+    const h = visibleHousehold(req, req.params.id);
     const b = req.body || {};
     const info = db.prepare('INSERT INTO household_pickups (household_id, name, phone, relationship) VALUES (?, ?, ?, ?)')
       .run(h.id, required(b.name, 'Name'), str(b.phone, 40), str(b.relationship, 60));
+    audit(db, req, 'pickup.add', { household_id: h.id, name: str(b.name) });
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
   r.delete('/pickups/:id', requireRole('staff'), (req, res) => {
-    db.prepare('DELETE FROM household_pickups WHERE id = ?').run(req.params.id);
+    const pk = db.prepare('SELECT * FROM household_pickups WHERE id = ?').get(req.params.id);
+    if (!pk) throw notFound('Pickup person');
+    visibleHousehold(req, pk.household_id);
+    db.prepare('DELETE FROM household_pickups WHERE id = ?').run(pk.id);
+    audit(db, req, 'pickup.remove', { household_id: pk.household_id, name: pk.name });
     res.json({ ok: true });
   });
 
