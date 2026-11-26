@@ -35,6 +35,7 @@ export default async function people(el) {
       <div class="row end wide"><button class="btn small" data-clear-filters>Clear filters</button></div>
     </div>
     <div data-list></div>
+    ${can('staff') ? html`<button class="btn small select-fab" data-select-mode data-fab>${icon('check')} Select</button>` : ''}
     <div class="bulk-bar hidden" data-bulk><b data-bulk-count></b><span class="spacer"></span>
       <button class="btn small" data-bulk-status>Set status</button><button class="btn small" data-bulk-family>${icon('people')} Put in one family</button>
       <button class="btn small ghost" data-bulk-cancel>Done</button></div>
@@ -130,12 +131,21 @@ export default async function people(el) {
     bar.classList.toggle('hidden', !selecting);
     el.querySelector('[data-bulk-count]').textContent = picked.size ? `${picked.size} selected` : 'Tap people to select them';
     bar.querySelectorAll('[data-bulk-status], [data-bulk-family]').forEach((b) => { b.disabled = !picked.size; });
-    const m = el.querySelector('[data-select-mode]');
-    if (m) { m.classList.toggle('on', selecting); m.setAttribute('aria-pressed', selecting); }
+    el.querySelectorAll('[data-select-mode]').forEach((m) => { m.classList.toggle('on', selecting); m.setAttribute('aria-pressed', selecting); });
+    // The floating Select button, for starting from anywhere down the list.
+    el.querySelector('[data-fab]')?.classList.toggle('hidden', selecting);
   };
   const redraw = () => { draw(); syncBulk(); };
+  const keepPlace = (fn) => { const y = window.scrollY; fn(); window.scrollTo(0, y); };
   const chosen = () => [...picked.values()];
-  const finish = (msg) => { toast(msg); selecting = false; picked.clear(); return load(); };
+  // After an action: update those rows where they are, keep Select on with nothing ticked, and
+  // don't move the page, so you can carry on from the same spot.
+  const finish = (msg, ids, change) => {
+    for (const r of rows) if (ids.includes(r.id)) Object.assign(r, change);
+    picked.clear();
+    keepPlace(redraw);
+    toast(msg);
+  };
 
   async function bulkStatus() {
     const people = chosen();
@@ -148,7 +158,7 @@ export default async function people(el) {
     });
     if (!ok) return;
     for (const p of people) if (p.status !== status) await patch(`/people/${p.id}`, { status });
-    return finish(`${people.length} ${people.length === 1 ? 'person is' : 'people are'} now ${status === 'regular' ? 'regular attenders' : LABEL[status].toLowerCase() + (status === 'inactive' ? '' : 's')}.`);
+    return finish(`${people.length} ${people.length === 1 ? 'person is' : 'people are'} now ${status === 'regular' ? 'regular attenders' : LABEL[status].toLowerCase() + (status === 'inactive' ? '' : 's')}.`, people.map((p) => p.id), { status });
   }
 
   // Everyone picked shares one family: one they're already in, or a new one. Before anything
@@ -186,7 +196,7 @@ export default async function people(el) {
     let famId = target?.id;
     if (!famId) famId = (await post('/households', { name: newName, campus_id: lead.campus_id ?? null })).id;
     for (const p of movers) await patch(`/people/${p.id}`, { household_id: famId });
-    return finish(`${movers.length} ${movers.length === 1 ? 'person' : 'people'} now in ${target ? target.name : newName}.`);
+    return finish(`${movers.length} ${movers.length === 1 ? 'person' : 'people'} now in ${target ? target.name : newName}.`, movers.map((p) => p.id), { household_id: famId, household_name: target ? target.name : newName });
   }
 
   q.addEventListener('input', debounce(() => load()));
@@ -209,8 +219,8 @@ export default async function people(el) {
       if (fieldSel) { fieldSel.value = ''; fillValues(); }
       return load();
     }
-    if (e.target.closest('[data-select-mode]')) { selecting = !selecting; if (!selecting) picked.clear(); return redraw(); }
-    if (e.target.closest('[data-bulk-cancel]')) { selecting = false; picked.clear(); return redraw(); }
+    if (e.target.closest('[data-select-mode]')) { selecting = !selecting; if (!selecting) picked.clear(); return keepPlace(redraw); }
+    if (e.target.closest('[data-bulk-cancel]')) { selecting = false; picked.clear(); return keepPlace(redraw); }
     if (e.target.closest('[data-bulk-status]')) return bulkStatus().catch(fail);
     if (e.target.closest('[data-bulk-family]')) return bulkFamily().catch(fail);
     if (e.target.closest('a, select')) return; // the call link, the status picker
