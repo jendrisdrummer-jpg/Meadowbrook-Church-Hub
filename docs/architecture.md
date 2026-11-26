@@ -87,7 +87,7 @@ audio) · Render (hosting).
 - `Dockerfile` (node:22-slim, `npm ci --omit=dev`), `PORT=8090`, `MB_DB=/data/meadowbrook.db`,
   `MB_UPLOADS=/data/uploads`. Render redeploys on every merge to `main`.
 - Secrets live **only** in Render's environment settings (see [security.md](security.md)).
-- `MB_TRUST_PROXY=1` on Render so secure cookies work behind its proxy.
+- `MB_TRUST_PROXY=2` on Render (Cloudflare edge + load balancer) so secure cookies work and rate limits see each visitor's address.
 - Migrations run automatically on start (`openDb` → `migrate`).
 
 ## Multi-church (SaaS) readiness

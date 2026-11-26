@@ -486,7 +486,7 @@ The repo includes a `Dockerfile`. Any host that runs Docker with a **persistent 
 
 Without Docker: `npm ci --omit=dev && npm start`.
 
-On Render, Railway or Fly.io, set `MB_TRUST_PROXY=1` so the app knows it is behind their HTTPS
+On Render set `MB_TRUST_PROXY=2` (its Cloudflare edge plus its load balancer; on Railway or Fly.io usually `1`). Check Settings → Checks: "Your address" must match a what-is-my-IP site. Set it so the app knows it is behind their HTTPS
 proxy. Elsewhere, set it to the proxy's address if the proxy isn't on the same machine or
 private network.
 

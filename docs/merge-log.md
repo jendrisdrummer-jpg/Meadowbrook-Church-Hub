@@ -43,6 +43,6 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **At go-live:** add serving campuses for volunteers who serve at more than one campus (otherwise they are only offered at their home campus).
 
-**Deployed to production:** nothing yet. `main` is unchanged.
+**Deployed to production:** 26 November 2026, 11:18 AM CT, PR #79 (`main` at `b1099cc`, the tested `milestone-1` release `3e74bbf`): milestone 1, Part A (#81–#84) and Part B (#85, #86, #88–#93); B8 (#87) held back. Migrations 30–35 ran; the one-account index was created (no duplicates; no warning in the log); sessions were hashed. Live in under a minute, start-up log clean. Settings → Checks: "Nothing here blocks real use". Follow-up: `MB_TRUST_PROXY` changed from `1` to `2` on Render the same morning, because with `1` the hub saw Cloudflare's address; with `2` the address matches the visitor's (the Checks page is updated to accept it in the next release). Rollback: none.
 
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).
