@@ -346,7 +346,7 @@ A ministry stops using Faith Teams only when all of these hold:
 ## 13. Decisions and facts needed before implementation
 This is the **one list of owner decisions**. Other pages link here rather than keeping their own.
 
-**Decided (25 November 2026):**
+**Decided (as merged into `milestone-1` by 25 November 2026):**
 1. **PR #51:** approved and merged (#51).
 2. **Milestone PR 2:** approved and merged (#52). Check-in access is per account, not per team: an admin
    authorises leader accounts in Settings (`checkin_user_ids`). Connect-card messages are staff only.
