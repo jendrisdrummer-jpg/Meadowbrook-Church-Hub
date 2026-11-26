@@ -107,7 +107,8 @@ async function drawPeople(panel, s, chats) {
     .sort((a, b) => (b.active - a.active));
   // The scheduler's team filter, remembered across services.
   let only = JSON.parse(localStorage.getItem('mb.serving.teams') || '[]').filter((id) => allTeams.some((t) => t.id === id));
-  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams.filter((t) => t.active);
+  // "All teams" lists every team: the ones in this service first, then the rest, so anyone can be scheduled.
+  const shown = only.length ? allTeams.filter((t) => only.includes(t.id)) : allTeams;
   const teamStats = (t) => {
     const ps = s.positions.filter((p) => p.team_id === t.id);
     const open = ps.reduce((a, p) => a + Math.max(0, p.needed - p.assignments.filter((x) => x.status !== 'declined').length), 0);

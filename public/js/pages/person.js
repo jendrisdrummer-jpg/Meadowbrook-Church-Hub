@@ -297,7 +297,7 @@ export async function personDialog(p = {}) {
       if (!wantsAnother || editing) { toast(editing ? 'Saved.' : 'Added.'); return true; }
       // Stay open for the next person: they join the same family (the one just started, if new).
       toast(`Added ${displayName(saved)}. Add the next person.`);
-      fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: Boolean(fam?.hasAdult) || saved.household_role === 'adult' };
+      fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: saved.household_role === 'adult' ? true : (fam ? fam.hasAdult : false) };
       for (const n of ['first_name', 'email', 'phone', 'nickname', 'birthdate', 'gender', 'grade', 'allergies', 'medical_notes', 'notes']) f.elements[n].value = '';
       roleTouched = false;
       f.elements.household_role.value = defaultRole();
