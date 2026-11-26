@@ -342,8 +342,13 @@ export default function peopleRoutes(db, { uploadDir }) {
   r.get('/households', requireRole('leader'), (req, res) => {
     const q = `%${str(req.query.q, 100).toLowerCase()}%`;
     const cf = campusFilter(req.user, 'h.campus_id');
-    res.json(db.prepare(`SELECT h.id, h.name, h.campus_id, (SELECT COUNT(*) FROM people p WHERE p.household_id = h.id AND p.archived = 0) members
-      FROM households h WHERE lower(h.name) LIKE ? AND ${cf.sql} ORDER BY h.name LIMIT 30`).all(q, ...cf.args));
+    // Matches the family's name or anyone in it, so "Brooks" or "Laura" both find the Brooks family.
+    const rows = db.prepare(`SELECT h.id, h.name, h.campus_id, (SELECT COUNT(*) FROM people p WHERE p.household_id = h.id AND p.archived = 0) members
+      FROM households h WHERE (lower(h.name) LIKE ? OR EXISTS (SELECT 1 FROM people m WHERE m.household_id = h.id AND m.archived = 0
+        AND (lower(m.first_name || ' ' || m.last_name) LIKE ? OR lower(coalesce(m.nickname, '') || ' ' || m.last_name) LIKE ?)))
+        AND ${cf.sql} ORDER BY h.name LIMIT 30`).all(q, q, q, ...cf.args);
+    const people = db.prepare("SELECT first_name, nickname, household_role FROM people WHERE household_id = ? AND archived = 0 ORDER BY household_role, birthdate");
+    res.json(rows.map((h) => ({ ...h, people: people.all(h.id).map((m) => ({ name: m.nickname || m.first_name, role: m.household_role })) })));
   });
 
   r.post('/households', requireRole('staff'), (req, res) => {
