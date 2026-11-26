@@ -2612,4 +2612,55 @@ test('Fill open spots works on one team at a time: needs a team, needs permissio
   assert.equal(detail.positions.find((p) => p.id === B.pos.id).assignments.length, 0);
   const two = await api('admin', 'POST', '/schedule/autofill', { service_ids: [svc.id], team_id: B.team.id });
   assert.deepEqual(two.data.added.map((a) => a.position), ['Beta spot']);
+  // New assignments are drafts: nobody has been told yet.
+  for (const a of [...one.data.added, ...two.data.added]) {
+    assert.equal(db.prepare('SELECT sent_at FROM assignments WHERE id = ?').get(a.id).sent_at, null);
+  }
+
+  // A leader of team A (and only A) may fill A, and only A gets filled.
+  const lead = (await api('admin', 'POST', '/people', { first_name: 'Lena', last_name: 'Leadfill', campus_id: 1 })).data;
+  await api('admin', 'PUT', `/teams/${A.team.id}/members/${lead.id}`, { position_ids: [A.pos.id], is_leader: true });
+  const leadUser = db.prepare("INSERT INTO users (email, role, person_id) VALUES ('leadfill@mb.org', 'leader', ?)").run(lead.id).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies.leadfill = v.split(';')[0]; } }, leadUser);
+  const newSvc = async (daysOut, campus = 1) => {
+    const x = (await api('admin', 'POST', '/services', { campus_id: campus, starts_at: `${nextSunday(daysOut)}T08:00` })).data;
+    await api('admin', 'PUT', `/services/${x.id}/needs`, { needs: [{ position_id: A.pos.id, count: 1 }, { position_id: B.pos.id, count: 1 }] });
+    return x;
+  };
+  const filled = (id) => db.prepare('SELECT ps.name FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? ORDER BY ps.name').all(id).map((r) => r.name);
+  const s2 = await newSvc(300);
+  assert.equal((await api('leadfill', 'POST', `/services/${s2.id}/autofill`, { team_id: B.team.id })).status, 403, 'not their team');
+  assert.equal((await api('leadfill', 'POST', '/schedule/autofill', { service_ids: [s2.id], team_id: B.team.id })).status, 403);
+  assert.deepEqual(filled(s2.id), []);
+  const mine = await api('leadfill', 'POST', `/services/${s2.id}/autofill`, { team_id: A.team.id });
+  assert.equal(mine.status, 200);
+  assert.ok(mine.data.added.length >= 1 && mine.data.added.every((a) => a.position === 'Alpha spot'));
+  assert.deepEqual(filled(s2.id), ['Alpha spot'], 'only team A is filled');
+
+  // A locked service: staff get a kind 400, an admin may still fill it.
+  const s3 = await newSvc(310);
+  assert.equal((await api('admin', 'PATCH', `/services/${s3.id}`, { locked: true })).status, 200);
+  const locked = await api('north', 'POST', `/services/${s3.id}/autofill`, { team_id: A.team.id });
+  assert.equal(locked.status, 400);
+  assert.match(locked.data.error, /locked/);
+  assert.deepEqual(filled(s3.id), []);
+  const byAdmin = await api('admin', 'POST', `/services/${s3.id}/autofill`, { team_id: A.team.id });
+  assert.equal(byAdmin.status, 200);
+  assert.deepEqual(byAdmin.data.added.map((a) => a.position), ['Alpha spot']);
+
+  // Staff limited to North can't fill a South service, on either route.
+  const south = await newSvc(320, 2);
+  assert.equal((await api('north', 'POST', `/services/${south.id}/autofill`, { team_id: A.team.id })).status, 403);
+  assert.equal((await api('north', 'POST', '/schedule/autofill', { service_ids: [south.id], team_id: A.team.id })).status, 403);
+  assert.deepEqual(filled(south.id), []);
+
+  // A mixed list (one locked) fills only the unlocked service for staff.
+  const open = await newSvc(330), shut = await newSvc(340);
+  assert.equal((await api('admin', 'PATCH', `/services/${shut.id}`, { locked: true })).status, 200);
+  const mixed = await api('north', 'POST', '/schedule/autofill', { service_ids: [open.id, shut.id], team_id: A.team.id });
+  assert.equal(mixed.status, 200);
+  assert.ok(mixed.data.added.length >= 1 && mixed.data.added.every((a) => a.service_id === open.id));
+  assert.deepEqual(filled(shut.id), [], 'locked service untouched');
+  assert.deepEqual(filled(open.id), ['Alpha spot']);
+  assert.ok([...mine.data.added, ...mixed.data.added].every((a) => db.prepare('SELECT sent_at FROM assignments WHERE id = ?').get(a.id).sent_at === null));
 });
