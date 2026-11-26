@@ -1115,3 +1115,6 @@ details.more-details[open] > summary { margin-bottom: 8px; }
 .kebab-menu .ic { width: 16px; height: 16px; }
 @media (max-width: 600px) { .prow-contact .wide-only { display: none; } .people-bar input { max-width: none; } }
 @media (max-width: 600px) { .kebab-menu { left: 0; right: auto; } }
+/* A pill that explains itself when tapped (e.g. Can't be reached). */
+.pill-btn { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.pill-btn:hover { filter: brightness(.96); }

@@ -2,7 +2,7 @@
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
 import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
 import { state, setTitle, campusName, can } from '../app.js';
-import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
+import { assignDialog, scheduleOne, sendRequests, reachPill, reachShort } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
 const STATUS = { pending: 'Waiting for a reply', accepted: 'Accepted', declined: 'Declined', draft: 'Not asked yet' };
@@ -159,8 +159,8 @@ export default async function schedule(el) {
     return html`<aside class="card sched-side">
       <div class="card-head"><h2>Team</h2>${sel ? html`<button class="btn small ghost" data-unpick>Done</button>` : ''}</div>
       ${members.length ? html`<div class="sched-people">${members.map((m) => html`<button type="button" class="sched-person ${m.id === picked ? 'on' : ''}" data-person="${m.id}" draggable="true">
-          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}${m.reachable === false ? html` <span class="pill warn" title="No email or account, so requests can’t reach them">Can’t be reached</span>` : ''}
-            ${m.reachable === false ? html`<span class="muted small">No email or account</span>` : ''}
+          ${avatar(m)}<span class="who"><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}${reachPill(m)}
+            ${m.reachable === false ? html`<span class="muted small">${reachShort(m.unreachable_reason)}</span>` : ''}
             <span class="muted small">${m.position_ids.map((id) => posName[id]).filter(Boolean).join(', ') || 'No position yet'}</span>
             ${m.away.map((b) => html`<span class="small away-note">Away ${fmtDate(b.start_date < month1 ? month1 : b.start_date, { month: 'short', day: 'numeric' })}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date, { month: 'short', day: 'numeric' })}` : ''}</span>`)}</span>
           <span class="count ${m.month_count ? '' : 'zero'}" title="Days serving this month">${m.month_count}×</span></button>`)}</div>`

@@ -8,7 +8,7 @@ import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
 import { campusEligibility } from '../eligibility.js';
 import { ledTeamIds, seesTeamDetail, ledPositionsClause } from '../team-scope.js';
-import { notifyScheduled, notifyResponse, remindPending, notifyUnscheduled, assignmentRow } from '../notify.js';
+import { notifyScheduled, notifyResponse, remindPending, notifyUnscheduled, assignmentRow, unreachableReasons } from '../notify.js';
 
 export default function serviceRoutes(db) {
   const r = Router();
@@ -500,16 +500,16 @@ export default function serviceRoutes(db) {
       const first = `${month}-01`;
       const last = `${month}-31`;
       const detail = seesTeamDetail(db, req.user, teamId); // "reachable" hints at missing contact details, so only for those who see them
+      const unreachable = detail ? unreachableReasons(db, db.prepare('SELECT person_id FROM team_members WHERE team_id = ?').all(teamId).map((x) => x.person_id)) : new Map();
       members = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo, MAX(tm.is_leader) is_leader,
-          (p.email != '' OR EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1)) reachable,
           GROUP_CONCAT(tm.position_id) position_ids,
           (SELECT COUNT(DISTINCT substr(s2.starts_at, 1, 10)) FROM assignments a JOIN services s2 ON s2.id = a.service_id
             WHERE a.person_id = p.id AND a.status != 'declined' AND substr(s2.starts_at, 1, 7) = ?) month_count
         FROM team_members tm JOIN people p ON p.id = tm.person_id
         WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(month, teamId)
-        .map(({ reachable, ...m }) => ({
+        .map((m) => ({
           ...m,
-          ...(detail ? { reachable: Boolean(reachable) } : {}),
+          ...(detail ? { reachable: !unreachable.has(m.id), unreachable_reason: unreachable.get(m.id) || null } : {}),
           is_leader: Boolean(m.is_leader),
           position_ids: String(m.position_ids || '').split(',').filter(Boolean).map(Number),
           away: db.prepare('SELECT start_date, end_date, reason FROM blockouts WHERE person_id = ? AND end_date >= ? AND start_date <= ? ORDER BY start_date').all(m.id, first, last),
@@ -553,7 +553,9 @@ export default function serviceRoutes(db) {
   const idList = (v) => String(v || '').split(',').map(Number).filter(Number.isInteger).slice(0, 300);
 
   r.get('/assignments/unsent', requireRole('leader'), (req, res) => {
-    res.json(drafts(req, idList(req.query.service_ids), int(req.query.team_id)).map(({ email, has_account, ...a }) => ({ ...a, reachable: Boolean(email || has_account) })));
+    const list = drafts(req, idList(req.query.service_ids), int(req.query.team_id));
+    const unreachable = unreachableReasons(db, list.map((a) => a.person_id));
+    res.json(list.map(({ email, has_account, ...a }) => ({ ...a, reachable: !unreachable.has(a.person_id), unreachable_reason: unreachable.get(a.person_id) || null })));
   });
 
   // Body: { service_ids: [..], team_id? } — marks the drafts sent and tells each person once.

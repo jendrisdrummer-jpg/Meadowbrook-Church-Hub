@@ -144,7 +144,7 @@ Home's attention counts (`attention()` in `dashboard.js`) are limited to the per
 
 | `GET /people/:id` (upcoming) | A row only if it's their team, or it was sent and not declined |
 | `GET /people/:id` (away dates) | Dates always; the `reason` only when the person is on a team the leader leads |
-| `GET /teams/:id` | Members' `email` and `phone` only for teams they lead; likewise `reachable` (yes or no: an email or an active account), which would otherwise hint at a missing email |
+| `GET /teams/:id` | Members' `email` and `phone` only for teams they lead; likewise `reachable` (yes or no: a request would arrive by email or in the app) and `unreachable_reason` (`no_contact`: no email and no account; `notices_off`: emails and schedule notices both turned off; never an address), which would otherwise hint at a missing email |
 | `PUT /teams/:id/members/:personId` | 403 for a person at a campus outside the leader's campuses (no campus is fine) |
 | `POST /services/:id/assignments` | `allow_other_campus` works only for staff and up, or an account with no campus limit |
 | `POST /services/:id/remind` | Without `team_id`, nothing they may remind gives `{reminded: 0, skipped: 0}`, not 403 |
