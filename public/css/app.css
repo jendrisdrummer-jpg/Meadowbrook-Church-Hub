@@ -1144,3 +1144,6 @@ details.more-details[open] > summary { margin-bottom: 8px; }
 /* A pill that explains itself when tapped (e.g. Can't be reached). */
 .pill-btn { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .pill-btn:hover { filter: brightness(.96); }
+/* People list: a status pill that is also a dropdown (staff), and the row you just came back from. */
+select.status-pick:not([multiple]):not([size]) { width: auto; min-height: 0; padding: 1px 22px 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background-size: 11px; background-position: right 7px center; line-height: 1.5; vertical-align: middle; }
+.prow.just-seen { background: var(--sel); transition: background 1.5s ease; }

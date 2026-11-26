@@ -1,9 +1,12 @@
 // People directory: search, filter by status, add someone.
-import { get, html, mount, icon, avatar, displayName, debounce, fail } from '../lib.js';
+import { get, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast } from '../lib.js';
 import { state, can, setTitle, go, campusName } from '../app.js';
 import { personDialog } from './person.js';
 
 const STATUS = { member: 'good', regular: 'info', guest: 'warn', inactive: '' };
+const LABEL = { member: 'Member', regular: 'Regular', guest: 'Guest', inactive: 'Inactive' };
+// Where the list was when someone opened a person, so coming back lands in the same place.
+const POS = 'mb.people.pos';
 
 export default async function people(el) {
   // Export lives in a "…" menu so the phone header keeps room for Add person.
@@ -67,8 +70,8 @@ export default async function people(el) {
   fbtn.onclick = () => { const open = fpanel.classList.toggle('hidden') === false; fbtn.setAttribute('aria-expanded', open); };
   if (statusSel.value || roleSel.value || saved.field) fpanel.classList.remove('hidden'), fbtn.setAttribute('aria-expanded', 'true');
 
-  async function load(append = false) {
-    const params = new URLSearchParams({ q: q.value, status: statusSel.value, role: roleSel.value, limit: 100, offset: append ? rows.length : 0 });
+  async function load(append = false, first = 100) {
+    const params = new URLSearchParams({ q: q.value, status: statusSel.value, role: roleSel.value, limit: append ? 100 : first, offset: append ? rows.length : 0 });
     if (fieldSel?.value) { params.set('field_id', fieldSel.value); params.set('field_value', fvalSel.value); }
     if (state.campusId) params.set('campus_id', state.campusId);
     syncFilters();
@@ -80,7 +83,9 @@ export default async function people(el) {
       el.querySelector('[data-more]').classList.toggle('hidden', rows.length >= d.total);
       mount(el.querySelector('[data-list]'), rows.length ? html`<div class="plist">${rows.map((p) => html`<div class="prow click" data-id="${p.id}" tabindex="0" role="link">
           ${avatar(p)}
-          <div class="prow-main"><div class="prow-name"><b>${displayName(p)}</b> <span class="pill ${STATUS[p.status]}">${p.status}</span>${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}</div>
+          <div class="prow-main"><div class="prow-name"><b>${displayName(p)}</b> ${can('staff') ? html`<select class="status-pick pill ${STATUS[p.status]}" data-status-of="${p.id}" aria-label="Status for ${displayName(p)}">
+            ${Object.keys(LABEL).map((k) => html`<option value="${k}" ${k === p.status ? raw('selected') : ''}>${LABEL[k]}</option>`)}</select>`
+            : html`<span class="pill ${STATUS[p.status]}">${LABEL[p.status] || p.status}</span>`}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}</div>
             <div class="muted small">${[p.household_name, state.campuses.length > 1 ? campusName(p.campus_id) : ''].filter(Boolean).join(' · ')}</div></div>
           <div class="prow-contact small">${p.email ? html`<span class="wide-only">${p.email}</span>` : ''}${p.phone ? html`<span class="wide-only muted">${p.phone}</span>` : ''}</div>
           ${p.phone ? html`<a class="icon-btn prow-call" href="tel:${p.phone}" aria-label="Call ${displayName(p)}" title="Call ${p.phone}">${icon('phone')}</a>` : ''}
@@ -88,6 +93,25 @@ export default async function people(el) {
         : html`<div class="empty">No one matches. ${can('admin') ? html`Bring everyone over from Faith Teams in <a href="#/settings/import">Settings → Import</a>.` : ''}</div>`);
     } catch (e) { fail(e); }
   }
+  // Remember the place, then open the person.
+  const open = (id) => {
+    try { sessionStorage.setItem(POS, JSON.stringify({ id: Number(id), count: rows.length })); } catch { /* private mode */ }
+    go(`/people/${id}`);
+  };
+
+  // Changing status right from the list (staff), for tidying up members and regulars quickly.
+  el.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-status-of]');
+    if (!sel) return;
+    const p = rows.find((x) => x.id === Number(sel.dataset.statusOf));
+    const before = p.status;
+    try {
+      await patch(`/people/${p.id}`, { status: sel.value });
+      p.status = sel.value;
+      sel.className = `status-pick pill ${STATUS[p.status]}`;
+      toast(`${displayName(p)} is now ${p.status === 'regular' ? 'a regular attender' : p.status === 'inactive' ? 'inactive' : `a ${LABEL[p.status].toLowerCase()}`}.`);
+    } catch (err) { sel.value = before; fail(err); }
+  });
 
   q.addEventListener('input', debounce(() => load()));
   statusSel.onchange = () => load();
@@ -109,11 +133,11 @@ export default async function people(el) {
       if (fieldSel) { fieldSel.value = ''; fillValues(); }
       return load();
     }
-    if (e.target.closest('a')) return; // the call link
+    if (e.target.closest('a, select')) return; // the call link, the status picker
     const row = e.target.closest('.prow[data-id]');
-    if (row) go(`/people/${row.dataset.id}`);
+    if (row) open(row.dataset.id);
   };
-  el.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('.prow')) go(`/people/${e.target.dataset.id}`); };
+  el.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('.prow')) open(e.target.dataset.id); };
   // The "…" menu in the header (outside this element).
   const kebab = document.querySelector('[data-kebab]');
   if (kebab) {
@@ -128,5 +152,11 @@ export default async function people(el) {
     const p = await personDialog();
     if (p) go(`/people/${p.id}`);
   });
-  load();
+  // Coming back from a person: show as many rows as before and scroll that person into view.
+  let back = null;
+  try { back = JSON.parse(sessionStorage.getItem(POS) || 'null'); sessionStorage.removeItem(POS); } catch { /* private mode */ }
+  await load(false, Math.min(Math.max(back?.count || 0, 100), 500));
+  const row = back && el.querySelector(`.prow[data-id="${back.id}"]`);
+  // After the router's scroll-to-top, which runs once this page has drawn.
+  if (row) setTimeout(() => { row.scrollIntoView({ block: 'center' }); row.classList.add('just-seen'); row.focus({ preventScroll: true }); setTimeout(() => row.classList.remove('just-seen'), 1500); });
 }
