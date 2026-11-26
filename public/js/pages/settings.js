@@ -360,14 +360,19 @@ async function accounts(panel, q = '') {
     </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
     <h2>Accounts not linked to a person</h2>
-    <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically: choose the right person for each one.</p>
-    ${list.unlinked.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Access</th><th>Asked to be linked</th><th>Last sign-in</th><th></th></tr></thead><tbody>
-      ${list.unlinked.map((u) => html`<tr><td>${u.email}</td><td><span class="pill">${u.role}</span></td>
-        <td class="small muted">${u.link_requested_at ? fmtUtcDate(u.link_requested_at) : '—'}</td>
-        <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td>
-        <td><button class="btn small" data-link-account="${u.id}">Link to person…</button></td></tr>`)}
-    </tbody></table></div>` : html`<p class="muted">Every account is linked to a person.</p>`}
-  </div>`);
+    <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically. Where the email matches one person in People you’ll see them suggested, and you confirm; otherwise choose the right person for each one.</p>
+    ${list.unlinked.length ? list.unlinked.map((u) => html`<div class="row" style="flex-wrap:wrap;gap:8px;padding:8px 0;border-top:1px solid var(--line, rgba(128,128,128,.25))">
+      <div style="flex:1;min-width:200px"><span style="overflow-wrap:anywhere">${u.email}</span> <span class="pill">${u.role}</span>
+        ${u.suggestion ? html`<div class="small muted">Same email as ${u.suggestion.name}${u.suggestion.campus_short ? ` (${u.suggestion.campus_short})` : ''}${u.suggestion.note ? `, ${u.suggestion.note}` : ''}</div>` : ''}
+        <div class="small muted">${u.link_requested_at ? `Asked to be linked ${fmtUtcDate(u.link_requested_at)} · ` : ''}Last sign-in ${u.last_login ? fmtUtcDate(u.last_login) : 'never'}</div></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${u.suggestion && u.suggestion.note !== 'already has an account' ? html`<button class="btn small primary" data-link-suggested="${u.id}">Link to ${u.suggestion.name}</button>` : ''}<button class="btn small" data-link-account="${u.id}">Link to person…</button></div></div>`) : html`<p class="muted">Every account is linked to a person.</p>`}
+  </div>
+  ${list.shared_emails?.length ? html`<details class="card" style="margin-top:14px" data-shared-emails>
+    <summary><b>People sharing an email</b> <span class="muted small">${list.shared_emails.length} ${list.shared_emails.length === 1 ? 'email' : 'emails'}</span></summary>
+    <p class="muted small">An email that belongs to more than one person can’t be matched to an account automatically, and a sign-in could be linked to the wrong person. Open each person and give them their own email, or remove it. Nothing here changes by itself.</p>
+    ${list.shared_emails.map((g) => html`<div style="padding:8px 0;border-top:1px solid var(--line, rgba(128,128,128,.25))"><div class="small" style="overflow-wrap:anywhere"><b>${g.email}</b></div>
+      ${g.people.map((p) => html`<div class="small"><a href="#/people/${p.id}">${p.name}</a>${p.campus ? html` <span class="muted">· ${p.campus}</span>` : ''}</div>`)}</div>`)}
+  </details>` : ''}`);
   const signin = panel.querySelector('[data-signin]');
   if (signin) signin.onsubmit = async (e) => {
     e.preventDefault();
@@ -430,6 +435,14 @@ async function accounts(panel, q = '') {
       if (!p) return;
       if (!(await dialog({ title: `Link this account to ${displayName(p)}?`, body: html`<p>${u.email} will see ${displayName(p)}’s schedule, teams and chats. Only link it if you’re sure this account belongs to them.</p>`, submit: 'Link' }))) return;
       try { await patch(`/users/${u.id}`, { person_id: p.id }); toast('Account linked.'); accounts(panel, q); } catch (err) { fail(err); }
+      return;
+    }
+    const suggBtn = e.target.closest('[data-link-suggested]');
+    if (suggBtn) {
+      const u = list.unlinked.find((x) => x.id === Number(suggBtn.dataset.linkSuggested));
+      const sg = u.suggestion;
+      if (!(await dialog({ title: `Link this account to ${sg.name}?`, body: html`<p>${u.email} will see ${sg.name}’s schedule, teams and chats. Only link it if you’re sure this account belongs to them.</p>`, submit: 'Link' }))) return;
+      try { await patch(`/users/${u.id}`, { person_id: sg.person_id }); toast('Account linked.'); accounts(panel, q); } catch (err) { fail(err); }
       return;
     }
     if (e.target.closest('[data-clear]')) return accounts(panel);

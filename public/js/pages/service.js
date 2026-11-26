@@ -66,7 +66,7 @@ export default async function service(el, id) {
 
   mount(el, html`
     <div class="row muted" style="margin:-6px 0 12px"><span class="campus-tag"><span class="dot" style="background:${s.campus.color}"></span>${s.campus.name}</span>
-      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span>· ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
+      ${s.type ? html`<span title="Repeating service">· ${icon('calendar', 'ic small-ic')} ${repeatLabel(s.type)}</span>` : ''}${s.series ? html`<span title="Series">· Series: ${s.series}</span>` : ''}${s.title ? html`<span>· ${s.title}</span>` : ''}</div>
     ${s.locked ? html`<div class="alert" style="margin-bottom:12px">${icon('lock', 'ic small-ic')} This service is locked, so its order of service and schedule can’t be changed${can('admin') ? ' (you can still edit as an admin)' : ''}.</div>` : ''}
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <style>@media (max-width: 520px) { .svc-tabs button { padding: 10px 9px; font-size: 13.5px; } }</style>
@@ -94,7 +94,7 @@ async function drawPeople(panel, s, chats) {
   const reload = async () => { Object.assign(s, await get(`/services/${s.id}`)); drawPeople(panel, s, chats); };
   const anyScheduling = s.positions.some((p) => p.can_schedule);
   // Drafts haven't been sent yet; the volunteer doesn't know about them.
-  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not sent</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
+  const badge = (a) => (!a.sent_at && a.status !== 'declined' ? html`<span class="pill draft" title="Use Send requests to let them know">Not asked yet</span>` : ({ pending: html`<span class="pill">Waiting</span>`, accepted: html`<span class="pill good">${icon('check')} Accepted</span>`, declined: html`<span class="pill bad" title="${a.decline_reason}">Declined</span>` })[a.status]);
   // The reason (when the server sent one) as a quiet line, since a phone can't hover.
   const reason = (a) => (a.status === 'declined' && a.decline_reason ? html`<div class="muted small" style="margin:-2px 0 4px 36px">“${a.decline_reason}”</div>` : '');
   const drafts = s.positions.filter((p) => p.can_schedule).flatMap((p) => p.assignments).filter((a) => !a.sent_at && a.status !== 'declined').length;
@@ -127,13 +127,14 @@ async function drawPeople(panel, s, chats) {
     ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="dot" style="background:${team.color}"></span> ${team.name}
         ${s.positions.some((p) => p.team_id === team.id && p.can_schedule) && teamStats(team) ? html`<button class="btn small" data-autofill="${team.id}" title="Fill this team’s open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
         ${chats.has(team.id) ? html`<a class="btn small ghost" href="#/chat/${chats.get(team.id)}" data-message-team style="margin-left:8px">${icon('chat')} Message team</a>` : ''}</h3>
-      ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
+      ${team.active || !s.positions.some((p) => p.team_id === team.id && p.detail !== false) ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
       <div class="grid three">
       ${s.positions.filter((p) => p.team_id === team.id).map((p) => {
         const live = p.assignments.filter((a) => a.status !== 'declined');
-        const open = Math.max(0, p.needed - live.length);
+        // Teams you don't lead (detail === false) show who was asked or accepted, names only.
+        const open = p.detail === false ? 0 : Math.max(0, p.needed - live.length);
         return html`<div class="position">
-          <div class="position-head"><b>${p.name}</b>${p.needed ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
+          <div class="position-head"><b>${p.name}</b>${p.needed && p.detail !== false ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
             ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}

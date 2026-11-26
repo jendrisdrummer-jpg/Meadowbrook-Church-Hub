@@ -23,7 +23,8 @@ export default async function events(el) {
         <td>${e.signup ? html`<b>${e.people}</b> ${e.people === 1 ? 'person' : 'people'}${e.capacity ? html` <span class="muted">of ${e.capacity}</span>` : ''}${e.paid ? html`<div class="muted small">${money(e.paid)} paid</div>` : ''}` : html`<span class="muted">—</span>`}</td>
         <td style="text-align:right">${e.published ? (e.visibility === 'members' ? html`<span class="pill info">Members only</span>` : html`<span class="pill good">Published</span>`) : html`<span class="pill">Draft</span>`}</td></tr>`)}
       </tbody></table></div>`
-    : html`<div class="card empty">${past ? 'No past events.' : html`No upcoming events. <a href="#/events/new">Add one</a>.`}</div>`}`);
+    : html`<div class="card empty">${past ? 'No past events yet. Events appear here after their date.'
+      : html`<b>No upcoming events.</b><br>Events like a baptism Sunday, a picnic or a class show here and in the church app once they’re published. They can take sign-ups and payments too.<br><a class="btn primary" href="#/events/new" style="margin-top:12px">${icon('plus')} Add an event</a>`}</div>`}`);
   el.onclick = (e) => {
     const t = e.target.closest('[data-view]');
     if (t) return go(`/events${t.dataset.view ? `?view=${t.dataset.view}` : ''}`);

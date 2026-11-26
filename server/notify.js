@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import { getSetting, setSetting } from './db.js';
 import { vapidKeys, sendPush } from './push.js';
+import { seesTeamDetail } from './team-scope.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
 export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'form', 'chat', 'task', 'call', 'email'];
@@ -189,7 +190,12 @@ export function notifyResponse(db, assignmentId, status) {
   const leaderPeople = db.prepare('SELECT DISTINCT person_id FROM team_members WHERE team_id = ? AND is_leader = 1').all(a.team_id).map((r) => r.person_id);
   const ids = new Set(usersOf(db, leaderPeople).map((u) => u.id));
   const sender = db.prepare('SELECT sent_by FROM assignments WHERE id = ?').get(a.id)?.sent_by;
-  if (sender) ids.add(sender);
+  // The sender hears a decline only while they can still schedule or see detail for that team.
+  if (sender) {
+    const su = db.prepare('SELECT role, person_id, campus_ids, active FROM users WHERE id = ?').get(sender);
+    const asUser = su && { role: su.role, personId: su.person_id };
+    if (asUser && seesTeamDetail(db, asUser, a.team_id)) ids.add(sender);
+  }
   // Not the person replying, and only active accounts.
   const users = ids.size ? db.prepare(`SELECT id, email, person_id, notify FROM users WHERE active = 1 AND id IN (${[...ids].map(() => '?').join(',')})`).all(...ids)
     .filter((u) => u.person_id !== a.person_id) : [];

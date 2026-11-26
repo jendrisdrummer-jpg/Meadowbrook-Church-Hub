@@ -70,9 +70,11 @@ export async function newServiceDialog(date) {
       <label class="field">Start from template<select name="template_id">${options(templates.map((t) => ({ value: t.id, label: t.name, campus: t.campus_id })), '', { blank: 'Blank order of service' })}</select>
         <span class="muted small" data-tpl-note>Repeating services fill each new date from it.</span></label>
     </div>
-    <h3 style="margin-top:16px">Positions needed</h3>
-    <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
-    <div data-needs></div>`,
+    <details class="needs-fold" data-needs-fold open style="margin-top:16px">
+      <summary style="cursor:pointer;min-height:32px;display:flex;align-items:center;gap:8px"><h3 style="margin:0;display:inline">Positions needed</h3><span class="muted small" data-needs-note></span></summary>
+      <p class="muted small">How many people each service needs. You can change it for a single Sunday later. Leave empty to use the template’s.</p>
+      <div data-needs></div>
+    </details>`,
     onOpen: async (d) => {
       const f = d.querySelector('form');
       const ends = d.querySelector('[data-ends]');
@@ -84,6 +86,15 @@ export async function newServiceDialog(date) {
       };
       f.how.forEach((r) => { r.onchange = sync; });
       sync();
+      // With a template chosen its positions are used, so the list folds up (open it to override them).
+      const fold = d.querySelector('[data-needs-fold]');
+      const foldSync = () => {
+        const chosen = Boolean(f.template_id.value);
+        fold.open = !chosen;
+        d.querySelector('[data-needs-note]').textContent = chosen ? 'From the template. Open to change.' : '';
+      };
+      f.template_id.onchange = foldSync;
+      foldSync();
       picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value);
       f.campus_id.onchange = async () => { picker = await needsPicker(d.querySelector('[data-needs]'), f.campus_id.value, picker.get()); };
     },
