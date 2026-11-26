@@ -255,3 +255,36 @@ test('a decline is sent to the original sender only while they can still see tha
   notifyResponse(db, aid, 'declined');
   assert.equal(count('staff'), 1);
 });
+
+test('reachable: shown on a team page and the schedule panel only to those who see that team in full', async () => {
+  // Cara has no email and no account; Dan has an email; Ann has no email but an account.
+  db.prepare("UPDATE people SET email = '' WHERE id IN (?, ?)").run(ids.Cara, ids.Ann);
+  db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run('ann-login@mb.org', 'volunteer', ids.Ann);
+  const flags = (members, key) => Object.fromEntries(members.map((m) => [m.first_name, m[key]]));
+  const teamA = (role) => api(role, 'GET', `/teams/${ids.A}`);
+  const panel = (role) => api(role, 'GET', `/schedule?month=${addDays(today(), 2).slice(0, 7)}&team_id=${ids.A}`);
+
+  for (const role of ['lena', 'staff', 'admin']) {
+    const t = (await teamA(role)).data.members;
+    assert.deepEqual([t.find((m) => m.person_id === ids.Cara).reachable, t.find((m) => m.person_id === ids.Dan).reachable, t.find((m) => m.person_id === ids.Ann).reachable], [false, true, true], role);
+    const m = (await panel(role)).data.members;
+    assert.deepEqual([flags(m, 'reachable').Cara, flags(m, 'reachable').Dan, flags(m, 'reachable').Ann], [false, true, true], role);
+    assert.ok(m.every((x) => typeof x.reachable === 'boolean'));
+  }
+  // The reason says why, never how: Cara has nothing; once Ann turns off emails and schedule notices, she can't be reached either.
+  const reason = async () => flags((await teamA('lena')).data.members, 'unreachable_reason');
+  assert.deepEqual([(await reason()).Cara, (await reason()).Dan, (await reason()).Ann], ['no_contact', null, null]);
+  db.prepare('UPDATE users SET notify = ? WHERE person_id = ?').run(JSON.stringify({ email: false, scheduled: false }), ids.Ann);
+  assert.equal((await reason()).Ann, 'notices_off');
+  assert.equal(flags((await panel('lena')).data.members, 'unreachable_reason').Ann, 'notices_off');
+  // Emails off alone still reaches her in the app.
+  db.prepare('UPDATE users SET notify = ? WHERE person_id = ?').run(JSON.stringify({ email: false }), ids.Ann);
+  assert.equal((await reason()).Ann, null);
+  db.prepare("UPDATE users SET notify = '{}' WHERE person_id = ?").run(ids.Ann);
+  // The leader of another team sees neither the flag nor the contact details.
+  const t = (await teamA('otto')).data.members;
+  assert.ok(t.every((m) => !('reachable' in m) && !('unreachable_reason' in m) && !('email' in m) && !('phone' in m)));
+  assert.equal((await panel('otto')).status, 403); // the schedule panel is already limited to teams they lead
+  // The flag is a yes or no: no email or phone leaks into the schedule panel for anyone.
+  assert.ok((await panel('lena')).data.members.every((x) => !('email' in x) && !('phone' in x)));
+});
