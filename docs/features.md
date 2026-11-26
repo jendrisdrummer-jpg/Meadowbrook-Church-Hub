@@ -35,7 +35,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Planning and volunteers (FT)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Teams, positions, leaders, rosters | Verified | `routes/teams.js` | `pages/teams.js`, `team.js` |
+| Teams, positions, leaders, rosters. Leaders see Your teams first, who leads each team, and open spots at the next service for teams they lead; the roster shows who has an account; Remind on the volunteer schedule reminds a team's non-repliers across the month (the same reminder, once per upcoming service) | Verified | `routes/teams.js` | `pages/teams.js`, `team.js` |
 | Repeating services (series), skips, per-service needs. Before deleting, ending or resetting positions on services with volunteers scheduled, the confirm says how many are scheduled (and accepted) and what happens to them; unchanged when nobody is | Verified. Known: a new service starts on "Every week", and a duplicate service on the same day isn't warned about New service asks “How often” (One time or Repeats, nothing pre-selected) and the repeat interval appears only for Repeats. On phones the service page puts Lock and Details in a “…” menu. | `routes/series.js`, `services.js` | `pages/services.js` |
 | Order of service (Faith Teams style), locking, templates with fill-in slots | Verified | `routes/services.js`, `templates.js` | `pages/service.js`, `templates.js`, `js/plan.js` |
 | Songs with keys; charts, lyrics and audio files | Verified | `routes/services.js`, `songfiles.js` | `pages/songs.js`, `js/songfiles.js` |

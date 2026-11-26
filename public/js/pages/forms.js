@@ -51,7 +51,7 @@ async function editor(el, e) {
   const editable = !e || e.can_manage;
   let staff = await loadStaff(f.campus_id);
   let dirty = false;
-  setTitle(e ? e.title : 'New form', html`${e ? html`<a class="btn ghost" href="#/forms/${e.id}/responses">Responses</a>` : ''}${editable ? html`<button class="btn primary" data-save>${e ? 'Save' : 'Create form'}</button>` : ''}`);
+  setTitle(e ? e.title : 'New form', html`${e?.active ? html`<button class="btn ghost" data-copy-link>${icon('copy')} Copy link</button>` : ''}${e ? html`<a class="btn ghost" href="#/forms/${e.id}/responses">Responses</a>` : ''}${editable ? html`<button class="btn primary" data-save>${e ? 'Save' : 'Create form'}</button>` : ''}`);
 
   function draw() {
     mount(el, html`${!editable ? html`<div class="alert">This form is for the whole church, so only staff who aren’t limited to one campus can change it.</div>` : ''}
@@ -128,6 +128,7 @@ async function editor(el, e) {
   }
   // The Save button lives in the page header, outside `el`, so it's bound here (as on the other editors).
   document.querySelector('[data-actions] [data-save]')?.addEventListener('click', save);
+  document.querySelector('[data-actions] [data-copy-link]')?.addEventListener('click', () => copy(publicLink(e)));
   window.onbeforeunload = () => (dirty ? true : undefined);
 }
 
