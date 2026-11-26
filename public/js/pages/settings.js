@@ -343,30 +343,30 @@ async function accounts(panel, q = '') {
   ${list.duplicate_links?.length ? html`<div class="card" style="margin-top:14px" data-duplicates>
     <h2>${list.duplicate_links.length === 1 ? 'One person has' : `${list.duplicate_links.length} people have`} more than one account</h2>
     <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
-    <table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
     ${list.duplicate_links.map((d) => html`<tr><td>${d.name || 'Person'} <span class="muted small">#${d.person_id}</span></td>
       <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString() : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
-    </tbody></table></div>` : ''}
+    </tbody></table></div></div>` : ''}
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
     <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
     <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
-    <table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
       <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
-    </tbody></table></div>
+    </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
     <h2>Accounts not linked to a person</h2>
     <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically: choose the right person for each one.</p>
-    ${list.unlinked.length ? html`<table class="list"><thead><tr><th>Email</th><th>Access</th><th>Asked to be linked</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+    ${list.unlinked.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Access</th><th>Asked to be linked</th><th>Last sign-in</th><th></th></tr></thead><tbody>
       ${list.unlinked.map((u) => html`<tr><td>${u.email}</td><td><span class="pill">${u.role}</span></td>
         <td class="small muted">${u.link_requested_at ? new Date(u.link_requested_at + 'Z').toLocaleDateString() : '—'}</td>
         <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td>
         <td><button class="btn small" data-link-account="${u.id}">Link to person…</button></td></tr>`)}
-    </tbody></table>` : html`<p class="muted">Every account is linked to a person.</p>`}
+    </tbody></table></div>` : html`<p class="muted">Every account is linked to a person.</p>`}
   </div>`);
   const signin = panel.querySelector('[data-signin]');
   if (signin) signin.onsubmit = async (e) => {
