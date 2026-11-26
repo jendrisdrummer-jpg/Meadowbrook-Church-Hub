@@ -5,6 +5,7 @@ import { requireRole, requireAttendance, canAttendCampus, canCampus, campusFilte
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, isDate, audit, localNow, HttpError } from '../http.js';
 import { ensureServices } from './series.js';
+import { missingPeople } from '../attendance-missing.js';
 
 // "Was here" = marked on the roll, or a child checked in to that service.
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
@@ -127,6 +128,17 @@ export default function attendanceRoutes(db) {
   });
 
   // People to follow up: regulars missing for 3+ weeks, and first-time guests this month.
+  // Regulars who have missed recent Sundays when attendance was taken (see attendance-missing.js).
+  r.get('/attendance/missing', requireRole('leader'), (req, res) => {
+    const tz = db.prepare('SELECT timezone FROM campuses ORDER BY id LIMIT 1').get()?.timezone;
+    let today;
+    try { today = localNow(tz || 'UTC').date; } catch { today = localNow('UTC').date; }
+    const campusId = int(req.query.campus_id);
+    if (campusId && !canCampus(req.user, campusId)) throw forbidden();
+    const weeks = Math.min(Math.max(int(req.query.weeks) ?? 2, 1), 12);
+    res.json({ weeks, people: missingPeople(db, req.user, { today, campusId, minWeeks: weeks }) });
+  });
+
   r.get('/attendance/people', requireRole('leader'), (req, res) => {
     const cf = campusFilter(req.user, 'p.campus_id');
     const args = [...cf.args];

@@ -1,6 +1,7 @@
 import { get, patch, html, raw, mount, icon, fmtDate, fmtTime, toast, fail } from '../lib.js';
 import { state, can, setTitle, campusQuery } from '../app.js';
 import { greetingForHour } from '../greeting.js';
+import { sparkline, pctChange, changeText } from '../attendance-chart.js';
 import { declineAssignment } from '../myschedule.js';
 
 export default async function home(el) {
@@ -11,7 +12,8 @@ export default async function home(el) {
   const h1 = document.querySelector('[data-title]');
   h1.classList.add('greeting');
   h1.replaceChildren(`${hello}, `, Object.assign(document.createElement('em'), { textContent: first }));
-  const d = await get(`/dashboard${campusQuery()}`);
+  // Staff and admins also see last Sunday's attendance; a failure here just hides the card.
+  const [d, att] = await Promise.all([get(`/dashboard${campusQuery()}`), can('staff') ? get(`/attendance/summary?weeks=12${campusQuery('&')}`).catch(() => null) : null]);
 
   // Volunteers: anything waiting for a reply comes first, then what's coming up.
   const row = (a) => html`<tr>
@@ -53,6 +55,8 @@ export default async function home(el) {
       href: a.declines_service ? `#/services/${a.declines_service}` : '#/schedule', tab: a.declines_service ? 'people' : null, team: true },
     a.connect_cards && { n: a.connect_cards, text: `connect ${plural(a.connect_cards, 'card', 'cards')} to follow up`, href: '#/connect' },
     a.signups && { n: a.signups, text: `app ${plural(a.signups, 'sign-up', 'sign-ups')} to welcome`, href: '#/connect?tab=signups' },
+    // Regulars missed the last 2+ Sundays attendance was taken (leaders: people on their teams).
+    a.missing && { n: a.missing, text: `${plural(a.missing, 'regular has', 'regulars have')} missed 2+ Sundays${staff ? '' : ' (your teams)'}`, href: '#/attendance', tab: null },
     staff && a.forms_new && { n: a.forms_new, text: `new ${plural(a.forms_new, 'response', 'responses')}${a.forms_title ? `: ${a.forms_title}` : ''}`, href: '#/forms' },
   ].filter(Boolean);
   const tileRow = tiles.length
@@ -87,6 +91,15 @@ export default async function home(el) {
     ? html`<div class="card"><div class="card-head"><h2>${one ? `${one.name} this week` : 'This week’s services'}</h2><a href="#/services" class="btn small">All services</a></div>${d.services.map(svcRow)}</div>`
     : html`<div class="card empty">No services in the next 7 days. ${staff ? html`<a href="#/services">Add services</a>` : ''}</div>`;
 
+  // "Last Sunday" attendance: the latest week with a number, a sparkline of the 12 weeks, and the change vs a year ago.
+  const latest = att?.weeks.filter((w) => w.total != null).pop();
+  const attCard = latest
+    ? html`<a class="card att-home" href="#/attendance"><div class="card-head"><h2>${latest.week === att.to ? 'Last Sunday' : 'Latest attendance'}</h2><span class="muted small">${fmtDate(latest.week)}</span></div>
+        <div class="att-big">${latest.total}</div>
+        ${pctChange(latest.total, latest.prev_total) != null ? html`<div class="muted small">${changeText(pctChange(latest.total, latest.prev_total))}</div>` : ''}
+        <div class="att-spark-wrap">${sparkline(att.weeks.map((w) => w.total), 'Attendance over the last 12 weeks')}</div></a>`
+    : '';
+
   const away = d.blockouts_this_week;
   const awayCard = html`<div class="card"><div class="card-head"><h2>${teams.length ? 'Away on your team' : 'Away this week'}</h2>${away.length ? html`<span class="pill">${away.length} ${plural(away.length, 'person', 'people')}</span>` : ''}</div>${away.length
     ? html`<table class="list pair"><tbody>${away.map((b) => html`<tr><td>${b.nickname || b.first_name} ${b.last_name}${b.reason ? html`<br><span class="muted small">${b.reason}</span>` : ''}</td><td class="muted small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td></tr>`)}</tbody></table>`
@@ -98,6 +111,7 @@ export default async function home(el) {
       <div class="stack">${services}</div>
       <div class="stack">
         <div class="card"><div class="card-head"><h2>Your next time serving</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>
+        ${staff ? attCard : ''}
         ${awayCard}
       </div>
     </div>

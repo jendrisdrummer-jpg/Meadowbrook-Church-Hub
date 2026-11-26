@@ -221,5 +221,94 @@ export default function checkinRoutes(db) {
     res.json({ from, adults, kids, volunteers, marked, source });
   });
 
+  // One attendance number per service, for looking back (the dashboard on the Attendance page).
+  // Rule: (sum of the service's headcounts if any were entered, otherwise the distinct people marked
+  // present in roll call) + kids checked in. A person marked present who was also checked in as a kid
+  // at that service is not counted twice. Weeks start on Sunday. Query: year=YYYY, or weeks=N (default
+  // 12, up to 104); optional campus_id and service_time=HH:MM. The same weeks a year earlier come back
+  // as prev_week/prev_total (52 weeks before, so Sundays line up).
+  r.get('/attendance/summary', requireRole('leader'), (req, res) => {
+    const campusId = int(req.query.campus_id);
+    if (campusId != null && !canCampus(req.user, campusId)) throw forbidden();
+    const time = req.query.service_time ? str(req.query.service_time, 5) : '';
+    if (time && !/^\d\d:\d\d$/.test(time)) throw bad('Pick a service time like 10:00.');
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const addDays = (d, n) => iso(new Date(new Date(`${d}T12:00:00Z`).getTime() + n * 864e5));
+    const sundayOf = (d) => addDays(d, -new Date(`${d}T12:00:00Z`).getUTCDay());
+    const thisSunday = sundayOf(iso(new Date()));
+    const year = int(req.query.year);
+    let first; let last; // first and last Sunday shown
+    if (year != null) {
+      if (year < 2000 || year > 2100) throw bad('Pick a year between 2000 and 2100.');
+      const s0 = sundayOf(`${year}-01-01`);
+      first = s0 < `${year}-01-01` ? addDays(s0, 7) : s0;
+      last = sundayOf(`${year}-12-31`);
+      if (last > thisSunday) last = thisSunday;
+    } else {
+      const weeks = Math.min(Math.max(int(req.query.weeks) ?? 12, 1), 104);
+      last = thisSunday;
+      first = addDays(last, -(weeks - 1) * 7);
+    }
+    const weekList = [];
+    for (let w = first; w <= last; w = addDays(w, 7)) weekList.push(w);
+    const prevOf = (w) => addDays(w, -364);
+    const lo = prevOf(first); // the year before starts earlier
+    const hi = addDays(last, 6);
+
+    const cf = campusFilter(req.user, 's.campus_id');
+    const scope = `${cf.sql}${campusId != null ? ' AND s.campus_id = ?' : ''}`;
+    const scopeArgs = [...cf.args, ...(campusId != null ? [campusId] : [])];
+    const range = 'substr(s.starts_at, 1, 10) BETWEEN ? AND ?';
+    const base = [lo, hi, ...scopeArgs];
+    // Four grouped queries for the whole range, joined here by service id.
+    const services = db.prepare(`SELECT s.id, s.campus_id, c.name campus, c.short_name campus_short, s.title, s.starts_at
+      FROM services s JOIN campuses c ON c.id = s.campus_id WHERE ${range} AND ${scope} ORDER BY s.starts_at, s.id LIMIT 5000`).all(...base);
+    const headcounts = new Map(db.prepare(`SELECT h.service_id id, SUM(h.count) total FROM headcounts h JOIN services s ON s.id = h.service_id
+      WHERE ${range} AND ${scope} GROUP BY h.service_id`).all(...base).map((x) => [x.id, x.total]));
+    const kids = new Map(db.prepare(`SELECT k.service_id id, COUNT(DISTINCT k.person_id) n FROM checkins k JOIN services s ON s.id = k.service_id
+      WHERE k.kind = 'kid' AND ${range} AND ${scope} GROUP BY k.service_id`).all(...base).map((x) => [x.id, x.n]));
+    const marked = new Map(db.prepare(`SELECT a.service_id id, COUNT(DISTINCT a.person_id) n FROM attendance a JOIN services s ON s.id = a.service_id
+      WHERE ${range} AND ${scope}
+        AND NOT EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = a.service_id AND k.person_id = a.person_id AND k.kind = 'kid')
+      GROUP BY a.service_id`).all(...base).map((x) => [x.id, x.n]));
+
+    const rows = [];
+    const times = new Set();
+    for (const s of services) {
+      const hc = headcounts.get(s.id);
+      const m = marked.get(s.id) || 0;
+      const k = kids.get(s.id) || 0;
+      if (hc == null && !m && !k) continue; // nothing recorded for this service
+      const t = s.starts_at.slice(11, 16);
+      const date = s.starts_at.slice(0, 10);
+      if (date >= first) times.add(t);
+      if (time && t !== time) continue;
+      rows.push({ id: s.id, date, week: sundayOf(date), time: t, campus_id: s.campus_id, campus: s.campus, campus_short: s.campus_short, title: s.title,
+        attendance: (hc ?? m) + k, source: hc != null ? 'headcount' : m ? 'roll' : 'kids', headcount: hc ?? null, marked: m, kids: k });
+    }
+    const perWeek = new Map();
+    for (const x of rows) perWeek.set(x.week, (perWeek.get(x.week) || 0) + x.attendance);
+    const weeksOut = weekList.map((w) => ({ week: w, total: perWeek.get(w) ?? null, prev_week: prevOf(w), prev_total: perWeek.get(prevOf(w)) ?? null }));
+    const avg = (list) => (list.length ? Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10 : null);
+    const have = weeksOut.filter((w) => w.total != null);
+    const avgNow = avg(have.map((w) => w.total));
+    const avgPrev = avg(weeksOut.filter((w) => w.prev_total != null).map((w) => w.prev_total));
+    // "This month" is the calendar month of the latest Sunday that has a number.
+    const month = have.length ? have[have.length - 1].week.slice(0, 7) : null;
+    const best = have.reduce((b, w) => (!b || w.total > b.total ? w : b), null);
+    const stats = {
+      average: avgNow, previous_average: avgPrev,
+      change_pct: avgNow != null && avgPrev ? Math.round(((avgNow - avgPrev) / avgPrev) * 1000) / 10 : null,
+      month, month_average: month ? avg(have.filter((w) => w.week.startsWith(month)).map((w) => w.total)) : null,
+      highest: best ? { week: best.week, total: best.total } : null,
+      weeks_with_numbers: have.length,
+    };
+    const years = db.prepare(`SELECT DISTINCT substr(s.starts_at, 1, 4) y FROM services s WHERE ${scope} AND (
+        EXISTS (SELECT 1 FROM headcounts h WHERE h.service_id = s.id) OR EXISTS (SELECT 1 FROM attendance a WHERE a.service_id = s.id)
+        OR EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid')) ORDER BY y DESC`).all(...scopeArgs);
+    res.json({ from: first, to: last, year: year ?? null, weeks: weeksOut, stats,
+      services: rows.filter((x) => x.date >= first).reverse(), service_times: [...times].sort(), years: years.map((x) => Number(x.y)) });
+  });
+
   return r;
 }

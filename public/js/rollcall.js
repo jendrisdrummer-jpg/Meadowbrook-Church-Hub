@@ -1,5 +1,5 @@
 // Take attendance for one service: tap people (or whole families) as you see them. Works on a phone.
-import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce, familyName } from './lib.js';
+import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce, familyName, confirm } from './lib.js';
 import { state, can } from './app.js';
 import { duplicateOf, personLabel } from './guards.js';
 
@@ -26,7 +26,8 @@ export async function drawRollCall(panel, s, opts = {}) {
       </div>
       <div class="roll" data-list></div>
     </div>`;
-  const countsCard = html`<form class="form" data-counts style="margin-top:12px">${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>`;
+  const countsCard = html`<div><form class="form" data-counts style="margin-top:12px">${areas.map((a) => html`<label class="field">${a}<input type="number" min="0" name="${a}" value="${value(a)}" inputmode="numeric"></label>`)}</form>
+    <p style="margin:8px 0 0" data-useroll-row hidden><button type="button" class="btn small" data-useroll></button></p></div>`;
   mount(panel, html`<div class="stack">
     ${mode === 'headcount' ? html`<div class="card"><div class="card-head"><h2>Headcount</h2><span class="muted small" data-saved></span></div>
         <p class="muted small" style="margin-top:-4px">Room totals, including people not on the roll.</p>${countsCard}</div>
@@ -53,6 +54,9 @@ export async function drawRollCall(panel, s, opts = {}) {
 
   function draw() {
     countEl.textContent = `${new Set([...present, ...kids]).size} here`;
+    const useRoll = panel.querySelector('[data-useroll]');
+    useRoll.textContent = `Use ${present.size} from roll call`;
+    panel.querySelector('[data-useroll-row]').hidden = present.size === 0;
     const shown = groups().map((g) => ({ ...g, members: g.members.filter((p) => matches(p) && (filter === 'all' || (filter === 'here') === isHere(p))) })).filter((g) => g.members.length);
     // A family of two or more takes a full row, its people laid out in the same columns, so
     // the single cards around it keep an even grid instead of leaving gaps.
@@ -163,6 +167,20 @@ export async function drawRollCall(panel, s, opts = {}) {
       panel.querySelector('[data-saved]').textContent = 'Headcount saved';
     } catch (e) { fail(e); }
   }, 600));
+
+  // Copies the roll call count into the main headcount field. Nothing is saved until this is confirmed
+  // (a number already typed there is only replaced after asking), then it saves like typing does.
+  panel.querySelector('[data-useroll]').onclick = async () => {
+    const field = form.querySelector('input');
+    const n = present.size;
+    if (!field || !n) return;
+    if (field.value !== '' && Number(field.value) !== n) {
+      if (!(await confirm('Replace the headcount?', `${areas[0]} says ${field.value}. Use ${n} from roll call instead?`, 'Use roll call', { danger: false }))) return;
+    }
+    field.value = n;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.focus();
+  };
 
   draw();
 }
