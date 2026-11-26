@@ -1,6 +1,7 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
 import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
+import { impactNote } from './guards.js';
 
 const REPEATS = [
   { value: 0, label: 'Does not repeat' },
@@ -88,6 +89,14 @@ export async function newServiceDialog(date) {
   return openId;
 }
 
+// Counts of volunteers scheduled on the services a change would touch (null = nobody, or unreadable).
+async function impactFor(url, one = false) {
+  try { return impactNote(await get(url), { one }); } catch { return null; }
+}
+const nextDay = (d) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+// The usual message with the volunteer count in bold ahead of it; unchanged when nobody is scheduled.
+const withImpact = (message, note, after) => (note ? html`<b>${note.lead}</b>${note.rest} ${after}${message ? html`<br><br>${message}` : ''}` : message);
+
 // Asks "just this one or this and all following?" for a service in a series. null = cancelled.
 async function askScope(s, verb) {
   if (!s.type) return 'one';
@@ -129,17 +138,20 @@ export async function editServiceDialog(s) {
         const scope = await askScope(s, 'Delete');
         if (!scope) return;
         if (scope === 'future') {
-          if (!(await confirm('Delete this and all following?', 'Their orders of service and schedules will be removed too.'))) return;
+          const note = await impactFor(`/series/${s.type.id}/impact?from=${s.starts_at.slice(0, 10)}`);
+          if (!(await confirm('Delete this and all following?', withImpact('Their orders of service and schedules will be removed too.', note, 'They’ll lose these assignments.')))) return;
           await del(`/series/${s.type.id}?from=${s.starts_at.slice(0, 10)}`);
         } else {
-          if (!(await confirm('Delete this service?', 'Its order of service and schedule will be removed.'))) return;
+          const note = await impactFor(`/services/${s.id}/impact`, true);
+          if (!(await confirm('Delete this service?', withImpact('Its order of service and schedule will be removed.', note, 'They’ll lose these assignments.')))) return;
           await del(`/services/${s.id}`);
         }
         outcome = 'deleted';
         close();
       };
       d.querySelector('[data-stop]')?.addEventListener('click', async () => {
-        if (!(await confirm('Stop repeating?', 'This service stays. Services after it are removed, along with their plans and schedules.', 'Stop repeating'))) return;
+        const note = await impactFor(`/series/${s.type.id}/impact?from=${nextDay(s.starts_at.slice(0, 10))}`);
+        if (!(await confirm('Stop repeating?', withImpact('This service stays. Services after it are removed, along with their plans and schedules.', note, 'They’ll lose these assignments.'), 'Stop repeating'))) return;
         await patch(`/series/${s.type.id}`, { ends_on: s.starts_at.slice(0, 10) });
         toast('This is now the last one.');
         outcome = true;
@@ -224,7 +236,15 @@ export async function seriesDialog(t) {
       const needs = picker.get();
       const key = (list) => JSON.stringify([...list].map((n) => [n.position_id, n.count]).sort((x, y) => x[0] - y[0]));
       if (key(needs) !== key(t.needs)) body.needs = needs;
-      if (b.ends_on && b.ends_on !== t.ends_on && !(await confirm('End this repeating service?', `Services after ${new Date(`${b.ends_on}T12:00`).toLocaleDateString()} will be removed, with their plans and schedules.`, 'End it'))) return false;
+      if (b.ends_on && b.ends_on !== t.ends_on) {
+        const note = await impactFor(`/series/${t.id}/impact?from=${nextDay(b.ends_on)}`);
+        if (!(await confirm('End this repeating service?', withImpact(`Services after ${new Date(`${b.ends_on}T12:00`).toLocaleDateString()} will be removed, with their plans and schedules.`, note, 'They’ll lose these assignments.'), 'End it'))) return false;
+      }
+      // Changing the positions rewrites them on every upcoming service; people already scheduled stay on the schedule.
+      if (body.needs) {
+        const note = await impactFor(`/series/${t.id}/impact?from=${today}`);
+        if (note && !(await confirm('Reset positions on upcoming services?', withImpact('Positions needed will be reset on every upcoming service in this series.', note, 'Their assignments stay, so check anyone in a position you removed.'), 'Save changes', { danger: false }))) return false;
+      }
       await patch(`/series/${t.id}`, body);
       toast('Repeating service updated.');
       outcome = true;
@@ -241,7 +261,19 @@ export async function deleteSeries(t) {
     title: 'Delete repeating service?', submit: 'Delete', danger: true,
     body: html`<p><b>${t.default_title || t.name}</b> · ${repeatLabel(t)}</p>
       <label class="field">Remove services from<input type="date" name="from" value="${today}" min="${today}" required></label>
-      <p class="muted small">Services from that date on are deleted, with their orders of service and schedules. Past services and their attendance stay.</p>`,
+      <p class="muted small">Services from that date on are deleted, with their orders of service and schedules. Past services and their attendance stay.</p>
+      <div class="alert warn small" data-impact hidden></div>`,
+    onOpen: (d) => {
+      const input = d.querySelector('input[name=from]');
+      const box = d.querySelector('[data-impact]');
+      const show = async () => {
+        const note = input.value ? await impactFor(`/series/${t.id}/impact?from=${input.value}`) : null;
+        box.hidden = !note;
+        if (note) mount(box, withImpact('', note, 'They’ll lose these assignments.'));
+      };
+      input.addEventListener('change', show);
+      show();
+    },
     onSubmit: async (f) => {
       const r = await del(`/series/${t.id}?from=${f.from.value}`);
       toast(`Deleted ${r.removed} upcoming ${r.removed === 1 ? 'service' : 'services'}.`);

@@ -36,7 +36,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Teams, positions, leaders, rosters | Verified | `routes/teams.js` | `pages/teams.js`, `team.js` |
-| Repeating services (series), skips, per-service needs | Verified. Known: a new service starts on "Every week", and a duplicate service on the same day isn't warned about | `routes/series.js`, `services.js` | `pages/services.js` |
+| Repeating services (series), skips, per-service needs. Before deleting, ending or resetting positions on services with volunteers scheduled, the confirm says how many are scheduled (and accepted) and what happens to them; unchanged when nobody is | Verified. Known: a new service starts on "Every week", and a duplicate service on the same day isn't warned about | `routes/series.js`, `services.js` | `pages/services.js` |
 | Order of service (Faith Teams style), locking, templates with fill-in slots | Verified | `routes/services.js`, `templates.js` | `pages/service.js`, `templates.js`, `js/plan.js` |
 | Songs with keys; charts, lyrics and audio files | Verified | `routes/services.js`, `songfiles.js` | `pages/songs.js`, `js/songfiles.js` |
 | Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill (one team at a time: a Fill open spots button on each team in Who's serving, and Fill the month on the schedule once a team is picked; nobody is told until Send), month matrix, drafts → send requests, decline reasons shown under the Declined badge on Who's serving (to leaders only, as the API sends them), “Remind N who haven’t replied” (12-hour limit; upcoming services only; the automatic reminder skips anyone nudged in the last 6 hours), Message team | Verified. Drag and drop on the month grid still to be tried by hand | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
@@ -48,7 +48,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Roll call by spotters; attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
+| Roll call by spotters (a New guest runs the normal duplicate check and asks “Is this the same person?” before adding); attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
 | Kids' check-in flow: rooms by age/grade, allergies, security codes, check-out, check-in access per account | Verified, **but not used for the beta**: check-in stays on Subsplash until the separate child-safety release | `routes/checkin.js`, `js/checkin-rules.js` | `checkin.html`, `js/checkin.js` |
 | Name-tag printing | Needs more testing (not tried with a real printer) | `routes/checkin.js` | `js/checkin.js` |
 | Child-safety V1 (unique pickup codes, custody alerts, full audit) | Partial: the plan is written; these requirements are not built ([plans/child-safety](plans/child-safety/README.md)) | | |

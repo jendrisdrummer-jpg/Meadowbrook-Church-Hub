@@ -109,6 +109,30 @@ export default function seriesRoutes(db) {
     res.json(rows.map((t) => ({ ...t, needs: needs.filter((n) => n.service_type_id === t.id) })));
   });
 
+  // How many volunteers are scheduled on the services a change would touch, so the confirm dialogs
+  // can say so. Same guard and campus scoping as the other series routes; read-only.
+  const impact = (where, args) => {
+    const row = db.prepare(`SELECT COUNT(DISTINCT s.id) services, COUNT(DISTINCT a.person_id) volunteers, COUNT(a.id) assignments,
+        COUNT(DISTINCT CASE WHEN a.status = 'accepted' THEN a.person_id END) accepted
+      FROM services s LEFT JOIN assignments a ON a.service_id = s.id WHERE ${where}`).get(...args);
+    return { services: row.services, volunteers: row.volunteers, assignments: row.assignments, accepted: row.accepted };
+  };
+
+  // ?from=YYYY-MM-DD (default today): this and the following services of the series.
+  r.get('/series/:id/impact', requireRole('staff'), (req, res) => {
+    const t = series(req, req.params.id);
+    const from = isDate(req.query.from) ? req.query.from : today();
+    res.json(impact('s.service_type_id = ? AND substr(s.starts_at, 1, 10) >= ?', [t.id, from]));
+  });
+
+  // Just one service.
+  r.get('/services/:id/impact', requireRole('staff'), (req, res) => {
+    const s = db.prepare('SELECT id, campus_id FROM services WHERE id = ?').get(req.params.id);
+    if (!s) throw notFound('Service');
+    if (!canCampus(req.user, s.campus_id)) throw forbidden();
+    res.json(impact('s.id = ?', [s.id]));
+  });
+
   // Body: { campus_id, starts_on, start_time, duration_min, every_weeks, ends_on?, name?, title?, needs: [{position_id, count}] }
   r.post('/series', requireRole('staff'), (req, res) => {
     const b = req.body || {};
