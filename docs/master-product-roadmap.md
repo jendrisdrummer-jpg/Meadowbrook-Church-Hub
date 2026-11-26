@@ -7,6 +7,13 @@ This page sets the **order, stages, release gates and adoption plan**. [roadmap.
 **backlog** (item IDs, sizes, gap analysis). [feedback.md](feedback.md) holds the leaders' feedback list and the
 "You said, we did" record. Where these pages differ on order or stage, this page governs.
 
+**Status, 26 November 2026.** Milestone 1 is **complete** on the `milestone-1` integration branch and **not
+deployed** (`main` is unchanged; see [merge-log.md](merge-log.md)). The current milestone is **"Personal Testing &
+Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide, all in the existing
+Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
+testing environment.
+**No new features** in this milestone. Open owner decisions are listed once, in §13.
+
 **Revision 3** moves from planning to execution. It records:
 - what is **already built and verified**
 - the **first development milestone** as small, reviewable PRs
@@ -56,7 +63,7 @@ The three-stage strategy is unchanged.
 ## 2. Approval boundaries
 - **PR #49** approves the child-safety V1 plan and the Subsplash cutover plan, **plans only**.
 - **PR #50 (this page)** approves the **planning direction** only.
-- **PR #51** (interim privacy fix) is code awaiting approval.
+- **PR #51** (interim privacy fix): approved and merged into `milestone-1`.
 - **Every PR in the milestone below:**
   - is opened only after its summary (what changes, why, security and data implications, acceptance criteria, tests)
     has been shown
@@ -87,20 +94,20 @@ The three-stage strategy is unchanged.
 | Area | Status | What remains (type of work) |
 |---|---|---|
 | People, households, search, custom fields, CSV import | **Built, verified** | Import the real Faith Teams export onto a copy and fix the mapping (testing, fix) |
-| Accounts, sign-in, roles, campuses | **Built, needs refinement** | Unlinked accounts hit a dead end (fix). Sign-in set to invited (setting) |
+| Accounts, sign-in, roles, campuses | **Built, needs refinement** | Unlinked accounts tell the office; admins link by hand (done, #54, #65). Sign-in set to invited (setting) |
 | Teams and positions | **Built, verified** | Audit automatic leader grants (security) |
-| Scheduling: requests, accept/decline, email links, reminders, conflicts, away dates, autofill, month grid | **Built, verified** | Per-volunteer campus eligibility (**new**). Leader "Remind" button (**small new**). Recurring availability if worship uses it (new) |
+| Scheduling: requests, accept/decline, email links, reminders, conflicts, away dates, autofill, month grid | **Built, verified** | Campus eligibility (done, #56). Leader "Remind" (done, #58). Recurring availability if worship uses it (deferred) |
 | Service planning, songs, templates | **Built, verified** | Printable run sheet can wait |
-| Team chat, tasks | **Built, verified** | "Message team" button (small UI). Volunteer DMs and search wait for Stage 2 |
+| Team chat, tasks | **Built, verified** | "Message team" (done, #58). Volunteer DMs and search wait for Stage 2 |
 | Announcements, notifications | **Built, verified** | Push and email on real phones (testing) |
 | Attendance, roll call | **Built, verified** | Trends can wait |
 | Events and sign-ups | **Built, verified** | "Duplicate event" (small). Repeating events can wait |
-| Connect cards, follow-up | **Built, verified** | Messages visible to leaders (security). Owner and due date can wait |
-| Member app | **Built, verified** | Pending requests first (small UI) |
+| Connect cards, follow-up | **Built, verified** | Messages staff only (done, #52). Owner and due date can wait |
+| Member app | **Built, verified** | Pending requests first (done, #58) |
 | Giving | **Built, never tested with live payments** | Only in scope if Faith Teams runs giving |
 | Backups | **Built, needs setup** | Password, Drive, restore drill (ops) |
-| Small groups | **Missing** | Basic groups (**new**: milestone) |
-| Forms | **Partial** (event sign-ups with questions) | Only the forms Meadowbrook uses (**new**: milestone, scope from the owner's list) |
+| Small groups | **Basic groups built** (#57) | Roster, leaders, members-only group chat, "My groups" in the app. Finder, attendance and join requests later |
+| Forms | **Built** (#60) | Set up the forms Meadowbrook uses in the hub, from the owner's list (no new code) |
 | Member directory, member tier, adult DMs, church-wide email | **Missing** | Stage 2 |
 | Kids' check-in | **Flow built and verified; safety requirements not built** | Separate release (§8) |
 | Media, Mux, podcast | Built | Not in this migration |
@@ -123,8 +130,8 @@ sign-in policy.
 **Code, each needing approval:**
 1. **PR #51:** person pages hide health data, private notes and pickups from leaders. Check-in never sends an adult's
    health data.
-2. **Milestone PR 2:** the check-in roster and active list go to staff, paired stations and leaders of teams chosen in
-   Settings (`checkin_team_ids`) only. Connect-card messages become staff only. Automatic leader grants are audited.
+2. **Milestone PR 2:** the check-in roster and active list go to staff, paired stations and leader accounts an admin
+   authorises in Settings (`checkin_user_ids`) only. Connect-card messages become staff only. Automatic leader grants are audited.
 
 **Still exposed after both:**
 - leaders see contact details church-wide
@@ -142,7 +149,7 @@ implications, acceptance criteria, tests). Hours are agent-assisted.
 | # | PR | Type | Why | Security and data | Acceptance (summary) | h |
 |---|---|---|---|---|---|---|
 | 1 | **#51 Interim privacy fix** (ready) | Security | Live exposure of health and pastoral data | Staff and admin views unchanged | Canary test fails before, passes after; leader page checked in a browser | done |
-| 2 | **Check-in roster guard, connect-card privacy, leader-grant audit** | Security | Remaining exposures (Security F1, F3, F5) | **Permission change (approval).** New setting `checkin_team_ids` | Parking leader gets 403, kids'-team leader gets 200, station gets 200. Leader gets no card message. Audit row on a team-leader change | 10–16 |
+| 2 | **Check-in roster guard, connect-card privacy, leader-grant audit** | Security | Remaining exposures (Security F1, F3, F5) | **Permission change (approval).** New setting `checkin_user_ids` (authorised accounts) | Parking leader gets 403, kids'-team leader gets 200, station gets 200. Leader gets no card message. Audit row on a team-leader change | 10–16 |
 | 3 | **Automated tests on every PR** (GitHub Actions, `npm test`) | Ops | Merging deploys; nothing runs tests today | Free tier: approval needed | A PR shows a check; a failing test is visible | 3–5 |
 | 4 | **Account onboarding** | Fix | Unlinked accounts hit a dead end | No change to who can sign in | Unlinked account sees "We've let the office know"; admins see a list of unlinked accounts with one-click linking | 6–10 |
 | 5 | **Per-volunteer campus eligibility** | New | Teams are shared across campuses; autofill must never request someone for a campus they don't serve | New table `serving_campuses`. Default: home campus (owner decision) | Ineligible volunteers excluded from candidates and autofill; a manual pick warns; tests across two campuses | 14–24 |
@@ -199,7 +206,7 @@ automatic linking, one account per person (#64–#66), and the rate-limit and Ch
 
 **Only if approved or needed:**
 - recurring availability: 10–14 (deferred; only if the worship team confirms it)
-- campus limits on account management for campus-limited admins: 3–5 (owner decision; see beta-readiness §6)
+- campus limits on account management for campus-limited admins: done (#69); edge cases are an owner decision (§13)
 
 **Not rebuilt:** scheduling, planning, chat, announcements, roll call, events and connect cards stay as they are. They
 are verified.
@@ -339,23 +346,40 @@ A ministry stops using Faith Teams only when all of these hold:
   push fails).
 
 ## 13. Decisions and facts needed before implementation
-1. **Approve PR #51.** Run the production check (§5) and share the counts.
-2. **Approve milestone PR 2** (permission change), and name the teams for `checkin_team_ids`. Decide whether
-   connect-card messages are staff only.
-3. **Approve GitHub Actions** (free tier) for automated tests.
-4. **Campus eligibility:** does an empty list mean "home campus only"? (Recommended.)
-5. **Small groups:** what "basic" must include. Recommended: roster, leaders, group chat, member view. Meeting
-   attendance later.
-6. **Forms:** the list of Faith Teams forms in use, with their fields.
-7. **Recurring availability:** do worship volunteers use recurring blockouts?
+This is the **one list of owner decisions**. Other pages link here rather than keeping their own.
+
+**Decided (as merged into `milestone-1` by 25 November 2026):**
+1. **PR #51:** approved and merged (#51).
+2. **Milestone PR 2:** approved and merged (#52). Check-in access is per account, not per team: an admin
+   authorises leader accounts in Settings (`checkin_user_ids`). Connect-card messages are staff only.
+3. **GitHub Actions** (free tier): approved; tests run on every PR (#53).
+4. **Campus eligibility:** an empty list means "home campus only" (#56).
+5. **Small groups, "basic":** roster, leaders, a members-only group chat and "My groups" in the app; adults only;
+   never grants leader access (#57). Meeting attendance, finder and join requests later.
+
+**Open:**
+
+6. **Forms:** the list of Faith Teams forms in use, with their fields (set up in the hub; no new code).
+7. **Recurring availability:** do worship volunteers use recurring blockouts? (Deferred until they say.)
 8. **Minors:** will any have accounts in Stage 1? (Recommended: no.)
-9. **Beta:**
+9. **Beta people:**
    - staff names for the first group
    - an advisory member per ministry
-   - a triage deputy
+   - a triage person for the Feedback page
    - a Sunday contact
-10. **Kids' check-in facts** (subsplash-cutover.md §6), including printers and AirPrint, and the Subsplash export and
-    contract.
+10. **Child-safety plan:** approve the V1 release, and the kids' check-in facts it needs
+    (subsplash-cutover.md §6): printers and AirPrint, the Subsplash export and contract.
+11. **Check-in today:** is hub kids' check-in used in production now? If so, an admin fills the check-in access
+    list straight after the deploy ([beta-readiness.md](beta-readiness.md) 1.15).
+12. **Warn-only ceiling for member sign-in codes** (security review L3 on #67): accept as is, or add a hard limit.
+13. **Campus-limited admin edge cases** ([permissions.md → Campus-limited admins](permissions.md#campus-limited-admins)):
+    narrowing on promotion, accounts with Finance or Announcements, church-wide announcements, cross-campus team
+    leaders. Safe defaults are in place.
+14. **Vendors (paid):** an SMS provider, and a clearance-check (background check) provider for C3.
+15. **Leadership demo on the live site:** real member information will be visible; show everything, or avoid
+    screens with personal details where possible?
+16. **Test accounts on the live site:** add a few clearly named test accounts (campus admin, staff, leader,
+    member) to see each role's view, or test with real staff?
 
 ## 14. How the agent reviews settled the main questions
 | Question | Outcome |

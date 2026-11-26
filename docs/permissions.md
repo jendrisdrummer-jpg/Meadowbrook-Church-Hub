@@ -277,8 +277,8 @@ Until then, review the authorised list in Settings → Sign-in & accounts (accou
   Push notifications for small-group chats never include the message text ("New message. Open the
   chat to read it."), since these chats carry prayer and pastoral news. Open chat pages stop
   receiving a small-group chat's messages as soon as the viewer is removed or the group archived;
-  if that check fails, it fails closed. Not done yet (owner decision): closing open live streams
-  when someone signs out, is deactivated, or has their role changed.
+  if that check fails, it fails closed. Open live streams also close when someone signs out or is
+  deactivated (#64), and every message re-checks the viewer's session and chat access before it is sent.
 - Private tasks: only the person; team tasks: the team.
 
 ## When you add a route
