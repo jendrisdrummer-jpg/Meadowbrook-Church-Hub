@@ -127,13 +127,14 @@ async function drawPeople(panel, s, chats) {
     ${shown.length ? shown.map((team) => html`<h3 style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="dot" style="background:${team.color}"></span> ${team.name}
         ${s.positions.some((p) => p.team_id === team.id && p.can_schedule) && teamStats(team) ? html`<button class="btn small" data-autofill="${team.id}" title="Fill this team’s open spots with available people, rotating fairly">${icon('wand')} Fill open spots</button>` : ''}
         ${chats.has(team.id) ? html`<a class="btn small ghost" href="#/chat/${chats.get(team.id)}" data-message-team style="margin-left:8px">${icon('chat')} Message team</a>` : ''}</h3>
-      ${team.active ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
+      ${team.active || !s.positions.some((p) => p.team_id === team.id && p.detail !== false) ? '' : html`<p class="muted small">This team isn’t set up for this service. Schedule people anyway, or use <b>Positions needed</b> to add it to this service (and future ones).</p>`}
       <div class="grid three">
       ${s.positions.filter((p) => p.team_id === team.id).map((p) => {
         const live = p.assignments.filter((a) => a.status !== 'declined');
-        const open = Math.max(0, p.needed - live.length);
+        // Teams you don't lead (detail === false) show who was asked or accepted, names only.
+        const open = p.detail === false ? 0 : Math.max(0, p.needed - live.length);
         return html`<div class="position">
-          <div class="position-head"><b>${p.name}</b>${p.needed ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
+          <div class="position-head"><b>${p.name}</b>${p.needed && p.detail !== false ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
             ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}

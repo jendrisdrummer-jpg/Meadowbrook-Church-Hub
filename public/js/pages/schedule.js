@@ -1,7 +1,7 @@
 // Schedule a team for a whole month: positions down the side, that month's services across the
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
 import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
-import { state, setTitle, campusName } from '../app.js';
+import { state, setTitle, campusName, can } from '../app.js';
 import { assignDialog, scheduleOne, sendRequests } from '../scheduling.js';
 
 const KEY = 'mb.schedule';
@@ -21,7 +21,10 @@ export default async function schedule(el) {
   const [allSeries, allTeams] = await Promise.all([get('/series'), get('/teams')]);
   const inCampus = (cid) => !state.campusId || cid == null || cid === state.campusId;
   const series = allSeries.filter((t) => inCampus(t.campus_id));
-  const teams = allTeams.filter((t) => !t.archived && inCampus(t.campus_id));
+  // A leader who isn't staff can only schedule (and see in full) the teams they lead, so the picker
+  // lists just those. The server says which ones; staff get null and see every team.
+  const ledIds = can('staff') ? null : (await get(`/schedule?month=${month}`)).led_team_ids;
+  const teams = allTeams.filter((t) => !t.archived && inCampus(t.campus_id) && (!ledIds || ledIds.includes(t.id)));
   if (seriesId !== null && !series.some((t) => t.id === seriesId)) seriesId = null;
   if (prefs.seriesId === undefined && series.length) seriesId = series[0].id;
   if (teamId !== null && !teams.some((t) => t.id === teamId)) teamId = null;
@@ -168,6 +171,7 @@ export default async function schedule(el) {
     const r = await dialog({
       title: displayName(a), submit: can ? 'Remove from this service' : null, danger: true, cancel: 'Close',
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
+        ${a.status === 'declined' && a.decline_reason ? html`<p class="muted small">“${a.decline_reason}”</p>` : ''}
         <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : statusOf(a) === 'draft' ? 'draft' : ''}">${STATUS[statusOf(a)]}</span></p>
         <p class="small"><a href="#/people/${a.person_id}">Open their profile</a> · <a href="#/services/${s.id}">Open the service</a></p>`,
     });

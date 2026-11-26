@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { requireRole, campusFilter, rank } from '../auth.js';
 import { int } from '../http.js';
 import { ensureServices } from './series.js';
+import { ledTeamIds, ledPositionsClause } from '../team-scope.js';
 
 export default function dashboardRoutes(db) {
   const r = Router();
@@ -26,13 +27,16 @@ export default function dashboardRoutes(db) {
         (SELECT COUNT(*) FROM plan_items i WHERE i.service_id = s.id) items
       FROM services s JOIN campuses c ON c.id = s.campus_id
       WHERE s.starts_at >= date('now') AND s.starts_at < date('now', '+8 days') AND ${cf.sql}${extra} ORDER BY s.starts_at`).all(...args);
+    // A leader who isn't staff sees needs and replies for the teams they lead only.
+    const lpn = ledPositionsClause(req.user, 'n.position_id');
+    const lpa = ledPositionsClause(req.user, 'position_id');
     const needs = db.prepare(`SELECT n.position_id, n.count, ps.name, t.name team FROM service_needs n
-      JOIN positions ps ON ps.id = n.position_id JOIN teams t ON t.id = ps.team_id WHERE n.service_id = ?`);
-    const counts = db.prepare(`SELECT position_id, status, COUNT(*) n FROM assignments WHERE service_id = ? GROUP BY position_id, status`);
+      JOIN positions ps ON ps.id = n.position_id JOIN teams t ON t.id = ps.team_id WHERE n.service_id = ? AND ${lpn.sql}`);
+    const counts = db.prepare(`SELECT position_id, status, COUNT(*) n FROM assignments WHERE service_id = ? AND ${lpa.sql} GROUP BY position_id, status`);
     out.services = services.map((s) => {
-      const c = counts.all(s.id);
+      const c = counts.all(s.id, ...lpa.args);
       const filled = (pos) => c.filter((x) => x.position_id === pos && x.status !== 'declined').reduce((a, x) => a + x.n, 0);
-      const open = needs.all(s.id).map((n) => ({ ...n, open: n.count - filled(n.position_id) })).filter((n) => n.open > 0);
+      const open = needs.all(s.id, ...lpn.args).map((n) => ({ ...n, open: n.count - filled(n.position_id) })).filter((n) => n.open > 0);
       return {
         ...s,
         open_positions: open,
@@ -48,10 +52,13 @@ export default function dashboardRoutes(db) {
         SUM(status = 'member') members, SUM(status = 'regular') regulars, SUM(status = 'guest') guests,
         SUM(status = 'guest' AND created_at >= date('now', '-30 days')) new_guests, COUNT(*) total
       FROM people WHERE archived = 0 AND ${pf.sql}`).get(...pf.args);
+    // Away dates: for a leader who isn't staff, only people on teams they lead.
+    const led = ledTeamIds(db, req.user);
+    const awayLimit = led ? ' AND b.person_id IN (SELECT tm.person_id FROM team_members tm WHERE tm.team_id IN (SELECT team_id FROM team_members WHERE person_id = ? AND is_leader = 1))' : '';
     out.blockouts_this_week = db.prepare(`SELECT b.start_date, b.end_date, b.reason, p.first_name, p.last_name, p.nickname
       FROM blockouts b JOIN people p ON p.id = b.person_id
-      WHERE b.start_date <= date('now', '+7 days') AND b.end_date >= date('now') AND ${campusFilter(req.user, 'p.campus_id').sql}
-      ORDER BY b.start_date LIMIT 20`).all(...pf.args);
+      WHERE b.start_date <= date('now', '+7 days') AND b.end_date >= date('now') AND ${campusFilter(req.user, 'p.campus_id').sql}${awayLimit}
+      ORDER BY b.start_date LIMIT 20`).all(...pf.args, ...(led ? [req.user.personId ?? -1] : []));
     res.json(out);
   });
 

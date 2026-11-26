@@ -121,6 +121,24 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Events, Forms, Media, App Builder, check-in stations | | | ✓ | ✓ |
 | Settings, campuses, accounts, profile fields, import, merge duplicates, backups, reset Mux key | | | | ✓ |
 
+### Team leaders and other teams
+
+A leader who isn't staff sees **full detail only for the teams they lead** (`team_members.is_leader = 1`):
+declined people and their reasons, drafts not yet sent, phone and email, open spots. For every other
+team they see what a volunteer sees: people who were asked and haven't declined, names and photo only,
+with no needed counts. The helper is `server/team-scope.js` (`ledTeamIds`, `seesTeamDetail`,
+`ledPositionsClause`); staff and admins are unlimited (campus scoping still applies). This is about
+what can be *seen*; who may *schedule* is still `canSchedule` and the `schedule_role` setting.
+
+| Where | A leader sees for a team they don't lead |
+|---|---|
+| `GET /services/:id` | Volunteer view of its rows; needed count hidden; the team is left out when nothing is visible; each position has `detail: true/false` |
+| `GET /services` | `needed`, `filled`, `accepted`, `declined` count only their teams |
+| `GET /services/:id/candidates` | 403 for a team they neither lead nor may schedule |
+| `GET /schedule` | Only their teams; `team_id` of another team is 403; `led_team_ids` lists theirs |
+| `GET /dashboard` | Needs, counts and away dates for their teams' members only |
+| `GET /people/:id` (upcoming) | A row only if it's their team, or it was sent and not declined |
+
 ## Campus-limited admins
 
 An admin whose `campus_ids` is a list (not NULL) manages their own campuses and nothing wider. An admin

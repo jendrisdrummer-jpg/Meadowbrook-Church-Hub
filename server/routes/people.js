@@ -10,6 +10,7 @@ import { closeStreams } from '../live.js';
 import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
+import { ledPositionsClause } from '../team-scope.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
@@ -150,6 +151,9 @@ export default function peopleRoutes(db, { uploadDir }) {
     const hh = p.household_id ? getHousehold(p.household_id) : null;
     const household = hh && canCampus(req.user, hh.campus_id) ? hh : null;
     const person = staff ? p : withoutKeys(p, PRIVATE_PERSON_FIELDS);
+    // A leader who isn't staff sees another team's serving rows only when they were asked and haven't declined.
+    const ledPos = ledPositionsClause(req.user, 'a.position_id');
+    const upcomingLimit = staff ? { sql: '1 = 1', args: [] } : { sql: `(${ledPos.sql} OR (a.sent_at IS NOT NULL AND a.status != 'declined'))`, args: ledPos.args };
     res.json({
       ...person,
       household: household && {
@@ -163,7 +167,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       upcoming: db.prepare(`SELECT a.id, a.status, a.sent_at, s.id service_id, s.starts_at, s.title, ps.name position, c.short_name campus
         FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id
         JOIN campuses c ON c.id = s.campus_id
-        WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') ORDER BY s.starts_at LIMIT 20`).all(p.id),
+        WHERE a.person_id = ? AND s.starts_at >= date('now', '-1 day') AND ${upcomingLimit.sql} ORDER BY s.starts_at LIMIT 20`).all(p.id, ...upcomingLimit.args),
       // Campuses they can serve at (empty = home campus only, or any if they have none; see eligibility.js).
       serving_campuses: servingList(p.id),
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id),

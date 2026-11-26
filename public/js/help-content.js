@@ -50,7 +50,7 @@ const SECTIONS = [
   },
   {
     id: 'schedule', title: 'Schedule people for a service', min: 'leader',
-    intro: 'You can schedule people on the teams you lead. Nobody hears about it until you send the requests, so you can take your time.',
+    intro: 'You can schedule people on the teams you lead. Nobody hears about it until you send the requests, so you can take your time. For teams you don’t lead you’ll see who has been asked or has accepted, but not who declined or why.',
     hub: [
       html`Open ${b('Services')} and tap the service. Choose the ${b('Who’s serving')} tab.`,
       html`Under your team, tap ${b('Schedule someone')} next to an open position.`,
