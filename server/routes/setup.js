@@ -9,6 +9,7 @@ import { notify } from '../notify.js';
 import { closeStreams } from '../live.js';
 import { revokeCheckin } from './checkin.js';
 import { syncLeaderAccessFor } from './teams.js';
+import { linkSuggestion } from '../link-suggestion.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -201,7 +202,12 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     // (A campus-limited admin sees only the accounts they could manage, in all three lists.)
     const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT ${limited ? 5000 : 200}`).all()
-      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => u);
+      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => {
+        // The person with the same email, shown only when this admin could link to them (a hint; an admin always confirms).
+        const sg = linkSuggestion(db, u);
+        const { campus_id: sgCampus, ...suggestion } = sg || {};
+        return { ...u, suggestion: sg && canCampus(req.user, sgCampus) ? suggestion : null };
+      });
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)
