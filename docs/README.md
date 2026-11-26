@@ -8,7 +8,7 @@ how it's built and how to change it.
 |---|---|
 | [architecture.md](architecture.md) | Stack, how the code is laid out, request flow, background jobs, integrations, deployment, multi-church readiness |
 | [database.md](database.md) | Tables by area, relationships, migration rules, where sensitive data lives |
-| [features.md](features.md) | Everything that's built, where it lives, what it replaces |
+| [features.md](features.md) | Everything that's built, where it lives, what it replaces, and its status (verified, needs more testing, partial, not built, needs outside setup) |
 | [permissions.md](permissions.md) | Roles, flags, campus limits, stations, guests, rules for new routes |
 | [design-system.md](design-system.md) | Tokens, components, patterns, writing style, accessibility and mobile checklists |
 | [api.md](api.md) | API conventions, endpoint map, integrations and their settings |
@@ -16,6 +16,7 @@ how it's built and how to change it.
 | [security.md](security.md) | Security and privacy standards, severity scale, review checklist |
 | [development.md](development.md) | Coding standards, commands, git/PR flow, keeping docs current, efficient Claude use |
 | [beta-readiness.md](beta-readiness.md) | Staff beta readiness: deployment gate, device and email tests, import, permissions, training, configuration |
+| [leadership-preview.md](leadership-preview.md) | **Current milestone:** the owner's personal testing checklist on the live site, the leadership demo guide, likely questions, a one-page feature overview, known issues and next steps |
 | [deploy-runbook.md](deploy-runbook.md) | Deploying `milestone-1` to Render: pre-deploy checks, owner steps, the first hour, go/no-go, rollback, env var list, rehearsal record |
 | [restore-drill.md](restore-drill.md) | Backup restore drill on a laptop (offline mode), and its record |
 | [testing.md](testing.md) | Test layers, writing tests, core workflow regression checklist, phone checks |

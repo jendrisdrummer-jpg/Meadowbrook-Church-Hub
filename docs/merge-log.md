@@ -30,6 +30,11 @@ rules are in [master-product-roadmap.md](master-product-roadmap.md) §2.
 | 2026-11-25 | #70 | Beta launch checklist in four stages | CI; docs link check | milestone-1 |
 | 2026-11-25 | #71 | Agent team: Product Manager and DevOps Engineer agents; product-innovation becomes read-only research; ownership and hand-off tables in `agent-workflow.md`; roster check in `test/docs.test.js` | CI; agent roster and docs link tests | milestone-1 |
 | 2026-11-25 | #72 | Deploy and rollback runbook (`deploy-runbook.md`); status column for the beta checklist; restore drill uses `milestone-1`; tech-debt 12 and 13 | npm test 146/146; test:ui 224/224; migrations 30–35 rehearsed on made-up data | milestone-1 |
+| 2026-11-26 | #73 | Roadmap, merge log and owner-decision list brought up to date (docs only) | CI green; npm test 146/146 | milestone-1 |
+| 2026-11-26 | #74 | Visual refresh: ivory/charcoal surfaces, Fraunces + Inter (self-hosted, OFL), blue accent, time-of-day greeting; no layout or behaviour changes | CI green; npm test 147/147; test:ui 224/224; light/dark screenshots reviewed | milestone-1 |
+| 2026-11-26 | #75 | Demo seed refuses to run on Render, outside `data/`, or over a file not marked as sample data (it could have wiped the production database) | CI green; npm test 151/151; test:ui 224/224 | milestone-1 |
+| 2026-11-26 | #76 | QA and security fixes: campus checks on households and pickups (child safety), below-staff may join a family only as a child, household audit, access-dialog campuses, validation, no-access pages, phone layout | CI green; npm test 175/175; test:ui 230/230 (stricter phone width); QA browser re-test; security review H1/M1–M3 fixed | milestone-1 |
+| 2026-11-26 | #77 | Leadership preview guide, personal testing checklist, feature inventory (docs only) | CI green; npm test | milestone-1 |
 
 **Migrations waiting for the next deploy:** 30 (`users.link_requested_at`), 31 (`feedback`), 32 (`serving_campuses`), 33 (small groups), 34 (`assignments.nudged_at`), 35 (forms). All additive. They run automatically on
 production when `milestone-1` is merged to `main`, which needs the owner's approval; take a backup first.

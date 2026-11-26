@@ -9,8 +9,8 @@ This page sets the **order, stages, release gates and adoption plan**. [roadmap.
 
 **Status, 26 November 2026.** Milestone 1 is **complete** on the `milestone-1` integration branch and **not
 deployed** (`main` is unchanged; see [merge-log.md](merge-log.md)). The current milestone is **"Personal Testing &
-Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide, all in the existing
-Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
+Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide
+([leadership-preview.md](leadership-preview.md)), all in the existing Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
 testing environment.
 **No new features** in this milestone. Open owner decisions are listed once, in §13.
 
@@ -380,6 +380,12 @@ This is the **one list of owner decisions**. Other pages link here rather than k
     screens with personal details where possible?
 16. **Test accounts on the live site:** add a few clearly named test accounts (campus admin, staff, leader,
     member) to see each role's view, or test with real staff?
+17. **Adding children at the desk:** below staff, leaders and check-in stations may add a child (not an
+    adult) to an existing family, as today. Keep, or make it staff-only? (#76)
+18. **Pickups:** check-in treats every adult in a family as a pickup person. Keep, or list pickups
+    explicitly? (Child-safety plan item.)
+19. **"No campus" families:** campus-limited staff can create or move a family to no campus, which shows
+    it at every campus's check-in. Allow, or require one of their campuses?
 
 ## 14. How the agent reviews settled the main questions
 | Question | Outcome |
