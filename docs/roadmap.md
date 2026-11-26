@@ -32,9 +32,9 @@ below describe importance, not sequence.
 | N7 | First-run flow, accessibility pass, "Needs attention" on Home, other UX polish | S–M | Stage 1 (B) / 2 |
 | N8 | Adult direct messages with minimal chat safeguarding; message search | M | Stage 2 |
 | N9 | Security Mediums: leader-grant audit (Stage 1), connect-card visibility, offboarding, chat and upload limits, announcement campus scope | M | Stage 1 / 2 |
-| N10 | Adoption view and in-app feedback link with a "you said, we did" status list | S | Stage 1 (A) |
-| N11 | Interim check-in roster guard: staff, stations and leaders of teams in `checkin_team_ids` only (Security F1) | S | Stage 1, with child-safety V1 |
-| N12 | Weekly scheduling loop: remind non-responders, "Message team", volunteer app shows pending requests first | S–M | Stage 1 (A) |
+| N10 | Adoption view and in-app feedback link with a "you said, we did" status list | S | **Feedback shipped** (#55: Feedback page, triage, "You said, we did"); adoption view not built |
+| N11 | Interim check-in roster guard: staff, stations and leader accounts an admin authorises (`checkin_user_ids`) only (Security F1) | S | **Shipped** (#52) |
+| N12 | Weekly scheduling loop: remind non-responders, "Message team", volunteer app shows pending requests first | S–M | **Shipped** (#58) |
 | N13 | Kids' teams and photos hidden from plain accounts; no group with a minor without two adults (if minors have accounts) | S | Stage 1 |
 
 ## Product vision
@@ -66,7 +66,7 @@ IDs match the strategy report. Size: S days · M 1–3 weeks · L a month or mor
 ### Critical
 | ID | Item | Size | Notes |
 |---|---|---|---|
-| C3 | Clearance-gated scheduling for kids and youth teams (background check / training dates, autofill skips, expiry reminders) | M | Next after CS; vendor is an owner decision |
+| C3 | Clearance-gated scheduling for kids and youth teams (background check / training dates, autofill skips, expiry reminders) | M | Next after CS; vendor is an owner decision ([master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)) |
 | C4 | Private pastoral notes; staff-only `notes`; team-scoped leader access instead of automatic directory-wide leader | M | Permission change: owner approval + security review |
 | C5 | Small groups as their own concept (roster, meetings with roll call, group chat, tasks, finder, request to join) | M–L | Not built on serving teams; after C4 |
 | C6 | Follow-up inbox: owners, states, notes, due dates, template message, Monday push, automatic guest thank-you | M | Unifies connect cards, sign-ups, first-timers, "missing" |
@@ -134,7 +134,7 @@ verifies competitor details before relying on them.
 | Watch library on the church's own website | Embeddable media (SS) | App only | missing |
 | Sermon notes, Bible reader | In-app notes and Bible (SS) | — | proposed |
 | Prayer requests | Prayer wall/requests (SS) | Connect card free text only | missing |
-| Text messaging (SMS) | SMS to groups (SS, some ChMS) | Push and email only | missing (would need a paid SMS provider: owner decision) |
+| Text messaging (SMS) | SMS to groups (SS, some ChMS) | Push and email only | missing (would need a paid SMS provider: owner decision, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)) |
 | Email to groups | Bulk email/newsletters | Announcements push + inbox; transactional email | missing |
 | Direct messages | 1:1 chat (GC) | Team chats and groups | verify: groups of two may cover it |
 | Background checks / child-safety clearance | Common in ChMS | Profile fields could track dates | proposed |
