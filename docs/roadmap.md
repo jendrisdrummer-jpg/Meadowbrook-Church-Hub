@@ -107,7 +107,8 @@ IDs match the strategy report. Size: S days · M 1–3 weeks · L a month or mor
 | L1 | Discipleship pathway and mentor pairs | L |
 | L2 | Classes and leader training (watch-to-the-end video, quizzes, in-person sessions) | L |
 | L3 | Per-child event registration (VBS) feeding check-in; event volunteer shifts | L |
-| L4 | Multi-church SaaS: tenancy decision, setup wizard, Faith Teams/Subsplash importers | L |
+| L4 | Multi-church SaaS: tenancy decision, setup wizard, Faith Teams/Subsplash importers. **Direction decided 26 Nov 2026; moved up: groundwork before the whole-church launch** (architect plan and owner approval first; large architectural change) | L |
+| L6 | One shared store app (App Store, Google Play) for all churches: thin native shell (e.g. Capacitor) around `/app`, native push, Face ID, "find your church" for guests, church layout from App Builder. Needs L4 groundwork, product name, new dependency and store fees (about $99/year, $25 once): owner decisions. Proposed; after staff beta, before whole-church launch ([master §12](master-product-roadmap.md#12-stage-2-and-stage-3)) | L |
 | L5 | SMS, public website and embeddable Watch, accounting export, sermon notes | M–L each |
 | — | Media: finish setup with the church's Mux account; verify live, uploads, podcast | existing, needs owner setup |
 
@@ -117,9 +118,10 @@ S1 "people who need attention" board · S2 decline-to-replacement in team chat �
 prompt on the live player and "serving this week" card.
 
 ### Not now (decided)
-Full calendar approval chains · own text-to-give · custom reporting engine · native app-store apps
-(unless PWA push fails) · multi-church tenancy before groups and follow-up · small groups built on
-serving teams.
+Full calendar approval chains · own text-to-give · custom reporting engine · a separately branded
+app per church (one shared app instead, L6) · small groups built on serving teams. (Earlier "no
+native apps" and "no multi-church before groups and follow-up" were replaced by the owner's
+direction of 26 Nov 2026: see L4 and L6.)
 
 ## Gap analysis vs. the services being replaced
 

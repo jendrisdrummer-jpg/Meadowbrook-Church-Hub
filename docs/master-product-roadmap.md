@@ -13,6 +13,8 @@ Leadership Preview"**: the approved visual refresh, end-to-end verification and 
 ([leadership-preview.md](leadership-preview.md)), all in the existing Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
 testing environment.
 **No new features** in this milestone. Open owner decisions are listed once, in §13.
+Also on 26 Nov 2026: **staff beta group chosen (5 people)**; phone notifications and schedule email **verified on a
+real iPhone and in Gmail**. Android and Outlook are still to test in the staff walkthrough.
 
 **Revision 3** moves from planning to execution. It records:
 - what is **already built and verified**
@@ -340,10 +342,32 @@ A ministry stops using Faith Teams only when all of these hold:
 - **Stage 3:**
   - a Planning Center-level breadth only with a clear reason
   - the Subsplash media replacement (Mux verification first, with the owner's cost approval)
-  - multi-church only by owner decision
+  - multi-church: **direction set by the owner, 26 Nov 2026**, see "Product direction" below
 
-  **Avoid:** fund accounting, approval chains, a reporting engine, a website builder, native store apps (unless web
-  push fails).
+  **Avoid:** fund accounting, approval chains, a reporting engine, a website builder.
+
+**Product direction (owner, 26 Nov 2026). Direction only; each step needs its own plan and approval.**
+- **Long term the product is sold to other churches.** The product name is **to be decided** (it must be chosen before
+  App Store submission). Meadowbrook becomes one church ("profile") on it. Church-specific values stay in `settings`
+  (CLAUDE.md rule 8).
+- **One shared store app** (App Store and Google Play) for all churches, like Planning Center's Church Center. Not a
+  separately branded app per church. Reasons: one app to build and review; Apple guideline 4.2.6 rejects template apps
+  unless each church submits its own; each church's branding shows inside the app.
+- **Sign-in:** as today (email), then the system opens that person's church. "Find your church" is only for people
+  without an account (guests, visitors). Someone in more than one church picks.
+- **Each church keeps shaping its app with the existing App Builder;** the native app loads that church's layout.
+- **Approach:** a thin native shell (for example Capacitor) around the existing member app (`/app`), adding native push,
+  store presence and Face ID sign-in. Not a rebuild. Needs a dependency and sign-in change: **owner decisions**.
+- **Prerequisite:** multi-church support, a **large architectural change**: `chief-architect` plan and owner approval
+  before any work.
+- **Costs (owner approval when the time comes):** Apple Developer Program about $99/year; Google Play about $25 once.
+- **Timing (owner):** build the app **after the staff beta and before the whole-church launch** that replaces Faith
+  Teams. Smallest sequence, no firm dates yet: (1) staff beta, mid-December; (2) architect plan for multi-church and the
+  shell, December or January; (3) leaders' rollout continues, late January to early March; (4) multi-church groundwork;
+  (5) app shell; (6) TestFlight with staff; (7) choose the product name; (8) whole-church launch.
+- **Conflicts to flag:** the kids' check-in V1 pilot (about 21 Feb) is safety-critical and must not be delayed by this
+  work, so multi-church groundwork should not overlap it. The Holy Week and Easter freeze (about 14 Mar to 11 Apr)
+  blocks onboarding and risky deploys. The calendar needs the owner's call once the architect plan gives sizes.
 
 ## 13. Decisions and facts needed before implementation
 This is the **one list of owner decisions**. Other pages link here rather than keeping their own.
@@ -363,7 +387,7 @@ This is the **one list of owner decisions**. Other pages link here rather than k
 7. **Recurring availability:** do worship volunteers use recurring blockouts? (Deferred until they say.)
 8. **Minors:** will any have accounts in Stage 1? (Recommended: no.)
 9. **Beta people:**
-   - staff names for the first group
+   - staff group chosen (5 people, 26 Nov); names are kept out of the docs
    - an advisory member per ministry
    - a triage person for the Feedback page
    - a Sunday contact
@@ -386,6 +410,10 @@ This is the **one list of owner decisions**. Other pages link here rather than k
     explicitly? (Child-safety plan item.)
 19. **"No campus" families:** campus-limited staff can create or move a family to no campus, which shows
     it at every campus's check-in. Allow, or require one of their campuses?
+20. **Shared store app and multi-church** (see §12 "Product direction"): direction decided 26 Nov. Still needed:
+    approve the architect plan for multi-church; the thin native shell as a new dependency; the Apple (about $99/year)
+    and Google Play (about $25 once) accounts; the product name; where the work sits against the check-in pilot and
+    the Easter freeze.
 
 ## 14. How the agent reviews settled the main questions
 | Question | Outcome |

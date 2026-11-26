@@ -160,7 +160,18 @@ async function drawPeople(panel, s, chats) {
       // “Find a replacement” opens the same picker as “Schedule someone”.
       const assignId = Number(b.dataset.assign || b.dataset.replace);
       if (assignId) await assignDialog(s.id, s.positions.find((p) => p.id === assignId), taken(s, assignId), reload);
-      if (b.dataset.unassign) { await del(`/assignments/${b.dataset.unassign}`); reload(); }
+      if (b.dataset.unassign) {
+        // Someone already asked (or who accepted) hears that they're no longer needed, so check first.
+        // Drafts nobody has heard about yet still go with one tap.
+        const pos = s.positions.find((p) => p.assignments.some((a) => a.id === Number(b.dataset.unassign)));
+        const a = pos?.assignments.find((x) => x.id === Number(b.dataset.unassign));
+        if (a?.sent_at && a.status !== 'declined') {
+          const ok = await confirm(`Remove ${displayName(a)}?`,
+            `${displayName(a)} ${a.status === 'accepted' ? 'accepted' : 'was asked to serve'} as ${pos.name} on ${fmtDate(s.starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}. They'll get a “No longer needed” notice.`, 'Remove');
+          if (!ok) return;
+        }
+        await del(`/assignments/${b.dataset.unassign}`); reload();
+      }
       if (b.matches('[data-remind]') && (await remindUnanswered(s.id, waiting))) reload();
       if (b.matches('[data-send]') && (await sendRequests([s.id]))) reload();
       if (b.matches('[data-autofill]')) {
