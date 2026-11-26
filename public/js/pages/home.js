@@ -1,9 +1,15 @@
 import { get, patch, html, mount, icon, fmtDate, fmtTime, toast, fail } from '../lib.js';
 import { state, can, setTitle, campusQuery } from '../app.js';
+import { greetingForHour } from '../greeting.js';
 
 export default async function home(el) {
   const first = state.me.name.split(' ')[0];
-  setTitle(`Welcome, ${first}`);
+  const hello = greetingForHour(new Date().getHours());
+  setTitle(`${hello}, ${first}`);
+  // The name is set in italics; the text is the same for screen readers and the tab title.
+  const h1 = document.querySelector('[data-title]');
+  h1.classList.add('greeting');
+  h1.replaceChildren(`${hello}, `, Object.assign(document.createElement('em'), { textContent: first }));
   const d = await get(`/dashboard${campusQuery()}`);
 
   const mine = d.my_next.length

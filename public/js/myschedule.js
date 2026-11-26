@@ -136,7 +136,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
       <p class="muted small" style="margin:6px 0 0">Get a notice when you’re scheduled, and accept right from it.</p>`;
   }
 
-  mount(box, html`<div class="card-head"><h2>${ui === 'app' ? 'Notifications' : 'App &amp; notifications'}</h2></div>
+  mount(box, html`<div class="card-head"><h2>${ui === 'app' ? 'Notifications' : 'App & notifications'}</h2></div>
     ${install ? html`<div style="margin-bottom:14px">${install}</div>` : ''}
     ${push}
     <details style="margin-top:10px" ${on ? '' : raw('open')}><summary class="small">Which notifications</summary>

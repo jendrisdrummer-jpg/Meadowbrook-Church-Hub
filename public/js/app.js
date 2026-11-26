@@ -109,6 +109,7 @@ export const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] |
 
 export function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
+  $('[data-title]').classList.remove('greeting');
   document.title = `${title} · ${state.settings.church_name || 'Church Hub'}`;
   mount($('[data-actions]'), actions);
 }

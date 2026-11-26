@@ -1,12 +1,12 @@
 /* The member app: phone-first, a title bar on top and tabs along the bottom. */
 body.member { background: var(--bg); min-height: 100vh; }
 .m-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: calc(12px + env(safe-area-inset-top)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.m-top h1 { margin: 0 auto 0 0; font-size: 24px; letter-spacing: -.02em; }
+.m-top h1 { margin: 0 auto 0 0; font-size: 25px; line-height: 1.15; letter-spacing: -.02em; }
 .m-top-actions { display: flex; gap: 6px; align-items: center; }
 .m-main { max-width: 640px; margin: 0 auto; padding: 4px 16px calc(96px + env(safe-area-inset-bottom)); }
 .m-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; background: var(--panel); border-top: 1px solid var(--line); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
-.m-tabs a { flex: 1; display: grid; justify-items: center; gap: 2px; padding: 6px 0; font-size: 11px; font-weight: 600; color: var(--muted); text-decoration: none; }
-.m-tabs a.on { color: var(--accent-text); }
+.m-tabs a { flex: 1; display: grid; justify-items: center; gap: 2px; padding: 6px 0; min-height: 48px; font-size: 11px; font-weight: 550; color: var(--muted); text-decoration: none; }
+.m-tabs a.on { color: var(--accent-text); font-weight: 650; }
 .m-tabs .ic { width: 23px; height: 23px; }
 @media (min-width: 700px) {
   .m-tabs { left: 50%; right: auto; transform: translateX(-50%); width: 640px; border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; }
@@ -17,7 +17,7 @@ body.member { background: var(--bg); min-height: 100vh; }
 .w-grid { --gap: 12px; --cell: calc((100cqw - 3 * var(--gap)) / 4); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(var(--cell), auto); grid-auto-flow: row dense; gap: var(--gap); }
 .w { --wbg: var(--panel); --wfg: var(--text); position: relative; min-width: 0; overflow: hidden; border-radius: 20px; padding: 14px; background: var(--wbg); color: var(--wfg); text-decoration: none; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow); }
 a.w:hover { text-decoration: none; }
-.w.st-card { border: 1px solid var(--line); }
+.w.st-card { border: 1px solid var(--line); box-shadow: var(--shadow); }
 .w.st-soft { --wbg: var(--accent-soft); --wfg: var(--text); }
 .w.st-accent { --wbg: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #000)); --wfg: #fff; }
 .w.st-color { --wfg: #fff; }
@@ -28,7 +28,7 @@ a.w:hover { text-decoration: none; }
 .w .w-ic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: color-mix(in srgb, currentColor 14%, transparent); flex: none; }
 .w .w-ic .ic { width: 19px; height: 19px; }
 .w .w-label { font-size: 16px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
-.w .w-big { font-size: 34px; line-height: 1; font-weight: 750; margin-top: auto; }
+.w .w-big { font: 400 38px/1 var(--serif); letter-spacing: -.02em; font-variant-numeric: lining-nums tabular-nums; margin-top: auto; }
 .w.st-soft .w-ic, .w.st-card .w-ic { color: var(--accent-text); }
 .w.has-img .w-ic { background: rgba(255,255,255,.22); color: #fff; }
 /* Tiles: icon at the top, words at the bottom. */
@@ -44,7 +44,7 @@ a.w:hover { text-decoration: none; }
 .w.sz-W .w-ic { margin: 0; }
 /* Welcome banner */
 .w-welcome small { opacity: .85; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
-.w-welcome h2 { font-size: 26px; letter-spacing: -.02em; margin: 2px 0 2px; }
+.w-welcome h2 { font: 400 30px/1.12 var(--serif); letter-spacing: -.02em; margin: 2px 0 2px; }
 .w-welcome.sz-F { padding: 26px 20px; }
 .w-welcome.sz-L, .w-welcome.sz-W { justify-content: flex-end; }
 .w-welcome.sz-W { flex-direction: column; align-items: flex-start; gap: 0; }
@@ -106,7 +106,7 @@ a.w:hover { text-decoration: none; }
 
 /* Serve: My schedule / All services */
 .m-seg { display: flex; margin-bottom: 14px; }
-.m-seg a { flex: 1; text-align: center; text-decoration: none; color: var(--text-2); padding: 7px; border-radius: 7px; font-weight: 600; font-size: 14px; }
+.m-seg a { flex: 1; text-align: center; text-decoration: none; color: var(--text-2); padding: 8px; border-radius: 8px; font-weight: 550; font-size: 14px; }
 .m-seg a.on { color: var(--text); background: var(--panel); box-shadow: var(--shadow); }
 .m-cal-card .row { justify-content: space-between; }
 .m-cal-title { font-size: 17px; }
@@ -140,7 +140,7 @@ a.w:hover { text-decoration: none; }
 .ev-thumb { width: 54px; height: 54px; border-radius: 12px; object-fit: cover; flex: none; }
 .ev-date { width: 54px; height: 54px; border-radius: 12px; flex: none; display: grid; place-content: center; text-align: center; background: var(--accent-soft); color: var(--accent-text); line-height: 1.05; }
 .ev-date small { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.ev-date b { font-size: 20px; }
+.ev-date b { font: 400 22px/1.1 var(--serif); }
 .ev-svc { color: var(--text-2); }
 .ev-svc .m-svc-time { width: 54px; font-size: 13px; text-align: center; }
 .ev-hero { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
