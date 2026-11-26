@@ -1,6 +1,7 @@
 import { get, patch, html, mount, icon, fmtDate, fmtTime, toast, fail } from '../lib.js';
 import { state, can, setTitle, campusQuery } from '../app.js';
 import { greetingForHour } from '../greeting.js';
+import { declineAssignment } from '../myschedule.js';
 
 export default async function home(el) {
   const first = state.me.name.split(' ')[0];
@@ -13,12 +14,10 @@ export default async function home(el) {
   const d = await get(`/dashboard${campusQuery()}`);
 
   const mine = d.my_next.length
-    ? html`<table class="list"><tbody>${d.my_next.map((a) => html`<tr>
-        <td class="nowrap"><b>${fmtDate(a.starts_at)}</b><br><span class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</span></td>
-        <td>${a.position}</td>
-        <td style="text-align:right">${a.status === 'pending'
-          ? html`<button class="btn small primary" data-accept="${a.id}">Accept</button>`
-          : html`<span class="pill good">${icon('check')} Accepted</span>`}</td></tr>`)}</tbody></table>`
+    ? html`<table class="list pair"><tbody>${d.my_next.map((a) => html`<tr>
+        <td><b class="nowrap">${fmtDate(a.starts_at)}</b><br>${a.position}<br><span class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</span>
+          ${a.status === 'pending' ? html`<div class="row" style="margin-top:8px"><button class="btn small primary" data-accept="${a.id}">Accept</button><button class="btn small" data-decline="${a.id}">Can’t make it</button></div>` : ''}</td>
+        <td>${a.status === 'pending' ? html`<span class="pill warn">Please reply</span>` : html`<span class="pill good">${icon('check')} Accepted</span>`}</td></tr>`)}</tbody></table>`
     : html`<div class="empty">You’re not scheduled for anything coming up.</div>`;
 
   const setupHint = can('admin') && !state.campuses.length
@@ -58,7 +57,7 @@ export default async function home(el) {
       <div class="stack">
         <div class="card"><div class="card-head"><h2>Your next times serving</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>
         <div class="card"><h2>Away this week</h2>${d.blockouts_this_week.length
-          ? html`<table class="list"><tbody>${d.blockouts_this_week.map((b) => html`<tr><td>${b.nickname || b.first_name} ${b.last_name}</td><td class="muted small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td><td class="muted small">${b.reason}</td></tr>`)}</tbody></table>`
+          ? html`<table class="list pair"><tbody>${d.blockouts_this_week.map((b) => html`<tr><td>${b.nickname || b.first_name} ${b.last_name}${b.reason ? html`<br><span class="muted small">${b.reason}</span>` : ''}</td><td class="muted small">${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td></tr>`)}</tbody></table>`
           : html`<div class="muted">Nobody has marked themselves away.</div>`}</div>
       </div>
     </div>`);
@@ -67,9 +66,13 @@ export default async function home(el) {
 
 function bind(el) {
   el.onclick = async (e) => {
-    const b = e.target.closest('[data-accept]');
+    const b = e.target.closest('[data-accept], [data-decline]');
     if (!b) return;
     try {
+      if (b.dataset.decline) {
+        if (await declineAssignment(b.dataset.decline)) home(el);
+        return;
+      }
       await patch(`/assignments/${b.dataset.accept}`, { status: 'accepted' });
       toast('Thanks for serving!');
       home(el);

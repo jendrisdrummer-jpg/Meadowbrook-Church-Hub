@@ -14,7 +14,7 @@ const SECTIONS = [
     id: 'reply', title: 'Reply to a request to serve', min: 'volunteer', app: true,
     intro: 'When someone schedules you, you get a notification and an email. You can answer from either of them, or from your schedule.',
     hub: [
-      html`Open ${b('My Schedule')} from the menu (${b('Schedule')} at the bottom of a phone).`,
+      html`Open ${b('My Schedule')} from the menu (${b('Schedule')} at the bottom of a phone). On Home, you can also tap ${b('Accept')} or ${b('Can’t make it')} right in ${b('Your next times serving')}.`,
       html`Requests waiting for you are at the top, under ${b('Please reply')}.`,
       html`Tap ${b('Accept')} if you can serve.`,
       html`If you can’t, tap ${b('Can’t make it')}, add a short reason if you like, then tap ${b('Let my leader know')}.`,
