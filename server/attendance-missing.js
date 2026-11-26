@@ -3,10 +3,9 @@
 // A regular came at least 3 times in the 12 weeks before today. Their streak is the number of
 // recent Sundays they missed, counting only Sundays when attendance was actually taken at their
 // campus (a service there has someone marked present or checked in), so a Sunday nobody recorded
-// never makes everyone look absent. Staff and admins see everyone at their campuses; a leader who
-// isn't staff sees only the people on the teams they lead.
+// never makes everyone look absent. Every leader, staff member and admin sees everyone at the
+// campuses they can reach (the owner's decision: many people don't serve on a team).
 import { campusFilter } from './auth.js';
-import { ledTeamIds } from './team-scope.js';
 
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
   UNION SELECT service_id, person_id FROM checkins WHERE service_id IS NOT NULL`;
@@ -35,14 +34,10 @@ export function missingPeople(db, user, { today, campusId = null, minWeeks = 2 }
       WHERE p.archived = 0 AND p.status != 'inactive' AND substr(s.starts_at, 1, 10) >= ? AND substr(s.starts_at, 1, 10) <= ?
         AND ${pf.sql}${campusId ? ' AND p.campus_id = ?' : ''}
       GROUP BY p.id`).all(from, today, ...pf.args, ...campusArgs);
-  const led = ledTeamIds(db, user);
-  const onMyTeams = led === null ? null
-    : new Set(led.size ? db.prepare(`SELECT DISTINCT person_id FROM team_members WHERE team_id IN (${[...led].map(() => '?').join(',')})`).all(...led).map((r) => r.person_id) : []);
   const allWeeks = [...new Set(taken.map((t) => t.week))].sort().reverse();
   const out = [];
   for (const p of rows) {
     if (p.times < 3) continue;
-    if (onMyTeams && !onMyTeams.has(p.id)) continue;
     // Sundays at their campus (any campus if they have none) since they were last here.
     const weeks = p.campus_id != null ? (weeksAt.get(p.campus_id) || []) : allWeeks;
     const lastWeek = sundayOf(p.last_at);

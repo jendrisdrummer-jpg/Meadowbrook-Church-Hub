@@ -41,13 +41,7 @@ test('the weeks threshold narrows the list', () => {
   assert.deepEqual(names(missingPeople(db, staff, { today: TODAY, minWeeks: 5 })), []);
 });
 
-test('campus limits apply, and a leader who is not staff sees only people on teams they lead', () => {
+test('campus limits apply, and every leader sees everyone at their campuses (not just their teams)', () => {
   assert.deepEqual(names(missingPeople(db, { role: 'staff', campusIds: [2], personId: null }, { today: TODAY })), []);
-  const lead = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id) VALUES ('Lead', 'Er', 1)").run().lastInsertRowid);
-  const team = Number(db.prepare("INSERT INTO teams (name, campus_id) VALUES ('Greeters', 1)").run().lastInsertRowid);
-  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, lead);
-  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 0)').run(team, P.gone2);
-  const leader = { role: 'leader', campusIds: null, personId: lead };
-  assert.deepEqual(names(missingPeople(db, leader, { today: TODAY })), ['gone2']);
-  assert.deepEqual(names(missingPeople(db, { role: 'leader', campusIds: null, personId: null }, { today: TODAY })), []);
+  assert.deepEqual(names(missingPeople(db, { role: 'leader', campusIds: [1], personId: null }, { today: TODAY })), ['gone4', 'gone2']);
 });
