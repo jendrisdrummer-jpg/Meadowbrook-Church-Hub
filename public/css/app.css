@@ -1076,3 +1076,7 @@ table.list.pair .btn { white-space: nowrap; }
   .home-svc-go .btn { flex: 1; justify-content: center; }
 }
 .home-svc-main .dot { margin-right: 8px; }
+
+/* B3: add-person dialog. The first screen is short; the rest folds under "More details". */
+details.more-details > summary { cursor: pointer; font-size: 13px; font-weight: 550; color: var(--text-2); padding: 6px 0; }
+details.more-details[open] > summary { margin-bottom: 8px; }

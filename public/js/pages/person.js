@@ -192,36 +192,87 @@ export default async function person(el, id) {
   };
 }
 
-// Add or edit a person. Resolves to the saved person, or undefined if cancelled.
+// Add or edit a person. Resolves to the saved person (the last one saved), or undefined if cancelled.
+// Adding starts with a short screen (name, contact, status, campus, family); the rest sits under
+// "More details". "Save and add another" keeps the family, campus and status for the next person.
 export async function personDialog(p = {}) {
   const editing = Boolean(p.id);
   const camps = visibleCampuses();
   let saved;
+  // The family this person joins: { id, name, hasAdult }. Null means a new family is started for them.
+  let fam = p.household_id ? { id: p.household_id, name: p.household_name || `${p.last_name || 'this'} family`, hasAdult: null } : null;
+  let another = false;
+  let roleTouched = Boolean(p.household_role);
+  // Below staff only a child can join an existing family (the server's rule), so that's their default.
+  const defaultRole = () => (fam && fam.hasAdult === false && can('staff') ? 'adult' : p.household_role || (fam ? 'child' : 'adult'));
   await dialog({
     title: editing ? `Edit ${displayName(p)}` : 'Add a person',
     wide: true,
     body: html`<div class="form">
       <label class="field">First name<input type="text" name="first_name" value="${p.first_name || ''}" required></label>
       <label class="field">Last name<input type="text" name="last_name" value="${p.last_name || ''}"></label>
-      <label class="field">Goes by<input type="text" name="nickname" value="${p.nickname || ''}"></label>
-      <label class="field">Email<input type="email" name="email" value="${p.email || ''}"></label>
       <label class="field">Mobile phone<input type="tel" name="phone" value="${p.phone || ''}"></label>
-      <label class="field">Birthdate<input type="date" name="birthdate" value="${p.birthdate || ''}"></label>
-      <label class="field">Gender<select name="gender">${options([{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }], p.gender, { blank: '—' })}</select></label>
+      <label class="field">Email<input type="email" name="email" value="${p.email || ''}"></label>
       <label class="field">Status<select name="status">${options([{ value: 'guest', label: 'Guest' }, { value: 'regular', label: 'Regular attender' }, { value: 'member', label: 'Member' }, { value: 'inactive', label: 'Inactive' }], p.status || 'guest')}</select></label>
-      <label class="field">Adult or child<select name="household_role">${options([{ value: 'adult', label: 'Adult' }, { value: 'child', label: 'Child' }], p.household_role || 'adult')}</select></label>
-      <label class="field">School grade<select name="grade">${options(GRADES, p.grade, { blank: '—' })}</select></label>
       ${camps.length ? html`<label class="field">Campus<select name="campus_id">${options(camps.map((c) => ({ value: c.id, label: c.name })), p.campus_id ?? state.campusId ?? (camps.length === 1 ? camps[0].id : ''), { blank: '—' })}</select></label>` : ''}
-      <label class="field wide">Allergies (printed on kids’ name tags)<input type="text" name="allergies" value="${p.allergies || ''}"></label>
-      <label class="field wide">Medical notes (shown to kids’ leaders)<input type="text" name="medical_notes" value="${p.medical_notes || ''}"></label>
-      <label class="field wide">Notes<textarea name="notes">${p.notes || ''}</textarea></label>
-      ${!editing && !p.household_id ? html`<label class="check wide"><input type="checkbox" name="new_household" checked> Start a new household for them</label>` : ''}
+      ${!editing ? html`<div class="field wide" data-family></div>` : ''}
+      <details class="more-details wide" ${editing ? 'open' : ''}><summary>More details</summary>
+        <div class="form">
+          <label class="field">Goes by<input type="text" name="nickname" value="${p.nickname || ''}"></label>
+          <label class="field">Birthdate<input type="date" name="birthdate" value="${p.birthdate || ''}"></label>
+          <label class="field">Gender<select name="gender">${options([{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }], p.gender, { blank: '—' })}</select></label>
+          <label class="field">Adult or child<select name="household_role">${options([{ value: 'adult', label: 'Adult' }, { value: 'child', label: 'Child' }], p.household_role || (editing ? 'adult' : defaultRole()))}</select></label>
+          <label class="field">School grade<select name="grade">${options(GRADES, p.grade, { blank: '—' })}</select></label>
+          <label class="field wide">Allergies (printed on kids’ name tags)<input type="text" name="allergies" value="${p.allergies || ''}"></label>
+          <label class="field wide">Medical notes (shown to kids’ leaders)<input type="text" name="medical_notes" value="${p.medical_notes || ''}"></label>
+          <label class="field wide">Notes<textarea name="notes">${p.notes || ''}</textarea></label>
+        </div>
+      </details>
     </div>`,
-    onSubmit: async (f) => {
+    onOpen: (d) => {
+      const role = d.querySelector('[name=household_role]');
+      role.addEventListener('change', () => { roleTouched = true; });
+      if (editing) return;
+      const slot = d.querySelector('[data-family]');
+      const setRole = () => { if (!roleTouched) role.value = defaultRole(); };
+      const draw = () => {
+        mount(slot, fam
+          ? html`<span>Family</span><div class="row"><span class="pill">${fam.name}</span>
+              ${p.household_id && fam.id === p.household_id ? '' : html`<button type="button" class="btn small" data-clear>Start a new family instead</button>`}</div>
+              <small class="muted">${role.value === 'child' ? 'They’ll be added as a child' : 'They’ll be added as an adult'} (change under More details).</small>`
+          : html`<span>Family</span><div class="row"><span class="muted small">A new family will be started for them.</span>
+              <button type="button" class="btn small" data-pick>Add to the family of…</button></div>`);
+      };
+      slot.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-clear]')) { fam = null; setRole(); draw(); }
+        if (!e.target.closest('[data-pick]')) return;
+        const other = await pickPerson('Whose family are they joining?');
+        if (!other) return;
+        if (!other.household_id) { toast(`${displayName(other)} isn’t in a family yet. Open their page and choose Add family member.`, 'bad'); return; }
+        let hasAdult = null;
+        try { hasAdult = (await get(`/people/${other.id}`)).household?.members.some((m) => m.household_role === 'adult') ?? null; } catch { /* keep the safe default */ }
+        fam = { id: other.household_id, name: other.household_name || `${other.last_name} family`, hasAdult };
+        setRole(); draw();
+      });
+      role.addEventListener('change', draw);
+      // Save and add another sits beside Save in the footer.
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.textContent = 'Save and add another';
+      b.addEventListener('click', () => { another = true; d.querySelector('form').requestSubmit(); });
+      d.querySelector('.dlg-foot button[type=submit]').before(b);
+      draw();
+    },
+    onSubmit: async (f, d) => {
       const body = formData(f);
-      if (p.household_id && !editing) body.household_id = p.household_id;
+      const wantsAnother = another;
+      another = false;
+      if (!editing) { if (fam) body.household_id = fam.id; else body.new_household = true; }
+      const create = async (extra = {}) => {
+        const r = await post('/people', { ...body, ...extra });
+        return r;
+      };
       try {
-        saved = editing ? await patch(`/people/${p.id}`, body) : await post('/people', body);
+        saved = editing ? await patch(`/people/${p.id}`, body) : await create();
       } catch (e) {
         if (e.status !== 409) throw e;
         const dup = e.data.duplicate;
@@ -230,10 +281,19 @@ export async function personDialog(p = {}) {
           body: html`<p>${displayName(dup)} is already in the directory${dup.email ? ` (${dup.email})` : ''}. Is this the same person?</p>`,
         });
         if (goThere === undefined) { go(`/people/${dup.id}`); return true; }
-        saved = await post('/people', { ...body, force: true });
+        saved = await create({ force: true });
       }
-      toast(editing ? 'Saved.' : 'Added.');
-      return true;
+      if (!wantsAnother || editing) { toast(editing ? 'Saved.' : 'Added.'); return true; }
+      // Stay open for the next person: they join the same family (the one just started, if new).
+      toast(`Added ${displayName(saved)}. Add the next person.`);
+      fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: Boolean(fam?.hasAdult) || saved.household_role === 'adult' };
+      for (const n of ['first_name', 'email', 'phone', 'nickname', 'birthdate', 'gender', 'grade', 'allergies', 'medical_notes', 'notes']) f.elements[n].value = '';
+      roleTouched = false;
+      f.elements.household_role.value = defaultRole();
+      f.elements.household_role.dispatchEvent(new Event('change'));
+      roleTouched = false;
+      f.elements.first_name.focus();
+      return false;
     },
   });
   return saved;
