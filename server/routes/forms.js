@@ -43,15 +43,16 @@ export function limiter(cap = 5000) {
 
 const slugify = (t) => t.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50).replace(/-+$/, '');
 
+// Church-wide forms (no campus) are managed, and their responses read, only by staff with no
+// campus limit; a campus form by staff who can access that campus. (Exported for Home's counts.)
+export const manages = (user, f) => (f.campus_id == null ? !user.campusIds : canCampus(user, f.campus_id));
+
 export default function formRoutes(db) {
   const r = Router();
   const limits = limiter();
 
   const parse = (f) => ({ ...f, active: Boolean(f.active), questions: JSON.parse(f.questions || '[]'), ask_contact: JSON.parse(f.ask_contact || '{}') });
 
-  // Church-wide forms (no campus) are managed, and their responses read, only by staff with no
-  // campus limit; a campus form by staff who can access that campus.
-  const manages = (user, f) => (f.campus_id == null ? !user.campusIds : canCampus(user, f.campus_id));
   const getForm = (req, id) => {
     const f = db.prepare('SELECT * FROM forms WHERE id = ?').get(int(id));
     if (!f || !canCampus(req.user, f.campus_id)) throw notFound('Form');

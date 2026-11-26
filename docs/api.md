@@ -44,7 +44,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
 | `checks.js` | `GET /admin/production-checks` (includes an info row with the admin's own address as the server sees it) | admin |
-| `search.js`, `dashboard.js` | global search, home | volunteer+ (results filtered by role/campus) |
+| `search.js`, `dashboard.js` | global search, home. `GET /dashboard` returns `attention` (open spots, haven't replied, declines to cover, connect cards, app sign-ups, new form responses; leader+ only, zeros for volunteers) and `my_teams` (teams the person leads: next service, open/not-replied/declines, member count, `chat_id`). `GET /attention` is the light version for the menu badges (same numbers, `?campus_id=` optional). Dates use each campus's own calendar day | volunteer+ (results filtered by role/campus) |
 
 ### Forms (`routes/forms.js`)
 

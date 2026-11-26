@@ -29,7 +29,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Accounts, roles, campus limits (including campus-limited admins), Finance/Announcements/Kids' check-in flags, sign-in policy | Verified | `auth.js`, `routes/setup.js` | Settings → Sign-in & accounts |
 | Global search (Ctrl/⌘K) | Verified | `routes/search.js` | `js/search.js` |
 | New sign-ups from the app, connect cards, follow-up lists | Verified | `routes/app.js` | `pages/connect.js` |
-| Dashboard (Home: greeting, this week's services, open spots, away this week; Accept / Can't make it on your next times serving). Phone: More sheet in the bottom bar | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
+| Dashboard (Home by role: volunteers see Please reply first, then Coming up; leaders see a Your team header with Message team and Schedule this team, tiles for their team's open spots, people who haven't replied and declines to cover, and compact service rows with Schedule and Attendance; staff and admins see tiles hidden at zero for open spots, haven't replied, declines, connect cards, app sign-ups and new form responses, then the week's services and one line of totals). Connect cards and Forms menu badges come from `GET /attention` (on load, on focus, every 5 minutes). Phone: More sheet in the bottom bar | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
 | Member directory | Not built (Stage 2) | | |
 
 ## Planning and volunteers (FT)

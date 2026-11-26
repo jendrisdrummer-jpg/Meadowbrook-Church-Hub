@@ -1043,3 +1043,36 @@ table.list.pair td:last-child { vertical-align: top; }
 .notify-options { margin-top: 8px; }
 .notify-options > summary { cursor: pointer; color: var(--text-2); min-height: 32px; display: flex; align-items: center; }
 table.list.pair .btn { white-space: nowrap; }
+
+/* Home: attention tiles, compact service rows, the leader's team header (B2) */
+.home-label { margin: 0 0 8px; font-size: 12px; font-weight: 650; line-height: 1; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.home-team { gap: 10px 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.home-team h2 { margin: 0; }
+.attn { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.attn-tile { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); color: var(--text); text-decoration: none; }
+.attn-tile b { display: block; font: 400 32px/1.1 var(--serif); letter-spacing: -.02em; font-variant-numeric: lining-nums tabular-nums; }
+.attn-tile span { color: var(--text-2); font-size: 14px; }
+.attn-tile:hover { border-color: var(--accent); }
+.attn-tile.warn { background: var(--warn-soft); border-color: transparent; }
+.attn-tile.warn b, .attn-tile.warn span { color: var(--warn); }
+.attn-clear { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--good); }
+.home-sub { margin: 12px 0 4px; font-size: 13px; color: var(--text-2); }
+.home-sub.warn { color: var(--warn); }
+.home-svc { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.home-svc:first-of-type { border-top: 0; }
+.home-svc-main { flex: 1 1 220px; min-width: 0; }
+.home-svc-main a { color: inherit; text-decoration: none; }
+.home-svc-bar { flex: 1 1 170px; min-width: 0; display: grid; gap: 4px; }
+.home-svc-go { display: flex; gap: 6px; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--warn-fill); }
+.warn-text { color: var(--warn); }
+.home-totals { margin: 18px 0 0; }
+@media (max-width: 640px) {
+  .attn { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .attn-tile b { font-size: 28px; }
+  .home-team .btn { flex: 1 1 140px; justify-content: center; }
+  .home-svc-go { width: 100%; }
+  .home-svc-go .btn { flex: 1; justify-content: center; }
+}
+.home-svc-main .dot { margin-right: 8px; }

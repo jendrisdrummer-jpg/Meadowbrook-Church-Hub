@@ -136,7 +136,10 @@ what can be *seen*; who may *schedule* is still `canSchedule` and the `schedule_
 | `GET /services` | `needed`, `filled`, `accepted`, `declined` count only their teams |
 | `GET /services/:id/candidates` | 403 for a team they neither lead nor may schedule |
 | `GET /schedule` | Only their teams; `team_id` of another team is 403; `led_team_ids` lists theirs |
-| `GET /dashboard` | Needs, counts and away dates for their teams' members only |
+| `GET /dashboard`, `GET /attention` | Needs, counts and away dates for their teams' members only |
+
+Home's attention counts (`attention()` in `dashboard.js`) are limited to the person's campuses and, for a leader who isn't staff, to the teams they lead. Connect cards and app sign-ups use the same filters as their pages (leader+, campus-scoped). New form responses are counted for staff only, and only on forms they manage (`manages()` in `forms.js`: church-wide forms need an account with no campus limit). Volunteers get zeros.
+
 | `GET /people/:id` (upcoming) | A row only if it's their team, or it was sent and not declined |
 
 ## Campus-limited admins
