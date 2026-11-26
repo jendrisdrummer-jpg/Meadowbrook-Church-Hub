@@ -63,7 +63,7 @@ team and volunteers with a home campus, a list and no campus at all. Dates come 
 
 ## Mobile and browser checks
 
-- `npm run test:ui` must pass (it fails on any sideways scroll at 390px).
+- `npm run test:ui` must pass (it fails on any sideways scroll at 390px, measured against the real 390px width, because on a phone `innerWidth` grows to fit wide content and would hide it).
 - Look at the phone screenshots of changed pages: tap targets, text wrapping, bottom bars.
 - For member app changes, also check light and dark theme.
 - Real-device checks the automated run can't do (note them in the PR as "not tested" if skipped):

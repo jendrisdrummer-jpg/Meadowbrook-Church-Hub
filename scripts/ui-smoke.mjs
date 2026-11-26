@@ -37,7 +37,7 @@ const freePort = () => new Promise((resolve) => {
 });
 
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
-  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/checks'];
+  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church']];
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
@@ -88,11 +88,12 @@ async function main() {
           denied = false;
           await page.goto(url);
           await page.waitForTimeout(900);
-          const state = await page.evaluate(() => ({
+          const state = await page.evaluate((vw) => ({
             broken: [...document.querySelectorAll('.alert.bad')].some((a) => /went wrong/i.test(document.title) || /Cannot|undefined|is not/.test(a.textContent)),
             title: document.title,
-            overflow: document.documentElement.scrollWidth - window.innerWidth,
-          }));
+            // Measure against the real phone width: on a phone, window.innerWidth grows to fit wide content, so it would hide the overflow.
+            overflow: document.documentElement.scrollWidth - vw,
+          }), viewport.width);
           // A page this account isn't allowed to open: the server refused (403), which is right.
           if (state.broken && !denied) problems.push(`error screen: ${state.title}`);
           if (size === 'phone' && state.overflow > 2) problems.push(`scrolls sideways by ${state.overflow}px on a phone`);
