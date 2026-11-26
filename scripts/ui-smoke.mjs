@@ -116,6 +116,33 @@ async function main() {
           if (!res || res.status() !== 201) problems.push(`Create form did not POST /api/admin/forms (got ${res ? res.status() : 'no request'})`);
           results.push({ area: 'hub', page: '/forms/new (click Save)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
+        // The phone's More sheet and the account menu: both must open and stay fully on screen.
+        if (size === 'phone' && only !== 'app') {
+          problems = [];
+          const inView = (r) => r && r.left >= 0 && r.top >= 0 && r.right <= viewport.width + 0.5 && r.bottom <= viewport.height + 0.5;
+          const rect = (sel) => page.evaluate((q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }, sel);
+          await page.goto(`${base}/#/`);
+          await page.waitForSelector('[data-more]');
+          await page.click('[data-more]');
+          await page.waitForSelector('dialog.sheet[open]', { timeout: 3000 }).catch(() => problems.push('More did not open a sheet'));
+          const out1 = await page.locator('dialog.sheet [data-logout]').isVisible().catch(() => false);
+          if (!out1) problems.push('Sign out is not visible in the More sheet');
+          else {
+            await page.locator('dialog.sheet [data-logout]').scrollIntoViewIfNeeded();
+            if (!inView(await rect('dialog.sheet [data-logout]'))) problems.push('Sign out is outside the screen in the More sheet');
+          }
+          if (!(await page.locator('dialog.sheet [data-theme-pick]').count())) problems.push('Appearance choices missing from the More sheet');
+          await page.screenshot({ path: path.join(out, `hub-${who}-phone-more-sheet.png`) });
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+          if (await page.locator('dialog.sheet').count()) problems.push('Escape did not close the More sheet');
+          await page.click('[data-me-top]');
+          await page.waitForSelector('[data-me-top] .menu', { timeout: 3000 }).catch(() => problems.push('Account menu did not open'));
+          if (!inView(await rect('[data-me-top] .menu'))) problems.push('Account menu runs off the screen');
+          if (!inView(await rect('[data-me-top] .menu [data-logout]'))) problems.push('Sign out in the account menu is off the screen');
+          await page.screenshot({ path: path.join(out, `hub-${who}-phone-account-menu.png`) });
+          results.push({ area: 'hub', page: '/ (More sheet and account menu)', who, size, ok: !problems.length, problems, screenshot: `hub-${who}-phone-more-sheet.png` });
+        }
         await ctx.close();
       }
     }

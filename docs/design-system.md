@@ -112,6 +112,24 @@ four-column grid, styles card/soft/accent/color.
   that fails to load shows an `.alert.bad` with the message.
 - **Settings-style pages:** a checklist of steps (done ✓ / to do) with the next action as a button,
   as in Settings → Backups and Media → Setup.
+- **Phone bottom bar and More sheet (hub):** the bar is Home, My Schedule, Chat, People (leaders
+  and up) and **More**. More opens a `dialog.sheet` (native `<dialog>`, so focus is trapped,
+  Escape closes it and focus returns to the button) built from `visibleNav()`, so it can never show
+  more than the sidebar would: groups as 3-column tiles (`.sheet-tile`), the campus picker when the
+  desktop would show it, Appearance as a segmented control, then Help, Feedback and Sign out. Pages
+  already on the bar are left out of the tiles. Unread counts use `data-badge` so they show on the
+  bar, on More (for pages not on the bar) and on the tiles. A page that lives under More lights up
+  More. To put a page on the bar, give its NAV item `mobile: true` (keep the bar to five).
+- **Account menu:** on phones it opens under the avatar and is nudged back inside the screen if
+  anything would clip it. The header (title plus search, bell and avatar) stays on one line.
+- **Banner with folded options:** a one-line state plus its button, with the extra choices in a
+  `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My Schedule.
+- **Rows with one action (`table.list.pair`):** details on the left (words never break mid-word),
+  status or action on the right; use this instead of 3+ narrow columns on phones.
+- **Dates:** always `fmtDate`/`fmtTime`; for database timestamps in UTC use `fmtUtcDate`.
+  Never call `toLocaleDateString` on a raw date.
+- **Card spacing:** cards directly inside `.grid` and `.stack` have no extra top margin; the grid
+  or stack gap does the spacing.
 - **Help text:** one short line under the field, saying why or what happens, not how the code works.
 
 ## Writing style (UI copy)

@@ -138,7 +138,11 @@ async function home(el, tab) {
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
     const ctx = { app, mine, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
-    mount(el, html`${installBanner()}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
+    // A request waiting for an answer comes first, before the "You're serving" widget.
+    const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
+    const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
+    const replyCard = waiting.length ? html`<a class="m-reply" href="#/${serveTab}"><span class="grow"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</span><span class="tap">Tap to reply ›</span></a>` : '';
+    mount(el, html`${installBanner()}${replyCard}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
   tickCountdowns(el);
@@ -431,7 +435,18 @@ async function more(el, tab, q) {
       ${atLeast('leader') ? html`<a href="${app.hub_url ? `${app.hub_url}/` : '/'}">${icon('external')}<span class="grow">Staff dashboard</span></a>` : ''}
     </div>`);
   if (app.user) myGroups(el.querySelector('[data-groups]'));
-  if (app.user) drawNotifyCard(el.querySelector('[data-notify]'), { ui: 'app', role: app.user.role }).catch(() => {});
+  if (app.user) {
+    const nbox = el.querySelector('[data-notify]');
+    // Fold "Which notifications" into one row, every time the card redraws.
+    const fold = () => nbox.querySelectorAll('details:not(.m-fold)').forEach((d) => {
+      d.classList.add('m-fold');
+      d.open = false;
+      const sum = d.querySelector('summary');
+      if (sum) { sum.classList.remove('small'); sum.textContent = 'Choose which notifications'; }
+    });
+    new MutationObserver(fold).observe(nbox, { childList: true });
+    drawNotifyCard(nbox, { ui: 'app', role: app.user.role }).catch(() => {});
+  }
   else guestPushCard(el.querySelector('[data-guest-push]')).catch(() => {});
   el.onclick = async (e) => {
     const b = e.target.closest('button');

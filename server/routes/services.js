@@ -416,10 +416,20 @@ export default function serviceRoutes(db) {
     return added;
   }
 
+  function fillTeam(req) {
+    const teamId = int(req.body?.team_id);
+    if (!teamId) throw bad('Choose one team to fill.');
+    if (!db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw notFound('Team');
+    return teamId;
+  }
+
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
+    // One team at a time, so nobody can fill every team in one tap.
+    const teamId = fillTeam(req);
+    if (!canSchedule(req, s, teamId)) throw s.locked ? bad('This service is locked. An admin can unlock it.') : forbidden();
     const open = { n: 0 };
-    res.json({ added: tx(db, () => autofill(req, s, null, open)), open: open.n });
+    res.json({ added: tx(db, () => autofill(req, s, teamId, open)), open: open.n });
   });
 
   // ---------------------------------------------------------------- month schedule
@@ -494,8 +504,9 @@ export default function serviceRoutes(db) {
   // Fills open spots across several services at once, in date order, so the load spreads over the month.
   r.post('/schedule/autofill', requireRole('leader'), (req, res) => {
     const ids = Array.isArray(req.body?.service_ids) ? req.body.service_ids.map((x) => int(x, 'Service')).slice(0, 200) : [];
-    const teamId = int(req.body?.team_id);
+    const teamId = fillTeam(req);
     const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    if (list.length && !list.some((s) => canSchedule(req, s, teamId))) throw forbidden();
     const open = { n: 0 };
     res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId, open))), open: open.n });
   });

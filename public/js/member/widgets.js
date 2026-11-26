@@ -85,7 +85,8 @@ export function widget(w, ctx) {
         return box(w, tall ? html`<div class="row">${icon('calendar')}<span class="grow"><b>Serve on a team?</b><br><span class="w-sub">Sign in to see when you’re scheduled.</span></span></div>`
           : html`<span class="w-ic">${icon('calendar')}</span><b class="w-label">Serving</b><span class="w-sub">Sign in to see your schedule</span>`, { link: ctx.signInHref(`/${serve}`) });
       }
-      const next = (ctx.mine?.assignments || []).filter((a) => a.status !== 'declined');
+      // Requests waiting for a reply come first.
+      const next = (ctx.mine?.assignments || []).filter((a) => a.status !== 'declined').sort((a, b) => (b.status === 'pending') - (a.status === 'pending'));
       if (!tall) {
         const a = next[0];
         return box(w, html`<span class="w-ic">${icon('calendar')}</span><span class="w-sub">${a ? 'You’re serving' : 'Serving'}</span>

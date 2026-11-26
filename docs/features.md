@@ -29,18 +29,18 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Accounts, roles, campus limits (including campus-limited admins), Finance/Announcements/Kids' check-in flags, sign-in policy | Verified | `auth.js`, `routes/setup.js` | Settings → Sign-in & accounts |
 | Global search (Ctrl/⌘K) | Verified | `routes/search.js` | `js/search.js` |
 | New sign-ups from the app, connect cards, follow-up lists | Verified | `routes/app.js` | `pages/connect.js` |
-| Dashboard (Home: greeting, this week's services, open spots, away this week) | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
+| Dashboard (Home: greeting, this week's services, open spots, away this week; Accept / Can't make it on your next times serving). Phone: More sheet in the bottom bar | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
 | Member directory | Not built (Stage 2) | | |
 
 ## Planning and volunteers (FT)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Teams, positions, leaders, rosters | Verified | `routes/teams.js` | `pages/teams.js`, `team.js` |
-| Repeating services (series), skips, per-service needs | Verified. Known: a new service starts on "Every week", and a duplicate service on the same day isn't warned about | `routes/series.js`, `services.js` | `pages/services.js` |
+| Repeating services (series), skips, per-service needs. Before deleting, ending or resetting positions on services with volunteers scheduled, the confirm says how many are scheduled (and accepted) and what happens to them; unchanged when nobody is | Verified. Known: a new service starts on "Every week", and a duplicate service on the same day isn't warned about New service asks “How often” (One time or Repeats, nothing pre-selected) and the repeat interval appears only for Repeats. On phones the service page puts Lock and Details in a “…” menu. | `routes/series.js`, `services.js` | `pages/services.js` |
 | Order of service (Faith Teams style), locking, templates with fill-in slots | Verified | `routes/services.js`, `templates.js` | `pages/service.js`, `templates.js`, `js/plan.js` |
 | Songs with keys; charts, lyrics and audio files | Verified | `routes/services.js`, `songfiles.js` | `pages/songs.js`, `js/songfiles.js` |
-| Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill, month matrix, drafts → send requests, “Remind N who haven’t replied” (12-hour limit; upcoming services only; the automatic reminder skips anyone nudged in the last 6 hours), Message team | Verified. Drag and drop on the month grid still to be tried by hand | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
-| Accept/decline in app and by email link; reminders; leaders hear declines; “Please reply” requests listed first | Verified. Email needs the SMTP settings on Render (Needs outside setup) | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
+| Scheduling: candidates, conflicts, away dates, per-volunteer campus eligibility (empty list = home campus only; no list and no home campus = any campus, shown as "campus not set"), autofill (one team at a time: a Fill open spots button on each team in Who's serving, and Fill the month on the schedule once a team is picked; nobody is told until Send), month matrix, drafts → send requests, decline reasons shown under the Declined badge on Who's serving (to leaders only, as the API sends them), “Remind N who haven’t replied” (12-hour limit; upcoming services only; the automatic reminder skips anyone nudged in the last 6 hours), Message team | Verified. Drag and drop on the month grid still to be tried by hand | `routes/services.js` | `pages/schedule.js`, `js/scheduling.js` |
+| Accept/decline in app and by email link; reminders; leaders hear declines; “Please reply” requests listed first | Verified. Email needs the SMTP settings on Render (Needs outside setup) Member app Home shows a “Please reply … Tap to reply” card first when a request is waiting; More folds the notification choices under one row. | `notify.js`, `routes/app.js` | `js/myschedule.js`, `respond.html` |
 | Volunteers answering from a push notification | Needs more testing (never tried on real phones) | `push.js` | `sw.js` |
 | Recurring availability ("not on the first Sunday") | Not built (deferred until the worship team says it's needed) | | |
 | Swaps between volunteers | Not built (Stage 2) | | |
@@ -48,7 +48,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Attendance (FT) and kids' check-in (replaces Subsplash check-in)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Roll call by spotters; attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
+| Roll call by spotters (a New guest runs the normal duplicate check and asks “Is this the same person?” before adding); attendance reports; headcounts | Verified (attendance trends: Not built) | `routes/attendance.js`, `checkin.js` | `pages/attendance.js`, `js/rollcall.js` |
 | Kids' check-in flow: rooms by age/grade, allergies, security codes, check-out, check-in access per account | Verified, **but not used for the beta**: check-in stays on Subsplash until the separate child-safety release | `routes/checkin.js`, `js/checkin-rules.js` | `checkin.html`, `js/checkin.js` |
 | Name-tag printing | Needs more testing (not tried with a real printer) | `routes/checkin.js` | `js/checkin.js` |
 | Child-safety V1 (unique pickup codes, custody alerts, full audit) | Partial: the plan is written; these requirements are not built ([plans/child-safety](plans/child-safety/README.md)) | | |
@@ -62,7 +62,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Tasks: personal/team/chat, checklists, comments, repeats, reminders | Verified | `routes/tasks.js` | `js/tasks.js`, `pages/tasks.js` |
 | Video calls and meetings in chats (Daily, monthly minute limit) | Needs outside setup (Daily account key) | `routes/calls.js`, `daily.js` | `js/chat.js` |
 | Notifications inbox, push (accounts and guests), email, preferences | Inbox: Verified. Push: Needs more testing on real phones. Email: Needs outside setup (SMTP) | `notify.js`, `push.js`, `mail.js` | bell, `js/push.js` |
-| Announcements with audiences and scheduling | Verified (create, schedule, cancel). Real pushes need phones with notifications on; a scheduled announcement actually going out hasn't been watched yet | `routes/announcements.js` | `pages/announcements.js` |
+| Announcements with audiences and scheduling | Verified (create, schedule, cancel). Real pushes need phones with notifications on; a scheduled announcement actually going out hasn't been watched yet The audience starts on the campus chosen in the top bar (Everyone when none); “Volunteers” is explained as everyone with an account who is on at least one team. | `routes/announcements.js` | `pages/announcements.js` |
 | Text messages (SMS) | Not built (would need a paid provider: owner decision) | | |
 | Church-wide email | Not built (Stage 2) | | |
 
@@ -72,7 +72,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Sign-in, profile, Serve tab (My Schedule, plans, all services), Tasks, Chat, More | Verified at phone size in both themes | (shared) | `member/main.js` |
 | Installable app (home screen), own address | Needs more testing (install on real iPhones and Android phones by hand) | `routes/app.js` | `member/*` |
 | Widget home screen (drag, sizes, styles, pictures) and App Builder | Needs more testing (App Builder editing not tried by QA) | `routes/app.js`, `js/app-widgets.js` | `member/home-edit.js`, `pages/appbuilder.js` |
-| Events calendar with RSVP and questions | Verified (sign-ups not tried by QA in this round) | `routes/events.js` | `member/events.js`, `pages/events.js`, `event.js` |
+| Events calendar with RSVP and questions | Verified (sign-ups not tried by QA in this round) Member app: one Campus dropdown and a “Show service times” switch. | `routes/events.js` | `member/events.js`, `pages/events.js`, `event.js` |
 | Paid event sign-ups | Needs outside setup (Stripe) | `routes/events.js`, `stripe.js` | `member/events.js` |
 | Next-service countdown, Latest message widgets | Verified | | `member/widgets.js` |
 
@@ -92,7 +92,7 @@ Not part of this migration (Stage 3).
 |---|---|---|---|
 | Media library from YouTube: hourly sync, filled in from the order of service, own titles/trims/tags | Needs outside setup (YouTube key) | `media.js`, `routes/media.js` | `pages/media.js`, `media-item.js` |
 | Watch tab: latest, series, search, filters, video pages; live detection and "We're live" | Needs outside setup (YouTube or Mux) | | `member/watch.js`, `js/video.js` |
-| Mux streaming: permanent stream key, live in our own player, recordings, real trims | Needs outside setup (paid Mux account) | `mux.js` | Media → Setup |
+| Mux streaming: permanent stream key, live in our own player, recordings, real trims | Needs outside setup (paid Mux account) The developer setup steps are folded under “Setup steps for whoever manages hosting”; Media opens on Library once a channel or Mux is connected. | `mux.js` | Media → Setup |
 | Upload past services to Mux (single and bulk) | Needs outside setup (Mux) | `mux.js` | `js/mux-upload.js` |
 | Podcast feed from Mux audio | Needs outside setup (Mux) | `podcast.js` | Media → Podcast |
 

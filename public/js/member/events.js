@@ -75,8 +75,9 @@ export async function eventsPage(el, tab, ctx) {
     const canBack = month > today.slice(0, 7);
     mount(el, html`<div class="card m-cal-card">
         <div class="row"><button class="btn small ghost" data-shift="-1" ${canBack ? '' : 'disabled'} aria-label="Previous month">‹</button><b class="m-cal-title">${label}</b><button class="btn small ghost" data-shift="1" aria-label="Next month">›</button></div>
-        <div class="m-chips"><button class="chip ${services ? 'on' : ''}" data-services>${icon(services ? 'check' : 'plus', 'ic small-ic')} Service times</button>
-          ${app.campuses.length > 1 ? [{ id: null, short_name: 'All campuses' }, ...app.campuses].map((c) => html`<button class="chip ${campus === c.id ? 'on' : ''}" data-campus="${c.id ?? ''}">${c.short_name || c.name}</button>`) : ''}</div>
+        <div class="m-evfilter">
+          ${app.campuses.length > 1 ? html`<label class="field">Campus<select data-campus aria-label="Campus">${[{ id: '', name: 'All campuses' }, ...app.campuses].map((c) => html`<option value="${c.id}" ${(campus ?? '') === c.id ? 'selected' : ''}>${c.name}</option>`)}</select></label>` : ''}
+          <label class="toggle-row small"><span>Show service times</span><input type="checkbox" data-services ${services ? 'checked' : ''}></label></div>
         <div class="m-cal">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => html`<span class="dow">${d}</span>`)}
           ${Array.from({ length: lead }, () => html`<span></span>`)}
           ${Array.from({ length: days }, (_, i) => {
@@ -94,6 +95,17 @@ export async function eventsPage(el, tab, ctx) {
         : html`<div class="m-empty">${icon('calendar')}<p>Nothing on the calendar in ${label} yet.</p></div>`}`);
   }
 
+  el.onchange = (e) => {
+    if (e.target.matches('[data-services]')) {
+      services = e.target.checked;
+      remember('mb.app.evServices', services ? '1' : '0');
+      draw().catch(fail);
+    } else if (e.target.matches('[data-campus]')) {
+      campus = Number(e.target.value) || null;
+      remember('mb.app.evCampus', campus ?? '');
+      draw().catch(fail);
+    }
+  };
   el.onclick = (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -101,14 +113,6 @@ export async function eventsPage(el, tab, ctx) {
       const [y, m] = month.split('-').map(Number);
       month = iso(new Date(y, m - 1 + Number(b.dataset.shift), 1)).slice(0, 7);
       remember('mb.app.evMonth', month);
-      draw().catch(fail);
-    } else if (b.matches('[data-services]')) {
-      services = !services;
-      remember('mb.app.evServices', services ? '1' : '0');
-      draw().catch(fail);
-    } else if (b.dataset.campus !== undefined) {
-      campus = Number(b.dataset.campus) || null;
-      remember('mb.app.evCampus', campus ?? '');
       draw().catch(fail);
     } else if (b.dataset.day) {
       el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });

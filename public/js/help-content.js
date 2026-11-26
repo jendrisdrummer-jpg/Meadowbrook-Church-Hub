@@ -14,7 +14,7 @@ const SECTIONS = [
     id: 'reply', title: 'Reply to a request to serve', min: 'volunteer', app: true,
     intro: 'When someone schedules you, you get a notification and an email. You can answer from either of them, or from your schedule.',
     hub: [
-      html`Open ${b('My Schedule')} from the menu (${b('Schedule')} at the bottom of a phone).`,
+      html`Open ${b('My Schedule')} from the menu (${b('Schedule')} at the bottom of a phone). On Home, you can also tap ${b('Accept')} or ${b('Can’t make it')} right in ${b('Your next times serving')}.`,
       html`Requests waiting for you are at the top, under ${b('Please reply')}.`,
       html`Tap ${b('Accept')} if you can serve.`,
       html`If you can’t, tap ${b('Can’t make it')}, add a short reason if you like, then tap ${b('Let my leader know')}.`,
@@ -56,10 +56,10 @@ const SECTIONS = [
       html`Under your team, tap ${b('Schedule someone')} next to an open position.`,
       html`Pick a person. The best choices are first. Labels warn you if someone is away, already serving at that time, or doesn’t usually serve at this campus.`,
       html`If a warning shows, you’ll be asked to confirm. Tap ${b('Schedule anyway')} only if you’ve already talked with them.`,
-      html`Short on time? Tap ${b('Fill open spots')} to add available people fairly. Look the names over and change any you don’t want (tap the ✕ beside a name).`,
+      html`Short on time? Under a team, tap ${b('Fill open spots')} to add available people fairly (one team at a time). Look the names over and change any you don’t want (tap the ✕ beside a name).`,
       html`People you add show a ${b('Not sent')} label. When you’re happy, tap ${b('Send requests')}, check the list, then tap ${b('Send to')} the people shown.`,
     ],
-    note: 'To plan a whole month, open Schedule in the menu and use Fill the month there.',
+    note: 'To plan a whole month, open Schedule in the menu and pick a team and use Fill the month there. Both fill one team at a time.',
   },
   {
     id: 'remind', title: 'Remind people who haven’t replied', min: 'leader',

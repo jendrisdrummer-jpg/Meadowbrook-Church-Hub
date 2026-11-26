@@ -1,5 +1,5 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
-import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, exclusiveCampusBoxes, options, toast, fail, displayName, pickPerson, chips, confirm } from '../lib.js';
+import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, exclusiveCampusBoxes, options, toast, fail, displayName, pickPerson, chips, confirm, fmtUtcDate } from '../lib.js';
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
@@ -345,7 +345,7 @@ async function accounts(panel, q = '') {
     <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
     <div class="table-wrap"><table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
     ${list.duplicate_links.map((d) => html`<tr><td>${d.name || 'Person'} <span class="muted small">#${d.person_id}</span></td>
-      <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString() : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
+      <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? fmtUtcDate(a.last_login) : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
     </tbody></table></div></div>` : ''}
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
@@ -356,15 +356,15 @@ async function accounts(panel, q = '') {
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
       <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
-      <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td></tr>`)}
+      <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td></tr>`)}
     </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
     <h2>Accounts not linked to a person</h2>
     <p class="muted small">These people can sign in, but their account isn’t connected to anyone in People, so they see no schedule. Nothing is linked automatically: choose the right person for each one.</p>
     ${list.unlinked.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Access</th><th>Asked to be linked</th><th>Last sign-in</th><th></th></tr></thead><tbody>
       ${list.unlinked.map((u) => html`<tr><td>${u.email}</td><td><span class="pill">${u.role}</span></td>
-        <td class="small muted">${u.link_requested_at ? new Date(u.link_requested_at + 'Z').toLocaleDateString() : '—'}</td>
-        <td class="small muted">${u.last_login ? new Date(u.last_login + 'Z').toLocaleDateString() : 'Never'}</td>
+        <td class="small muted">${u.link_requested_at ? fmtUtcDate(u.link_requested_at) : '—'}</td>
+        <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td>
         <td><button class="btn small" data-link-account="${u.id}">Link to person…</button></td></tr>`)}
     </tbody></table></div>` : html`<p class="muted">Every account is linked to a person.</p>`}
   </div>`);

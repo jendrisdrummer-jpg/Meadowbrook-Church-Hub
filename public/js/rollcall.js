@@ -1,6 +1,7 @@
 // Roll call for one service: tap people (or whole families) as you see them. Works on a phone.
 import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce } from './lib.js';
 import { state } from './app.js';
+import { duplicateOf, personLabel } from './guards.js';
 
 export async function drawRollCall(panel, s) {
   const areas = state.settings.headcount_areas || ['Auditorium'];
@@ -87,8 +88,26 @@ export async function drawRollCall(panel, s) {
     panel.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('on', x === b));
     draw();
   };
+  // The server's duplicate check says who this might be; the volunteer decides.
+  // Resolves to 'same', 'new', or null when they back out.
+  const askSame = async (m) => {
+    let answer = null;
+    await dialog({
+      title: 'Is this the same person?', submit: null, cancel: 'Back',
+      body: html`<p>We already have <b>${personLabel(m)}</b>${m.phone || m.email ? html` (${[m.phone, m.email].filter(Boolean).join(' · ')})` : ''}. Is this who you mean?</p>
+        <div class="stack"><button type="button" class="btn primary" data-same>Yes, that’s them</button>
+        <button type="button" class="btn" data-new>No, add someone new</button></div>`,
+      onOpen: (d, close) => {
+        d.querySelector('[data-same]').onclick = () => { answer = 'same'; close(); };
+        d.querySelector('[data-new]').onclick = () => { answer = 'new'; close(); };
+      },
+    });
+    return answer;
+  };
+
   panel.querySelector('[data-guest]').onclick = async () => {
     let person;
+    let existing = false;
     await dialog({
       title: 'New guest', submit: 'Add and mark here',
       body: html`<div class="form"><label class="field">First name<input type="text" name="first_name" required></label>
@@ -96,12 +115,21 @@ export async function drawRollCall(panel, s) {
         <label class="field">Mobile phone<input type="tel" name="phone"></label>
         <label class="field">Email<input type="email" name="email"></label></div>`,
       onSubmit: async (f) => {
-        person = await post('/people', { ...formData(f), status: 'guest', campus_id: s.campus_id, new_household: true, force: true });
+        const fields = { ...formData(f), status: 'guest', campus_id: s.campus_id, new_household: true };
+        try {
+          person = await post('/people', fields);
+        } catch (e) {
+          const m = duplicateOf(e);
+          if (!m) throw e;
+          const pick = await askSame(m);
+          if (!pick) return false;
+          if (pick === 'same') { person = m; existing = true; } else person = await post('/people', { ...fields, force: true });
+        }
       },
     });
     if (!person) return;
     await post(`/services/${s.id}/roll`, { person_ids: [person.id], present: true });
-    toast(`${displayName(person)} added.`);
+    toast(`${displayName(person)} ${existing ? 'marked here' : 'added'}.`);
     data = await get(`/services/${s.id}/roll`);
     present = new Set(data.present);
     draw();
