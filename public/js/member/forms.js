@@ -22,7 +22,7 @@ export async function formPage(el, slug, { app, setTitle, signInHref }) {
       : q.type === 'date' ? html`<input type="date" name="q_${q.id}">`
       : html`<input type="text" name="q_${q.id}" maxlength="1000">`}</div>`;
   mount(el, html`<form class="card m-form" novalidate>
-    <h2 style="margin:0 0 4px">${f.title}</h2>${f.intro ? html`<p class="muted" style="margin:0 0 14px;white-space:pre-line">${f.intro}</p>` : ''}
+    ${f.intro ? html`<p class="muted" style="margin:0 0 14px;white-space:pre-line">${f.intro}</p>` : ''}
     <div class="form">
       ${c.name !== 'off' ? html`<label class="field">Your name${mark(c.name)}<input type="text" name="name" autocomplete="name" maxlength="120"></label>` : ''}
       ${c.email !== 'off' ? html`<label class="field">Email${mark(c.email)}<input type="email" name="email" autocomplete="email" maxlength="200"></label>` : ''}

@@ -1,5 +1,5 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, shrinkImage } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
@@ -247,7 +247,7 @@ async function accessDialog(p) {
   const mine = state.me.campusIds || [];
   let touched = false; // a limited admin sends the campus list only if they changed it
   return dialog({
-    onOpen: (d) => d.querySelectorAll('[data-campus]').forEach((c) => c.addEventListener('change', () => { touched = true; })),
+    onOpen: (d) => exclusiveCampusBoxes(d, () => { touched = true; }),
     title: `${displayName(p)}’s access`,
     body: html`<div class="stack">
       ${p.account ? html`<p class="muted small" style="margin:0">Signs in as ${a.email}${a.has_password ? ' (email and password, or Google)' : ''}.</p>`

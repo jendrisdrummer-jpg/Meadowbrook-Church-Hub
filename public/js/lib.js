@@ -208,6 +208,15 @@ export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger
 // danger: false for a confirm that isn't destructive (e.g. sending a reminder), so it isn't red.
 export const confirm = (title, message, submit = 'Delete', { danger = true } = {}) => dialog({ title, body: html`<p>${message}</p>`, submit, danger });
 
+// Campus choices in the access dialogs: "All campuses" and specific campuses exclude each other,
+// so what's ticked is exactly what's saved.
+export function exclusiveCampusBoxes(d, onChange = () => {}) {
+  const all = d.querySelector('input[name="all"]');
+  const boxes = [...d.querySelectorAll('[data-campus]')];
+  all?.addEventListener('change', () => { if (all.checked) boxes.forEach((c) => { if (!c.disabled) c.checked = false; }); onChange(); });
+  boxes.forEach((c) => c.addEventListener('change', () => { if (c.checked && all && !all.disabled) all.checked = false; onChange(); }));
+}
+
 export function formData(form) {
   const out = {};
   for (const el of form.elements) {

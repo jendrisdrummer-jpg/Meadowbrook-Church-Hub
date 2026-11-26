@@ -157,7 +157,12 @@ async function setup() {
     });
     return;
   }
-  const camps = state.campuses.filter((c) => c.active);
+  // Only campuses this account can use; someone without check-in access hears so before the form.
+  let allowed = state.campuses;
+  try { allowed = await call('GET', '/checkin/campuses'); } catch (e) {
+    if (e.status === 403) { mount($main, html`<div class="alert bad">${e.message}</div>`); return; }
+  }
+  const camps = allowed.filter((c) => c.active);
   if (!camps.length) { mount($main, html`<div class="alert bad">Sign in, and make sure at least one campus is set up in Settings.</div>`); return; }
   const cur = state.station || {};
   let saved;

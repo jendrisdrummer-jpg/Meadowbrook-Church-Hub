@@ -25,13 +25,13 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | Router | Main paths | Guard |
 |---|---|---|
 | `setup.js` | `/me`, `/settings`, `/campuses`, `/rooms`, `/users`, `/app-icon` | mixed; settings/users admin. Church-wide admin routes (settings, app icon, campus create, backups, import, profile fields) refuse campus-limited admins with 403, and `GET /users` returns them only accounts in reach: see [permissions.md](permissions.md#campus-limited-admins). `POST`/`PATCH /users` set `person_id` only when the admin sends one (409 if that person already has an account; audited `user.link` / `user.unlink`). `GET /users` also returns `unlinked` and `duplicate_links` (people with more than one account, empty when healthy). |
-| `people.js` | `/people`, `/households`, `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff) | leader+ (edit staff, merge/import admin) |
+| `people.js` | `/people`, `/households` (and `/households/:id/pickups`, `/pickups/:id`: staff, household's campus must be one of yours), `/pickups`, `/blockouts`, `/import/*`, `/people/export.csv`, `/people/:id/serving-campuses` (staff); `POST /people` with `household_id` needs staff unless `household_role` is `child` | leader+ (edit staff, merge/import admin) |
 | `fields.js` | `/profile-fields`, `/people/:id/profile` | leader+ (define admin) |
 | `teams.js` | `/teams`, `/positions`, members | leader+ |
-| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill, `POST /services/:id/remind` | volunteer+ read, leader+ write |
+| `services.js` | `/services`, `/items`, `/songs`, assignments, `/schedule`, autofill (`POST /schedule/autofill` and `/services/:id/autofill` return `{added, open}`: `open` is spots still empty, so the screen can say "all filled" or "no one free"), `POST /services/:id/remind` | volunteer+ read, leader+ write |
 | `series.js`, `templates.js` | repeating services, templates | leader+/staff |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
-| `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance | leader+ (or station) |
+| `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance; `GET /checkin/campuses` lists the campuses the account may set a station up for | leader+ (or station) |
 | `stations.js` | `/checkin/pair`, `/checkin/station`, `/checkin/devices` | public pairing; staff devices |
 | `groups.js` | `/groups`, `/groups/:id`, `/groups/:id/candidates`, `/groups/:id/members/:personId` | volunteer+; staff manage, a group's leaders run its roster (campus-bound finder, 30 adds/day, no contact details) |
 | `chat.js`, `calls.js`, `tasks.js` | chats, messages, files, SSE stream, calls, tasks | volunteer+ and membership |
