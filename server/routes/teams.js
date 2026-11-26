@@ -41,14 +41,16 @@ export default function teamRoutes(db) {
     }
     const soon = upcomingServices(req.user);
     const need = db.prepare('SELECT COALESCE(SUM(n.count), 0) n FROM service_needs n JOIN positions ps ON ps.id = n.position_id WHERE n.service_id = ? AND ps.team_id = ?');
-    const have = db.prepare("SELECT COUNT(*) n FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? AND ps.team_id = ? AND a.status != 'declined'");
+    // Open spots add up per position, so an over-filled position never cancels out another one's gap.
+    const open = db.prepare(`SELECT COALESCE(SUM(MAX(0, n.count - (SELECT COUNT(*) FROM assignments a WHERE a.service_id = n.service_id AND a.position_id = n.position_id AND a.status != 'declined'))), 0) n
+      FROM service_needs n JOIN positions ps ON ps.id = n.position_id WHERE n.service_id = ? AND ps.team_id = ?`);
     res.json(base.map((t) => {
       const lead = leaders.get(t.id) || [];
       const next = soon.find((x) => t.campus_id == null || x.campus_id === t.campus_id);
       let open_next = null;
       if (next && seesTeamDetail(db, req.user, t.id)) {
         const needed = need.get(next.id, t.id).n;
-        open_next = { service_id: next.id, starts_at: next.starts_at, needed, open: Math.max(0, needed - have.get(next.id, t.id).n) };
+        open_next = { service_id: next.id, starts_at: next.starts_at, needed, open: open.get(next.id, t.id).n };
       }
       return {
         ...t,

@@ -29,7 +29,20 @@ export default function dashboardRoutes(db) {
     const cf = campusFilter(user, 's.campus_id');
     const args = [...cf.args];
     let extra = '';
-    if (campusId) { extra = ' AND s.campus_id = ?'; args.push(campusId); }
+    // A leader who isn't staff sees the campuses of the teams they lead (a church-wide team reaches
+    // every campus), or, leading no team, their own campus, even when their account isn't limited to one.
+    const led = ledTeamIds(db, user);
+    if (led) {
+      const rows = led.size
+        ? db.prepare(`SELECT DISTINCT campus_id FROM teams WHERE id IN (${[...led].map(() => '?').join(',')})`).all(...led)
+        : db.prepare('SELECT campus_id FROM people WHERE id = ?').all(user.personId ?? -1);
+      const own = rows.map((x) => x.campus_id);
+      if (own.length && !own.includes(null)) {
+        extra += ` AND s.campus_id IN (${own.map(() => '?').join(',')})`;
+        args.push(...own);
+      }
+    }
+    if (campusId) { extra += ' AND s.campus_id = ?'; args.push(campusId); }
     // A day of slack either side in SQL, then the campus's own calendar decides.
     const rows = db.prepare(`SELECT s.id, s.starts_at, s.title, s.series, s.service_type_id, s.campus_id, c.timezone, c.name campus, c.short_name campus_short, c.color campus_color${columns}
       FROM services s JOIN campuses c ON c.id = s.campus_id
@@ -114,12 +127,14 @@ export default function dashboardRoutes(db) {
     const teamStanding = db.prepare(`SELECT
         COALESCE((SELECT SUM(n.count) FROM service_needs n JOIN positions ps ON ps.id = n.position_id WHERE n.service_id = ? AND ps.team_id = ?), 0) needed,
         (SELECT COUNT(*) FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? AND ps.team_id = ? AND a.status != 'declined') filled,
+        COALESCE((SELECT SUM(MAX(0, n.count - (SELECT COUNT(*) FROM assignments a WHERE a.service_id = n.service_id AND a.position_id = n.position_id AND a.status != 'declined')))
+          FROM service_needs n JOIN positions ps ON ps.id = n.position_id WHERE n.service_id = ? AND ps.team_id = ?), 0) open,
         (SELECT COUNT(*) FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? AND ps.team_id = ? AND a.status = 'pending' AND a.sent_at IS NOT NULL) waiting,
         (SELECT COUNT(*) FROM assignments a JOIN positions ps ON ps.id = a.position_id WHERE a.service_id = ? AND ps.team_id = ? AND a.status = 'declined') declined`);
     return teams.map((t) => {
       const mine = services.filter((s) => t.campus_id == null || s.campus_id === t.campus_id);
-      const rows = mine.map((s) => ({ id: s.id, starts_at: s.starts_at, ...teamStanding.get(s.id, t.id, s.id, t.id, s.id, t.id, s.id, t.id) }));
-      const open = (x) => Math.max(0, x.needed - x.filled);
+      const rows = mine.map((s) => ({ id: s.id, starts_at: s.starts_at, ...teamStanding.get(s.id, t.id, s.id, t.id, s.id, t.id, s.id, t.id, s.id, t.id) }));
+      const open = (x) => x.open;
       return {
         ...t,
         next_service: rows[0]?.starts_at ?? null,

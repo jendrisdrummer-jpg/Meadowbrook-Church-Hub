@@ -130,6 +130,8 @@ export function icon(name, cls = 'ic') {
 }
 
 // ---------------------------------------------------------------- people helpers
+// Households are called families in the interface; stored names like "Diaz Household" read "Diaz family".
+export const familyName = (n) => String(n || '').replace(/\s+household$/i, ' family');
 export const displayName = (p) => `${p.nickname || p.first_name || ''} ${p.last_name || ''}`.trim();
 export function avatar(p, cls = '') {
   const initials = `${(p.nickname || p.first_name || '?')[0]}${(p.last_name || '')[0] || ''}`.toUpperCase();
@@ -260,7 +262,7 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
       const run = debounce(async (q) => {
         if (q.trim().length < 2) return;
         rows = (await get(`/people?q=${encodeURIComponent(q)}&limit=25`)).rows.filter((p) => !filter || filter(p));
-        mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}">${avatar(p)}<span>${displayName(p)}<br><small class="muted">${p.email || p.phone || p.household_name || ''}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
+        mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}">${avatar(p)}<span>${displayName(p)}<br><small class="muted">${p.email || p.phone || familyName(p.household_name)}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
       });
       $('[data-q]', d).addEventListener('input', (e) => run(e.target.value));
       list.addEventListener('click', (e) => {
@@ -275,7 +277,7 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
 // each one. Resolves to the chosen family ({ id, name, people: [{ name, role }] }) or undefined.
 export function pickFamily(title = 'Choose a family', { exclude } = {}) {
   let chosen;
-  const label = (n) => String(n || '').replace(/\s+household$/i, ' family');
+  const label = familyName;
   return dialog({
     title,
     submit: null,

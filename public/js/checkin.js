@@ -1,7 +1,7 @@
 // Kids check-in station. Works offline: it keeps a copy of the family roster and queues
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
-import { html, mount, avatar, displayName, dialog, options, toast, fail, esc } from './lib.js';
+import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
 import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly } from './checkin-rules.js';
 
 const KEY = {
@@ -236,7 +236,7 @@ function findFamilies(query) {
 function drawResults(query) {
   const fams = findFamilies(query);
   const box = $main.querySelector('[data-results]');
-  mount(box, fams.length ? fams.map((h) => html`<button class="k-family" data-h="${h.id}"><b>${h.name}</b>
+  mount(box, fams.length ? fams.map((h) => html`<button class="k-family" data-h="${h.id}"><b>${familyName(h.name)}</b>
       <span class="muted">${h.members.filter((m) => m.household_role === 'child').map((m) => m.nickname || m.first_name).join(', ')}</span></button>`)
     : query.trim().length >= 2 ? html`<p class="k-hint">No family found.</p>` : '');
   box.onclick = (e) => { const b = e.target.closest('[data-h]'); if (b) drawFamily(state.roster.households.find((h) => h.id === Number(b.dataset.h))); };
@@ -260,7 +260,7 @@ function drawFamily(h) {
   const already = new Set(todays().filter((c) => !c.checked_out_at).map((c) => c.person_id));
   const services = state.roster.services || [];
   const svc = currentService();
-  mount($main, html`<div class="row"><button class="btn" data-back>← Back</button><h1 style="margin-left:6px">${h.name}</h1></div>
+  mount($main, html`<div class="row"><button class="btn" data-back>← Back</button><h1 style="margin-left:6px">${familyName(h.name)}</h1></div>
     <div class="k-kids">${kids.map((k) => {
       const room = roomFor(k, state.roster.rooms, day());
       const done = already.has(k.id);
@@ -273,7 +273,7 @@ function drawFamily(h) {
         ${state.roster.rooms.length > 1 ? html`<select data-room="${k.id}" style="width:auto" aria-label="Room">${options(state.roster.rooms.map((r) => ({ value: r.id, label: r.name })), room?.id, { blank: 'Room…' })}</select>` : ''}
       </label>`;
     })}</div>
-    ${!kids.length ? html`<p class="k-hint">No children in this household yet.</p>` : ''}
+    ${!kids.length ? html`<p class="k-hint">No children in this family yet.</p>` : ''}
     ${services.length > 1 ? html`<label class="field" style="max-width:320px">Service<select data-service>${options(services.map((s) => ({ value: s.id, label: `${new Date(`${s.starts_at}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${s.title ? ` · ${s.title}` : ''}` })), svc?.id)}</select></label>` : ''}
     <div class="row" style="margin-top:18px">
       <button class="btn primary k-big" data-go>${state.station.print ? 'Check in & print' : 'Check in'}</button>
@@ -359,7 +359,7 @@ async function newFamily() {
       <label class="field">Email<input type="email" name="email"></label></div>`,
     onSubmit: async (f) => {
       const parent = await call('POST', '/people', { first_name: f.first_name.value, last_name: f.last_name.value, phone: f.phone.value, email: f.email.value, campus_id: state.station.campusId, status: 'guest', new_household: true, force: true });
-      household = { id: parent.household_id, name: `${parent.last_name} Household`, phone: '', members: [parent], pickups: [] };
+      household = { id: parent.household_id, name: `${parent.last_name} family`, phone: '', members: [parent], pickups: [] };
     },
   });
   if (!household) return;
@@ -371,7 +371,7 @@ async function addChild(h) {
   if (!navigator.onLine) { toast('Adding a child needs the internet.', 'bad'); return; }
   let kid;
   await dialog({
-    title: `Add a child to ${h.name}`, submit: 'Add child',
+    title: `Add a child to ${familyName(h.name)}`, submit: 'Add child',
     body: html`<div class="form">
       <label class="field">First name<input type="text" name="first_name" required></label>
       <label class="field">Last name<input type="text" name="last_name" value="${h.members[0]?.last_name || ''}"></label>

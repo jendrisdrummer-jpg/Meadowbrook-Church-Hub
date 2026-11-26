@@ -1,11 +1,10 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate, familyName } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
 
 // Households are called families in the interface; the data keeps its name ("Diaz Household" reads "Diaz family").
-const familyName = (n) => String(n || '').replace(/\s+household$/i, ' family');
 
 const ROLE_LABEL = { volunteer: 'Volunteer', leader: 'Leader', staff: 'Staff', admin: 'Admin' };
 const ROLE_HELP = {
@@ -26,7 +25,8 @@ function servesText(p) {
 export default async function person(el, id) {
   const [p, att] = await Promise.all([get(`/people/${id}`), get(`/people/${id}/attendance`)]);
   const staff = can('staff');
-  setTitle(displayName(p), html`${staff ? html`<button class="btn" data-edit>${icon('edit')} Edit</button>` : ''}
+  // Back to the People list, which reopens at the same search, filters and place.
+  setTitle(displayName(p), html`<a class="btn ghost" href="#/people" data-back-people>${icon('back')} People</a>${staff ? html`<button class="btn" data-edit>${icon('edit')} Edit</button>` : ''}
     ${can('admin') ? html`<span class="kebab"><button class="icon-btn" data-kebab aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${icon('dots')}</button>
       <div class="kebab-menu hidden" role="menu"><button type="button" role="menuitem" data-merge title="Merge a duplicate record into this one">${icon('copy')} Merge duplicate</button></div></span>` : ''}`);
   const now = new Date().toLocaleDateString('en-CA');
@@ -171,7 +171,7 @@ export default async function person(el, id) {
           onOpen: (d, close) => { d.querySelectorAll('[data-c]').forEach((x) => { x.onclick = () => close(x.dataset.c); }); },
         });
         if (choice === 'start') {
-          const hh = await post('/households', { name: `${p.last_name || p.first_name} Household`, campus_id: p.campus_id });
+          const hh = await post('/households', { name: `${p.last_name || p.first_name} family`, campus_id: p.campus_id });
           await patch(`/people/${p.id}`, { household_id: hh.id });
           return reload();
         }
