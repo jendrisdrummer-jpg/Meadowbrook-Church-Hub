@@ -8,6 +8,7 @@ import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
 import { HttpError, notFound, forbidden, bad, int, str, required, audit } from '../http.js';
 import { send } from '../live.js';
+import { ADULT_SQL, isAdult } from '../eligibility.js';
 
 // A leader who isn't staff may add this many people per rolling day.
 const LEADER_ADDS_PER_DAY = 30;
@@ -29,14 +30,6 @@ export default function groupRoutes(db) {
   // Staff powers over a group: staff at its campus; for a church-wide group (no campus), only staff
   // with no campus limit. Campus-limited staff are ordinary members there.
   const staffOf = (req, g) => isStaff(req) && (g.campus_id == null ? !req.user.campusIds : canCampus(req.user, g.campus_id));
-  // Adults only: not marked a child, no school grade, and (if we know it) at least 18.
-  const ADULT_SQL = "p.household_role != 'child' AND p.grade IS NULL AND (p.birthdate IS NULL OR p.birthdate <= date('now', '-18 years'))";
-  const isAdult = (p) => {
-    if (p.household_role === 'child' || p.grade != null) return false;
-    if (!p.birthdate) return true;
-    const cut = new Date(); cut.setUTCFullYear(cut.getUTCFullYear() - 18);
-    return p.birthdate <= cut.toISOString().slice(0, 10);
-  };
   // Loads a group and what this account may do with it, or refuses. Archived groups are only
   // for staff (to bring back); everyone else gets "not found".
   function open(req, id) {

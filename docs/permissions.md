@@ -46,7 +46,7 @@ is born linked is someone brand new to the church (their email is not in People,
 the app adds them to People as a new person flagged "signed up from the app", and links the account to
 that new person. It never attaches to an existing person, and a matching email or name only means a
 new account that waits for an admin. Someone with a matching email in People signs in unlinked and sees
-"We've let the church office know" until an admin links them.
+"We've let the church office know" until an admin links them. Settings → Accounts suggests that person (exactly one non-archived person with the same email, inside the admin's reach) with a one-click, confirmed link; the link is the ordinary admin action and nothing is linked automatically ([account-links.md](account-links.md#suggestions-serverlink-suggestionjs)).
 
 Leading a team gives leader access to the person's account if they have a linked one; it no longer
 creates an account. When an admin links an account to someone who already leads a team, the same rule

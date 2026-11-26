@@ -9,6 +9,7 @@ import { notify } from '../notify.js';
 import { closeStreams } from '../live.js';
 import { revokeCheckin } from './checkin.js';
 import { syncLeaderAccessFor } from './teams.js';
+import { linkSuggestion } from '../link-suggestion.js';
 
 export default function setupRoutes(db, { uploadDir } = {}) {
   const r = Router();
@@ -201,12 +202,24 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     // (A campus-limited admin sees only the accounts they could manage, in all three lists.)
     const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT ${limited ? 5000 : 200}`).all()
-      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => u);
+      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => {
+        // The person with the same email, shown only when this admin could link to them (a hint; an admin always confirms).
+        const sg = linkSuggestion(db, u);
+        const { campus_id: sgCampus, ...suggestion } = sg || {};
+        return { ...u, suggestion: sg && canCampus(req.user, sgCampus) ? suggestion : null };
+      });
+    // People sharing one email (trimmed, case ignored), to tidy before suggestions work well. A campus-limited
+    // admin sees a group only when every person in it is in their reach.
+    const shared = db.prepare(`SELECT lower(trim(email)) e FROM people WHERE archived = 0 AND trim(email) != '' GROUP BY e HAVING COUNT(*) > 1 ORDER BY e LIMIT 300`).all()
+      .map(({ e }) => ({ email: e, people: db.prepare(`SELECT p.id, p.first_name, p.last_name, p.campus_id, c.short_name campus_short, c.name campus_name FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
+        WHERE p.archived = 0 AND lower(trim(p.email)) = ? ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 20`).all(e) }))
+      .filter((g) => g.people.every((p) => canCampus(req.user, p.campus_id))).slice(0, 100)
+      .map((g) => ({ email: g.email, people: g.people.map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`.trim(), campus: p.campus_id == null ? '' : (p.campus_short || p.campus_name) })) }));
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)
         .map(({ person_campus_id: _p, ...u }) => ({ ...u, has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })),
-      volunteers, people_with_email: withEmail, unlinked, duplicate_links: duplicates,
+      volunteers, people_with_email: withEmail, unlinked, shared_emails: shared, duplicate_links: duplicates,
     });
   });
 
