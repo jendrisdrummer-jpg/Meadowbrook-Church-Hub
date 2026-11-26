@@ -190,6 +190,27 @@ admin or an unrestricted actor keeps no campus list, so sees every campus.
 record and `campusFilter(user, column)` for lists. Any new campus-owned data must be filtered the
 same way.
 
+**Households** hang off a campus too. Every household-level route (`PATCH /households/:id`, adding a
+pickup person, removing one) refuses a campus-limited user for a household at another campus (403);
+moving or adding a person into a household checks the household's campus as well as the person's.
+`GET /people/:id` leaves out the household (with its notes and pickup list) when it sits at a campus
+the user can't reach. Pickup changes are audited (`pickup.add`, `pickup.remove`). Households with no
+campus are open to everyone, as for people.
+
+**Adding people to an existing family.** Check-in treats every adult in a household as an approved
+pickup, and only staff may grant pickups (audited). So below staff, including leaders and paired
+check-in stations, `POST /people` with a `household_id` is allowed only for `household_role: 'child'`;
+an adult (or no role, which means adult) gets a 403. A new family (`new_household: true`) is open to
+them as before. Staff are unchanged. Every join is audited: `household.member_add` / `household.member_move`
+(person, household ids from and to, role), plus `household.create` / `household.update` (fields, and
+`from_campus` / `to_campus` when the campus changes). The duplicate check on `POST /people` only looks at
+the caller's campuses; leaders and stations see just `{id, first_name, last_name}` in the 409, staff see
+email, phone and birthdate. Merging refuses (403) to bring in a household at a campus the admin doesn't cover.
+
+**Access dialog campuses.** In the account dialogs (person page, Settings → Accounts) "All campuses"
+and specific campuses are mutually exclusive. The server takes `campus_ids` as `'all'` (or null) or a
+non-empty list of campuses; an empty list is refused (400), duplicates collapse.
+
 **Serving campuses** (which campuses a volunteer may be scheduled at, `PUT /people/:id/serving-campuses`):
 staff and admins only; leaders and volunteers can't change them. Campus-limited staff can only add or
 remove campuses they can access (other campuses already on the list are left alone), and every change

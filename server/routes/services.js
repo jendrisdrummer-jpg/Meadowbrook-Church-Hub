@@ -394,7 +394,8 @@ export default function serviceRoutes(db) {
 
   // Fills open spots with the best available people (no blockouts, double-booking or other-campus people),
   // optionally only one team's positions.
-  function autofill(req, s, teamId = null) {
+  // `open` (optional) counts spots still empty afterwards, so the screen can say "all filled" vs "no one free".
+  function autofill(req, s, teamId = null, open = { n: 0 }) {
     const needs = db.prepare(`SELECT n.position_id, n.count FROM service_needs n JOIN positions ps ON ps.id = n.position_id
       WHERE n.service_id = ? AND (? IS NULL OR ps.team_id = ?)`).all(s.id, teamId, teamId);
     const added = [];
@@ -410,13 +411,15 @@ export default function serviceRoutes(db) {
         added.push({ id: Number(info.lastInsertRowid), service_id: s.id, position: pos.name, person: `${c.nickname || c.first_name} ${c.last_name}` });
         filled++;
       }
+      open.n += Math.max(0, n.count - filled);
     }
     return added;
   }
 
   r.post('/services/:id/autofill', requireRole('leader'), (req, res) => {
     const s = service(req, req.params.id);
-    res.json({ added: tx(db, () => autofill(req, s)) });
+    const open = { n: 0 };
+    res.json({ added: tx(db, () => autofill(req, s, null, open)), open: open.n });
   });
 
   // ---------------------------------------------------------------- month schedule
@@ -493,7 +496,8 @@ export default function serviceRoutes(db) {
     const ids = Array.isArray(req.body?.service_ids) ? req.body.service_ids.map((x) => int(x, 'Service')).slice(0, 200) : [];
     const teamId = int(req.body?.team_id);
     const list = ids.map((id) => service(req, id)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId))) });
+    const open = { n: 0 };
+    res.json({ added: tx(db, () => list.flatMap((s) => autofill(req, s, teamId, open))), open: open.n });
   });
 
   // ---------------------------------------------------------------- sending requests

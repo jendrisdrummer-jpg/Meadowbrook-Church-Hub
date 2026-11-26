@@ -41,6 +41,11 @@ export default function checkinRoutes(db) {
     return c;
   }
 
+  // The campuses this account may set a station up for (setup lists only these).
+  r.get('/checkin/campuses', requireCheckin, (req, res) => {
+    res.json(db.prepare('SELECT id, name, short_name, active FROM campuses ORDER BY active DESC, sort, name').all().filter((c) => canCampus(req.user, c.id)));
+  });
+
   // Everything a tablet needs to check families in with no connection.
   r.get('/checkin/roster', requireCheckin, (req, res) => {
     const c = campus(req, req.query.campus_id);

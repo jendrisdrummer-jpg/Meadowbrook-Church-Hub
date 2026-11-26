@@ -8,6 +8,7 @@
 .k-status { font-size: 13px; display: flex; gap: 8px; align-items: center; }
 .k-main { flex: 1; padding: 22px; max-width: 1000px; width: 100%; margin: 0 auto; }
 .k-search { font-size: 28px !important; padding: 14px 18px !important; text-align: center; border-radius: 14px !important; min-height: 64px !important; letter-spacing: .04em; }
+@media (max-width: 480px) { .k-search { font-size: 20px !important; padding: 12px !important; letter-spacing: 0; min-height: 56px !important; } .k-search::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
 .k-hint { text-align: center; color: var(--muted); margin: 10px 0 20px; }
 .k-results { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .k-family { text-align: left; border: 1px solid var(--line-2); background: var(--panel); border-radius: 14px; padding: 16px; cursor: pointer; font-size: 17px; }

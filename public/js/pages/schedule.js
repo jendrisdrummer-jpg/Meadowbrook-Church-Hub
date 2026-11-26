@@ -237,7 +237,7 @@ export default async function schedule(el) {
     if (!ok) return;
     try {
       const r = await post('/schedule/autofill', { service_ids: ids, team_id: teamId });
-      toast(r.added.length ? `Added ${r.added.length} ${r.added.length === 1 ? 'person' : 'people'}. Look it over, then Send requests.` : 'No one available to fill the open spots.');
+      toast(r.added.length ? `Added ${r.added.length} ${r.added.length === 1 ? 'person' : 'people'}. Look it over, then Send requests.` : r.open === 0 ? 'Every spot is already filled.' : 'No one available to fill the open spots. Check who’s on the team, who’s away, and who serves at this campus.');
       await load();
     } catch (err) { fail(err); }
   });

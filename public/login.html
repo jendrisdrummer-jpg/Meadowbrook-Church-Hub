@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Sign in</title>
   <script src="/js/theme.js"></script>
+  <script>
+    // Nobody has chosen a theme before signing in, so follow the device's light or dark setting.
+    try { if (!localStorage.getItem('mb.theme')) document.documentElement.dataset.theme = 'device'; } catch (e) { document.documentElement.dataset.theme = 'device'; }
+  </script>
   <link rel="stylesheet" href="/css/app.css">
   <style>
     body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
