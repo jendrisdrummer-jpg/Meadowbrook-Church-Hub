@@ -471,7 +471,23 @@ details.card[open] > summary::before { content: '▾ '; }
 
 /* ---------- month schedule */
 .sched-filters .row + .row { margin-top: 12px; }
-.sched-selects .field { min-width: 220px; flex: 0 1 300px; }
+.sched-selects { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.sched-selects .field { min-width: 220px; flex: 0 1 320px; }
+/* The month schedule's pickers: drawn by us, not the browser, so they match on Safari too. */
+.sched-pick > span:first-child { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sched-pick .pick { position: relative; display: flex; align-items: center; }
+.sched-pick select { appearance: none; -webkit-appearance: none; min-height: 44px; padding: 10px 40px 10px 14px; border-radius: 12px; border-color: var(--line-2); font-weight: 600; font-size: 15px; color: var(--text); cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; transition: border-color .15s, background .15s; }
+.sched-pick select:hover { border-color: var(--line-input); background: var(--hover); }
+.sched-pick .pick.has-dot select { padding-left: 34px; }
+.sched-pick .pick > .dot { position: absolute; left: 14px; pointer-events: none; }
+.sched-pick .pick > .ic { position: absolute; right: 14px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+.sched-hint { margin: 0 0 12px; }
+.fill-team { font-weight: 400; color: var(--text-2); max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .sched-selects .field { flex: 1 1 100%; min-width: 0; }
+  .sched-pick select { font-size: 16px; }
+  .sched-hint { margin: 0; }
+}
 .sched-layout { display: grid; gap: 16px; align-items: start; }
 .sched-layout.with-side { grid-template-columns: minmax(0, 1fr) 280px; }
 .sched-card { min-width: 0; }
