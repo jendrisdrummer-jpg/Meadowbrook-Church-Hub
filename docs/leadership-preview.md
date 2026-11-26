@@ -251,7 +251,7 @@ Don't check real children in or out on the live site.
 | In the app: **More → Appearance** (tap to cycle) | Same three choices | | Phone |
 | **Home** in the morning, afternoon and evening | "Good morning", "Good afternoon" (from 12:00), "Good evening" (from 17:00), from your device's clock | The wrong greeting for your time | You (admin) |
 
-The sign-in page doesn't follow dark mode yet (a fix is in progress).
+The sign-in page follows your device's dark mode until you choose a theme.
 
 ### Reporting an issue
 Use the hub's **Feedback** page (or **More → Send feedback** in the app): choose what kind, how much
@@ -374,18 +374,23 @@ Keep this beside you during the demo. Full detail: [features.md](features.md).
 - **A new service starts on "Every week"** (QA-10). Choose **Does not repeat** for a one-off.
 - **Dark mode follows each person's saved choice**, not the phone's setting, unless they pick
   **Match my device**.
-- The **Settings → Accounts** table is wider than a phone; use a laptop for account management.
-- A page an account isn't allowed to open says "Something went wrong" instead of "You don't have
-  access" ([tech-debt.md](tech-debt.md)).
+- Account management is easier on a laptop; on a phone the **Settings → Accounts** table scrolls
+  sideways inside its card.
 
-**Fixes in progress** (found by QA; not yet merged into `milestone-1`, so check after the deploy):
-- QA-1: a campus check on the kids' pickup-person routes (**child safety**; this should be fixed
-  before the deploy).
-- QA-2: a campus check when moving someone between households.
-- QA-4: the access dialog allowing "All campuses" plus a campus at once.
-- QA-8: page guards for Settings and App Builder; QA-9: the check-in setup campus list.
-- QA-5: form validation messages; the month grid's autofill (being investigated); phone layout
+**Fixed before this preview** (found by QA and the security review, merged into `milestone-1`, #76):
+- Child safety: campus checks on the kids' pickup-person routes and on moving people between
+  households; below staff, someone can join an existing family only as a child, so nobody can be
+  added as a pickup adult without staff; household and pickup changes are audited.
+- The access dialog no longer allows "All campuses" plus a campus at once.
+- Settings, App Builder, Giving and Announcements show "You don't have access to this page" to
+  people without access; check-in setup lists only campuses you can use.
+- Validation of dates, email and name length; clearer "Fill the month" messages; phone layout
   touches; dark mode on the sign-in page.
+
+**Your decisions** (safe defaults are in place; see [roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)):
+whether leaders and the check-in desk may add children to existing families (allowed today);
+whether pickups should be listed explicitly instead of every adult in the family; whether
+campus-limited staff may create families with no campus (they show at every campus).
 
 **Not built or needs outside setup:** see the last rows of the [overview](#e-one-page-feature-overview).
 Also never tried for real: email in real inboxes, push on real phones, Google sign-in on the live
@@ -405,7 +410,7 @@ These follow the beta stages in [beta-readiness.md](beta-readiness.md) and
 2. **Decide 15 and 16** (real information in demos; test accounts on live), plus 8 (no minors with
    accounts) and 9 (the staff beta group, a feedback triage person, a Sunday contact).
 3. **Finish the deploy gate** ([beta-readiness §1](beta-readiness.md#1-required-before-deployment)):
-   the in-progress QA fixes merged (QA-1 first), the restore drill, the account review, and your
+   the restore drill, the account review, and your
    written approval of a deploy window outside 19 December – 3 January, not a Saturday evening or
    Sunday.
 4. **Staff beta (about 8 staff), mid-December:** accounts added and linked, a 30-minute
