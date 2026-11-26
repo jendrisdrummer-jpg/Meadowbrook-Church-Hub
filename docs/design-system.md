@@ -90,6 +90,7 @@ Use these before writing new CSS.
 | Forms | `.form` grid with `label.field` (label text, then the input, then `span.muted.small` help); `label.check` for checkboxes; `.switch` |
 | Lists | `table.list` (rows become clickable with `.clickable`), `.m-list` in the app |
 | Chips | `.chip` (`.on` selected); `chips()` in `lib.js` for an editable list |
+| Dropdowns | Every `<select>` is drawn by the app (`appearance: none` and the `--chevron` image, per theme), so Safari matches other browsers. A page's main filter uses the larger `.sched-pick` (label, `.pick` wrapper, optional `.dot`, the `down` icon), as on the Volunteer schedule and Who's serving. Prefer a dropdown to a row of chips when the list can grow |
 | Progress | `.meter > span` (accent; `.good` sage when full, `.warn` amber) |
 | Empty states | `.empty` / `.m-empty` with one helpful sentence and, when possible, the action |
 | Icons | `icon(name)` from `lib.js` (Lucide-style inline SVG). Add new icons to `PATHS` there. |
