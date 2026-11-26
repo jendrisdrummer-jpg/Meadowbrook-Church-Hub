@@ -1,6 +1,6 @@
 # Plan: the phone app and serving many churches
 
-Chief Architect · 26 November 2026 · **Status: proposed, awaiting the owner. Nothing here is built or approved.**
+Chief Architect · 26 November 2026 · **Status: plan approved by the owner on 26 November 2026 (Phase 0 and option (a)); each later step still needs its own approval. See "Owner decisions" below.**
 Product name undecided ("the product" below; front-runner "Steeple"). Direction: [master roadmap §12 "Product
 direction"](../../master-product-roadmap.md#12-stage-2-and-stage-3), decision 20 in
 [§13](../../master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation), backlog L4 and L6 in
@@ -28,6 +28,21 @@ direction"](../../master-product-roadmap.md#12-stage-2-and-stage-3), decision 20
 9. The whole-church launch shouldn't wait for the store app: the member app already works on phones.
 10. You'll be asked to approve, one at a time: this plan, sign-in changes, the paid Apple account (about $99/year),
     Google Play (about $25 once), a product web address, and any hosting increase.
+
+## Owner decisions, 26 November 2026
+
+- **Approved:** this plan, Phase 0 (the demo app) and option (a), one database file per church plus a directory.
+- **Sign-in:** like Faith Teams. Download the app, enter email and password (or a code), and land in your church.
+- **Keep Google sign-in in the app.** Google blocks it inside an embedded web view, so the shell opens Google in
+  the system browser (Capacitor's in-app browser / `ASWebAuthenticationSession`) and returns to the app with a
+  one-time ticket. This replaces "hide the Google button" in Phase 0; it is a sign-in change, so it gets its own
+  security review.
+- **Android:** not needed for Phase 0 (no beta tester uses Android). The GitHub Actions APK build waits until later.
+- **Timing:** the owner wants the **store app ready before the whole-church launch**, so people download an app as
+  they do with Faith Teams today and are never taught "add to Home Screen" first. The developer's suggestion, for
+  the owner to confirm: ship the store app for **Meadowbrook only** (the directory holds one church) as soon as
+  the paid Apple account is approved, before the multi-church switch-over, and hold the whole-church launch until
+  it's in the App Store. This brings the Apple account (~$99/year), the product name and TestFlight forward.
 
 ---
 
