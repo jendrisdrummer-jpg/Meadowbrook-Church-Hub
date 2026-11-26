@@ -80,11 +80,12 @@ export default function teamRoutes(db) {
       ...t,
       can_manage: canManage(req, t),
       positions: db.prepare('SELECT * FROM positions WHERE team_id = ? ORDER BY sort, name').all(t.id),
-      // has_account is only yes or no (whether they can sign in), never who or how.
+      // has_account is only yes or no (whether they can sign in), never who or how. reachable (an
+      // email or an account, so a request can arrive) is only for people who see the team's contact details.
       members: db.prepare(`SELECT tm.person_id, tm.position_id, tm.is_leader, p.first_name, p.last_name, p.nickname, p.photo, p.email, p.phone,
           EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
         FROM team_members tm JOIN people p ON p.id = tm.person_id WHERE tm.team_id = ? AND p.archived = 0
-        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map(({ email, phone, ...m }) => ({ ...m, ...(detail ? { email, phone } : {}), has_account: Boolean(m.has_account) })),
+        ORDER BY tm.is_leader DESC, p.last_name, p.first_name`).all(t.id).map(({ email, phone, ...m }) => ({ ...m, ...(detail ? { email, phone, reachable: Boolean(email || m.has_account) } : {}), has_account: Boolean(m.has_account) })),
     });
   });
 

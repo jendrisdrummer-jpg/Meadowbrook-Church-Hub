@@ -70,20 +70,25 @@ export async function sendRequests(serviceIds, teamId = null) {
   if (!list.length) { toast('Everyone here has already been asked.'); return false; }
   const people = [...Map.groupBy(list, (a) => a.person_id).values()];
   const unreachable = people.filter((spots) => !spots[0].reachable);
+  const names = (group) => group.map((spots) => displayName(spots[0])).join(', ');
   let result;
   await dialog({
     title: `Send ${list.length} ${list.length === 1 ? 'request' : 'requests'}`, wide: true, submit: `Send to ${people.length} ${people.length === 1 ? 'person' : 'people'}`,
     body: html`<p class="muted small" style="margin-top:0">Each person gets one email and app notification listing their spots, with buttons to accept or decline.</p>
       <div class="send-list">${people.map((spots) => html`<div class="send-row"><b>${displayName(spots[0])}</b>${spots[0].reachable ? '' : html` <span class="pill warn">No email or app</span>`}
         <span class="muted small">${spots.map((a) => `${fmtDate(a.starts_at)} ${a.position}`).join(' · ')}</span></div>`)}</div>
-      ${unreachable.length ? html`<p class="small" style="margin-bottom:0">${icon('info', 'ic small-ic')} ${unreachable.length === 1 ? 'One person has' : `${unreachable.length} people have`} no email and no app account. Let them know yourself, or add an email to their profile.</p>` : ''}`,
+      ${unreachable.length ? html`<p class="small" style="margin-bottom:0">${icon('info', 'ic small-ic')} ${unreachable.length === 1 ? 'One person has' : `${unreachable.length} people have`} no email and no app account (${names(unreachable)}). Let them know yourself, or add an email on their page.</p>` : ''}`,
     onSubmit: async () => {
       const body = { service_ids: serviceIds };
       if (teamId) body.team_id = teamId;
       result = await post('/assignments/send', body);
     },
   });
-  if (result) toast(`Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`);
+  if (result) {
+    const sent = `Sent ${result.sent} ${result.sent === 1 ? 'request' : 'requests'} to ${result.people} ${result.people === 1 ? 'person' : 'people'}.`;
+    // Sending isn't blocked, but say who won't hear about it.
+    toast(unreachable.length ? `${sent} ${unreachable.length === 1 ? '1 person can’t' : `${unreachable.length} people can’t`} be reached: ${names(unreachable)}. Add an email on their page.` : sent, unreachable.length ? 'bad' : '');
+  }
   return Boolean(result);
 }
 

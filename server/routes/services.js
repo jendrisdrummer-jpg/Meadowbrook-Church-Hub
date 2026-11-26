@@ -499,14 +499,17 @@ export default function serviceRoutes(db) {
     if (teamId) {
       const first = `${month}-01`;
       const last = `${month}-31`;
+      const detail = seesTeamDetail(db, req.user, teamId); // "reachable" hints at missing contact details, so only for those who see them
       members = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo, MAX(tm.is_leader) is_leader,
+          (p.email != '' OR EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1)) reachable,
           GROUP_CONCAT(tm.position_id) position_ids,
           (SELECT COUNT(DISTINCT substr(s2.starts_at, 1, 10)) FROM assignments a JOIN services s2 ON s2.id = a.service_id
             WHERE a.person_id = p.id AND a.status != 'declined' AND substr(s2.starts_at, 1, 7) = ?) month_count
         FROM team_members tm JOIN people p ON p.id = tm.person_id
         WHERE tm.team_id = ? AND p.archived = 0 GROUP BY p.id ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(month, teamId)
-        .map((m) => ({
+        .map(({ reachable, ...m }) => ({
           ...m,
+          ...(detail ? { reachable: Boolean(reachable) } : {}),
           is_leader: Boolean(m.is_leader),
           position_ids: String(m.position_ids || '').split(',').filter(Boolean).map(Number),
           away: db.prepare('SELECT start_date, end_date, reason FROM blockouts WHERE person_id = ? AND end_date >= ? AND start_date <= ? ORDER BY start_date').all(m.id, first, last),
