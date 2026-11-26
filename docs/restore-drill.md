@@ -110,4 +110,4 @@ The developer writes the step-by-step for that day. This drill is what makes it 
 
 | Date | Code | Backup | Check | People / assignments / check-ins | Start-up log and audit | Looked around | Who | Notes |
 |---|---|---|---|---|---|---|---|---|
-| | `milestone-1` | | | | | | | First drill: before the staff beta and the first deploy |
+| 2026-11-25 | `milestone-1` at `7c4aab4` | Made by hand 10:23 PM; on the server and in Google Drive | Passed: integrity ok, schema 29 | 303 / 2 / 0 | Offline start clean (no warnings or errors); duplicate-account audit: none; 1 active account not linked to a person | Yes: upgraded to 35; people, services, teams and chats all present | Owner, guided by the developer | First drill, before the staff beta and the first deploy. Drive copies began after the Google Drive API was enabled |
