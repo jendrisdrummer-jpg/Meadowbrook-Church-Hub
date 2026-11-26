@@ -28,5 +28,6 @@ how it's built and how to change it.
 | [roadmap.md](roadmap.md) | The backlog: item IDs, sizes, gap analysis (order is set by the master roadmap) |
 | [agent-workflow.md](agent-workflow.md) | The nine agents, who owns what, hand-offs, which agent for which task, approvals |
 | [plans/](plans/child-safety/README.md) | Implementation plans awaiting or after owner approval (child safety) |
+| [plans/mobile-and-multichurch/plan.md](plans/mobile-and-multichurch/plan.md) | **Proposed:** the Meadowbrook demo phone app (Capacitor shell), multi-church options and recommendation, shared-app sign-in, native push, timeline |
 
 Screenshots used by the root README also live here (`*.png`).

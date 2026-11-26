@@ -117,3 +117,5 @@ Paths to SaaS, recorded so nobody builds toward the wrong one by accident:
   leaks; needs row-level checks everywhere.
 Choosing between them is an architectural decision for the owner (see
 [agent-workflow.md](agent-workflow.md), approvals).
+The proposed plan (database per church plus a directory, and the shared store app) is in
+[plans/mobile-and-multichurch/plan.md](plans/mobile-and-multichurch/plan.md).
