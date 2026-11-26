@@ -9,7 +9,9 @@ This page sets the **order, stages, release gates and adoption plan**. [roadmap.
 
 **Status, 26 November 2026.** Milestone 1 is **complete** on the `milestone-1` integration branch and **not
 deployed** (`main` is unchanged; see [merge-log.md](merge-log.md)). The current milestone is **"Personal Testing &
-Leadership Preview"**: a visual refresh, a safe preview environment, end-to-end verification and a demo guide.
+Leadership Preview"**: the approved visual refresh, end-to-end verification and a demo guide, all in the existing
+Church Hub, then (with the owner's explicit approval) a deploy to the existing Render service. No separate app or
+testing environment.
 **No new features** in this milestone. Open owner decisions are listed once, in §13.
 
 **Revision 3** moves from planning to execution. It records:
@@ -374,9 +376,10 @@ This is the **one list of owner decisions**. Other pages link here rather than k
     narrowing on promotion, accounts with Finance or Announcements, church-wide announcements, cross-campus team
     leaders. Safe defaults are in place.
 14. **Vendors (paid):** an SMS provider, and a clearance-check (background check) provider for C3.
-15. **Preview environment** (current milestone):
-    - allow testing from a phone on home Wi-Fi?
-    - a hosted demo copy, made-up data only? (Any hosting cost needs approval.)
+15. **Leadership demo on the live site:** real member information will be visible; show everything, or avoid
+    screens with personal details where possible?
+16. **Test accounts on the live site:** add a few clearly named test accounts (campus admin, staff, leader,
+    member) to see each role's view, or test with real staff?
 
 ## 14. How the agent reviews settled the main questions
 | Question | Outcome |
