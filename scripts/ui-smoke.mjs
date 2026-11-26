@@ -116,6 +116,32 @@ async function main() {
           if (!res || res.status() !== 201) problems.push(`Create form did not POST /api/admin/forms (got ${res ? res.status() : 'no request'})`);
           results.push({ area: 'hub', page: '/forms/new (click Save)', who, size, ok: !problems.length, problems, screenshot: '' });
         }
+        // Add a person, then "Save and add another" into the same family: the second person must land in the family the first one started.
+        if (who === 'admin' && size === 'desktop' && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/people`);
+          await page.waitForSelector('[data-add]');
+          await page.click('[data-add]');
+          await page.waitForSelector('dialog[open] input[name=first_name]');
+          await page.fill('dialog[open] input[name=first_name]', 'Smokey');
+          await page.fill('dialog[open] input[name=last_name]', 'Zzfamily');
+          if (await page.locator('dialog[open] input[name=nickname]').isVisible()) problems.push('More details was open on the add screen');
+          await page.click('dialog[open] button:has-text("Save and add another")');
+          await page.waitForSelector('.toast:has-text("Added Smokey")', { timeout: 3000 }).catch(() => problems.push('Save and add another showed no confirmation'));
+          if (!(await page.locator('dialog[open] [data-family] .pill:has-text("Zzfamily")').count())) problems.push('The second person was not set to join the family just started');
+          await page.fill('dialog[open] input[name=first_name]', 'Kiddo');
+          const sent = page.waitForResponse((r) => r.url().endsWith('/api/people') && r.request().method() === 'POST', { timeout: 3000 }).catch(() => null);
+          await page.click('dialog[open] button[type=submit]');
+          const res = await sent;
+          if (!res || res.status() !== 201) problems.push(`Second person did not POST (got ${res ? res.status() : 'no request'})`);
+          else {
+            const kid = await res.json();
+            await page.waitForURL(`${base}/#/people/${kid.id}`, { timeout: 3000 }).catch(() => problems.push('Did not open the new person'));
+            const members = await page.evaluate(async (id) => (await (await fetch(`/api/people/${id}`)).json()).household?.members.map((m) => m.first_name).sort(), kid.id);
+            if (JSON.stringify(members) !== JSON.stringify(['Kiddo', 'Smokey'])) problems.push(`Family has ${JSON.stringify(members)}, expected Kiddo and Smokey`);
+          }
+          results.push({ area: 'hub', page: '/people (add person, save and add another)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
         // The phone's More sheet and the account menu: both must open and stay fully on screen.
         if (size === 'phone' && only !== 'app') {
           problems = [];

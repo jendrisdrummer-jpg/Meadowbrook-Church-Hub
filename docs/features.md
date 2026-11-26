@@ -24,6 +24,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | People and households, photos, statuses, duplicate merge, CSV import/export | Verified. The real Faith Teams export hasn't been imported yet (rehearsal on a copy first: [beta-readiness.md](beta-readiness.md) §C) | `routes/people.js`, `csv.js` | `pages/people.js`, `person.js` |
+| Add a person or a whole family: a short first screen (name, mobile or email, status, campus, "Add to the family of…"), the rest under "More details", and "Save and add another" to add the next person to the same family. The first adult in a family defaults to Adult; below staff only a child can join an existing family | Verified (`npm run test:ui` adds a person and a second into the same family) | `routes/people.js` (unchanged) | `pages/person.js` (`personDialog`), `pages/people.js` |
 | Custom profile fields (milestones, classes, leadership track) with visibility; Spiritual journey checkboxes | Verified | `routes/fields.js` | `pages/person.js`, `settings.js` |
 | Campuses, rooms, church settings, brand colour, app icon | Verified | `routes/setup.js` | `pages/settings.js` |
 | Accounts, roles, campus limits (including campus-limited admins), Finance/Announcements/Kids' check-in flags, sign-in policy | Verified | `auth.js`, `routes/setup.js` | Settings → Sign-in & accounts |
