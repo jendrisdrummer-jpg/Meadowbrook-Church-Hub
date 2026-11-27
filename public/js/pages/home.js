@@ -35,7 +35,7 @@ export default async function home(el) {
     : '';
 
   if (!can('leader')) {
-    mount(el, html`${setupHint}<div class="card"><div class="card-head"><h2>${volunteer && waitingReply.length ? 'Please reply' : 'Your next times serving'}</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>`);
+    mount(el, html`${setupHint}<div class="card"><div class="card-head"><h2>${volunteer && waitingReply.length ? 'Please reply' : 'Your next times serving'}</h2><a href="#/my" class="btn small">My schedule</a></div>${mine}</div>`);
     bind(el);
     return;
   }
@@ -107,7 +107,7 @@ export default async function home(el) {
     : html`<div class="muted">Nobody has marked themselves away.</div>`}</div>`;
 
   const p = d.people;
-  const yourTime = html`<div class="card"><div class="card-head"><h2>Your next time serving</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>`;
+  const yourTime = html`<div class="card"><div class="card-head"><h2>Your next time serving</h2><a href="#/my" class="btn small">My schedule</a></div>${mine}</div>`;
   const totals = html`<p class="home-totals muted small"><b>${p.total ?? 0}</b> people · <b>${p.members ?? 0}</b> members · <b>${p.new_guests ?? 0}</b> new guests in 30 days</p>`;
   // Every card has a stable id; the ones this role can't see simply aren't in `cards`.
   const cards = { attention: tileRow, services, serving: yourTime, away: awayCard, ...(staff ? { attendance: attCard, totals } : {}) };

@@ -66,7 +66,7 @@ export async function assignDialog(serviceId, pos, taken, reload) {
 // Why a scheduling request can't reach someone (the server sends only the reason, never an address).
 const REACH = {
   no_contact: ['No email or account', 'They have no email and no account, so requests can’t reach them. Add an email on their page, or let them know yourself.'],
-  notices_off: ['Notices turned off', 'They turned off emails and schedule notices (My Schedule → Choose which notices you get), so requests can’t reach them. Ask them to turn one back on, or let them know yourself.'],
+  notices_off: ['Notices turned off', 'They turned off emails and schedule notices (My schedule → Choose which notices you get), so requests can’t reach them. Ask them to turn one back on, or let them know yourself.'],
 };
 export const reachShort = (code) => (REACH[code] || REACH.no_contact)[0];
 

@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
+  <a class="skip-link" href="#main" data-skip>Skip to content</a>
   <div class="shell">
     <aside class="side">
       <div class="brand"><span class="brand-mark">M</span><div><b data-church>Meadowbrook</b><small>Church Hub</small></div></div>
@@ -23,8 +24,8 @@
         <div class="side-user"><div class="me" data-me></div><div class="side-links" data-side-links></div></div>
       </div>
     </aside>
-    <main class="main">
-      <div class="topbar"><h1 data-title></h1><span class="pill info page-campus hidden" data-campus-tag></span><div class="row" data-actions></div><div data-search></div><div class="bell-wrap" data-bell></div><div class="me me-top" data-me-top></div></div>
+    <main class="main" id="main" tabindex="-1">
+      <div class="topbar"><h1 data-title tabindex="-1"></h1><span class="pill info page-campus hidden" data-campus-tag></span><div class="row" data-actions></div><div data-search></div><div class="bell-wrap" data-bell></div><div class="me me-top" data-me-top></div></div>
       <div class="content" data-content></div>
     </main>
   </div>

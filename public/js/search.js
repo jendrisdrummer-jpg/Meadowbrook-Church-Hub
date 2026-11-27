@@ -27,7 +27,7 @@ export function openSearch(pages, go) {
     <div class="sp-input"></div>
     <div class="sp-results" id="sp-results" role="listbox"></div>
     <div class="sp-foot"><span><kbd>↑</kbd><kbd>↓</kbd> to move</span><span><kbd>Enter</kbd> to open</span></div></div>`;
-  mount(box.querySelector('.sp-input'), html`${icon('search')}<input type="search" placeholder="${window.matchMedia('(max-width: 640px)').matches ? 'Search people, songs…' : 'Search people, songs, services, teams, events…'}" autocomplete="off" spellcheck="false" aria-controls="sp-results"><kbd>Esc</kbd>`);
+  mount(box.querySelector('.sp-input'), html`${icon('search')}<input type="search" aria-label="Search people, songs, services, teams, events" placeholder="${window.matchMedia('(max-width: 640px)').matches ? 'Search people, songs…' : 'Search people, songs, services, teams, events…'}" autocomplete="off" spellcheck="false" aria-controls="sp-results"><kbd>Esc</kbd>`);
   document.body.append(box);
   open = box;
   const input = box.querySelector('input');
@@ -54,7 +54,7 @@ export function openSearch(pages, go) {
     let n = -1;
     mount(results, all.length ? html`${all.map((g) => html`<div class="sp-group">${g.label}</div>${g.items.map((it) => {
       n += 1;
-      return html`<button type="button" class="sp-item ${n === active ? 'on' : ''}" role="option" aria-selected="${n === active}" data-i="${n}">
+      return html`<button type="button" class="sp-item ${n === active ? 'on' : ''}" role="option" aria-selected="${String(n === active)}" data-i="${n}">
         ${it.type === 'person' ? avatar({ first_name: it.title, last_name: it.title.split(' ').at(-1), photo: it.photo }, 'sp-av') : html`<span class="sp-ic">${icon(it.icon || TYPE_ICON[it.type])}</span>`}
         <span class="grow"><b>${it.title}</b>${it.sub ? html`<span class="muted small">${it.sub}</span>` : ''}</span>
         ${n === active ? html`<kbd>Enter</kbd>` : ''}</button>`;

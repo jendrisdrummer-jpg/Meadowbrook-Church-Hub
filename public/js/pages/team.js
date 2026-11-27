@@ -51,8 +51,8 @@ export default async function team(el, id, opts = {}) {
             ${m.has_account ? html` <span class="pill good" title="They can sign in to the hub and the app">Has account</span>` : html` <span class="pill" title="They haven’t got a sign-in yet, so they can’t use the app">No account</span>`}
             ${reachPill(m)}</span></a></td>
           ${t.positions.map((p) => html`<td><button type="button" class="tick ${m.positions.has(p.id) ? 'on' : ''}" data-toggle="${p.id}" ${manage ? '' : 'disabled'}
-            aria-label="${displayName(m)} serves as ${p.name}" aria-pressed="${m.positions.has(p.id)}">${icon('check')}</button></td>`)}
-          ${staff ? html`<td><button type="button" class="tick ${m.is_leader ? 'on' : ''}" data-leader aria-label="${displayName(m)} is a leader" aria-pressed="${Boolean(m.is_leader)}">${icon('check')}</button></td>` : ''}
+            aria-label="${displayName(m)} serves as ${p.name}" aria-pressed="${String(m.positions.has(p.id))}">${icon('check')}</button></td>`)}
+          ${staff ? html`<td><button type="button" class="tick ${m.is_leader ? 'on' : ''}" data-leader aria-label="${displayName(m)} is a leader" aria-pressed="${String(Boolean(m.is_leader))}">${icon('check')}</button></td>` : ''}
           ${manage ? html`<td><button class="icon-btn" data-remove title="Remove from team">${icon('x')}</button></td>` : ''}
         </tr>`)}</tbody></table></div>`
         : html`<div class="empty">No one on this team yet.${manage ? ' Type a name above to add someone.' : ''}</div>`}
