@@ -874,7 +874,7 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   assert.equal((await api('gwen', 'GET', '/checkin/roster?campus_id=1')).status, 403, 'it does not come back by itself');
   const temp = (await api('admin', 'POST', '/users', { email: 'temp-checkin@example.org', role: 'leader', checkin: true })).data.id;
   await api('admin', 'DELETE', `/users/${temp}`);
-  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'checkin_user_ids'").get().value.includes(String(temp)), false);
+  assert.equal(db.prepare('SELECT 1 FROM users WHERE id = ?').get(temp), undefined);
 });
 
 test('unlinked accounts: the office is told once, only an admin links them, and nothing links automatically', async () => {

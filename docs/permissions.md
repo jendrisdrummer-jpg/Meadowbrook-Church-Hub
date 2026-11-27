@@ -117,7 +117,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
 | See their own small groups: names and photos of the roster, and the group chat (members only) | ✓ | ✓ | ✓ | ✓ |
 | Create, edit, archive small groups and set their leaders (at their campuses) | | | ✓ | ✓ |
-| See people, teams, attendance; run check-in; add families; connect cards | | ✓ | ✓ | ✓ |
+| See people, teams, attendance; run check-in (with the Kids' check-in switch); add families; connect cards | | ✓ | ✓ | ✓ |
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
 | Events, Forms, Media, check-in stations | | | ✓ | ✓ |
@@ -217,7 +217,7 @@ admin or an unrestricted actor keeps no campus list, so sees every campus.
 | `finance` | Giving: gifts, donors, funds, batches, statements, finance dashboard (`requireFinance`) | **Never implied by role, not even admin.** Giving data is seen only by people explicitly given Finance. |
 | `announce` | Sending announcements to the congregation | Admins always have it. |
 | `app_editor` | Editing the member app: opening the App Builder, saving the app’s tabs and home screen (`PUT /app/config`) and uploading its pictures (`POST /app/images`), guarded by `requireAppEditor` (`canEditApp`). The Settings label is **Edit the app**. | Admins always have it (`user.appEditor`). **Staff no longer edit the app by role**: an admin turns the flag on for anyone who needs it, whatever their role (migration 38 adds it off for everyone). Reading the app’s public config (`GET /app/config`) is unchanged and open to everyone. The App Builder link in the hub menu shows only to those who can use it. Granting it is church-wide, like `announce`: only an admin who covers every campus can give or take it (403 for a campus-limited admin), an account holding it is out of a campus-limited admin’s reach, and every change is audited (`user.update`, `user.create` with “+ edit the app”). |
-| `attendance` | Taking attendance: the roll (`GET`/`POST /services/:id/roll`), new guests (`POST /services/:id/roll/guest`), headcounts (`PUT /services/:id/headcounts`) and the Take attendance services list (`GET /attendance/services`), for services at the account's campuses (`requireAttendance` + `canAttendCampus`) | For volunteer-level accounts; leaders and above already can, so it changes nothing for them. Opens nothing else: People, schedules, reports (`/attendance/people`, `/attendance/weekly`, a person's history) and kids' check-in (`canCheckin`, unchanged) keep their own guards. On a church with more than one campus the account must have a campus list (400 otherwise), and with none it fails closed (403). No time limit on past services; a change made after the service's own date is audited (`attendance.correct`, `headcount.correct`). New guests: a new family, or a child into a family already on that roll (never an adult), name-only duplicate check, 30 a day per account (429). A campus-limited admin can grant or take it inside their own campuses. |
+| `attendance` | Taking attendance: the roll (`GET`/`POST /services/:id/roll`), new guests (`POST /services/:id/roll/guest`), headcounts (`PUT /services/:id/headcounts`) and the Take attendance services list (`GET /attendance/services`), for services at the account's campuses (`requireAttendance` + `canAttendCampus`) | For volunteer-level accounts; leaders and above already can, so it changes nothing for them. Opens nothing else: People, schedules, reports (`/attendance/people`, `/attendance/weekly`, a person's history) and kids' check-in (`canCheckin`, its own switch) keep their own guards. On a church with more than one campus the account must have a campus list (400 otherwise), and with none it fails closed (403). No time limit on past services; a change made after the service's own date is audited (`attendance.correct`, `headcount.correct`). New guests: a new family, or a child into a family already on that roll (never an adult), name-only duplicate check, 30 a day per account (429). A campus-limited admin can grant or take it inside their own campuses. |
 
 ## Campus limits
 
@@ -267,11 +267,16 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   are **staff and up** on a person's page (`GET /people/:id`). Leaders, including anyone with leader
   access only because they lead a team, see contact and serving details but not those fields.
 - **Kids' check-in** (`/checkin/roster`, `/checkin/checkins`, `/checkin/active`, `/checkin/checkout`,
-  voiding a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
-  authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
-  `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
-  **children's** allergies and medical notes, never an adult's. Every route checks the campus. A live check-out (`mode: 'request'`) is refused (409) for children of more than one family, for everyone including admins; an offline report is never refused but is recorded and flagged. The released-by identity comes from the paired station or session, not the request.
-- **Voiding a check-in** (`POST /checkin/checkins/:id/void`) is for accounts signed in to the Hub, **never a paired iPad**, so the record always names a person; a reason is required. **Staff and admins** may void any check-in at their campuses; **a leader with check-in access** only one that is still open (not checked out) from today at that campus (403 otherwise). Nobody can
+  voiding a check-in) is for **paired stations, staff and admins automatically**, and for **any other account
+  (leader or volunteer) an admin has given the "Kids' check-in" switch** (Settings → Sign-in & accounts → the
+  account; `users.checkin`, migration 43; `canCheckin` and `canCheckinCampus` in `auth.js`). Any admin may grant it, like
+  Attendance; a campus-limited admin only inside their own campuses, and every change is audited (`user.checkin`).
+  A volunteer-level account needs a campus list on a church with several campuses (400 otherwise, whether or not it is linked to a person), and with none it
+  fails closed (403), like Attendance. Leaders keep their old meaning of no list (all campuses). Automatic leader
+  access removed on unlink also clears the switch. **A station token wins over a hub session**: with a valid
+  `x-station` header the request is the station's even if a session cookie is present (a removed token is 401). It sends
+  **children's** allergies and medical notes, never an adult's, and no photos or adult birthdates; pickups are loaded for the campus's families only; roster and active are `no-store`. Every route checks the campus. A live check-out (`mode: 'request'`) is refused (409) for children of more than one family, for everyone including admins; an offline report is never refused but is recorded and flagged. The released-by identity comes from the paired station or session, not the request.
+- **Voiding a check-in** (`POST /checkin/checkins/:id/void`) is for accounts signed in to the Hub, **never a paired iPad**, so the record always names a person; a reason is required. **Staff and admins** may void any check-in at their campuses; **anyone else with check-in access (the switch)** only one that is still open (not checked out) from today at that campus (403 otherwise). Nobody can
   delete a check-in (`DELETE` answers 405 and the database refuses). **The legal hold** (`POST /checkin/legal-hold` and `/release`) is for
   **admins who cover every campus** (`requireAllCampuses`), each time with a reason; campus-limited admins can see it but not change it. While
   it is on, voiding, merging people and disconnecting Google Drive are refused for everyone, and no backup copy is deleted.
@@ -292,24 +297,13 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   campus. Assigning campuses to imported households before kids' check-in goes live (Subsplash
   cutover) narrows this further.
 
-### Moving the interim check-in authorisation to the permanent permissions
+### How the interim check-in authorisation moved (migration 43)
 
-The `checkin_user_ids` setting is temporary. Child-safety V1, PR 3 ("Access"), replaces it with the
-permanent check-in access, stored as the first row type of a grants table (`user, capability =
-'checkin', scope = campus`). That table was approved as part of the child-safety plan. The switch is
-done in one PR:
-
-1. **Copy the grants.** A migration creates one `checkin` grant per account in `checkin_user_ids`,
-   scoped to that account's campuses (all campuses if it has no campus limit). Nobody gains or loses
-   access on the day of the switch.
-2. **Read from the new place.** `canCheckin` reads the grant instead of the setting. Staff, admins
-   and paired stations keep access as now (or get grants by role, as V1 decides).
-3. **Move the admin control.** The "Kids' check-in" checkbox writes the grant.
-4. **Remove the old setting.** `checkin_user_ids` is deleted, and the tests in this PR run unchanged
-   against the new storage.
-
-Check-in authorisation is removed when the account is deleted or stops being a leader (by hand or
-because it no longer leads a team), so it never comes back silently.
+The `checkin_user_ids` setting is gone from the code. Migration 43 added `users.checkin` and copied the grant: every
+**leader** on the old list got the switch, so exactly the people who could use check-in the day before still can. Staff
+and admins need no switch, and a volunteer on the old list never had access (they still don't until an admin switches them
+on). The old settings row is left untouched and is no longer read. The "grants table" in the earlier plan was replaced by
+this per-account switch (owner decision, 27 Nov 2026).
 
 Until then, review the authorised list in Settings → Sign-in & accounts (accounts show a
 "Check-in" tag).

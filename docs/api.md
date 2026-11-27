@@ -68,6 +68,14 @@ Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signatu
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`
 (volunteer+, since photos include children), page routes.
 
+### Station token (`x-station`)
+
+A paired iPad sends its token in `x-station` on check-in routes (`/checkin/*`, `/campuses`, `POST /people`). **The token wins over a
+hub session**: with a valid token the request is the station's, whatever cookie it carries, so a hub sign-in left on a kiosk
+can't widen it; an unknown or removed token is 401 `station_removed`. Other routes ignore the header. `GET /checkin/roster`,
+`/checkin/active` and `/checkin/station` answer `Cache-Control: no-store`. The roster has no photos, no adult birthdates, and only
+the campus's families' pickups. The check-in page has its own headers (see [security.md](security.md)).
+
 ### Check-in app version (`x-checkin-version`)
 
 The check-in iPad page sends `x-checkin-version: <CHECKIN_APP_VERSION>` (a whole number from

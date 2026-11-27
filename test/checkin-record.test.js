@@ -40,7 +40,7 @@ before(async () => {
   make('staff', 'staff', null);
   make('leader', 'leader', '[1]');
   make('volunteer', 'volunteer', null);
-  setSetting(db, 'checkin_user_ids', [ids.leader]);
+  db.prepare('UPDATE users SET checkin = 1 WHERE id = ?').run(ids.leader);
 
   const hh = (name, campus) => Number(db.prepare('INSERT INTO households (name, campus_id) VALUES (?, ?)').run(name, campus).lastInsertRowid);
   const person = (first, last, household, role, extra = {}) => Number(db.prepare(`INSERT INTO people

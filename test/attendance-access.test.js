@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { openDb, SCHEMA_VERSION } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession, canTakeAttendance } from '../server/auth.js';
-import { canCheckin } from '../server/routes/checkin.js';
+import { canCheckin } from '../server/auth.js';
 import { localNow } from '../server/http.js';
 
 let server, base, db, upDir;
@@ -199,11 +199,11 @@ test('leaders and above are unchanged, and kids’ check-in is a separate rule',
   assert.equal(audits('attendance.correct').length, n);
   // check-in: the switch gives nothing, and setting it on a leader changes nothing
   const asUser = (key) => ({ id: U[key], role: db.prepare('SELECT role FROM users WHERE id = ?').get(U[key]).role });
-  assert.equal(canCheckin(db, asUser('att')), false);
-  assert.equal(canCheckin(db, asUser('leader')), false);
+  assert.equal(canCheckin(asUser('att')), false);
+  assert.equal(canCheckin(asUser('leader')), false);
   assert.equal((await api('att', 'GET', '/checkin/roster')).status, 403);
   db.prepare('UPDATE users SET attendance = 1 WHERE id = ?').run(U.leader);
-  assert.equal(canCheckin(db, asUser('leader')), false);
+  assert.equal(canCheckin(asUser('leader')), false);
   assert.equal((await api('leader', 'GET', '/checkin/roster')).status, 403);
   db.prepare('UPDATE users SET attendance = 0 WHERE id = ?').run(U.leader);
 });

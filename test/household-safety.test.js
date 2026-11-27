@@ -30,7 +30,7 @@ before(async () => {
   make('staff', 'staff', null);
   const listed = make('leader', 'leader', '[1]');
   make('plainleader', 'leader', '[1]');
-  setSetting(db, 'checkin_user_ids', [listed]);
+  db.prepare('UPDATE users SET checkin = 1 WHERE id = ?').run(listed);
   // Pair a station at North.
   const pair = (await api(null, 'POST', '/checkin/pair', { device: 'iPad' })).data;
   assert.equal((await api('admin', 'POST', '/checkin/devices', { code: pair.code, name: 'Lobby', campus_id: 1 })).status, 201);

@@ -115,7 +115,7 @@ test('a voided check-in leaves every list, and can’t be checked out', async ()
 
 test('who may void what: staff any check-in at their campuses; leaders only an open one from today; never an iPad', async () => {
   app.make('lead', 'leader', '[1]', 'Lee Lead');
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('checkin_user_ids', JSON.stringify([ids.lead]));
+  db.prepare('UPDATE users SET checkin = 1 WHERE id = ?').run(ids.lead);
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
   const add = (id, day, out = null) => {
     app.add.checkin(id, P.abby, { day });

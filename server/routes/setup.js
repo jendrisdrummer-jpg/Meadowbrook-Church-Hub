@@ -2,7 +2,7 @@
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireRole, requireAllCampuses, accountInReach, canCampus, ROLES, SIGN_IN_POLICIES, wouldBeAdmin } from '../auth.js';
+import { requireRole, requireAllCampuses, accountInReach, canCampus, ROLES, rank, SIGN_IN_POLICIES, wouldBeAdmin } from '../auth.js';
 import { getSetting, setSetting, updateFields, ensureAccountLinkIndex, duplicateAccountLinks } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, audit, HttpError } from '../http.js';
 import { notify } from '../notify.js';
@@ -192,12 +192,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const limited = Boolean(req.user.campusIds);
     const reach = (u) => !limited || accountInReach(req.user, u);
     const q = str(req.query.q, 100).toLowerCase();
-    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce, u.attendance, u.app_editor,
+    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce, u.attendance, u.checkin, u.app_editor,
         u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name, p.campus_id person_campus_id
       FROM users u LEFT JOIN people p ON p.id = u.person_id
-      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1 OR u.attendance = 1 OR u.app_editor = 1)"}
+      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1 OR u.attendance = 1 OR u.checkin = 1 OR u.app_editor = 1)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT ${limited ? 5000 : 200}`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
-    const checkinIds = getSetting(db, 'checkin_user_ids', []);
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
     // Active accounts not linked to anyone in People: an admin links each one by hand.
@@ -220,7 +219,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const duplicates = duplicateAccountLinks(db).map((d) => ({ ...d, accounts: d.accounts.filter((a) => reach(loadAccount(a.id))) })).filter((d) => !limited || d.accounts.length > 1);
     res.json({
       users: rows.filter((u) => reach({ ...u, person_campus_id: u.person_campus_id })).slice(0, 200)
-        .map(({ person_campus_id: _p, ...u }) => ({ ...u, attendance: Boolean(u.attendance), has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null, checkin: checkinIds.includes(u.id) })),
+        .map(({ person_campus_id: _p, ...u }) => ({ ...u, attendance: Boolean(u.attendance), checkin: Boolean(u.checkin), has_password: Boolean(u.has_password), campus_ids: u.campus_ids ? JSON.parse(u.campus_ids) : null })),
       volunteers, people_with_email: withEmail, unlinked, shared_emails: shared, duplicate_links: duplicates,
     });
   });
@@ -241,7 +240,6 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
     closeStreams({ userId: u.id });
-    revokeCheckin(db, u.id);
     audit(db, req, 'user.delete', u.email);
     ensureAccountLinkIndex(db); // a duplicate may just have been resolved
     res.json({ ok: true });
@@ -269,12 +267,15 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     return pid;
   }
 
-  // Kids' check-in access for a leader account (staff and admins always have it). Kept as a
-  // setting until the child-safety plan's check-in access flag replaces it.
-  function setCheckin(userId, on) {
-    const ids = new Set(getSetting(db, 'checkin_user_ids', []));
-    if (on) ids.add(userId); else ids.delete(userId);
-    setSetting(db, 'checkin_user_ids', [...ids]);
+  // The Kids' check-in switch is for accounts below staff (staff, admins and paired iPads always have
+  // check-in). A volunteer-level account must have a campus list on a church with several campuses (no
+  // list would mean every campus, and check-in fails closed instead); a campus-limited admin may only
+  // use campuses of their own. `list` is the stored JSON text or null.
+  function checkCheckinCampuses(req, role, list) {
+    if (rank(role) >= rank('staff')) return;
+    if (db.prepare('SELECT COUNT(*) n FROM campuses').get().n <= 1) return;
+    if (list == null && rank(role) < rank('leader')) throw bad('Choose which campuses this person runs check-in at.');
+    if (req.user.campusIds && (list == null || !within(JSON.parse(list), req.user.campusIds))) throw new HttpError(403, WIDER_MSG);
   }
 
   r.post('/users', requireRole('admin'), (req, res) => {
@@ -297,16 +298,17 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     if (b.attendance) checkAttendanceCampuses(req, campusList(campusIds));
-    const info = db.prepare("INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance, app_editor, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'device')")
-      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0, b.app_editor ? 1 : 0);
+    // Checked against the role chosen here, linked or not: linking to a team leader can raise the role later,
+    // and a leader with no list means every campus.
+    if (b.checkin) checkCheckinCampuses(req, role, campusList(campusIds));
+    const info = db.prepare("INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance, checkin, app_editor, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'device')")
+      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0, b.checkin ? 1 : 0, b.app_editor ? 1 : 0);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}${b.app_editor ? ' + edit the app' : ''}`);
     if (person) {
       audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
       // The dialogs always send a role; Volunteer (the default) isn't a hand choice of more access.
       if (b.role === undefined || b.role === 'volunteer') syncLeaderAccessFor(db, person, req); // a team leader gets leader access, as always
     }
-    // Kids' check-in against the final access (after the team-leader rule); volunteers never have it.
-    if (b.checkin && db.prepare('SELECT role FROM users WHERE id = ?').get(Number(info.lastInsertRowid)).role !== 'volunteer') setCheckin(Number(info.lastInsertRowid), true);
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
@@ -326,7 +328,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       app_editor: b.app_editor !== undefined && Boolean(b.app_editor) !== Boolean(u.app_editor),
       attendance: b.attendance !== undefined && Boolean(b.attendance) !== Boolean(u.attendance), // allowed inside their campuses; checked in PATCH
       active: b.active !== undefined && Boolean(b.active) !== Boolean(u.active),
-      checkin: b.checkin !== undefined && Boolean(b.checkin) !== getSetting(db, 'checkin_user_ids', []).includes(u.id),
+      checkin: b.checkin !== undefined && Boolean(b.checkin) !== Boolean(u.checkin), // allowed inside their campuses; checked in PATCH
       person_id: b.person_id !== undefined && int(b.person_id) !== u.person_id,
     };
     if (b.role !== undefined) changed.role = true; // an unchanged role was already dropped
@@ -367,11 +369,16 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
     if (b.attendance !== undefined) b.attendance = Boolean(b.attendance);
+    if (b.checkin !== undefined) b.checkin = Boolean(b.checkin);
     if (b.app_editor !== undefined) b.app_editor = Boolean(b.app_editor);
     // Attendance needs a campus list (more than one campus); checked against the list the account will have.
     const willAttend = b.attendance !== undefined ? b.attendance : Boolean(u.attendance);
     if (willAttend && (b.attendance === true && !u.attendance || b.campus_ids !== undefined)) checkAttendanceCampuses(req, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
-    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance', 'app_editor']);
+    // Kids' check-in: checked against the role and campus list the account will have.
+    const willCheckin = b.checkin !== undefined ? b.checkin : Boolean(u.checkin);
+    if (willCheckin && (b.checkin === true && !u.checkin || b.campus_ids !== undefined || b.role !== undefined)) checkCheckinCampuses(req, b.role ?? u.role, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
+    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance', 'checkin', 'app_editor']);
+    if (b.checkin !== undefined && b.checkin !== Boolean(u.checkin)) audit(db, req, 'user.checkin', { user_id: u.id, granted: b.checkin });
     if (b.person_id !== undefined && b.person_id !== u.person_id) {
       audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
     }
@@ -387,10 +394,6 @@ export default function setupRoutes(db, { uploadDir } = {}) {
         audit(db, req, 'user.leader_auto', { user_id: u.id, person_id: u.person_id, granted: false });
       }
     }
-    // Kids' check-in last, against the final access (the team-leader rule above may have changed it):
-    // volunteers never keep it.
-    if (b.checkin !== undefined) setCheckin(u.id, Boolean(b.checkin));
-    if (db.prepare('SELECT role FROM users WHERE id = ?').get(u.id).role === 'volunteer') revokeCheckin(db, u.id);
     // A link moved off a person can resolve a duplicate, so try the one-account rule again.
     if (b.person_id !== undefined && b.person_id !== u.person_id && u.person_id != null) ensureAccountLinkIndex(db);
     if (b.active === false || b.active === 0) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);

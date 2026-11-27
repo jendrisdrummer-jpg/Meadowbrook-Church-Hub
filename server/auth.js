@@ -81,6 +81,7 @@ function toUser(row) {
     photo: row.photo || null,
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
+    checkin: Boolean(row.checkin),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
     homeLayout: parseLayout(row.home_layout),
@@ -129,6 +130,17 @@ export function requireAttendance(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
   if (!canTakeAttendance(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
   next();
+}
+// Kids' check-in (the family roster, checking in and out, voiding): paired stations, staff and admins
+// automatically; anyone else (a leader or volunteer) only with the per-account Kids' check-in switch.
+export const canCheckin = (user) => Boolean(user) && (Boolean(user.station) || rank(user.role) >= rank('staff') || Boolean(user.checkin));
+// Is this campus one the account may run check-in at? As canCampus, except a switch-only account below
+// leader with no campus list on a church with several campuses fails closed rather than meaning "all"
+// (the account dialog requires a list). Leaders keep their existing meaning of no list.
+export function canCheckinCampus(db, user, campusId) {
+  if (!canCheckin(user)) return false;
+  if (!user.station && rank(user.role) < rank('leader') && !user.campusIds && db.prepare('SELECT COUNT(*) n FROM campuses').get().n > 1) return false;
+  return canCampus(user, campusId);
 }
 // Is this campus one the account may take attendance at? Leaders: as canCampus. A switch-only
 // account must have a campus list when the church has more than one campus (the account dialog
