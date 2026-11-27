@@ -141,6 +141,8 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - **Card grid (`.md-grid`, `.md-card`):** a 16:9 picture with a length badge, then title (two lines at most), date, a quiet details line and a status pill with the reason underneath; two columns on a phone, three from 700px, four from 1180px.
 - **Rows with one action (`table.list.pair`):** details on the left (words never break mid-word),
   status or action on the right; use this instead of 3+ narrow columns on phones.
+- **Classes (hub):** a class page is `.tabs` made of links (`.tabs a`, so a tab has its own address) over cards. The roster is a `table.list.class-roster` inside `.table-scroll` with the name column sticky; each cell is a `.pill` with a word ("Here", "Absent", "Passed 100%"), never colour alone. Steps are `.step-row` lines (icon tile, title, move up/down, edit, remove). Attendance is `.att-row`s with a two-button `.seg` (Here / Absent, 44px) and a "Mark everyone here" button. The quiz builder is `.q-card`s with a tick for each right answer. Copy for staff about videos: "Upload the recording to YouTube as Unlisted (not Public)…" (once, under the link field).
+- **Classes (member app):** My classes is an `.m-list` card with a `.meter` per class; a class page lists steps as `.m-list` rows with a pill ("Make-up" amber, "Done" sage); a quiz is one screen of `fieldset.q` questions with 44px `.q-opt` answers. Wording is never "failed": "Not quite — try again", then "Have another look at question 2, 4."
 - **Dates:** always `fmtDate`/`fmtTime`; for database timestamps in UTC use `fmtUtcDate`.
   Never call `toLocaleDateString` on a raw date.
 - **Card spacing:** cards directly inside `.grid` and `.stack` have no extra top margin; the grid

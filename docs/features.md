@@ -107,6 +107,26 @@ YouTube-first. Videos come into the app on their own (no approval inbox); staff 
 | Mux streaming, uploads to Mux, trimmed copies | **Dormant.** The church has never used Mux, so no staff screen offers it (no setup card, stream key, upload buttons, own-player card, simulcast or the own-player-only / keep-full-recordings settings). The server code (`mux.js`, the `/media/mux/*` and upload routes) stays intact and tested, and any existing `source = 'mux'` row still plays on Watch. | `mux.js` | none |
 | Podcast feed | **On hold.** The tab is gone. `/media/podcast` still answers staff, but the podcast can’t be turned on without Mux’s audio (“The podcast isn’t set up yet”), and `/podcast.xml` is 404 until then. **Later:** a podcast from uploaded audio files (MP3). No YouTube audio, per YouTube’s terms. | `podcast.js` | none |
 
+## Classes (new)
+Life Group Training and similar: an ordered list of steps that people do in person or on their phone.
+v1 is deliberately small. Later (not built): validity/expiry and renewal, join links, "read and accept" steps,
+a required class on a team (scheduling warning), CSV export, reminders, a Classes card on a person's page,
+pastoral (staff-only) classes, a view for whoever assigned someone, and Mux signed playback.
+
+| Feature | Status | Server | Hub / app |
+|---|---|---|---|
+| Classes with steps of three kinds: **session** (date, optional make-up recording and test), **video** (a YouTube link) and **quiz** (multiple choice, 80% to pass, unlimited tries). Staff create, edit, reorder and archive; a step with history is retired, never deleted | Needs more testing | `classes.js`, `routes/classes.js` (migration 40) | `pages/classes.js` (Classes in the menu) |
+| Enrol people (staff, by people search), remove (soft; history kept), **class managers** named per class by staff (any role): they see that class's roster with states and scores and take attendance, nothing else | Needs more testing | `routes/classes.js` | `pages/classes.js` (Roster, People, Managers tabs) |
+| Roster grid (people × steps), attendance for a session (Here / Absent per person, "Mark everyone here"), mark finished by hand with a note, undo | Needs more testing | `routes/classes.js` | `pages/classes.js` |
+| **Make-up**: someone marked absent (or whose session date has passed without being marked here) sees "Watch the recording and take the test"; doing both finishes the step. They get one "make-up is ready" notice per session | Needs more testing | `routes/classes.js` | `member/classes.js` |
+| My classes (app More menu, shown once you're in a class): steps in order, YouTube player that reports progress (watched at 90%, skipping ahead doesn't count), quiz on one screen ("Passed!" or "Not quite — try again", with the question numbers to look at again) | Needs more testing | `routes/classes.js` | `member/classes.js` (`/app/#/classes`) |
+| Finishing every step records a completion and tells the person and the class's managers (notice kind `class`, can be muted) | Needs more testing | `routes/classes.js` | |
+
+**Setting up a class (staff).** Upload each recording to YouTube as **Unlisted** (not Public) and paste its address into the step.
+Unlisted videos stay out of searches, and class videos never enter the media library, so they never appear on Watch or in the podcast.
+But anyone who has the link can watch an Unlisted video, so don't use class videos for anything confidential.
+The quiz is the real proof for a make-up.
+
 ## Operations
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
@@ -121,6 +141,6 @@ YouTube-first. Videos come into the app on their own (no approval inbox); staff 
 
 ## Not built yet (see [roadmap.md](roadmap.md))
 Discipleship (growth pathway, mentors) · Small-group meetings with attendance, finder and join
-requests · Classes/training with watch-to-the-end and quizzes · Member directory and member tier ·
+requests · Classes later versions (expiry, join links, team requirements; see Classes above) · Member directory and member tier ·
 Adult direct messages · Church-wide email · SMS · Attendance trends · Recurring availability ·
 Swaps · Public website · Website embed for the Watch library · Multi-church (SaaS).

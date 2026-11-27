@@ -987,6 +987,88 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN home_layout TEXT;
   `,
+  // 40: Classes v1 (Life Group Training and the like). A class is an ordered list of steps: an
+  // in-person session (with a date, and an optional make-up recording plus test), a video (a
+  // YouTube link, ideally Unlisted) or a quiz. Staff enrol people; class managers (any account
+  // staff name) see the roster and mark attendance. Training history is never lost: classes and
+  // steps are archived, not deleted, and enrolments and completions are soft-removed.
+  `
+  CREATE TABLE classes (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,   -- NULL = church-wide
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE class_steps (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    sort INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL CHECK (kind IN ('session', 'video', 'quiz')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    starts_on TEXT,                                  -- session date, YYYY-MM-DD
+    video_id TEXT,                                   -- video step: the YouTube video id
+    video_sec INTEGER,                               -- its length, when YouTube told us
+    video_title TEXT NOT NULL DEFAULT '',
+    questions TEXT NOT NULL DEFAULT '[]',            -- quiz: [{id, text, choices[], correct:[i]}]
+    makeup_video_id TEXT,                            -- session make-up recording
+    makeup_video_sec INTEGER,
+    makeup_video_title TEXT NOT NULL DEFAULT '',
+    makeup_questions TEXT NOT NULL DEFAULT '[]',     -- session make-up test
+    archived INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX class_steps_class ON class_steps (class_id, sort);
+  CREATE TABLE class_managers (
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (class_id, user_id)
+  );
+  CREATE TABLE class_enrolments (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE RESTRICT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    enrolled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    enrolled_at TEXT NOT NULL DEFAULT (datetime('now')),
+    removed_at TEXT,                                 -- un-enrolling is soft
+    UNIQUE (class_id, person_id)
+  );
+  CREATE INDEX class_enrolments_person ON class_enrolments (person_id);
+  CREATE TABLE class_progress (
+    enrolment_id INTEGER NOT NULL REFERENCES class_enrolments(id) ON DELETE CASCADE,
+    step_id INTEGER NOT NULL REFERENCES class_steps(id) ON DELETE RESTRICT,
+    state TEXT NOT NULL DEFAULT 'started' CHECK (state IN ('started', 'done')),
+    method TEXT CHECK (method IN ('attended', 'absent', 'makeup', 'watched', 'passed', 'manual')),
+    position_sec INTEGER NOT NULL DEFAULT 0,         -- where the video was left
+    max_sec INTEGER NOT NULL DEFAULT 0,              -- furthest point we believe was watched
+    duration_sec INTEGER,                            -- length used when YouTube didn't tell us
+    watched INTEGER NOT NULL DEFAULT 0,              -- the video part is finished
+    passed INTEGER NOT NULL DEFAULT 0,               -- the quiz part is passed
+    score INTEGER,                                   -- best quiz score (percent); answers are not kept
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_ping_at TEXT,
+    makeup_notified_at TEXT,
+    done_at TEXT,
+    marked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    note TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (enrolment_id, step_id)
+  );
+  CREATE TABLE class_completions (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE RESTRICT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    completed_at TEXT NOT NULL,                      -- the church's date
+    method TEXT NOT NULL CHECK (method IN ('steps', 'manual')),
+    by_user INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    note TEXT NOT NULL DEFAULT '',
+    revoked_at TEXT,
+    revoked_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX class_completions_person ON class_completions (person_id, class_id);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
