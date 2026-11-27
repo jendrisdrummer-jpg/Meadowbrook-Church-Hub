@@ -330,7 +330,9 @@ test('linking a team leader with kids’ check-in ticked keeps the tick; merges 
   const p = addPerson(db, 'Tia', 'tia@gmail.com');
   db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(team, p);
   const u = addUser(db, 'tia@gmail.com');
-  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: p, role: 'volunteer', checkin: true })).status, 200);
+  // The campus list is checked even when linking (a team leader with no list would mean every campus).
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: p, role: 'volunteer', checkin: true })).status, 400);
+  assert.equal((await s.api('PATCH', `/users/${u}`, { person_id: p, role: 'volunteer', checkin: true, campus_ids: [1] })).status, 200);
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(u).role, 'leader');
   assert.equal((await s.api('GET', '/users?q=tia')).data.users.find((x) => x.id === u).checkin, true);
   // A volunteer account can hold the switch too (it is only a switch; check-in itself still needs a campus list).

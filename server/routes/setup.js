@@ -298,8 +298,9 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     if (b.attendance) checkAttendanceCampuses(req, campusList(campusIds));
-    // (Linking to a team leader raises the role afterwards, so a linked account is left to the fail-closed rule.)
-    if (b.checkin && !person) checkCheckinCampuses(req, role, campusList(campusIds));
+    // Checked against the role chosen here, linked or not: linking to a team leader can raise the role later,
+    // and a leader with no list means every campus.
+    if (b.checkin) checkCheckinCampuses(req, role, campusList(campusIds));
     const info = db.prepare("INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance, checkin, app_editor, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'device')")
       .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0, b.checkin ? 1 : 0, b.app_editor ? 1 : 0);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}${b.app_editor ? ' + edit the app' : ''}`);
@@ -375,7 +376,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (willAttend && (b.attendance === true && !u.attendance || b.campus_ids !== undefined)) checkAttendanceCampuses(req, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
     // Kids' check-in: checked against the role and campus list the account will have.
     const willCheckin = b.checkin !== undefined ? b.checkin : Boolean(u.checkin);
-    if (willCheckin && !(b.person_id != null) && (b.checkin === true && !u.checkin || b.campus_ids !== undefined || b.role !== undefined)) checkCheckinCampuses(req, b.role ?? u.role, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
+    if (willCheckin && (b.checkin === true && !u.checkin || b.campus_ids !== undefined || b.role !== undefined)) checkCheckinCampuses(req, b.role ?? u.role, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
     updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance', 'checkin', 'app_editor']);
     if (b.checkin !== undefined && b.checkin !== Boolean(u.checkin)) audit(db, req, 'user.checkin', { user_id: u.id, granted: b.checkin });
     if (b.person_id !== undefined && b.person_id !== u.person_id) {

@@ -17,7 +17,11 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I
 const makeCode = () => Array.from(crypto.randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join('');
 
 // What a paired station may do: check-in itself, list campuses, and add a new guest family.
-const stationMay = (req) => req.path.startsWith('/checkin/') || req.path === '/campuses' || (req.method === 'POST' && req.path === '/people');
+// Express matches routes ignoring case and a trailing slash, so compare the same way.
+const stationMay = (req) => {
+  const p = req.path.toLowerCase().replace(/\/+$/, '');
+  return p.startsWith('/checkin/') || p === '/campuses' || (req.method === 'POST' && p === '/people');
+};
 
 // For those requests with no one signed in: a paired station acts as a check-in leader limited
 // to its own campus. Everything else stays signed out.

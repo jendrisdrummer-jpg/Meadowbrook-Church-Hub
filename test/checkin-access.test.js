@@ -112,6 +112,16 @@ test('granting the switch: any admin, audited; a volunteer needs a campus list; 
   assert.equal(db.prepare('SELECT checkin FROM users WHERE id = ?').get(v).checkin, 0);
 });
 
+test('a linked volunteer still needs a campus list for the switch (the dialog always sends person_id)', async () => {
+  const pid = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id) VALUES ('Lin', 'Ked', 1)").run().lastInsertRowid);
+  const v = Number(db.prepare("INSERT INTO users (email, role, person_id) VALUES ('linked@mb.org', 'volunteer', ?)").run(pid).lastInsertRowid);
+  assert.equal((await api('admin', 'PATCH', `/users/${v}`, { checkin: true, campus_ids: 'all', person_id: pid, role: 'volunteer' })).status, 400);
+  assert.equal(db.prepare('SELECT checkin FROM users WHERE id = ?').get(v).checkin, 0);
+  const pid2 = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id) VALUES ('Lin', 'Two', 1)").run().lastInsertRowid);
+  assert.equal((await api('admin', 'POST', '/users', { email: 'linked2@mb.org', role: 'volunteer', checkin: true, person_id: pid2 })).status, 400);
+  assert.equal((await api('admin', 'PATCH', `/users/${v}`, { checkin: true, campus_ids: [1], person_id: pid, role: 'volunteer' })).status, 200);
+});
+
 test('the station token wins over a hub session', async () => {
   // An admin signed in on a kiosk: with the token, the request is the station's (its campus only).
   const both = { cookie: cookies.admin, 'x-station': token };
@@ -121,6 +131,9 @@ test('the station token wins over a hub session', async () => {
   assert.equal((await call(both, 'GET', '/checkin/station')).status, 200);
   // A removed or unknown token is refused even with a good session.
   assert.equal((await call({ cookie: cookies.admin, 'x-station': 'nope' }, 'GET', '/checkin/roster?campus_id=1')).status, 401);
+  // Odd capitals or a trailing slash still reach the station check (Express ignores them when routing).
+  assert.equal((await call(both, 'GET', '/CHECKIN/roster?campus_id=2')).status, 403);
+  assert.equal((await call({ cookie: cookies.admin, 'x-station': 'nope' }, 'GET', '/Checkin/roster/?campus_id=1')).status, 401);
   // Without the token the session works as before.
   assert.equal((await call({ cookie: cookies.admin }, 'GET', '/checkin/roster?campus_id=2')).status, 200);
 });
@@ -147,7 +160,7 @@ test('the roster is smaller: no photos, no adult birthdates or medical notes, pi
 });
 
 test('the check-in page has its own headers: it cannot be framed, and loads only its own files', async () => {
-  for (const url of ['/checkin', '/js/checkin.js', '/css/checkin.css']) {
+  for (const url of ['/checkin', '/checkin/', '/Checkin', '/js/checkin.js', '/css/checkin.css']) {
     const res = await fetch(`${base}${url}`);
     assert.equal(res.status, 200, url);
     assert.equal(res.headers.get('x-frame-options'), 'DENY', url);
