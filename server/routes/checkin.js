@@ -9,7 +9,7 @@ import { getSetting, setSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit, HttpError } from '../http.js';
 import { legalHold, saveHold, HOLD_MSG, HOLD_COOLING_DAYS } from '../history.js';
 import { notify } from '../notify.js';
-import { roomFor, securityCode, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
+import { roomFor, pickupCode, normalizeCode, level1Text, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
 import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-events.js';
 
 // Check-in safety switches live in one settings key with their own admin endpoint, so they never
@@ -17,6 +17,10 @@ import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-even
 const SAFETY_DEFAULTS = { require_current_app: false };
 const SAFETY_TYPES = { require_current_app: 'boolean' };
 const CODE_MISS_ROWS = 5;
+const CLASH_ROWS = 20;
+// The first check-in app that knows the medical levels. An older iPad is sent the Level 1 safety line folded into
+// `allergies` (so its label still says EPI: YES) and no `medical_notes`, which are now fetched on tap.
+const LEVELS_APP_VERSION = 3;
 const REFUSED_ROWS = 20;
 export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
@@ -33,6 +37,8 @@ export default function checkinRoutes(db) {
     if (!canCheckin(req.user)) return res.status(403).json({ error: 'Kids’ check-in is for staff and people an admin has authorised. Ask an admin if you need it.' });
     next();
   };
+
+  const olderApp = (req) => Boolean(req.user?.station) && !(Number(appVersion(req)) >= LEVELS_APP_VERSION);
 
   function campus(req, id) {
     const c = db.prepare('SELECT * FROM campuses WHERE id = ?').get(int(id, 'Campus'));
@@ -71,14 +77,17 @@ export default function checkinRoutes(db) {
     // staff assign a campus (People → household → edit), the family appears only at that campus.
     // A family visiting another campus is looked up online or added as a guest.
     const households = db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
-    // Only what the check-in screen uses: no photos, and no adult's birthdate or medical notes. Children keep
-    // their birthdate (rooms are by age), allergies and medical notes until the codes-and-medical release.
+    // Only what the check-in screen uses: no photos, and no adult's birthdate or medical details. Children keep
+    // their birthdate (rooms are by age) and Level 1 (allergen words, EpiPen, one-line action). The longer medical
+    // note (Level 2) is never in the roster: it is fetched on tap, online, and logged. Care notes (Level 3) never leave the Hub.
     const people = db.prepare(`SELECT id, household_id, household_role, first_name, last_name, nickname, birthdate, grade,
-        allergies, medical_notes, phone FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
+        allergies, allergy_epi, allergy_action, phone FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
+    const older = olderApp(req);
     const byHousehold = new Map(households.map((h) => [h.id, { ...h, members: [], pickups: [] }]));
     for (const p of people) {
       if (!byHousehold.has(p.household_id)) continue;
-      if (p.household_role !== 'child') { p.allergies = null; p.medical_notes = null; p.birthdate = null; }
+      if (p.household_role !== 'child') { p.allergies = null; p.allergy_epi = 0; p.allergy_action = ''; p.birthdate = null; }
+      else if (older) p.allergies = level1Text(p);
       byHousehold.get(p.household_id).members.push(p);
     }
     // Pickup people for this campus's families only (one query per household would be slow; the list is small).
@@ -116,6 +125,10 @@ export default function checkinRoutes(db) {
     // Children deleted on the server since the tablet's roster was downloaded are skipped, not fatal,
     // so one stale record can't block a tablet's whole offline queue.
     const skips = { other_campus: [], not_found: [] };
+    const clashes = [];
+    const openWith = db.prepare(`SELECT ci.id, ci.person_id, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id
+      WHERE ci.campus_id = ? AND ci.day = ? AND ci.security_code = ? AND ci.id != ? AND ci.checked_out_at IS NULL AND ci.voided_at IS NULL`);
+    const familyOf = (x) => x.household_id ?? `p${x.person_id}`;
     const out = tx(db, () => {
     const done = records.map((rec) => {
       const id = str(rec.id, 64);
@@ -134,16 +147,29 @@ export default function checkinRoutes(db) {
       if (roomId && !rooms.some((rm) => rm.id === roomId)) roomId = null;
       if (!roomId && kind === 'kid') roomId = roomFor(person, rooms, day)?.id ?? null;
       const serviceId = int(rec.service_id);
+      // The iPad makes the code (its station letter plus four characters, or the older four). One that arrives with no
+      // code is given one here, in the same shape, that no open check-in today already uses.
+      const code = normalizeCode(str(rec.security_code, 16)).slice(0, 8)
+        || pickupCode({ letter: req.user.station?.station_letter, taken: db.prepare('SELECT security_code FROM checkins WHERE campus_id = ? AND day = ?').all(c.id, day).map((x) => x.security_code) });
       const info = ins.run(id, c.id, serviceId && db.prepare('SELECT 1 FROM services WHERE id = ? AND campus_id = ?').get(serviceId, c.id) ? serviceId : null,
-        person.id, roomId, kind, str(rec.security_code, 8).toUpperCase() || securityCode(), str(rec.station, 60), day, at.toISOString());
+        person.id, roomId, kind, code, str(rec.station, 60), day, at.toISOString());
       const saved = db.prepare('SELECT id, campus_id, service_id, person_id, room_id, kind, security_code, station, day, checked_in_at, checked_out_at, checked_out_by FROM checkins WHERE id = ? AND campus_id = ? AND voided_at IS NULL').get(id, c.id);
       // Only a new row is recorded; re-sending a batch after a dropped connection writes nothing.
       if (info.changes === 1) {
+        // The same code open for a different family at this campus today means a parent's tag could find someone else's
+        // child. The label is already printed, so it can't be undone here: it is flagged for staff, and check-out shows
+        // both families and makes the volunteer choose (a code never releases two families together).
+        const others = openWith.all(c.id, day, saved.security_code, id).filter((o) => familyOf(o) !== familyOf({ household_id: person.household_id, person_id: person.id }));
+        if (others.length) clashes.push({ code: saved.security_code, checkin_id: id, person_id: person.id, household_id: person.household_id, others: others.map((o) => o.id) });
         recordEvent(db, req, { action: 'checkin', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, code: saved.security_code,
           clientAt: rec.checked_in_at, detail: { kind, room_id: saved.room_id, service_id: saved.service_id, station_label: str(rec.station, 60) } });
       }
       return saved;
     }).filter(Boolean);
+    for (const x of clashes.slice(0, CLASH_ROWS)) {
+      recordEvent(db, req, { action: 'checkin.code_clash', campusId: c.id, checkinId: x.checkin_id, personId: x.person_id, householdId: x.household_id, code: x.code,
+        detail: { open_checkin_ids: x.others.slice(0, 20), legacy: x.code.length < 5, more_clashes: clashes.length > CLASH_ROWS ? clashes.length - CLASH_ROWS : 0 } });
+    }
     // One summary row per reason per request, so a stale queue can't flood the record.
     for (const [reason, list] of Object.entries(skips)) {
       if (list.length) recordEvent(db, req, { action: 'checkin.skipped', campusId: c.id, personId: list[0], detail: { reason, count: list.length, person_ids: list.slice(0, 20) } });
@@ -160,18 +186,22 @@ export default function checkinRoutes(db) {
     const args = [c.id, day];
     let extra = '';
     if (req.query.room_id) { extra = ' AND ci.room_id = ?'; args.push(int(req.query.room_id)); }
-    // Children's allergies and medical notes are for kids' safety; an adult's (a volunteer or a
-    // parent checked in) are never sent.
+    // A child's Level 1 safety line (allergen words, EpiPen, one-line action) is sent; an adult's (a volunteer or a
+    // parent checked in) never is, and nobody's longer medical note is (it is fetched on tap).
     res.set('Cache-Control', 'no-store');
-    res.json(db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
+    const older = olderApp(req);
+    const rows = db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
         ci.checked_in_at, ci.checked_out_at, ci.checked_out_by, p.first_name, p.last_name, p.nickname,
         CASE WHEN p.household_role = 'child' THEN p.allergies END allergies,
-        CASE WHEN p.household_role = 'child' THEN p.medical_notes END medical_notes, CASE WHEN p.household_role = 'child' THEN p.birthdate END birthdate, p.grade,
+        CASE WHEN p.household_role = 'child' THEN p.allergy_epi ELSE 0 END allergy_epi,
+        CASE WHEN p.household_role = 'child' THEN p.allergy_action ELSE '' END allergy_action,
+        CASE WHEN p.household_role = 'child' THEN p.birthdate END birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
       WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
-      ORDER BY rm.sort, rm.name, p.first_name`).all(...args));
+      ORDER BY rm.sort, rm.name, p.first_name`).all(...args);
+    res.json(older ? rows.map((x) => ({ ...x, allergies: x.allergies == null ? null : level1Text(x) })) : rows);
   });
 
   // Check out. Three shapes:
@@ -195,7 +225,7 @@ export default function checkinRoutes(db) {
     const by = (station ? station.name : req.user.name) || '';
     const actor = { device: station ? station.id : null, user: station ? null : req.user.id ?? null };
     const path = !mode && b.security_code ? 'code' : 'ids';
-    const code = path === 'code' ? str(b.security_code, 8).toUpperCase() : '';
+    const code = path === 'code' ? normalizeCode(str(b.security_code, 16)).slice(0, 8) : '';
     const claimedHousehold = mode === 'request' ? int(b.household_id, 'Family') : null;
     const given = Array.isArray(b.ids) ? b.ids : [];
     if (given.length > 500) throw bad('Too many at once.');
@@ -424,6 +454,60 @@ export default function checkinRoutes(db) {
       recordEvent(db, req, { action: 'safety.settings', detail: { changed, require_current_app: to.require_current_app } });
     });
     res.json(safetyView());
+  });
+
+  // ---------------------------------------------------------------- medical details, in levels
+  // Level 1 (allergen words, EpiPen yes/no, one-line action) rides on the roster and the label. Level 2 (the longer
+  // medical note) is only ever sent here, on tap, to someone with check-in access at that campus, for a child checked in
+  // there today, and every view is written to the check-in record. Level 3 (care notes) never leaves the Hub
+  // (see people.js). An iPad that is offline can't ask, so it shows "needs a connection" and the Level 1 line.
+  //
+  // Staff review list: children whose allergy or medical details haven't been sorted into the levels yet, with a count
+  // per campus. Staff only (never an iPad). Sorting a child is PATCH /people/:id with { medical_sorted: true }.
+  r.get('/checkin/medical/review', requireRole('staff'), (req, res) => {
+    // Both the child's own campus and the family's campus must be one of the viewer's (like the check-in routes).
+    const pf = campusFilter(req.user, 'p.campus_id');
+    const hf = campusFilter(req.user, 'h.campus_id');
+    const cf = { sql: `${pf.sql} AND ${hf.sql}`, args: [...pf.args, ...hf.args] };
+    const unsorted = `p.archived = 0 AND p.household_role = 'child' AND p.medical_sorted_at IS NULL
+      AND (TRIM(COALESCE(p.allergies, '')) != '' OR TRIM(COALESCE(p.medical_notes, '')) != '' OR p.allergy_epi = 1 OR TRIM(COALESCE(p.allergy_action, '')) != '')`;
+    const counts = db.prepare(`SELECT p.campus_id, COUNT(*) remaining FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE ${unsorted} AND ${cf.sql} GROUP BY p.campus_id`).all(...cf.args);
+    const args = [...cf.args];
+    let extra = '';
+    if (req.query.campus_id !== undefined && req.query.campus_id !== '') {
+      const id = int(req.query.campus_id, 'Campus');
+      if (!canCampus(req.user, id)) throw forbidden();
+      extra = ' AND p.campus_id = ?';
+      args.push(id);
+    }
+    const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.campus_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes,
+        EXISTS (SELECT 1 FROM person_care_notes n WHERE n.person_id = p.id AND TRIM(n.note) != '') has_care_notes
+      FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE ${unsorted} AND ${cf.sql}${extra} ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 200`).all(...args);
+    // The list carries the longer medical notes, so opening it is audited (the count, never the text).
+    audit(db, req, 'checkin.medical.review', { campus_id: extra ? args.at(-1) : null, count: rows.length });
+    res.set('Cache-Control', 'no-store');
+    res.json({ remaining: counts.reduce((n, x) => n + x.remaining, 0), by_campus: counts, rows });
+  });
+
+  r.get('/checkin/medical/:personId', requireCheckin, currentApp, (req, res) => {
+    const c = campus(req, req.query.campus_id);
+    const day = localNow(c.timezone).date;
+    const personId = int(req.params.personId, 'Child');
+    // After pickup the note is for staff only (iPads and switch holders only need it while the child is in a room).
+    const staffReader = !req.user.station && rank(req.user.role) >= rank('staff');
+    const row = db.prepare(`SELECT ci.id checkin_id, p.id person_id, p.household_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes
+      FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id
+      WHERE ci.campus_id = ? AND ci.day = ? AND ci.person_id = ? AND ci.voided_at IS NULL AND p.household_role = 'child'
+        AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)
+        AND (p.household_id IS NOT NULL OR p.campus_id IS NULL OR p.campus_id = ci.campus_id)
+        AND (ci.checked_out_at IS NULL OR ?) ORDER BY ci.checked_in_at DESC LIMIT 1`).get(c.id, day, personId, staffReader ? 1 : 0);
+    if (!row) throw notFound('A child checked in here today');
+    // Flag a read by whoever made the check-in, so "checked in, read, voided" stands out in the record.
+    const who = req.user.station ? ['device_id', req.user.station.id] : ['user_id', req.user.id];
+    const selfCheckin = Boolean(db.prepare(`SELECT 1 FROM checkin_events WHERE checkin_id = ? AND action = 'checkin' AND ${who[0]} = ?`).get(row.checkin_id, who[1]));
+    recordEvent(db, req, { action: 'medical.view', campusId: c.id, checkinId: row.checkin_id, personId: row.person_id, householdId: row.household_id, detail: { level: 2, self_checkin: selfCheckin } });
+    res.set('Cache-Control', 'no-store');
+    res.json({ person_id: row.person_id, allergies: row.allergies || '', allergy_epi: row.allergy_epi, allergy_action: row.allergy_action || '', medical_notes: row.medical_notes || '' });
   });
 
   // ---------------------------------------------------------------- attendance

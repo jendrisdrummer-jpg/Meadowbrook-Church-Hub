@@ -744,7 +744,7 @@ test('leaders see contact details but not health information, private notes or p
   }
   assert.equal((await api('vol', 'GET', `/people/${child.id}`)).status, 403);
 
-  // Check-in keeps children's allergies and medical notes, but never sends an adult's.
+  // Check-in keeps children's allergies (Level 1) but never the longer medical note (Level 2, fetched on tap) or an adult's.
   // (Lee needs check-in authorisation first; see the check-in access test.)
   await api('admin', 'PATCH', `/users/${leeUser.id}`, { checkin: true });
   const roster = (await api('lee', 'GET', '/checkin/roster?campus_id=1')).data;
@@ -752,9 +752,9 @@ test('leaders see contact details but not health information, private notes or p
   const kid = family.members.find((m) => m.id === child.id);
   const adult = family.members.find((m) => m.id === parent.id);
   assert.equal(kid.allergies, 'CHILD-ALLERGY-CANARY');
-  assert.equal(kid.medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(kid.medical_notes, undefined, 'the longer medical note is never in the roster');
   assert.equal(adult.allergies, null);
-  assert.equal(adult.medical_notes, null);
+  assert.equal(adult.medical_notes, undefined);
   assert.ok(!JSON.stringify(roster).includes('PARENT-'), 'no adult health information anywhere in the roster');
   assert.ok(!JSON.stringify(roster).includes('PASTORAL-CANARY'));
 
@@ -764,7 +764,7 @@ test('leaders see contact details but not health information, private notes or p
   ins.run('privacy-kid', child.id, 'kid', today);
   ins.run('privacy-adult', parent.id, 'volunteer', today);
   const active = (await api('lee', 'GET', `/checkin/active?campus_id=1&day=${today}`)).data;
-  assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, 'CHILD-MEDICAL-CANARY');
+  assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, undefined);
   assert.equal(active.find((c) => c.id === 'privacy-adult').allergies, null);
   assert.ok(!JSON.stringify(active).includes('PARENT-'), 'no adult health information in the active list');
   db.prepare("UPDATE checkins SET voided_at = datetime('now'), void_reason = 'test fixture' WHERE id LIKE 'privacy-%'").run(); // check-ins can't be deleted

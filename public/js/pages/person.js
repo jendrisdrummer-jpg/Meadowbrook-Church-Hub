@@ -49,8 +49,12 @@ export default async function person(el, id) {
               ${p.grade != null ? html`<span class="muted small">${gradeLabel(p.grade)}</span>` : ''}
             </div>
           </div>
-          ${p.allergies ? html`<div class="alert bad" style="margin-top:12px"><span class="allergy">Allergies:</span> ${p.allergies}</div>` : ''}
+          ${p.allergy_epi ? html`<div class="alert bad" style="margin-top:12px"><b>EPI: YES</b>${p.allergy_action ? html` · ${p.allergy_action}` : ''}</div>` : ''}
+          ${p.allergies ? html`<div class="alert bad" style="margin-top:${p.allergy_epi ? 8 : 12}px"><span class="allergy">Allergies:</span> ${p.allergies}</div>` : ''}
+          ${!p.allergy_epi && p.allergy_action ? html`<div class="alert" style="margin-top:8px"><b>What to do:</b> ${p.allergy_action}</div>` : ''}
           ${p.medical_notes ? html`<div class="alert" style="margin-top:8px"><b>Medical:</b> ${p.medical_notes}</div>` : ''}
+          ${staff && p.household_role === 'child' && (p.allergies || p.medical_notes || p.allergy_epi || p.allergy_action) && !p.medical_sorted_at
+            ? html`<p class="small" style="margin:8px 0 0"><span class="pill warn">Not sorted yet</span> Edit this child to sort their allergy and medical details for check-in.</p>` : ''}
           ${p.notes ? html`<p class="muted small" style="white-space:pre-wrap">${p.notes}</p>` : ''}
           ${p.account || can('admin') ? html`<div class="row small" style="margin-top:10px">
             <span class="muted">${p.account
@@ -60,6 +64,9 @@ export default async function person(el, id) {
             ${can('admin') && (p.account ? p.account.editable !== false : p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
         </div>
 
+        ${staff && p.household_role === 'child' ? html`<div class="card" data-care-card><div class="card-head"><h2>Private care notes</h2><button class="btn small" data-care-show>Show</button></div>
+          <p class="muted small" style="margin:0">For private matters that aren’t needed to look after this child in a room. Office only: never sent to an iPad or printed. Opening them is recorded.</p>
+          <div data-care-body></div></div>` : ''}
         <div class="card">
           <div class="card-head"><h2>${h ? familyName(h.name) : 'Family'}</h2>
             ${staff ? html`${h ? html`<button class="btn small" data-edit-household>${icon('edit')}</button>` : ''}
@@ -118,6 +125,19 @@ export default async function person(el, id) {
     if (!dup) return;
     if (!(await confirm('Merge records?', `${displayName(dup)}’s history, teams and schedule will move to ${displayName(p)}, and the duplicate will be archived.`, 'Merge'))) return;
     try { await post(`/people/${p.id}/merge`, { duplicate_id: dup.id }); toast('Merged.'); reload(); } catch (e) { fail(e); }
+  });
+
+  el.querySelector('[data-care-show]')?.addEventListener('click', async (e) => {
+    const body = el.querySelector('[data-care-body]');
+    let n;
+    try { n = await get(`/people/${p.id}/care-notes`); } catch (err) { fail(err); return; }
+    e.target.remove();
+    mount(body, html`<label class="field" style="margin-top:10px">Care notes<textarea name="note" rows="5" maxlength="5000">${n.note}</textarea></label>
+      <div class="row"><button class="btn primary small" data-care-save>Save</button>
+      <span class="muted small">${n.updated_at ? `Last changed ${fmtUtcDate(n.updated_at)}${n.updated_by_name ? ` by ${n.updated_by_name}` : ''}` : 'Nothing written yet'}</span></div>`);
+    body.querySelector('[data-care-save]').onclick = async () => {
+      try { await api('PUT', `/people/${p.id}/care-notes`, { note: body.querySelector('[name=note]').value }); toast('Saved.'); } catch (err) { fail(err); }
+    };
   });
 
   el.querySelector('[data-serves]')?.addEventListener('click', async () => {
@@ -268,8 +288,11 @@ export async function personDialog(p = {}) {
           <label class="field">Gender<select name="gender">${options([{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }], p.gender, { blank: '—' })}</select></label>
           <label class="field">Adult or child<select name="household_role">${options([{ value: 'adult', label: 'Adult' }, { value: 'child', label: 'Child' }], p.household_role || (editing ? 'adult' : defaultRole()))}</select></label>
           <label class="field">School grade<select name="grade">${options(GRADES, p.grade, { blank: '—' })}</select></label>
-          <label class="field wide">Allergies (printed on kids’ name tags)<input type="text" name="allergies" value="${p.allergies || ''}"></label>
-          <label class="field wide">Medical notes (shown to kids’ leaders)<input type="text" name="medical_notes" value="${p.medical_notes || ''}"></label>
+          <label class="field wide">Allergies: the words printed on kids’ name tags<input type="text" name="allergies" value="${p.allergies || ''}"></label>
+          <label class="check wide"><input type="checkbox" name="allergy_epi" ${p.allergy_epi ? 'checked' : ''}> Carries an EpiPen (the tag says “EPI: YES”)</label>
+          <label class="field wide">What to do, in one line (printed on the tag)<input type="text" name="allergy_action" maxlength="120" value="${p.allergy_action || ''}"></label>
+          <label class="field wide">Medical notes: shown to kids’ leaders when they tap, never printed<input type="text" name="medical_notes" value="${p.medical_notes || ''}"></label>
+          ${editing && p.household_role === 'child' ? html`<label class="check wide"><input type="checkbox" name="medical_sorted" ${p.medical_sorted_at ? 'checked' : ''}> Sorted: allergens and EpiPen above, private matters in care notes, the rest left as the medical note</label>` : ''}
           <label class="field wide">Notes<textarea name="notes">${p.notes || ''}</textarea></label>
         </div>
       </details>
@@ -308,6 +331,8 @@ export async function personDialog(p = {}) {
       const body = formData(f);
       const wantsAnother = another;
       another = false;
+      // Only send "sorted" when the box was changed; any other change to these details un-sorts the child on the server.
+      if (editing && 'medical_sorted' in body && body.medical_sorted === Boolean(p.medical_sorted_at)) delete body.medical_sorted;
       if (!editing) { if (fam) body.household_id = fam.id; else body.new_household = true; }
       const create = async (extra = {}) => {
         const r = await post('/people', { ...body, ...extra });
@@ -329,7 +354,8 @@ export async function personDialog(p = {}) {
       // Stay open for the next person: they join the same family (the one just started, if new).
       toast(`Added ${displayName(saved)}. Add the next person.`);
       fam = { id: saved.household_id, name: `${saved.last_name || saved.first_name} family`, hasAdult: saved.household_role === 'adult' ? true : (fam ? fam.hasAdult : false) };
-      for (const n of ['first_name', 'email', 'phone', 'nickname', 'birthdate', 'gender', 'grade', 'allergies', 'medical_notes', 'notes']) f.elements[n].value = '';
+      for (const n of ['first_name', 'email', 'phone', 'nickname', 'birthdate', 'gender', 'grade', 'allergies', 'allergy_action', 'medical_notes', 'notes']) f.elements[n].value = '';
+      f.elements.allergy_epi.checked = false;
       roleTouched = false;
       f.elements.household_role.value = defaultRole();
       f.elements.household_role.dispatchEvent(new Event('change'));

@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
-import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
+import { roomFor, pickupCode, normalizeCode, showCode, labelSafety, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -16,11 +16,13 @@ const KEY = {
 };
 
 const LABELS = {
-  'brother-62x29': { w: '62mm', h: '29mm', pad: '1.5mm 2.5mm', name: '20pt', small: '8pt', code: '14pt' },
-  'brother-62x100': { w: '62mm', h: '100mm', pad: '4mm', name: '30pt', small: '11pt', code: '22pt' },
-  'dymo-30252': { w: '3.5in', h: '1.125in', pad: '0.06in 0.12in', name: '20pt', small: '8pt', code: '14pt' },
-  'dymo-30256': { w: '4in', h: '2.3125in', pad: '0.12in', name: '30pt', small: '11pt', code: '22pt' },
-  letter: { w: '3.5in', h: '2in', pad: '0.15in', name: '26pt', small: '10pt', code: '18pt', page: 'letter' },
+  // `fit` is how many characters of the safety line fit on one line; a longer one prints "SEE ROOM LEADER" instead of being cut short.
+  // `nameFit` is how many characters of name fit at full size (a longer name is shrunk, never cut); `compact` is a small tag with one joined safety strip.
+  'brother-62x29': { w: '62mm', h: '29mm', pad: '1.5mm 2.5mm', name: '20pt', small: '8pt', code: '14pt', fit: 30, nameFit: 10, compact: true },
+  'brother-62x100': { w: '62mm', h: '100mm', pad: '4mm', name: '30pt', small: '11pt', code: '22pt', fit: 70, nameFit: 8 },
+  'dymo-30252': { w: '3.5in', h: '1.125in', pad: '0.06in 0.12in', name: '20pt', small: '8pt', code: '14pt', fit: 36, nameFit: 14, compact: true },
+  'dymo-30256': { w: '4in', h: '2.3125in', pad: '0.12in', name: '30pt', small: '11pt', code: '22pt', fit: 60, nameFit: 12 },
+  letter: { w: '3.5in', h: '2in', pad: '0.15in', name: '26pt', small: '10pt', code: '18pt', page: 'letter', fit: 50, nameFit: 12 },
 };
 
 const store = {
@@ -58,7 +60,7 @@ async function boot() {
   if (state.token) {
     try {
       const s = await call('GET', '/checkin/station');
-      state.station = { campusId: s.campusId, name: s.name, print: s.print, paired: true };
+      state.station = { campusId: s.campusId, name: s.name, print: s.print, paired: true, stationLetter: s.stationLetter || null };
       store.set(KEY.station, state.station);
     } catch (e) {
       if (!state.station) { mount($main, html`<div class="alert bad">Can’t reach the church right now. Connect to the internet and reload.</div>`); return; }
@@ -96,6 +98,7 @@ async function refreshRoster() {
     const waiting = new Map(loadOutbox().flatMap((e) => e.ids.map((id) => [id, e.at])));
     for (const a of active) {
       const merged = { ...byId.get(a.id), ...a, synced: true };
+      delete merged.medical_notes; // an earlier check-in kept the longer medical note here; it is only fetched on tap now
       if (waiting.has(a.id)) merged.checked_out_at = byId.get(a.id)?.checked_out_at || waiting.get(a.id) || new Date().toISOString();
       byId.set(a.id, merged);
     }
@@ -170,7 +173,7 @@ async function pairScreen() {
         clearInterval(timer);
         state.token = r.token;
         store.set(KEY.token, r.token);
-        store.set(KEY.station, { campusId: r.station.campusId, name: r.station.name, print: r.station.print, paired: true });
+        store.set(KEY.station, { campusId: r.station.campusId, name: r.station.name, print: r.station.print, paired: true, stationLetter: r.station.stationLetter || null });
         mount($main, html`<div class="k-pair"><h1>All set!</h1><p>This is now <b>${r.station.name}</b> at ${r.station.campusName}.</p></div>`);
         setTimeout(() => location.reload(), 1200);
       } catch (err) {
@@ -220,7 +223,7 @@ async function setup() {
 function drawHeader() {
   const c = state.roster.campus;
   document.querySelector('[data-church]').textContent = state.roster.church_name || 'Kids Check-in';
-  document.querySelector('[data-where]').textContent = `${c.name} · ${state.station.name}`;
+  document.querySelector('[data-where]').textContent = `${c.name} · ${state.station.name}${state.station.stationLetter ? ` · codes start with ${state.station.stationLetter}` : ''}`;
   document.title = `Check-in · ${c.name}`;
   drawStatus();
 }
@@ -290,6 +293,9 @@ function currentService() {
   }) || list[list.length - 1] || null;
 }
 
+// Level 1, always shown: the allergen words, an EpiPen yes/no and the one-line action.
+const safetyLine = (k, br = true) => (k.allergies || hasEpi(k) || k.allergy_action ? html`${br ? html`<br>` : ''}${hasEpi(k) ? html`<span class="allergy">EPI: YES</span> ` : ''}${k.allergies ? html`<span class="allergy">⚠ ${k.allergies}</span>` : ''}${k.allergy_action ? html` <span class="small">${k.allergy_action}</span>` : ''}` : '');
+
 function drawFamily(h) {
   const kids = h.members.filter((m) => m.household_role === 'child');
   const adults = h.members.filter((m) => m.household_role !== 'child');
@@ -303,7 +309,7 @@ function drawFamily(h) {
       return html`<label class="k-kid ${done ? 'done' : 'on'}">
         <input type="checkbox" data-kid="${k.id}" ${done ? '' : 'checked'}>${avatar(k)}
         <span class="info"><b>${displayName(k)}</b> <span class="muted">${ageLabel(k.birthdate, day())}${k.grade != null ? ` · ${gradeLabel(k.grade)}` : ''}</span>
-          ${k.allergies ? html`<br><span class="allergy">⚠ ${k.allergies}</span>` : ''}
+          ${safetyLine(k)}
           ${done ? html`<br><span class="muted">Already checked in</span>` : ''}</span>
         <span class="room ${room ? '' : 'none'}">${room ? room.name : 'No room fits'}</span>
         ${state.roster.rooms.length > 1 ? html`<select data-room="${k.id}" style="width:auto" aria-label="Room">${options(state.roster.rooms.map((r) => ({ value: r.id, label: r.name })), room?.id, { blank: 'Room…' })}</select>` : ''}
@@ -336,7 +342,8 @@ function drawFamily(h) {
 function checkIn(h, chosen, serviceId) {
   // One pickup code per family per check-in, so parents carry a single tag.
   const existing = todays().find((c) => c.household_id === h.id && !c.checked_out_at)?.security_code;
-  const code = existing || securityCode(() => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32);
+  // A new code is the station's letter plus four characters, and never one already used today on this iPad's list.
+  const code = existing || pickupCode({ letter: state.station.stationLetter, taken: new Set(todays().map((c) => c.security_code)), random: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32 });
   const at = new Date().toISOString();
   const records = chosen.map(({ kid, room }) => ({
     id: crypto.randomUUID(), person_id: kid.id, room_id: room?.id ?? null, service_id: serviceId,
@@ -345,14 +352,14 @@ function checkIn(h, chosen, serviceId) {
   store.set(KEY.queue, [...store.get(KEY.queue, []), ...records]);
   saveToday([...todays(), ...records.map((r, i) => ({
     ...r, household_id: h.id, first_name: chosen[i].kid.first_name, last_name: chosen[i].kid.last_name, nickname: chosen[i].kid.nickname,
-    allergies: chosen[i].kid.allergies, medical_notes: chosen[i].kid.medical_notes, room_name: chosen[i].room?.name ?? null, synced: false,
+    allergies: chosen[i].kid.allergies, allergy_epi: chosen[i].kid.allergy_epi, allergy_action: chosen[i].kid.allergy_action, room_name: chosen[i].room?.name ?? null, synced: false,
   }))]);
   drawStatus();
   sync();
   if (state.station.print) printLabels(chosen, code, at);
   mount($main, html`<div class="card" style="text-align:center;max-width:520px;margin:30px auto">
     <h1>${chosen.map((c) => c.kid.nickname || c.kid.first_name).join(' & ')} ${chosen.length > 1 ? 'are' : 'is'} checked in</h1>
-    <p class="muted">Pickup code</p><div class="k-code">${code}</div>
+    <p class="muted">Pickup code</p><div class="k-code" aria-label="${code.split('').join(' ')}">${showCode(code)}</div>
     ${chosen.map((c) => html`<div>${c.kid.nickname || c.kid.first_name}: <b>${c.room?.name || 'room to be assigned'}</b></div>`)}
     <div class="row" style="justify-content:center;margin-top:20px">
       ${state.station.print ? html`<button class="btn k-big" data-reprint>Print again</button>` : ''}
@@ -412,9 +419,10 @@ async function addChild(h) {
       <label class="field">First name<input type="text" name="first_name" required></label>
       <label class="field">Last name<input type="text" name="last_name" value="${h.members[0]?.last_name || ''}"></label>
       <label class="field">Birthdate<input type="date" name="birthdate" required></label>
-      <label class="field wide">Allergies or medical needs<input type="text" name="allergies" placeholder="None"></label></div>`,
+      <label class="field wide">Allergies<input type="text" name="allergies" placeholder="None"></label>
+      <label class="check wide"><input type="checkbox" name="allergy_epi"> Has an EpiPen</label></div>`,
     onSubmit: async (f) => {
-      kid = await call('POST', '/people', { first_name: f.first_name.value, last_name: f.last_name.value, birthdate: f.birthdate.value, allergies: f.allergies.value, household_id: h.id, household_role: 'child', campus_id: state.station.campusId, status: 'guest', force: true });
+      kid = await call('POST', '/people', { first_name: f.first_name.value, last_name: f.last_name.value, birthdate: f.birthdate.value, allergies: f.allergies.value, allergy_epi: f.allergy_epi.checked, household_id: h.id, household_role: 'child', campus_id: state.station.campusId, status: 'guest', force: true });
     },
   });
   if (!kid) return;
@@ -432,15 +440,22 @@ async function addChild(h) {
 function drawCheckout() {
   mount($main, html`<div style="max-width:420px;margin:0 auto;text-align:center">
     <h1>Check out</h1><p class="k-hint">Enter the code from the parent’s pickup tag.</p>
-    <input class="k-search" data-code maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+    <input class="k-search" data-code maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="CODE" aria-label="Pickup code">
+    <p class="k-hint">The code is a letter and four characters. Tags from before this update have four.</p>
+    <button class="btn" data-find>Find</button>
     <div data-match style="margin-top:16px"></div></div>`);
   const input = $main.querySelector('[data-code]');
   input.focus();
+  // A full code (five characters) is looked up as soon as it is typed. A shorter, older code is looked up with Find
+  // or Return, so the first four characters of a new code never pull up someone else's family.
   input.oninput = () => {
-    input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (input.value.length === 4) showMatch(input.value);
+    input.value = normalizeCode(input.value).slice(0, 5);
+    if (input.value.length === 5) showMatch(input.value);
     else mount($main.querySelector('[data-match]'), '');
   };
+  const find = () => { if (input.value.length >= 4) showMatch(input.value); else toast('Type the whole code.'); };
+  $main.querySelector('[data-find]').onclick = find;
+  input.onkeydown = (e) => { if (e.key === 'Enter') find(); };
 }
 
 const plural = (n, one, many) => (n === 1 ? one : many);
@@ -453,7 +468,7 @@ function pickupList(householdId) {
 function showMatch(code) {
   const open = todays().filter((c) => c.security_code === code && !c.checked_out_at);
   const box = $main.querySelector('[data-match]');
-  if (!open.length) { mount(box, html`<div class="alert bad">No children are checked in with code ${code}.</div>`); return; }
+  if (!open.length) { mount(box, html`<div class="alert bad">No children are checked in with code ${showCode(code)}.</div>`); return; }
   const families = groupFamilies(open);
   const many = families.length > 1;
   mount(box, html`<div class="k-out" style="text-align:left">
@@ -589,17 +604,35 @@ async function drawRooms() {
       if (!kids.length && r.id === null) return '';
       return html`<div class="card k-room"><div class="card-head"><h2>${r.name}</h2><span class="pill">${kids.length}${r.capacity ? ` / ${r.capacity}` : ''}</span></div>
         ${kids.length ? html`<table class="list"><tbody>${kids.map((k) => html`<tr><td><b>${displayName(k)}</b></td>
-          <td>${k.allergies ? html`<span class="allergy">⚠ ${k.allergies}</span>` : ''} ${k.medical_notes ? html`<span class="muted small">${k.medical_notes}</span>` : ''}</td>
-          <td class="num" style="text-align:right"><b>${k.security_code}</b></td></tr>`)}</tbody></table>` : html`<p class="muted">Empty</p>`}</div>`;
+          <td>${safetyLine(k, false)} <button class="btn small ghost" data-care="${k.person_id}">Care note</button></td>
+          <td class="num" style="text-align:right"><b>${showCode(k.security_code)}</b></td></tr>`)}</tbody></table>` : html`<p class="muted">Empty</p>`}</div>`;
     })}
     <p class="muted small">${list.filter((c) => !c.checked_out_at).length} checked in now · ${list.length} today</p>`);
   $main.querySelector('[data-refresh]').onclick = drawRooms;
+  $main.querySelectorAll('[data-care]').forEach((b) => { b.onclick = () => showCareNote(Number(b.dataset.care)); });
+}
+
+// Level 2: the longer medical note is asked for when someone taps, from the hub, and every look is logged there.
+// It is never kept on the iPad, so with no connection all there is to show is the safety line.
+async function showCareNote(personId) {
+  if (!navigator.onLine) { toast('The care note needs a connection. The safety line on this screen is still right.', 'bad'); return; }
+  let note;
+  try { note = await call('GET', `/checkin/medical/${personId}?campus_id=${state.station.campusId}`); } catch (e) { fail(e); return; }
+  const kid = todays().find((c) => c.person_id === personId);
+  await dialog({
+    title: `Care note${kid ? `: ${displayName(kid)}` : ''}`, submit: false, cancel: 'Close',
+    body: html`<div class="stack">
+      ${hasEpi(note) ? html`<div class="alert bad"><b>EPI: YES</b>${note.allergy_action ? ` · ${note.allergy_action}` : ''}</div>` : ''}
+      ${note.allergies ? html`<p style="margin:0"><span class="allergy">Allergies:</span> ${note.allergies}</p>` : ''}
+      ${note.medical_notes ? html`<p style="margin:0;white-space:pre-wrap">${note.medical_notes}</p>` : html`<p class="muted" style="margin:0">No other medical notes.</p>`}
+      <p class="muted small" style="margin:0">Looking at this is recorded. Please don’t repeat it to anyone who doesn’t need it.</p></div>`,
+  });
 }
 
 // ---------------------------------------------------------------- printing
 // What is printed where other families can see it: a first name and last-name initial, the room, the date and
-// the check-in time, and the code. Never the family name or the full last name. Allergies and medical notes
-// still print as before until the check-in medical levels arrive (a later release).
+// the check-in time, and the code. Never the family name or the full last name. Medical details print at Level 1
+// only: the allergen words, "EPI: YES" and a one-line action. The longer medical note is never printed.
 function printLabels(chosen, code, at) {
   const size = LABELS[state.roster.label_size] || LABELS['brother-62x29'];
   const when = new Date(at);
@@ -610,17 +643,19 @@ function printLabels(chosen, code, at) {
   const eligible = (room) => [...allKids.filter((k) => room && roomFor(k, state.roster.rooms, day())?.id === room.id), ...chosen.filter((c) => (c.room?.id ?? null) === (room?.id ?? null)).map((c) => c.kid)];
   const kidLabel = ({ kid, room }) => {
     const n = labelName(kid, eligible(room), day());
+    const strips = labelSafety(kid, { max: size.fit, compact: size.compact });
+    // The name, room, time and pickup code come first and are never clipped; a long first name is shrunk to fit.
+    const last = [n.last, n.age ? `(${n.age})` : ''].filter(Boolean).join(' ');
+    const namePt = Math.min(parseFloat(size.name), (parseFloat(size.name) * size.nameFit) / Math.max(n.first.length + last.length * 0.6, 1));
     return `<div class="label">
-      ${kid.allergies ? `<div class="alert-strip">ALLERGY: ${esc(kid.allergies)}</div>` : ''}
-      <div class="name" style="font-size:${size.name}">${esc(n.first)}</div>
-      <div class="last" style="font-size:${size.small}">${esc([n.last, n.age ? `(${n.age})` : ''].filter(Boolean).join(' '))}</div>
-      <div class="meta" style="font-size:${size.small}"><span>${esc(room?.name || '')}</span><span>${date} ${time}</span><span class="code" style="font-size:${size.code}">${esc(code)}</span></div>
-      ${kid.medical_notes ? `<div style="font-size:${size.small}">${esc(kid.medical_notes)}</div>` : ''}
+      <div class="name" style="font-size:${namePt}pt">${esc(n.first)} <span class="last" style="font-size:${size.small}">${esc(last)}</span></div>
+      <div class="meta" style="font-size:${size.small}"><span>${esc(room?.name || '')}</span><span>${date} ${time}</span><span class="code" style="font-size:${size.code}">${esc(showCode(code))}</span></div>
+      ${strips.map((t) => `<div class="alert-strip" style="font-size:${size.small}">${esc(t)}</div>`).join('')}
     </div>`;
   };
   const parentLabel = `<div class="label">
       <div style="font-size:${size.small}">PARENT PICKUP TAG</div>
-      <div class="code" style="font-size:${size.name}">${esc(code)}</div>
+      <div class="code" style="font-size:${size.name}">${esc(showCode(code))}</div>
       <div style="font-size:${size.small}">${chosen.length} ${chosen.length === 1 ? 'child' : 'children'}: ${chosen.map((c) => esc(tagInitials(c.kid))).join(' · ')} · ${date} ${time}</div>
       <div style="font-size:${size.small}">Keep this tag. You hand it over at pickup. We may ask for ID.</div>
     </div>`;

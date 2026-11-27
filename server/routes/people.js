@@ -17,10 +17,13 @@ import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
 const PERSON_FIELDS = ['first_name', 'last_name', 'nickname', 'email', 'phone', 'birthdate', 'gender', 'grade', 'campus_id',
-  'status', 'allergies', 'medical_notes', 'notes', 'household_id', 'household_role'];
+  'status', 'allergies', 'allergy_epi', 'allergy_action', 'medical_notes', 'notes', 'household_id', 'household_role'];
 const HOUSEHOLD_FIELDS = ['name', 'campus_id', 'address', 'city', 'state', 'zip', 'phone', 'notes'];
 // Health information and private notes: staff and up only (see GET /people/:id).
-const PRIVATE_PERSON_FIELDS = ['allergies', 'medical_notes', 'notes'];
+const PRIVATE_PERSON_FIELDS = ['allergies', 'allergy_epi', 'allergy_action', 'medical_notes', 'medical_sorted_at', 'notes'];
+// The one-line action on a label has to fit, so it is kept short.
+const ACTION_MAX = 120;
+const CARE_NOTE_MAX = 5000;
 const NAME_MAX = 100;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // isDate plus a real calendar day (2026-02-30 is not one).
@@ -43,6 +46,8 @@ export function personFields(b, partial) {
     out.email = str(b.email, 200).toLowerCase();
     if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
   }
+  if (b.allergy_action !== undefined) out.allergy_action = str(b.allergy_action, ACTION_MAX);
+  if (b.allergy_epi !== undefined) out.allergy_epi = b.allergy_epi === true || b.allergy_epi === 1 || b.allergy_epi === '1' ? 1 : 0;
   if (b.phone !== undefined) out.phone = str(b.phone, 40);
   if (b.birthdate !== undefined) {
     if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
@@ -261,9 +266,14 @@ export default function peopleRoutes(db, { uploadDir }) {
       visibleHousehold(req, f.household_id);
     }
     if (req.body?.archived !== undefined) f.archived = req.body.archived ? 1 : 0;
-    updateFields(db, 'people', p.id, f, [...PERSON_FIELDS, 'archived']);
+    // Staff mark a child's allergy and medical details as sorted into the check-in levels (the review list). Changing
+    // any of those details afterwards puts the child back on the list, unless the same save says they are sorted.
+    const medicalKeys = ['allergies', 'allergy_epi', 'allergy_action', 'medical_notes'];
+    if (req.body?.medical_sorted !== undefined) f.medical_sorted_at = req.body.medical_sorted ? new Date().toISOString() : null;
+    else if (p.medical_sorted_at && medicalKeys.some((k) => f[k] !== undefined && (f[k] ?? '') !== (p[k] ?? ''))) f.medical_sorted_at = null;
+    updateFields(db, 'people', p.id, f, [...PERSON_FIELDS, 'archived', 'medical_sorted_at']);
     const moved = f.household_id !== undefined && f.household_id !== p.household_id;
-    audit(db, req, 'person.update', { id: p.id, fields: Object.keys(f), ...(moved ? { household_id: { from: p.household_id, to: f.household_id } } : {}) });
+    audit(db, req, 'person.update', { id: p.id, fields: Object.keys(f).filter((k) => k !== 'medical_sorted_at' || req.body?.medical_sorted !== undefined), ...(moved ? { household_id: { from: p.household_id, to: f.household_id } } : {}) });
     if (moved) audit(db, req, p.household_id ? 'household.member_move' : 'household.member_add', { person_id: p.id, from: p.household_id, to: f.household_id, role: f.household_role ?? p.household_role });
     res.json(getPerson(p.id));
   });
@@ -326,7 +336,13 @@ export default function peopleRoutes(db, { uploadDir }) {
       for (const k of ['email', 'phone', 'birthdate', 'gender', 'allergies', 'medical_notes', 'photo', 'household_id', 'campus_id', 'grade']) {
         if ((keep[k] == null || keep[k] === '') && dup[k] != null && dup[k] !== '') fill[k] = dup[k];
       }
+      if (!keep.allergy_epi && dup.allergy_epi) fill.allergy_epi = 1;
+      if (!(keep.allergy_action || '').trim() && (dup.allergy_action || '').trim()) fill.allergy_action = dup.allergy_action;
+      // A merge changes what the child's safety line says, so staff look at it again.
+      if (Object.keys(fill).some((k) => ['allergies', 'medical_notes', 'allergy_epi', 'allergy_action'].includes(k))) fill.medical_sorted_at = null;
       updateFields(db, 'people', keep.id, fill, Object.keys(fill));
+      // Private care notes stay private: they move to the kept person only if that person has none, otherwise they stay on the archived duplicate.
+      if (!db.prepare('SELECT 1 FROM person_care_notes WHERE person_id = ?').get(keep.id)) db.prepare('UPDATE person_care_notes SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || ? || ')') WHERE id = ?").run(keep.id, dup.id);
     });
     for (const id of movedUsers) closeStreams({ userId: id });
@@ -336,6 +352,34 @@ export default function peopleRoutes(db, { uploadDir }) {
     for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
     syncLeaderAccessFor(db, keep.id, req); // leadership may have moved with the merge (no-op without an account)
     res.json(getPerson(keep.id));
+  });
+
+  // ---------------------------------------------------------------- care notes (Level 3)
+  // Private matters that aren't needed to look after a child in the room. Staff and up, campus-checked, never sent to an
+  // iPad or the check-in roster. Opening one is written to the audit log, like every change.
+  r.get('/people/:id/care-notes', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    if (p.household_id) visibleHousehold(req, p.household_id); // the family's campus counts too
+    const n = db.prepare('SELECT note, updated_by_name, updated_at FROM person_care_notes WHERE person_id = ?').get(p.id);
+    audit(db, req, 'person.care_notes.view', { person_id: p.id });
+    res.set('Cache-Control', 'no-store');
+    res.json({ note: n?.note || '', updated_by_name: n?.updated_by_name || '', updated_at: n?.updated_at || null });
+  });
+
+  r.put('/people/:id/care-notes', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    if (p.household_id) visibleHousehold(req, p.household_id); // the family's campus counts too
+    if (typeof req.body?.note !== 'string') throw bad('Write the note.');
+    const note = req.body.note.trim();
+    if (note.length > CARE_NOTE_MAX) throw bad(`That note is too long (up to ${CARE_NOTE_MAX} characters).`);
+    tx(db, () => {
+      db.prepare(`INSERT INTO person_care_notes (person_id, note, updated_by, updated_by_name, updated_at) VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(person_id) DO UPDATE SET note = excluded.note, updated_by = excluded.updated_by, updated_by_name = excluded.updated_by_name, updated_at = excluded.updated_at`)
+        .run(p.id, note, req.user.id, String(req.user.name || '').slice(0, 100));
+      // The audit row holds who and how long, never the text.
+      audit(db, req, 'person.care_notes', { person_id: p.id, length: note.length });
+    });
+    res.json({ ok: true });
   });
 
   // ---------------------------------------------------------------- photos

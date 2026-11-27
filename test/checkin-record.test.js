@@ -234,7 +234,7 @@ test('station changes: pairing, renaming and removing are recorded and keep the 
   assert.equal(made.status, 201);
   const id = made.data.id;
   const pairEv = events('device.pair').find((e) => e.device_id === id);
-  assert.deepEqual([pairEv.device_name, pairEv.user_id, pairEv.campus_id, pairEv.d], ['Hallway', ids.north, 1, { name: 'Hallway' }]);
+  assert.deepEqual([pairEv.device_name, pairEv.user_id, pairEv.campus_id, pairEv.d], ['Hallway', ids.north, 1, { name: 'Hallway', station_letter: 'B' }]);
   assert.equal((await api('north', 'PATCH', `/checkin/devices/${id}`, { name: 'Hall B', print: false })).status, 200);
   const upd = events('device.update').find((e) => e.device_id === id);
   assert.equal(upd.device_name, 'Hall B');

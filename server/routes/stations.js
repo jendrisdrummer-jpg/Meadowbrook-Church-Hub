@@ -8,6 +8,7 @@ import { requireRole, canCampus } from '../auth.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
 import { tx } from '../db.js';
 import { recordEvent, appVersion } from '../checkin-events.js';
+import { STATION_LETTERS } from '../../public/js/checkin-rules.js';
 
 const HEADER = 'x-station';
 const PAIR_MIN = 15;
@@ -75,8 +76,9 @@ export default function stationRoutes(db) {
 
   // A paired iPad reads its own settings (name, campus, labels) on start.
   const station = (id) => {
-    const d = db.prepare('SELECT d.id, d.name, d.campus_id, d.print, c.name campus_name FROM checkin_devices d JOIN campuses c ON c.id = d.campus_id WHERE d.id = ?').get(id);
-    return d && { id: d.id, name: d.name, campusId: d.campus_id, campusName: d.campus_name, print: Boolean(d.print) };
+    const d = db.prepare('SELECT d.id, d.name, d.campus_id, d.print, d.station_letter, c.name campus_name FROM checkin_devices d JOIN campuses c ON c.id = d.campus_id WHERE d.id = ?').get(id);
+    // stationLetter starts every pickup code this iPad makes; null (a campus with 21 stations already) means it picks a random one.
+    return d && { id: d.id, name: d.name, campusId: d.campus_id, campusName: d.campus_name, print: Boolean(d.print), stationLetter: d.station_letter };
   };
   r.get('/checkin/station', (req, res) => {
     if (!req.user?.station) throw notFound('Station');
@@ -85,15 +87,20 @@ export default function stationRoutes(db) {
   });
 
   // ---------------------------------------------------------------- the hub
+  // A station letter is unique within a campus, so two iPads can never make the same pickup code. A new station gets
+  // the first free one; a replacement iPad can be given the letter of the one it replaces.
+  const lettersAt = (campusId) => new Map(db.prepare('SELECT station_letter l, name FROM checkin_devices WHERE campus_id = ? AND station_letter IS NOT NULL').all(campusId).map((x) => [x.l, x.name]));
+  const freeLetter = (campusId) => [...STATION_LETTERS].find((l) => !lettersAt(campusId).has(l)) ?? null;
+
   r.get('/checkin/devices', requireRole('staff'), (req, res) => {
-    const rows = db.prepare(`SELECT d.id, d.name, d.campus_id, d.print, d.device, d.created_at, d.last_seen, d.app_version, d.app_version_at, c.name campus_name,
+    const rows = db.prepare(`SELECT d.id, d.name, d.campus_id, d.print, d.device, d.station_letter, d.created_at, d.last_seen, d.app_version, d.app_version_at, c.name campus_name,
         COALESCE(NULLIF(p.nickname, ''), p.first_name) || ' ' || p.last_name added_by
       FROM checkin_devices d JOIN campuses c ON c.id = d.campus_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN people p ON p.id = u.person_id
       ORDER BY c.sort, c.name, d.name`).all();
     res.json(rows.filter((d) => canCampus(req.user, d.campus_id)));
   });
 
-  // Body: { code, name, campus_id, print }
+  // Body: { code, name, campus_id, print, station_letter? } (the letter defaults to the first free one at that campus)
   r.post('/checkin/devices', requireRole('staff'), (req, res) => {
     const b = req.body || {};
     if (!rateLimit(`u${req.user.id}`, 30)) throw new HttpError(429, 'Too many tries. Wait a few minutes.');
@@ -104,16 +111,21 @@ export default function stationRoutes(db) {
     if (!campusId || !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId)) throw bad('Pick a campus.');
     if (!canCampus(req.user, campusId)) throw forbidden();
     const name = required(b.name, 'Station name').slice(0, 60);
+    const asked = str(b.station_letter, 8).toUpperCase();
+    if (asked && !(asked.length === 1 && STATION_LETTERS.includes(asked))) throw bad(`A station letter is one letter from ${STATION_LETTERS}.`);
+    const taken = asked ? lettersAt(campusId).get(asked) : undefined;
+    if (taken !== undefined) throw new HttpError(409, `Letter ${asked} is already used by ${taken} at this campus. Remove that station first if this iPad is replacing it, or pick another letter.`);
+    const letter = asked || freeLetter(campusId);
     const token = crypto.randomBytes(32).toString('hex');
     const id = tx(db, () => {
-      const newId = db.prepare('INSERT INTO checkin_devices (name, campus_id, print, token_hash, device, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(name, campusId, b.print === false ? 0 : 1, hash(token), p.device, req.user.id).lastInsertRowid;
+      const newId = db.prepare('INSERT INTO checkin_devices (name, campus_id, print, token_hash, device, created_by, station_letter) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name, campusId, b.print === false ? 0 : 1, hash(token), p.device, req.user.id, letter).lastInsertRowid;
       db.prepare('UPDATE device_pairings SET token = ?, device_id = ? WHERE code = ?').run(token, newId, code);
       audit(db, req, 'checkin.device', `${name} (${p.device || 'device'})`);
-      recordEvent(db, req, { action: 'device.pair', campusId, deviceId: Number(newId), deviceName: name, detail: { name } });
+      recordEvent(db, req, { action: 'device.pair', campusId, deviceId: Number(newId), deviceName: name, detail: { name, station_letter: letter } });
       return newId;
     });
-    res.status(201).json({ id: Number(id) });
+    res.status(201).json({ id: Number(id), station_letter: letter });
   });
 
   r.patch('/checkin/devices/:id', requireRole('staff'), (req, res) => {
@@ -125,10 +137,13 @@ export default function stationRoutes(db) {
     if (!campusId || !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId) || !canCampus(req.user, campusId)) throw bad('Pick a campus.');
     const name = str(b.name ?? d.name, 60) || d.name;
     const print = b.print === undefined ? d.print : b.print ? 1 : 0;
+    // A station keeps its letter unless the campus it moves to already uses it, then it takes the first free one there.
+    const moved = campusId !== d.campus_id;
+    const letter = !moved ? d.station_letter : d.station_letter && !lettersAt(campusId).has(d.station_letter) ? d.station_letter : freeLetter(campusId);
     tx(db, () => {
-      db.prepare('UPDATE checkin_devices SET name = ?, campus_id = ?, print = ? WHERE id = ?').run(name, campusId, print, d.id);
+      db.prepare('UPDATE checkin_devices SET name = ?, campus_id = ?, print = ?, station_letter = ? WHERE id = ?').run(name, campusId, print, letter, d.id);
       const fields = [name !== d.name && 'name', campusId !== d.campus_id && 'campus', print !== d.print && 'print'].filter(Boolean);
-      const detail = { fields, from_campus: d.campus_id, to_campus: campusId };
+      const detail = { fields, from_campus: d.campus_id, to_campus: campusId, ...(letter !== d.station_letter ? { station_letter: letter, from_station_letter: d.station_letter } : {}) };
       recordEvent(db, req, { action: 'device.update', campusId, deviceId: d.id, deviceName: name, detail });
       // A move is also written under the campus it left, so that campus's record shows it went.
       if (campusId !== d.campus_id) recordEvent(db, req, { action: 'device.update', campusId: d.campus_id, deviceId: d.id, deviceName: name, detail });

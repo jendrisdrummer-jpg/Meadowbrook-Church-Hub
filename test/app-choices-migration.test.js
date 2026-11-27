@@ -12,7 +12,7 @@ const UNDO_AFTER_36 = `DROP TRIGGER checkins_no_delete; DROP TRIGGER checkins_vo
   DROP TRIGGER positions_keep_history; DROP TRIGGER people_keep_history;
   ALTER TABLE checkins DROP COLUMN voided_at; ALTER TABLE checkins DROP COLUMN voided_by; ALTER TABLE checkins DROP COLUMN voided_by_name; ALTER TABLE checkins DROP COLUMN void_reason;
   ALTER TABLE users DROP COLUMN checkin; ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at;
-  ALTER TABLE checkins DROP COLUMN checked_out_device_id; ALTER TABLE checkins DROP COLUMN checked_out_user_id; ALTER TABLE checkins DROP COLUMN client_checked_out_at; PRAGMA user_version = 36`;
+  ALTER TABLE checkins DROP COLUMN checked_out_device_id; ALTER TABLE checkins DROP COLUMN checked_out_user_id; ALTER TABLE checkins DROP COLUMN client_checked_out_at; DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter; ALTER TABLE people DROP COLUMN allergy_epi; ALTER TABLE people DROP COLUMN allergy_action; ALTER TABLE people DROP COLUMN medical_sorted_at; DROP TABLE person_care_notes; PRAGMA user_version = 36`;
 
 test('migration 37: themes move to device, saved layouts get This week first, once', () => {
   assert.ok(SCHEMA_VERSION >= 37);
@@ -23,7 +23,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     db.prepare("INSERT INTO users (email, role, theme) VALUES ('a@t.test', 'staff', 'light'), ('b@t.test', 'staff', 'dark'), ('c@t.test', 'volunteer', 'light')").run();
     const saved = { tabs: [{ id: 'home', type: 'home' }], home: [{ id: 'welcome', type: 'welcome', size: 'F' }, { id: 'times', type: 'times', size: 'F' }] };
     db.prepare("INSERT INTO settings (key, value) VALUES ('app_config', ?)").run(JSON.stringify(saved));
-    db.exec(UNDO_AFTER_36); // also undo migrations 38 to 43, which run again with 37
+    db.exec(UNDO_AFTER_36); // also undo migrations 38 to 44, which run again with 37
     db.close();
 
     db = openDb(file); // runs 37
@@ -35,7 +35,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     assert.deepEqual(cfg.tabs, saved.tabs);
 
     // Running it again (e.g. a layout that already has the card) adds nothing.
-    db.exec(UNDO_AFTER_36); // also undo migrations 38 to 43, which run again with 37
+    db.exec(UNDO_AFTER_36); // also undo migrations 38 to 44, which run again with 37
     db.close();
     db = openDb(file);
     assert.deepEqual(getSetting(db, 'app_config').home.map((w) => w.type), ['thisweek', 'welcome', 'times']);

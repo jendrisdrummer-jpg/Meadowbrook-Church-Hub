@@ -2,7 +2,7 @@
 // signed in on them. Each station belongs to one campus and can only do check-in.
 import { get, post, patch, del, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
 import { state, setTitle, visibleCampuses } from '../app.js';
-import { CHECKIN_APP_VERSION } from '../checkin-rules.js';
+import { CHECKIN_APP_VERSION, STATION_LETTERS } from '../checkin-rules.js';
 
 const seen = (t) => {
   if (!t) return 'Not yet';
@@ -34,17 +34,28 @@ export default async function stations(el) {
   // The safety switch is for admins only; an admin limited to some campuses can read it but not change it.
   const safety = state.me.role === 'admin' ? await get('/checkin/safety') : null;
   const allCampuses = !state.me.campusIds;
+  // Children whose allergy and medical details haven't been sorted into the check-in levels yet (see the person's page).
+  const review = await get('/checkin/medical/review');
+  const campusLabel = (id) => visibleCampuses().find((c) => c.id === id)?.name || 'No campus set';
   mount(el, html`<div class="card st-how"><h2>Set up an iPad</h2>
       <ol class="small"><li>On the iPad, open <b>${url.replace(/^https?:\/\//, '')}</b> in Safari. (Tip: Share → Add to Home Screen for a full-screen app.)</li>
         <li>It shows a 6-letter code. Choose <b>Add a station</b> here and type it in.</li>
+        <li>Each iPad gets a letter (shown in the table). Its pickup codes start with that letter, so two iPads never make the same code.</li>
         <li>That’s it: the iPad checks kids in at that campus with no one signed in. Remove it here anytime.</li></ol></div>
     <div class="card"><h2>Check-in iPads</h2>
-      ${list.length ? html`<table class="list"><thead><tr><th>Station</th><th>Campus</th><th>Device</th><th>Name tags</th><th>Last used</th><th></th></tr></thead><tbody>
-        ${list.map((d) => html`<tr><td><b>${d.name}</b>${d.added_by ? html`<div class="muted small">Added by ${d.added_by}</div>` : ''}<div style="margin-top:4px">${versionPill(d)}</div></td><td>${d.campus_name}</td>
+      ${list.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th>Station</th><th>Code letter</th><th>Campus</th><th>Device</th><th>Name tags</th><th>Last used</th><th></th></tr></thead><tbody>
+        ${list.map((d) => html`<tr><td><b>${d.name}</b>${d.added_by ? html`<div class="muted small">Added by ${d.added_by}</div>` : ''}<div style="margin-top:4px">${versionPill(d)}</div></td><td>${d.station_letter ? html`<b class="st-code">${d.station_letter}</b>` : html`<span class="muted small">Random</span>`}</td><td>${d.campus_name}</td>
           <td class="small">${d.device || '—'}</td><td>${d.print ? html`<span class="pill good">Prints</span>` : html`<span class="pill">Off</span>`}</td>
           <td class="small nowrap">${seen(d.last_seen)}</td>
           <td style="text-align:right" class="nowrap"><button class="btn small ghost" data-edit="${d.id}">Edit</button><button class="btn small ghost danger" data-remove="${d.id}">Remove</button></td></tr>`)}
-      </tbody></table>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
+      </tbody></table></div>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
+    <div class="card"><h2>Medical details to sort</h2>
+      ${review.remaining ? html`<p class="small" style="margin:0 0 8px"><b>${review.remaining}</b> ${review.remaining === 1 ? 'child has' : 'children have'} allergy or medical details nobody has sorted yet:
+          ${review.by_campus.map((x) => `${campusLabel(x.campus_id)} ${x.remaining}`).join(' · ')}. Open each child, put allergens and EpiPen in the safety line, private matters in care notes, leave the rest as the medical note, then tick “Sorted”.</p>
+        <table class="list"><tbody>${review.rows.slice(0, 15).map((c) => html`<tr><td><a href="#/people/${c.id}"><b>${c.first_name} ${c.last_name}</b></a></td>
+          <td class="small">${c.allergy_epi ? html`<span class="allergy">EPI</span> ` : ''}${c.allergies || ''}${c.medical_notes ? html` <span class="muted">${c.medical_notes.slice(0, 80)}${c.medical_notes.length > 80 ? '…' : ''}</span>` : ''}</td></tr>`)}</tbody></table>
+        ${review.rows.length > 15 ? html`<p class="muted small" style="margin:6px 0 0">Showing 15 of ${review.rows.length}. Sort these and the rest appear.</p>` : ''}`
+        : html`<p class="muted" style="margin:0">Nothing left to sort. Every child’s allergy and medical details have been looked at.</p>`}</div>
     ${safety ? html`<div class="card st-safety"><h2>Check-in safety</h2>
       <label class="check st-switch"><input type="checkbox" data-safety ${safety.require_current_app ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> Only let iPads with the latest check-in sync</label>
       <p class="muted small" style="margin:6px 0 0">Turn this on once every iPad above says Up to date. Older iPads keep what they’ve recorded and sync after they’re reopened.</p>
@@ -84,6 +95,7 @@ export default async function stations(el) {
         <label class="field wide">Code on the iPad<input type="text" name="code" class="st-code" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-DEF" required></label>
         <label class="field">Station name<input type="text" name="name" value="Welcome desk" maxlength="60" required><span class="muted small">Printed on name tags.</span></label>
         <label class="field">Campus${campusSelect()}</label>
+        <label class="field">Code letter<select name="station_letter">${options([...STATION_LETTERS].map((l) => ({ value: l, label: l })), '', { blank: 'The next free letter' })}</select><span class="muted small">Replacing an iPad? Remove the old one first, then pick its letter so codes on tags still make sense.</span></label>
         <label class="check wide"><input type="checkbox" name="print" checked> Print name tags (a label printer connected to the iPad)</label></div>`,
       onSubmit: (f) => post('/checkin/devices', { ...formData(f), print: f.print.checked }),
     });

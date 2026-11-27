@@ -4,7 +4,8 @@
 // The version of the check-in app on the iPads. It is a whole number, sent with every request in
 // x-checkin-version and compared by the server. Raise it in any change that alters what the iPad
 // sends or how it releases children, so the hub can tell which iPads still need to be reopened.
-export const CHECKIN_APP_VERSION = 2; // 2: check-out is child by child, one family at a time, with a per-release outbox
+export const CHECKIN_APP_VERSION = 3; // 2: check-out is child by child, one family at a time, with a per-release outbox
+// 3: pickup codes are a station letter plus four characters; medical details come in levels (Level 1 on the iPad and label)
 
 // Age in whole months on a given date (both YYYY-MM-DD).
 export function ageMonths(birthdate, onDate) {
@@ -29,13 +30,36 @@ export function roomFor(person, rooms, onDate) {
 }
 
 // Pickup codes avoid letters and digits that are easy to confuse (0/O, 1/I/L, 5/S, 2/Z).
-const CODE_CHARS = '346789ABCDEFGHJKMNPQRTUVWXY';
+export const CODE_CHARS = '346789ABCDEFGHJKMNPQRTUVWXY';
+// A station letter is one of the letters in that alphabet, so a code can never start with a digit.
+export const STATION_LETTERS = 'ABCDEFGHJKMNPQRTUVWXY';
 
+// Four random characters. The server and the iPad both build codes from this.
 export function securityCode(random = Math.random) {
   let s = '';
   for (let i = 0; i < 4; i++) s += CODE_CHARS[Math.floor(random() * CODE_CHARS.length)];
   return s;
 }
+
+// A pickup code is the station's letter plus four random characters. `taken` is every code already used today
+// (a Set or array), so the iPad never repeats one; it gives up avoiding after 300 tries, which only happens if
+// the day is nearly full, and the hub flags any clash it still sees. A station with no letter (a browser that
+// is signed in rather than paired) takes a random one.
+export function pickupCode({ letter, taken = [], random = Math.random } = {}) {
+  const used = taken instanceof Set ? taken : new Set(taken);
+  const lead = STATION_LETTERS.includes(letter) && letter.length === 1 ? letter : STATION_LETTERS[Math.floor(random() * STATION_LETTERS.length)];
+  let code;
+  for (let i = 0; i < 300; i++) {
+    code = lead + securityCode(random);
+    if (!used.has(code)) break;
+  }
+  return code;
+}
+
+// What a person types or reads back: capitals only, no spaces or dashes ("k 7q3m" and "K-7Q3M" are K7Q3M).
+export const normalizeCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// For reading aloud and on screen: the station letter, then the four characters.
+export const showCode = (c) => (c && c.length === 5 ? `${c[0]} ${c.slice(1)}` : c || '');
 
 export function gradeLabel(g) {
   if (g == null) return '';
@@ -118,3 +142,42 @@ export const labelText = (n) => [n.first, n.last, n.age ? `(${n.age})` : ''].fil
 
 // The parent tag shows how many children and their initials (first name initial, last name initial).
 export const tagInitials = (kid) => `${firstOf(kid).charAt(0).toUpperCase()}.${letters(kid, 1)}`;
+
+// ---------------------------------------------------------------- medical levels
+// Level 1 is what every volunteer must see, on the iPad and on the label: the allergen words, an EpiPen yes/no and a
+// one-line action. It is never cut short: if it doesn't fit it says to see the room leader instead.
+// Level 2 (the longer medical note) is fetched on tap and never printed. Level 3 stays in the Hub.
+export const SEE_LEADER = 'ALLERGIES: SEVERAL, SEE ROOM LEADER';
+const oneLine = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+export const hasEpi = (p) => Number(p?.allergy_epi) === 1;
+
+// { allergy, epi, action }: the lines to print. `max` is how many characters fit on one line of this label.
+export function level1(p, max = 40) {
+  const words = oneLine(p.allergies);
+  const action = oneLine(p.allergy_action);
+  return {
+    allergy: !words ? '' : `ALLERGY: ${words}`.length > max ? SEE_LEADER : `ALLERGY: ${words}`,
+    epi: hasEpi(p),
+    action: !action ? '' : action.length > max ? 'SEE ROOM LEADER' : action,
+  };
+}
+
+// The same safety line as plain text, for an iPad that doesn't know the newer fields (the hub folds them into
+// `allergies` for it, so an old label still says EPI: YES).
+export function level1Text(p) {
+  return [hasEpi(p) ? 'EPI: YES' : '', oneLine(p.allergies), oneLine(p.allergy_action)].filter(Boolean).join(' · ');
+}
+
+// The safety strips to print on a name tag, top to bottom (an empty list when the child has none). A roomy tag prints
+// the Level 1 lines as they are: "EPI: YES", the allergens, the action. A small tag (`compact`) has room for one strip,
+// so it joins them ("EPI: YES · Peanuts"); the one-line action doesn't fit there, so a child who has one gets
+// "SEE ROOM LEADER" in its place. Either way "EPI: YES" is always printed when true, and whatever can't fit says
+// "see room leader" instead of being lost. `max` is how many characters fit on one line.
+export function labelSafety(p, { max = 40, compact = false } = {}) {
+  const l1 = level1(p, max);
+  if (!compact) return [l1.epi ? 'EPI: YES' : '', l1.allergy, l1.action].filter(Boolean);
+  const epi = l1.epi ? 'EPI: YES' : '';
+  const words = oneLine(p.allergies);
+  const joined = [epi, words, oneLine(p.allergy_action) ? 'SEE ROOM LEADER' : ''].filter(Boolean).join(' · ');
+  return [joined.length > max ? [epi, 'SEE ROOM LEADER'].filter(Boolean).join(' · ') : joined].filter(Boolean);
+}
