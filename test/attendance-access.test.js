@@ -17,7 +17,9 @@ const cookies = {};
 const S = {}; // services by key
 const P = {}; // people by key
 const U = {}; // account ids by key
-const dayOffset = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// Days counted from today at the campus's own clock (Chicago), the same clock the server and the
+// 'today' service use, so the test passes in the evening hours when UTC has already moved on.
+const dayOffset = (n) => new Date(Date.parse(`${localNow('America/Chicago').date}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 
 before(async () => {
   db = openDb(':memory:');
