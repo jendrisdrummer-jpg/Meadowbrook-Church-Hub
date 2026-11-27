@@ -141,7 +141,8 @@ export default async function person(el, id) {
 
   drawProfile(el.querySelector('[data-profile]'), p.id).catch(fail);
   // Bible studies are private to coordinators and staff (the server checks too).
-  if (staff || state.me.studies) drawStudiesCard(el.querySelector('[data-studies]'), p).catch(fail);
+  // (A coordinator below leader can't open this page; they use People on the Bible studies page.)
+  if (staff || (can('leader') && state.me.studies)) drawStudiesCard(el.querySelector('[data-studies]'), p).catch(fail);
 
   el.querySelector('[data-photo]')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];

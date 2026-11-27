@@ -3,19 +3,17 @@
 // so this page is the only place they show up; nobody else sees who studies with whom.
 import { get, post, patch, del, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, debounce, $ } from '../lib.js';
 import { state, can, setTitle, visibleCampuses, hashQuery } from '../app.js';
+import { progressText } from '../study-progress.js';
+import { drawStudiesCard } from '../studies-card.js';
+
+export { progressText };
 
 const FORMATS = { one_on_one: 'One-on-one', small_group: 'Small group', either: 'One-on-one or a small group' };
 const STATUS = { active: 'Active', paused: 'Paused', finished: 'Finished' };
-const TABS = [['waiting', 'Waiting'], ['studies', 'Studies'], ['teachers', 'Teachers'], ['materials', 'Materials']];
+const TABS = [['waiting', 'Waiting'], ['studies', 'Studies'], ['teachers', 'Teachers'], ['materials', 'Materials'], ['people', 'People']];
+// The church's own today (not the browser's), for a date that defaults to "today".
+const churchToday = () => { try { return new Date().toLocaleDateString('en-CA', { timeZone: state.campuses[0]?.timezone || undefined }); } catch { return new Date().toLocaleDateString('en-CA'); } };
 const NOTE_MAX = 280;
-
-// How far along a study is, in plain words. Every number is optional.
-export function progressText(p) {
-  if (p.lesson != null) return p.planned ? `Lesson ${p.lesson} of ${p.planned}` : `Lesson ${p.lesson}`;
-  if (p.sessions) return `${p.sessions} ${p.sessions === 1 ? 'session' : 'sessions'}`;
-  const since = p.since ? new Date(`${p.since}T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '';
-  return since ? `Active since ${since}` : 'Active';
-}
 
 // A person's name, linked to their page only for people who can open People (leaders and up).
 const who = (p) => (can('leader') ? html`<a href="#/people/${p.id}">${p.name}</a>` : html`${p.name}`);
@@ -63,7 +61,7 @@ export default async function studies(el) {
       }
     };
     const panel = $('[data-panel]', el);
-    try { await ({ waiting, studies: list, teachers, materials })[tab](panel); } catch (e) { fail(e); }
+    try { await ({ waiting, studies: list, teachers, materials, people })[tab](panel); } catch (e) { fail(e); }
   }
 
   // ---------------------------------------------------------------- waiting
@@ -71,8 +69,9 @@ export default async function studies(el) {
     const { requests } = await get('/studies/requests');
     mount(panel, requests.length ? html`<div class="grid two">${requests.map((q) => html`<div class="card">
         <div class="row"><b style="font-size:16px">${who(q)}</b><span class="spacer"></span><span class="muted small">Asked ${fmtDate(q.created_at.slice(0, 10))}${q.campus ? ` · ${q.campus}` : ''}</span></div>
-        <div class="row" style="margin-top:8px"><span class="pill">${FORMATS[q.format]}</span>${q.material_title ? html`<span class="pill info">${q.material_title}</span>` : ''}${q.topic ? html`<span class="pill">${q.topic}</span>` : ''}</div>
-        ${q.times ? html`<p class="small" style="margin:8px 0 0">Good times: ${q.times}</p>` : ''}
+        <div class="row" style="margin-top:8px"><span class="pill">${FORMATS[q.format]}</span></div>
+        ${q.material_title ? html`<p class="small wrap" style="margin:8px 0 0">Material: ${q.material_title}</p>` : ''}${q.topic ? html`<p class="small wrap" style="margin:8px 0 0">Topic: ${q.topic}</p>` : ''}
+        ${q.times ? html`<p class="small wrap" style="margin:8px 0 0">Good times: ${q.times}</p>` : ''}
         <div class="row small" style="margin-top:8px">${q.phone ? html`<a href="tel:${q.phone}">${q.phone}</a>` : ''}${q.email ? html`<a href="mailto:${q.email}">${q.email}</a>` : ''}</div>
         <p class="muted small" style="margin:6px 0 0">${q.share_contact ? 'Happy for their teacher to have their phone and email.' : 'Please make the introduction: they haven’t shared their contact details with a teacher.'}</p>
         <div class="row" style="margin-top:12px"><button class="btn small primary" data-start="${q.id}">Start a study</button><button class="btn small" data-add-to="${q.id}">Add to an existing study</button>
@@ -145,6 +144,32 @@ export default async function studies(el) {
       <tbody>${rows.map((t) => html`<tr><td><b>${who(t)}</b></td><td>${t.active_studies}</td><td>${t.taught}</td><td>${t.has_account ? '' : html`<span class="pill warn">No account yet</span>`}</td></tr>`)}</tbody></table></div>
       ${rows.some((t) => !t.has_account) ? html`<p class="muted small">Teachers with an account can update their own studies and mark students finished. ${can('admin') ? 'To invite one, open their page in People and choose “Give more access”.' : 'An admin can set up accounts for the others.'}</p>` : ''}`
       : html`<div class="card empty">No one is teaching yet. Teachers appear here once they’re part of a study.</div>`);
+  }
+
+  // ---------------------------------------------------------------- people
+  // A person's Bible studies without opening their People page (coordinators below leader can't): search a
+  // name, then the same card as on their page, with Undo and "Add a completed study".
+  function people(panel) {
+    mount(panel, html`<p class="muted small" style="margin-top:0">Look up someone to see what they’re studying, what they’ve finished and what they’ve taught, to undo a finish, or to add a study from the past.</p>
+      <input type="search" aria-label="Search by name" placeholder="Search by name" data-q style="max-width:420px"><div class="picker-list" data-list style="margin-top:10px"></div><div data-card style="margin-top:14px"></div>`);
+    const listEl = $('[data-list]', panel);
+    let rows = [];
+    const run = debounce(async (q) => {
+      if (q.trim().length < 2) { mount(listEl, ''); return; }
+      try {
+        rows = await get(`/studies/people?q=${encodeURIComponent(q)}`);
+        mount(listEl, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}"><span>${p.name}<br><small class="muted">${p.campus || 'No campus'}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
+      } catch (err) { fail(err); }
+    });
+    $('[data-q]', panel).addEventListener('input', (e) => run(e.target.value));
+    listEl.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-i]');
+      if (!b) return;
+      const p = rows[b.dataset.i];
+      const box = $('[data-card]', panel);
+      mount(box, html`<h2 style="margin:0 0 8px">${p.name}</h2><div data-studies-card></div>`);
+      drawStudiesCard($('[data-studies-card]', box), { id: p.id, first_name: p.name.split(' ')[0] }).catch(fail);
+    });
   }
 
   // ---------------------------------------------------------------- materials
@@ -228,7 +253,7 @@ async function studyForm({ request } = {}) {
     title: request ? `Start a study for ${request.name}` : 'New study', wide: true,
     body: html`<div class="form">
       <label class="field wide">Material<select name="material_id">${options(materials.map((m) => ({ value: m.id, label: m.title })), request?.material_id ?? '', { blank: 'The teacher will choose' })}</select>
-        ${request?.topic ? html`<small class="muted">They said: ${request.topic}</small>` : ''}</label>
+        ${request?.topic ? html`<small class="muted wrap">They said: ${request.topic}</small>` : ''}</label>
       <div class="field wide"><span>Teachers</span><div class="chips" data-teachers></div><div><button type="button" class="btn small" data-add-teacher>${icon('plus')} Add a teacher</button></div></div>
       <div class="field wide"><span>${request ? 'Student' : 'Students'}</span><div data-students></div>${request ? '' : html`<div><button type="button" class="btn small" data-add-student>${icon('plus')} Add a student</button></div>`}</div>
       <label class="field wide">When and where they meet (optional)<input type="text" name="rhythm" maxlength="120" placeholder="Tuesdays, coffee shop"></label>
@@ -284,22 +309,22 @@ async function studyDialog(id) {
           <span>${s.status === 'finished' ? `Finished ${fmtDate(s.finished_on)}` : progressText(s.progress)}</span>${s.campus ? html`<span class="campus-tag">${s.campus}</span>` : ''}</div>
         ${s.rhythm ? html`<div class="small">Meets: ${s.rhythm}</div>` : ''}
         ${s.material_title ? '' : html`<div class="alert">The material hasn’t been chosen yet. The teacher, or you, can choose it under Edit details.</div>`}
-        <div><h3 style="margin:0 0 6px">Teachers</h3>${s.teachers.length ? s.teachers.map((t) => html`<div class="row small" style="padding:3px 0"><b>${t.name}</b>${t.has_account ? '' : html`<span class="pill warn">No account yet</span>`}
-          ${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}<span class="spacer"></span>
-          <button type="button" class="icon-btn" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div>`) : html`<span class="muted small">No teacher</span>`}
+        <div><h3 style="margin:0 0 6px">Teachers</h3>${s.teachers.length ? s.teachers.map((t) => html`<div class="study-person small"><div><b>${t.name}</b>${t.has_account ? '' : html` <span class="pill warn">No account yet</span>`}</div>
+          <div class="study-contact">${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}</div>
+          <div class="study-actions"><button type="button" class="icon-btn tap" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div></div>`) : html`<span class="muted small">No teacher</span>`}
           <button type="button" class="btn small" data-add="teacher">${icon('plus')} Add a teacher</button></div>
-        <div><h3 style="margin:0 0 6px">Students</h3>${s.students.length ? s.students.map((t) => html`<div class="row small" style="padding:3px 0"><b>${t.name}</b>
-          <span class="muted">${t.share_contact ? 'shares contact with teachers' : 'contact not shared'}</span>${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}<span class="spacer"></span>
-          <button type="button" class="btn small" data-finish="${t.id}">${icon('check')} Finished</button>
-          <button type="button" class="icon-btn" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div>`) : html`<span class="muted small">No students</span>`}
+        <div><h3 style="margin:0 0 6px">Students</h3>${s.students.length ? s.students.map((t) => html`<div class="study-person small"><div><b>${t.name}</b> <span class="muted">${t.share_contact ? 'shares contact with teachers' : 'contact not shared'}</span></div>
+          <div class="study-contact">${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}</div>
+          <div class="study-actions"><button type="button" class="btn small" data-finish="${t.id}">${icon('check')} Finished</button>
+          <button type="button" class="icon-btn tap" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div></div>`) : html`<span class="muted small">No students</span>`}
           ${s.status === 'finished' ? '' : html`<button type="button" class="btn small" data-add="student">${icon('plus')} Add a student</button>`}</div>
         ${s.coordinator_note ? html`<div class="small"><b>Note:</b> ${s.coordinator_note}</div>` : ''}
         ${invite(s.teachers_without_account)}
-        <div class="row" style="margin-top:6px"><button type="button" class="btn" data-edit>${icon('edit')} Edit details</button>
+        <div class="study-footer"><button type="button" class="btn" data-edit>${icon('edit')} Edit details</button>
           ${s.status === 'active' ? html`<button type="button" class="btn" data-status="paused">Pause</button>` : ''}
           ${s.status === 'paused' ? html`<button type="button" class="btn" data-status="active">Resume</button>` : ''}
           ${s.status !== 'finished' ? html`<button type="button" class="btn" data-status="finished">Finish the study</button>` : html`<button type="button" class="btn" data-status="active">Reopen</button>`}
-          <span class="spacer"></span>${can('admin') ? html`<button type="button" class="btn danger small" data-delete>${icon('trash')} Delete (made by mistake)</button>` : ''}</div></div>`,
+          ${can('admin') ? html`<button type="button" class="btn danger small study-delete" data-delete>${icon('trash')} Delete (made by mistake)</button>` : ''}</div></div>`,
       onOpen: (d, close) => {
         d.addEventListener('click', async (e) => {
           const b = e.target.closest('button');
@@ -324,7 +349,7 @@ async function studyDialog(id) {
               if (!s.material_id) { toast('Choose the study material first, under Edit details.', 'bad'); return; }
               const ok = await dialog({
                 title: `${person.name} finished?`, submit: 'Mark finished',
-                body: html`<p>Record that ${person.name} finished <b>${s.material_title}</b>. You can undo this later from their page.</p><label class="field">Finished on<input type="date" name="completed_on" value="${new Date().toLocaleDateString('en-CA')}" required></label>`,
+                body: html`<p>Record that ${person.name} finished <b>${s.material_title}</b>. You can undo this later from their page.</p><label class="field">Finished on<input type="date" name="completed_on" value="${churchToday()}" required></label>`,
                 onSubmit: (f) => post(`/studies/${id}/complete`, { person_ids: [person.id], completed_on: formData(f).completed_on }),
               });
               if (ok) { toast(`${person.name} marked finished.`); close('again'); }

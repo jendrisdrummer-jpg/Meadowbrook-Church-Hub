@@ -221,6 +221,16 @@ h3 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 6px; }
 .btn.small { padding: 4px 10px; min-height: 30px; font-size: 0.8125rem; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn .ic { width: 17px; height: 17px; }
+/* Bible studies: long text wraps (a pill never does), and each person in a study is a block. */
+.wrap { overflow-wrap: anywhere; min-width: 0; }
+.study-person { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.study-person:last-of-type { border-bottom: 0; }
+.study-contact { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; overflow-wrap: anywhere; }
+.study-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.icon-btn.tap { min-width: 44px; min-height: 44px; }
+.study-footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.study-footer .study-delete { margin-left: auto; order: 99; }
+@media (max-width: 640px) { .study-footer .study-delete { width: 100%; margin-left: 0; } }
 .icon-btn { border: 0; background: none; cursor: pointer; padding: 6px; border-radius: var(--r-ctl); color: var(--muted); display: inline-grid; place-items: center; }
 .icon-btn:hover { background: var(--hover); color: var(--text); }
 .icon-btn .ic { width: 17px; height: 17px; }

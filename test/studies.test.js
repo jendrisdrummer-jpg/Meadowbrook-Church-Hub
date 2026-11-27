@@ -10,6 +10,7 @@ import { openDb, SCHEMA_VERSION } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession, canStudies } from '../server/auth.js';
 import { outbox } from '../server/mail.js';
+import { progressText } from '../public/js/study-progress.js';
 
 const TODAY = '2026-06-15';
 let server, base, db, upDir;
@@ -808,5 +809,19 @@ test('finish dates are checked, and deleting a study puts its request back in th
   assert.deepEqual([back.status, back.study_id, back.handled_by], ['waiting', null, null]);
   assert.equal((await api('coord', 'GET', '/studies/requests')).data.requests.length, 1);
   quiet();
+  await api('admin', 'DELETE', `/studies/${id}`);
+});
+
+test('a study can run past its planned lessons, and says so plainly', async () => {
+  const id = (await api('coord', 'POST', '/studies', { teacher_ids: [P.teacher], student_ids: [P.other], planned_lessons: 12 })).data.id;
+  assert.equal((await api('teacher', 'POST', `/studies/${id}/progress`, { lesson: 13 })).status, 200, 'allowed: studies run over');
+  const p = (await api('coord', 'GET', `/studies/${id}`)).data.progress;
+  assert.deepEqual([p.lesson, p.planned], [13, 12]);
+  assert.equal(progressText(p), 'Lesson 13 · planned 12');
+  assert.equal(progressText({ lesson: 3, planned: 8 }), 'Lesson 3 of 8');
+  assert.equal(progressText({ lesson: 12, planned: 12 }), 'Lesson 12 of 12');
+  assert.equal(progressText({ lesson: 4, planned: null }), 'Lesson 4');
+  assert.equal(progressText({ lesson: null, sessions: 6 }), '6 sessions');
+  assert.equal(progressText({ lesson: null, sessions: 1 }), '1 session');
   await api('admin', 'DELETE', `/studies/${id}`);
 });

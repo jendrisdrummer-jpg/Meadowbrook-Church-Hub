@@ -84,7 +84,7 @@ async function main() {
     const link = (s, p, role, share = 0) => db.prepare('INSERT INTO study_people (study_id, person_id, role, share_contact) VALUES (?, ?, ?, ?)').run(s, p, role, share);
     link(s1, ppl[0], 'teacher'); link(s1, ppl[1], 'student', 1); link(s2, ppl[0], 'teacher'); link(s2, ppl[2], 'student'); link(s2, ppl[3], 'student');
     db.prepare("INSERT INTO study_completions (person_id, material_id, material_title, teacher_names, teacher_ids, completed_on, source) VALUES (?, ?, 'Foundations', 'A past teacher', ?, '2025-11-02', 'profile')").run(ppl[1], foundations, JSON.stringify([ppl[0]]));
-    db.prepare("INSERT INTO study_requests (person_id, format, topic, times, share_contact) VALUES (?, 'one_on_one', 'Prayer', 'Weekday evenings', 1)").run(ppl[4]);
+    db.prepare("INSERT INTO study_requests (person_id, format, topic, times, share_contact) VALUES (?, 'one_on_one', ?, 'Weekday evenings', 1)").run(ppl[4], `Prayer and the life of a disciple ${'with very long words like supercalifragilisticexpialidocious '.repeat(3)}`.slice(0, 200));
     smokeStudyPerson = ppl[0];
     // A paired check-in iPad, so the Stations page is checked with a real row (its table once ran off phones).
     db.prepare("INSERT INTO checkin_devices (name, campus_id, token_hash, device) VALUES ('Kids hallway iPad', (SELECT MIN(id) FROM campuses), 'ui-smoke-token-hash', 'iPad (10th generation)')").run();
@@ -172,9 +172,12 @@ async function main() {
           const tiles = await page.$$eval('.stats .stat span', (s) => s.map((x) => x.textContent.trim()));
           if (tiles.join('|') !== 'Active studies|Paused|Finished this year|Waiting for a match') problems.push(`tiles show [${tiles.join(', ')}]`);
           const tabs = await page.$$eval('[role=tab]', (s) => s.map((x) => x.textContent.trim().replace(/\s+\d+$/, '')));
-          if (tabs.join('|') !== 'Waiting|Studies|Teachers|Materials') problems.push(`tabs show [${tabs.join(', ')}]`);
+          if (tabs.join('|') !== 'Waiting|Studies|Teachers|Materials|People') problems.push(`tabs show [${tabs.join(', ')}]`);
           await page.click('[data-tab=waiting]');
           await page.waitForSelector('[data-start]', { timeout: 3000 }).catch(() => problems.push('The waiting request did not show'));
+          // A 200-character topic must wrap, not push the page sideways.
+          const over = await page.evaluate((vw) => document.documentElement.scrollWidth - vw, viewport.width);
+          if (size === 'phone' && over > 2) problems.push(`The Waiting tab scrolls sideways by ${over}px on a phone`);
           await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-waiting.png`), fullPage: true });
           await page.click('[data-tab=materials]');
           await page.waitForSelector('[data-add-material]', { timeout: 3000 }).catch(() => problems.push('The materials tab did not open'));
@@ -185,6 +188,15 @@ async function main() {
           await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => problems.push('A study did not open'));
           await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-detail.png`) });
           await page.keyboard.press('Escape');
+          // People view: find someone by name and get their card, with the Add button, without opening People.
+          await page.click('[data-tab=people]');
+          await page.fill('[data-q]', 'And');
+          await page.waitForSelector('[data-list] button[data-i]', { timeout: 3000 }).catch(() => problems.push('People search found no one'));
+          await page.click('[data-list] button[data-i]').catch(() => {});
+          await page.waitForSelector('[data-card] [data-add-done]', { timeout: 3000 }).catch(() => problems.push('The People view did not show a card with Add a completed study'));
+          const overP = await page.evaluate((vw) => document.documentElement.scrollWidth - vw, viewport.width);
+          if (size === 'phone' && overP > 2) problems.push(`The People view scrolls sideways by ${overP}px on a phone`);
+          await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-people.png`), fullPage: true });
           if (who !== 'coordinator') {
             await page.goto(`${base}/#/people/${smokeStudyPerson}`);
             await page.waitForSelector('[data-studies] .card', { timeout: 4000 }).catch(() => problems.push('The Bible studies card did not appear on the person page'));

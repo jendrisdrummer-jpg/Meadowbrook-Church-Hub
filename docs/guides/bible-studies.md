@@ -11,7 +11,7 @@ sees who is studying with whom, and there are no reminders for missed weeks.
 1. Tap **Bible studies** in the menu (under **People**; in **More** on a phone).
 2. The four tiles show **Active studies**, **Paused**, **Finished this year** and **Waiting for a
    match**. Tap one to jump to it.
-3. The tabs are **Waiting**, **Studies**, **Teachers** and **Materials**.
+3. The tabs are **Waiting**, **Studies**, **Teachers**, **Materials** and **People** (look someone up by name).
 
 ## Keep the approved list of materials
 
@@ -62,12 +62,11 @@ Tap a study on **Studies**. From there you can:
 Teachers with an account can do the progress, status and **Finished** parts themselves for their own
 studies, and nothing else.
 
-**Marked finished by mistake?** Open the person's page in **People**, find it under **Studies
-completed** and tap **Undo**. It comes off their record; we keep a note of who undid it and when.
+**Marked finished by mistake?** Open the **People** tab on the Bible studies page, search for their name, and under **Studies completed** tap **Undo**. (Staff can also do this from the person's page in People.) It comes off their record; we keep a note of who undid it and when.
 
 ## Past history
 
-- **One at a time:** open the person's page, then **Add a completed study** under **Bible studies**.
+- **One at a time:** open the **People** tab on the Bible studies page, search for their name, then tap **Add a completed study**. (Staff can also use the Bible studies card on the person's page.)
   Choose the material (a retired one is fine), the date, and the teacher from People or by typing a
   name.
 - **From a spreadsheet** (admins who cover every campus): **Materials**, then **Import past
