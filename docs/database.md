@@ -127,7 +127,7 @@ Where the sensitive data lives, so reviews know where to look (standards in
 
 | Class | Tables / columns |
 |---|---|
-| Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code`. `checkin_events` holds ids, codes and name snapshots only: **never allergies, medical notes, phone numbers, addresses or birthdates** (the recorder accepts free text only as `by_claimed` ≤ 100 and `station_label` ≤ 60 characters, and `audit_log` gets ids and actions only for check-in events) |
+| Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code`. `checkin_events` holds ids, codes and name snapshots only: **never allergies, medical notes, phone numbers, addresses or birthdates** (the recorder truncates an oversized `detail` rather than failing, and accepts free text only as `by_claimed` ≤ 100 and `station_label` ≤ 60 characters, and `audit_log` gets ids and actions only for check-in events) |
 | Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
 | Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
