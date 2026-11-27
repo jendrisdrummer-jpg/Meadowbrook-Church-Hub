@@ -44,6 +44,14 @@ import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
+export const CHECKIN_HEADERS = {
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+  'X-Frame-Options': 'DENY',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(self), geolocation=(), microphone=()',
+};
+
 export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') } = {}) {
   const app = express();
   app.disable('x-powered-by');
@@ -170,6 +178,15 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
     if (!podcastSettings(db).enabled) return res.status(404).type('text').send('No podcast.');
     res.setHeader('Cache-Control', 'public, max-age=900');
     res.type('application/rss+xml').send(podcastXml(db, `${req.protocol}://${req.get('host')}`));
+  });
+
+  // The kids' check-in page holds children's details, so it gets its own stricter headers on top of the
+  // site-wide ones: it may not be framed by anyone (the App Builder's SAMEORIGIN allowance does not apply),
+  // loads only its own scripts, styles, fonts and pictures, and talks only to this server.
+  const CHECKIN_FILES = new Set(['/checkin', '/checkin.html', '/js/checkin.js', '/js/checkin-rules.js', '/css/checkin.css']);
+  app.use((req, res, next) => {
+    if (CHECKIN_FILES.has(req.path)) for (const [k, v] of Object.entries(CHECKIN_HEADERS)) res.setHeader(k, v);
+    next();
   });
 
   const pub = path.join(root, 'public');

@@ -1067,6 +1067,17 @@ const MIGRATIONS = [
       OR EXISTS (SELECT 1 FROM assignments WHERE person_id = OLD.id)
     BEGIN SELECT RAISE(ABORT, 'This person has check-in or serving records, so they’re kept in the record. Archive them instead.'); END;
   `,
+  // 43: kids' check-in access (child-safety V1, PR 4). users.checkin is a per-account switch like
+  // attendance: staff, admins and paired iPads need no switch; anyone else (leader or volunteer) needs it.
+  // Until now the same grant lived in the settings key checkin_user_ids (leader accounts only). Copy it so
+  // exactly the people who can use check-in today keep it: leaders on that list. Staff and admins are
+  // automatic, and a volunteer on the list never had access. The old settings row is left in place and
+  // is no longer read, so nothing is deleted and a rollback still finds it.
+  `
+  ALTER TABLE users ADD COLUMN checkin INTEGER NOT NULL DEFAULT 0;
+  UPDATE users SET checkin = 1 WHERE role = 'leader' AND id IN (
+    SELECT j.value FROM json_each(COALESCE((SELECT CASE WHEN json_valid(value) THEN value END FROM settings WHERE key = 'checkin_user_ids'), '[]')) j);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

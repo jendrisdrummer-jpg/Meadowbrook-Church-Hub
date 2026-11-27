@@ -26,7 +26,9 @@ export function stationAuth(db) {
   const seen = db.prepare("UPDATE checkin_devices SET last_seen = datetime('now') WHERE id = ? AND (last_seen IS NULL OR last_seen < datetime('now', '-5 minutes'))");
   return (req, res, next) => {
     const token = req.get(HEADER);
-    if (req.user || !token || !stationMay(req)) return next();
+    // The station token wins over a hub session: an admin's cookie left on a kiosk must not widen what the
+    // iPad can do, so with a token the request is the station's (and a removed station is told so).
+    if (!token || !stationMay(req)) return next();
     const d = find.get(hash(String(token)));
     if (!d) return res.status(401).json({ error: 'This station was removed. Pair it again.', station_removed: true });
     seen.run(d.id);
@@ -74,6 +76,7 @@ export default function stationRoutes(db) {
   };
   r.get('/checkin/station', (req, res) => {
     if (!req.user?.station) throw notFound('Station');
+    res.set('Cache-Control', 'no-store');
     res.json(station(req.user.station.id));
   });
 

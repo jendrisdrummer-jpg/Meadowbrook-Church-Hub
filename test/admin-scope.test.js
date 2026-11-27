@@ -71,7 +71,7 @@ test('self: the dialog’s unchanged body is harmless and changes nothing', asyn
   const r = await call('N', 'PATCH', `/users/${ids.N}`, { role: 'admin', campus_ids: [1], finance: false, announce: false, checkin: false, active: true, person_id: null });
   assert.equal(r.status, 200);
   assert.equal(JSON.stringify(row(ids.N)), before);
-  assert.deepEqual(getSetting(db, 'checkin_user_ids', []), []);
+  assert.equal(row(ids.N).checkin, 0);
 });
 
 test('an account for another campus is out of reach: 403, and left out of every list', async () => {
@@ -103,7 +103,7 @@ test('staff in their own campus: change role, but never to admin, wider campuses
   assert.equal((await call('N', 'PATCH', `/users/${ids.S1}`, { role: 'staff', campus_ids: [1], finance: false, announce: false, checkin: false, active: true, person_id: null })).status, 200);
   // Kids' check-in is allowed for an account in reach.
   assert.equal((await call('N', 'PATCH', `/users/${ids.S1}`, { checkin: true })).status, 200);
-  assert.ok(getSetting(db, 'checkin_user_ids', []).includes(ids.S1));
+  assert.equal(row(ids.S1).checkin, 1);
 });
 
 test('volunteers: reach follows the linked person’s campus; unlinked ones are fine', async () => {

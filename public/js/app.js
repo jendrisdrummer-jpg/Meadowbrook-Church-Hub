@@ -38,7 +38,7 @@ const NAV = [
   ] },
   { group: 'More', items: [
     { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
-    { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true },
+    { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'volunteer', checkin: true, external: true },
     { path: '/stations', label: 'Check-in iPads', icon: 'tablet', min: 'staff' },
     { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
   ] },
@@ -231,7 +231,7 @@ document.addEventListener('click', (e) => {
 // The pages this account can open. Finance pages are for accounts with the Finance permission,
 // whatever their role; Announcements and Edit the app (App Builder) likewise.
 const searchPages = () => [...visibleNav().flatMap((g) => g.items), ...HELP_LINKS.filter((n) => can(n.min))];
-const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.attendanceOnly || (state.me.attendance && !can('leader')))) })).filter((g) => g.items.length);
+const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.checkin || can('staff') || state.me.checkin) && (!n.attendanceOnly || (state.me.attendance && !can('leader')))) })).filter((g) => g.items.length);
 
 function drawChrome() {
   const groups = visibleNav();

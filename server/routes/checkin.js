@@ -4,7 +4,7 @@
 // with no internet. Each check-in gets its id and pickup code on the tablet, and uploads are
 // idempotent: re-sending a batch after a dropped connection never double-counts anyone.
 import { Router } from 'express';
-import { requireRole, requireAllCampuses, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAllCampuses, requireAttendance, canAttendCampus, canCampus, canCheckin, canCheckinCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit, HttpError } from '../http.js';
 import { legalHold, saveHold, HOLD_MSG, HOLD_COOLING_DAYS } from '../history.js';
@@ -20,35 +20,24 @@ const CODE_MISS_ROWS = 5;
 const REFUSED_ROWS = 20;
 export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
-// Who may use kids' check-in (the family roster with children's allergies and medical notes,
-// checking in and out): paired stations, staff and admins, and leader accounts an admin has
-// authorised for check-in (Settings → Sign-in & accounts). Interim rule until the check-in access
-// flag of the child-safety plan replaces it.
-export function canCheckin(db, user) {
-  if (!user) return false;
-  if (user.station || rank(user.role) >= rank('staff')) return true;
-  return rank(user.role) >= rank('leader') && getSetting(db, 'checkin_user_ids', []).includes(user.id);
-}
-
-// Takes an account's check-in authorisation away (account deleted or no longer a leader), so a
-// grant never lingers to come back silently or pass to a reused account id.
+// Takes an account's Kids' check-in switch away (its automatic leader access was removed), so a
+// grant never lingers to come back silently. Who may use check-in at all is canCheckin in auth.js.
 export function revokeCheckin(db, userId) {
-  const ids = getSetting(db, 'checkin_user_ids', []);
-  if (ids.includes(userId)) setSetting(db, 'checkin_user_ids', ids.filter((id) => id !== userId));
+  db.prepare('UPDATE users SET checkin = 0 WHERE id = ? AND checkin = 1').run(userId);
 }
 
 export default function checkinRoutes(db) {
   const r = Router();
   const requireCheckin = (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
-    if (!canCheckin(db, req.user)) return res.status(403).json({ error: 'Kids’ check-in is for staff and people an admin has authorised. Ask an admin if you need it.' });
+    if (!canCheckin(req.user)) return res.status(403).json({ error: 'Kids’ check-in is for staff and people an admin has authorised. Ask an admin if you need it.' });
     next();
   };
 
   function campus(req, id) {
     const c = db.prepare('SELECT * FROM campuses WHERE id = ?').get(int(id, 'Campus'));
     if (!c) throw notFound('Campus');
-    if (!canCampus(req.user, c.id)) throw forbidden();
+    if (!canCheckinCampus(db, req.user, c.id)) throw forbidden();
     return c;
   }
 
@@ -68,7 +57,7 @@ export default function checkinRoutes(db) {
 
   // The campuses this account may set a station up for (setup lists only these).
   r.get('/checkin/campuses', requireCheckin, (req, res) => {
-    res.json(db.prepare('SELECT id, name, short_name, active FROM campuses ORDER BY active DESC, sort, name').all().filter((c) => canCampus(req.user, c.id)));
+    res.json(db.prepare('SELECT id, name, short_name, active FROM campuses ORDER BY active DESC, sort, name').all().filter((c) => canCheckinCampus(db, req.user, c.id)));
   });
 
   // Everything a tablet needs to check families in with no connection.
@@ -82,22 +71,26 @@ export default function checkinRoutes(db) {
     // staff assign a campus (People → household → edit), the family appears only at that campus.
     // A family visiting another campus is looked up online or added as a guest.
     const households = db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
+    // Only what the check-in screen uses: no photos, and no adult's birthdate or medical notes. Children keep
+    // their birthdate (rooms are by age), allergies and medical notes until the codes-and-medical release.
     const people = db.prepare(`SELECT id, household_id, household_role, first_name, last_name, nickname, birthdate, grade,
-        allergies, medical_notes, phone, photo FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
-    const pickups = db.prepare('SELECT * FROM household_pickups').all();
+        allergies, medical_notes, phone FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
     const byHousehold = new Map(households.map((h) => [h.id, { ...h, members: [], pickups: [] }]));
-    // Check-in needs children's allergies and medical notes; it never needs an adult's.
     for (const p of people) {
-      if (p.household_role !== 'child') { p.allergies = null; p.medical_notes = null; }
-      byHousehold.get(p.household_id)?.members.push(p);
+      if (!byHousehold.has(p.household_id)) continue;
+      if (p.household_role !== 'child') { p.allergies = null; p.medical_notes = null; p.birthdate = null; }
+      byHousehold.get(p.household_id).members.push(p);
     }
-    for (const p of pickups) byHousehold.get(p.household_id)?.pickups.push(p);
+    // Pickup people for this campus's families only (one query per household would be slow; the list is small).
+    const pickupQ = db.prepare('SELECT * FROM household_pickups WHERE household_id = ?');
+    for (const h of byHousehold.values()) h.pickups = pickupQ.all(h.id);
     const shown = [...byHousehold.values()].filter((h) => h.members.some((m) => m.household_role === 'child'));
     // One row per iPad (or account) per campus per day, so a tablet refreshing every ten minutes doesn't fill the record.
     if (!recordedToday(db, req, 'roster.download', c.id)) {
       recordEvent(db, req, { action: 'roster.download', campusId: c.id,
         detail: { households: shown.length, children: shown.reduce((n, h) => n + h.members.filter((m) => m.household_role === 'child').length, 0) } });
     }
+    res.set('Cache-Control', 'no-store');
     res.json({
       campus: c,
       today,
@@ -169,10 +162,11 @@ export default function checkinRoutes(db) {
     if (req.query.room_id) { extra = ' AND ci.room_id = ?'; args.push(int(req.query.room_id)); }
     // Children's allergies and medical notes are for kids' safety; an adult's (a volunteer or a
     // parent checked in) are never sent.
+    res.set('Cache-Control', 'no-store');
     res.json(db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
         ci.checked_in_at, ci.checked_out_at, ci.checked_out_by, p.first_name, p.last_name, p.nickname,
         CASE WHEN p.household_role = 'child' THEN p.allergies END allergies,
-        CASE WHEN p.household_role = 'child' THEN p.medical_notes END medical_notes, p.photo, p.birthdate, p.grade,
+        CASE WHEN p.household_role = 'child' THEN p.medical_notes END medical_notes, CASE WHEN p.household_role = 'child' THEN p.birthdate END birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
@@ -318,7 +312,7 @@ export default function checkinRoutes(db) {
   r.delete('/checkin/checkins/:id', requireCheckin, currentApp, (req, res) => {
     const ci = db.prepare('SELECT campus_id FROM checkins WHERE id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
-    if (!canCampus(req.user, ci.campus_id)) throw forbidden();
+    if (!canCheckinCampus(db, req.user, ci.campus_id)) throw forbidden();
     res.set('Allow', 'POST').status(405).json({ error: 'A check-in can’t be deleted, because it’s part of the record. Use “Void” instead and say why.' });
   });
 
@@ -328,7 +322,7 @@ export default function checkinRoutes(db) {
     if (req.user.station) throw new HttpError(403, 'An iPad can’t void a check-in. Ask a staff member to void it from the Hub.');
     const ci = db.prepare('SELECT ci.*, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
-    if (!canCampus(req.user, ci.campus_id)) throw forbidden();
+    if (!canCheckinCampus(db, req.user, ci.campus_id)) throw forbidden();
     const reason = str(req.body?.reason, 300);
     if (!reason) throw bad('Say why you’re voiding this check-in.');
     if (legalHold(db).on) throw new HttpError(409, HOLD_MSG);

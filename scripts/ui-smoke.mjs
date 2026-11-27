@@ -47,7 +47,7 @@ const EVERYDAY = ['Home', 'My Schedule', 'Chat', 'Tasks'];
 const NAV_WANT = {
   volunteer: [...EVERYDAY, 'Groups', 'Services'],
   finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
-  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
+  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards'],
   staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
   admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
 };

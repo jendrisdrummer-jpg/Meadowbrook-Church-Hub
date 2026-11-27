@@ -232,7 +232,7 @@ function drawStatus() {
     ${q ? html`<span class="k-pending">${q} waiting to sync</span>` : ''}
     ${stuckCount() ? html`<span class="k-pending" role="alert">${stuckCount()} ${stuckCount() === 1 ? 'child’s check-out' : 'children’s check-outs'} couldn’t be sent. Ask a coordinator.</span>` : ''}
     ${state.needsReload ? html`<span class="k-pending" role="alert">${RELOAD_MESSAGE}</span>` : ''}
-    ${!state.authed ? html`<a class="btn small" href="/login?next=%2Fcheckin">Sign in to sync</a>` : ''}`);
+    ${!state.authed && !state.station?.paired ? html`<a class="btn small" href="/login?next=%2Fcheckin">Sign in to sync</a>` : ''}`);
 }
 
 function setMode(mode) {
