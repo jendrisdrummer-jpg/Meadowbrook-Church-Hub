@@ -302,7 +302,7 @@ function printPlan(s) {
     table{width:100%;border-collapse:collapse} td,th{padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top;text-align:left}
     th{font-size:11px;text-transform:uppercase;color:#666} tr.sec td{background:#eee;font-weight:700} .d{color:#555;white-space:pre-wrap;font-style:italic}</style>
     <h1>${esc(s.title || 'Order of service')}</h1><p>${esc(fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }))} · ${esc(fmtTime(s.starts_at))} · ${esc(s.campus.name)}</p>
-    <table><tr><th>Min</th><th>Time</th><th>Type</th><th>Name</th><th>Led by</th></tr>
+    <table><tr><th scope="col">Min</th><th>Time</th><th>Type</th><th>Name</th><th>Led by</th></tr>
     ${s.items.map((i, n) => (i.kind === 'header'
       ? `<tr class="sec"><td colspan="5">${esc(i.title)}</td></tr>`
       : `<tr><td>${i.length_sec ? minutesLabel(i.length_sec) : ''}</td><td>${clock(times[n].from)}${i.length_sec ? `–${clock(times[n].to)}` : ''}</td><td>${esc(i.category || (i.kind === 'song' ? 'Song' : ''))}</td>

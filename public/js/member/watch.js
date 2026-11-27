@@ -1,7 +1,7 @@
 // The app's Watch tab: live now (when we are), the latest message, and the library with search
 // and speaker, series and topic filters. Each video has its own page with the app's title,
 // picture and trim; the player only loads when someone taps play.
-import { get, html, mount, icon, fmtDate, scrollBehavior } from '../lib.js';
+import { get, html, mount, icon, fmtDate, scrollBehavior, toast } from '../lib.js';
 import { hms, lengthText, mountPlayer } from '../video.js';
 
 const day = (d) => fmtDate(d, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -117,7 +117,7 @@ export async function videoPage(el, tab, id, q, { setTitle }) {
       ${m.scripture ? html`<p class="wv-scripture">${icon('book')} ${m.scripture}</p>` : ''}
       ${m.topics.length ? html`<div class="m-chips">${m.topics.map((t) => html`<a class="chip" href="#/${tab.id}?topic=${encodeURIComponent(t)}">${t}</a>`)}</div>` : ''}
       ${m.description ? html`<p class="wv-notes">${m.description}</p>` : ''}
-      ${navigator.share ? html`<button class="btn small" data-share>${icon('send')} Share</button>` : ''}
+      ${navigator.share ? html`<button class="btn small" data-share>${icon('send')} Share</button>` : navigator.clipboard?.writeText ? html`<button class="btn small" data-share>${icon('copy')} Copy link</button>` : ''}
     </div>
     <div data-after></div>
     ${m.more.length ? html`<h3 class="wv-h">More from ${m.series}</h3><div class="wv-list">${m.more.map((x) => card(x, tab))}</div>` : ''}`);
@@ -131,7 +131,9 @@ export async function videoPage(el, tab, id, q, { setTitle }) {
   el.onclick = async (e) => {
     if (e.target.closest('[data-play]')) { e.preventDefault(); return play(el.querySelector('[data-box]'), m, after); }
     if (e.target.closest('[data-share]')) {
-      navigator.share({ title: m.title, url: `${location.origin}/app/#/watch/${m.id}` }).catch(() => {});
+      const url = `${location.origin}/app/#/watch/${m.id}`;
+      if (navigator.share) navigator.share({ title: m.title, url }).catch(() => {});
+      else navigator.clipboard.writeText(url).then(() => toast('Link copied'), () => {});
     }
   };
 }

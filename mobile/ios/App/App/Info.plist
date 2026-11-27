@@ -24,6 +24,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Meadowbrook Church uses the camera when you take a photo to send in a chat or to join a video call.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Meadowbrook Church uses the microphone when you join a video call or record a message.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Meadowbrook Church lets you pick a photo or file from your library to send in a chat.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

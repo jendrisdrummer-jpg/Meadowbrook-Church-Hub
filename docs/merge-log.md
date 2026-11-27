@@ -57,4 +57,8 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **Contents of that deploy:** PR #117 into `milestone-1`, then `milestone-1` → `main`. The member app polish for the iPhone app (shell awareness, Back and swipe-back, 16px inputs, tap targets, refresh on return), This week card, My info (phone, birthday, an adult's household address, Tell the office), App Builder fixes, Announcement and Link list widgets, the **Edit the app** flag, the empty-families cleanup tool, and Customise Home. Migrations: 37 (accounts on the old `light` default follow the device; This week added once at the top of a saved app layout), 38 (`users.app_editor`, off for everyone: staff without it lose App Builder access until an admin switches it on), 39 (`users.home_layout`). All additive or a one-time update of preferences. Take a backup first. After deploy: switch on Edit the app for anyone who edits the app; rebuild the iPhone app once in Xcode for swipe-back.
 
+**Deployed 26 November 2026, about 11:10 PM CT:** PR #124 (Media rework, YouTube-first: messages playlist, skip words, Needs a look, new Library and edit panel, Mux and Podcast screens removed; plus #121 Media quick fixes). Backup taken first (11:08 PM). No migrations. Live; owner: "it's better". Rollback: none.
+
+**Deployed 27 November 2026, about 12:50 AM CT:** PR #129 (#128: member-app accessibility pass, child-safety V1 release 1 "check-in record" (migration 40), brand colour check, staff guides, UI consistency fixes; #125: Media setup for admins with every campus, three new agents). Merged by the owner. Rollback: none so far.
+
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).

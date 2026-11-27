@@ -220,6 +220,19 @@ export function formError(form, message, before, map = [['name', /name/i], ['ema
 }
 
 // ---------------------------------------------------------------- dialogs
+// Keeps Tab and Shift+Tab inside a modal <dialog> (the browser would otherwise hand focus to its own
+// toolbar). The browser still returns focus to the button that opened it when the dialog closes.
+export function trapTab(d) {
+  d.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const items = [...d.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter((n) => n.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !d.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+}
+
 // Opens a dialog. `body` is html``; `onSubmit(form, dialog)` may return false to keep it open.
 export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger = false, onSubmit, wide = false, onOpen }) {
   return new Promise((resolve) => {
@@ -254,6 +267,7 @@ export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger
         if (btn) btn.disabled = false;
       }
     });
+    trapTab(d);
     d.showModal();
     onOpen?.(d, close);
     $('input:not([type=hidden]), select, textarea', d)?.focus();
@@ -451,4 +465,27 @@ export function toastAction(msg, label, action, ms = 6000) {
   t.append(b);
   box.append(t);
   setTimeout(() => t.remove(), ms);
+}
+
+// Button groups drawn as segmented controls or tab bars (.seg, .tabs) show the chosen one with a
+// class (`on`). Mirror that to aria-pressed so a screen reader hears which one is selected too.
+export function syncPressed(root = document) {
+  root.querySelectorAll('.seg > button, .tabs > button, button.md-fchip, .people-quick button.chip, .team-filter button.chip').forEach((b) => {
+    const v = String(b.classList.contains('on'));
+    if (b.getAttribute('aria-pressed') !== v) b.setAttribute('aria-pressed', v);
+  });
+  // Safety net: an icon-only button or link that has a tooltip (title) but no accessible name gets
+  // the tooltip as its name. New icon buttons should still carry their own aria-label.
+  root.querySelectorAll('button[title]:not([aria-label]):not([aria-labelledby]), a[title]:not([aria-label]):not([aria-labelledby])').forEach((b) => {
+    if (!b.textContent.trim()) b.setAttribute('aria-label', b.title);
+  });
+}
+export function watchPressed() {
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; syncPressed(); });
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  syncPressed();
 }

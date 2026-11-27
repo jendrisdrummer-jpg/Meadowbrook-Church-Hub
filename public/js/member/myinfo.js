@@ -40,7 +40,7 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
     </form>` : ''}
     <div class="card">
       <h2 style="margin-top:0">Handled by the office</h2>
-      <div class="row small"><span class="muted">Email</span><span class="spacer"></span><span>${me.email || 'None on file'}</span></div>
+      <div class="row small"><span class="muted">Email</span><span class="spacer"></span><span style="overflow-wrap:anywhere;min-width:0;text-align:right">${me.email || 'None on file'}</span></div>
       ${me.can_edit_address ? '' : html`<div class="row small"><span class="muted">Address</span><span class="spacer"></span><span style="text-align:right">${me.address || 'None on file'}</span></div>`}
       <p class="muted small" style="margin-bottom:0">Your email is how you sign in, so the office changes it. ${me.can_edit_address ? 'For family details, ask the office to update them.' : 'Your address is shared with your household, so an adult in it or the office changes it. For family details, ask the office.'}</p>
     </div>

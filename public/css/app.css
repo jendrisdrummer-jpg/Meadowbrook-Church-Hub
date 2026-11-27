@@ -236,7 +236,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
    with a chevron as everywhere else instead of its small grey native box. */
 select:not([multiple]):not([size]) { appearance: none; -webkit-appearance: none; padding-right: 36px; background-image: var(--chevron); background-repeat: no-repeat; background-position: right 12px center; background-size: 15px; cursor: pointer; text-overflow: ellipsis; }
 select:not([multiple]):not([size]):hover { border-color: var(--text-2); }
-input:focus, select:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+input:focus, input[type=date]:focus-within, input[type=time]:focus-within, input[type=datetime-local]:focus-within, select:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
 label.field { display: grid; gap: 4px; font-size: 0.8125rem; font-weight: 550; color: var(--text-2); }
 label.check { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; }
 .form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
@@ -502,7 +502,7 @@ details.card[open] > summary::before { content: '▾ '; }
 .sched-layout { display: grid; gap: 16px; align-items: start; }
 .sched-layout.with-side { grid-template-columns: minmax(0, 1fr) 280px; }
 .sched-card { min-width: 0; }
-.sched-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.sched-scroll { position: relative; overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
 table.sched { border-collapse: separate; border-spacing: 0; width: 100%; }
 .sched th, .sched td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; text-align: left; }
 .sched thead th { font-weight: 600; min-width: 120px; background: var(--panel); }
@@ -1316,4 +1316,13 @@ fieldset.field > legend { padding: 0; font-weight: 600; margin-bottom: 6px; }
   .btn.small { padding-block: 8px; }
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]), select { min-height: 44px; }
   input[type=date], input[type=time], input[type=datetime-local] { height: 44px; }
+  /* Dense controls that were under 32px: filter chips, the People status picker, the Schedule add buttons. */
+  .chip.link, button.chip, .seg button { min-height: 36px; }
+  select.status-pick:not([multiple]):not([size]) { min-height: 32px; }
+  .sch-chip, .sch-open { min-height: 36px; }
+  .sch-more { min-width: 36px; min-height: 36px; }
 }
+
+/* Accessibility polish (hub): the person's name is the row's real link; the whole row stays clickable for the mouse. */
+.prow-link { color: inherit; text-decoration: none; }
+.prow-link:hover { text-decoration: underline; }

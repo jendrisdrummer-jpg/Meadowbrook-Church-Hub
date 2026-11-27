@@ -12,6 +12,7 @@ import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
+import { wireShellLinks } from './shell.js';
 import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
 import { myInfoPage } from './myinfo.js';
@@ -107,6 +108,7 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'navigate') location.href = e.data.url; });
   }
+  wireShellLinks();
   route();
 }
 
@@ -465,7 +467,7 @@ async function more(el, tab, q) {
   const showInstall = !isInstalled() && (isMobile || q.get('install'));
   const forms = app.user && !preview ? await get('/forms').catch(() => []) : []; // forms for signed-in people
   mount(el, html`<div class="card">${app.user
-      ? html`<div class="row"><b>${app.user.name}</b><span class="spacer"></span><button class="btn small ghost" data-logout>Sign out</button></div>`
+      ? html`<div class="row"><b style="overflow-wrap:anywhere;min-width:0">${app.user.name}</b><span class="spacer"></span><button class="btn small ghost" data-logout>Sign out</button></div>`
       : html`<div class="row"><span>Signed out</span><span class="spacer"></span><a class="btn small primary" href="${signInHref('/more')}">Sign in</a></div>`}</div>
     ${showInstall ? html`<div class="card"><h2>Get the app</h2>${isIOS
       ? html`<ol class="steps-inline small"><li>Open this page in <b>Safari</b>.</li><li>Tap the Share button ${share}.</li><li>Choose <b>Add to Home Screen</b>.</li></ol>`

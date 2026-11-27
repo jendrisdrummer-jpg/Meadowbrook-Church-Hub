@@ -1,5 +1,5 @@
 // App shell: sign-in check, navigation, campus switcher and a small hash router.
-import { get, post, patch, html, raw, mount, icon, avatar, $, fail } from './lib.js';
+import { get, post, patch, html, raw, mount, icon, avatar, $, fail, watchPressed } from './lib.js';
 import { initSearch, searchButton, openSearch } from './search.js';
 
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
@@ -143,6 +143,7 @@ async function boot() {
   $('.brand-mark').textContent = (state.settings.church_name || 'C').trim()[0].toUpperCase();
   applyTheme(state.me.theme, state.settings.brand_color);
   drawChrome();
+  watchPressed();
   // The skip link must not touch the address (pages are routed by it), so it moves focus by hand.
   document.querySelector('[data-skip]')?.addEventListener('click', (e) => { e.preventDefault(); const m = $('#main'); m.focus(); m.scrollIntoView({ block: 'start' }); });
   window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } focusTitleNext = true; route(); });

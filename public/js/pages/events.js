@@ -15,7 +15,7 @@ export default async function events(el) {
   const list = (await get(`/admin/events${past ? '?scope=past' : ''}`)).filter((e) => !state.campusId || !e.campus_id || e.campus_id === state.campusId);
   mount(el, html`<p class="muted" style="margin-top:-6px">Published events show on the church app’s calendar (turn on the Events tab or add an Upcoming events widget in the App Builder). Turn on sign-ups to collect RSVPs, answers and payments.</p>
     <div class="tabs"><button class="${past ? '' : 'on'}" data-view="">Upcoming</button><button class="${past ? 'on' : ''}" data-view="past">Past</button></div>
-    ${list.length ? html`<div class="card"><table class="list"><thead><tr><th>Event</th><th>When</th><th>Sign-ups</th><th></th></tr></thead><tbody>
+    ${list.length ? html`<div class="card"><table class="list"><thead><tr><th scope="col">Event</th><th scope="col">When</th><th scope="col">Sign-ups</th><th scope="col"></th></tr></thead><tbody>
       ${list.map((e) => html`<tr data-id="${e.id}" class="clickable">
         <td><div class="row" style="gap:10px;flex-wrap:nowrap">${e.image ? html`<img src="${e.image}" alt="" class="ev-mini">` : html`<span class="ev-mini ev-mini-blank">${icon('calendar')}</span>`}
           <span><b>${e.title}</b><br><span class="muted small">${[e.location, e.campus_short || e.campus_name || 'All campuses'].filter(Boolean).join(' · ')}</span></span></div></td>

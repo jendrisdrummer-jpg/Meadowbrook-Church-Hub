@@ -2,7 +2,7 @@
 // Videos come into the app on their own; here staff sort out the few that need a look, fix titles
 // and trims, and set up where videos come from. A video opens in a side panel (a full-screen
 // sheet on a phone); its address, #/media/12, still opens that panel.
-import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips } from '../lib.js';
+import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips, trapTab } from '../lib.js';
 import { setTitle, go, state, refreshAttentionBadges } from '../app.js';
 import { hms, parseHms, mountPlayer } from '../video.js';
 
@@ -131,8 +131,9 @@ async function openPanel(id, ctx) {
 
   const dlg = document.createElement('dialog');
   dlg.className = 'md-panel';
+  dlg.setAttribute('aria-labelledby', 'md-panel-title');
   mount(dlg, html`<form data-form novalidate>
-    <div class="md-panel-head"><h2>${m.title}</h2><button type="button" class="icon-btn" data-cancel aria-label="Close">${icon('x')}</button></div>
+    <div class="md-panel-head"><h2 id="md-panel-title">${m.title}</h2><button type="button" class="icon-btn" data-cancel aria-label="Close">${icon('x')}</button></div>
     <div class="md-panel-body">
       ${group === 'look' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app yet. Choose <b>Show in app</b> or <b>Hide from the app</b>.</div>`
         : group === 'out' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app. Choose <b>Show in app</b> to add it.</div>` : ''}
@@ -296,6 +297,7 @@ async function openPanel(id, ctx) {
       ctx.reload();
     } catch (err) { fail(err); save.disabled = false; }
   };
+  trapTab(dlg);
   dlg.showModal();
 }
 
