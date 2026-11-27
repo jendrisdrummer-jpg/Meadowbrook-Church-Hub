@@ -13,7 +13,7 @@ export default async function services(el) {
   const staff = can('staff');
   const leader = can('leader');
 
-  setTitle('Services', html`${leader ? html`<div class="seg" role="tablist">
+  setTitle('Services', html`${leader ? html`<div class="seg">
       <button data-view="month" class="${view === 'month' ? 'on' : ''}">Month</button><button data-view="list" class="${view === 'list' ? 'on' : ''}">List</button></div>` : ''}
     ${staff ? html`<button class="btn primary" data-new>${icon('plus')} New service</button>` : ''}`);
   const top = document.querySelector('[data-actions]');

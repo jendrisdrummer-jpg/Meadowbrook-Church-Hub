@@ -1,7 +1,8 @@
 // More → My info: a member updates their own phone and birthday (and, for adults, the household's
 // home address), which save straight to People. Email and family changes go to the office through "Tell the office".
-import { get, patch, post, html, mount, icon, toast, fail } from '../lib.js';
+import { get, patch, post, html, mount, icon, toast, fieldError, clearFieldErrors, formError } from '../lib.js';
 
+const FIELDS = [['phone', /phone/i], ['birthdate', /birth/i], ['address', /address|street/i], ['city', /city/i], ['state', /state/i], ['zip', /zip/i]];
 const TOPICS = { email: 'Change my email', family: 'Update family details', other: 'Something else' };
 
 export async function myInfoPage(el, { app, setTitle, signInHref }) {
@@ -57,6 +58,7 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
     e.preventDefault();
     const form = e.target;
     const go = form.querySelector('button');
+    clearFieldErrors(form);
     go.disabled = true;
     try {
       if (form.matches('[data-info]')) {
@@ -70,11 +72,11 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
         draw();
       } else {
         const message = form.elements.message.value.trim();
-        if (!message) { go.disabled = false; return toast('Please add a short message first.', 'bad'); }
+        if (!message) { go.disabled = false; fieldError(form.elements.message, 'Please add a short message first.'); return; }
         await post('/me/office-request', { topic: form.elements.topic.value, message });
         toast('Sent. The office will be in touch.');
         draw();
       }
-    } catch (err) { go.disabled = false; fail(err); }
+    } catch (err) { go.disabled = false; formError(form, err.message || String(err), go, FIELDS); }
   };
 }

@@ -17,6 +17,9 @@ names who does what, and the main session carries the plan out**, one focused br
 | `senior-developer` | Sonnet | Yes | Building approved features and fixes, migrations, app-side tooling |
 | `qa-engineer` | Sonnet | Tests and test docs | Workflow testing, API tests, browser and phone checks, regression runs, verifying fixes |
 | `devops-engineer` | Sonnet | Ops docs and `.github/workflows/` | Deploy and rollback plans, migration rehearsal, Render env vars, backups and the restore drill, monitoring, CI. Prepares owner steps; never deploys |
+| `accessibility-specialist` | Sonnet | No (runs checks, reports only) | Can people of all ages and abilities use it? Large text and zoom, contrast, tap targets, VoiceOver and keyboard, colour, motion, forms, plain language; findings by severity |
+| `mobile-engineer` | Sonnet | Yes (`mobile/` and phone-specific web fixes) | The iPhone and Android apps: Capacitor and Xcode setup, native behaviour, links and downloads in the app, push through Apple and Google, icons, TestFlight and store steps for the owner |
+| `training-writer` | Sonnet | Guides and help docs only | Staff and volunteer how-to guides, beta walkthroughs, "how to get the app" and launch announcements, staff release notes, help text proposals; checked against the real screens |
 
 Invoke one by name in a request ("Use the security-specialist to audit the chat routes"), or let
 the main session choose from each agent's description. `/agents` lists them.
@@ -52,6 +55,9 @@ The owner approves stage, gate and §2 changes.
 | "Will this work on a Sunday morning?" | `church-operations` |
 | Plan a medium or large change; final review | `chief-architect` |
 | Screen audit, wording, phone layout | `ui-ux-specialist` |
+| Usable for all ages and abilities (zoom, contrast, VoiceOver, plain language) | `accessibility-specialist` |
+| The phone app itself, push in the app, TestFlight and store steps | `mobile-engineer` |
+| Staff guides, beta walkthroughs, church-wide announcements | `training-writer` |
 | Access, privacy, secrets, uploads review | `security-specialist` |
 | Build a feature, fix a bug, write a migration | `senior-developer` |
 | Test a workflow, verify a fix, regression run | `qa-engineer` |

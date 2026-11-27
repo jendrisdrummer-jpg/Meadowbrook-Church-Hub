@@ -124,18 +124,18 @@ export default async function schedule(el) {
           ${!services.length ? html`<div class="empty">No services this month${seriesId ? ' for this repeating service' : ''}.</div>`
             : !positions.length ? html`<div class="empty">${teamId ? 'This team has no positions yet. Add them on the Teams page.' : 'None of these services need anyone yet. Set Positions needed on a service or repeating service, or pick a team to schedule it anyway.'}</div>`
             : html`<div class="sched-scroll"><table class="sched">
-              <thead><tr><th class="pos-col">${sel ? html`<span class="small">Placing <b>${displayName(sel)}</b></span>` : ''}</th>
+              <thead><tr><th scope="col" class="pos-col">${sel ? html`<span class="small">Placing <b>${displayName(sel)}</b></span>` : html`<span class="sr-only">Position</span>`}</th>
                 ${services.map((s) => {
                   const day = s.starts_at.slice(0, 10);
                   const open = openIn(s);
                   const note = sel ? (isAway(sel, day) ? html`<span class="pill bad">Away</span>` : serving(sel.id, s.id) ? html`<span class="pill info">Serving</span>` : '') : '';
-                  return html`<th class="${sel && isAway(sel, day) ? 'away' : ''}"><a href="#/services/${s.id}" class="sched-day">
+                  return html`<th scope="col" class="${sel && isAway(sel, day) ? 'away' : ''}"><a href="#/services/${s.id}" class="sched-day">
                     <b>${fmtDate(s.starts_at)}</b><span class="muted small">${fmtTime(s.starts_at)}${multiCampus ? ` · ${s.campus_short || s.campus_name}` : ''}</span></a>
-                    <div class="sched-th-flags">${open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good">${icon('check')}</span>`}${s.locked ? html`<span title="Locked">${icon('lock', 'ic small-ic')}</span>` : ''}${note}</div></th>`;
+                    <div class="sched-th-flags">${open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good" title="All positions filled">${icon('check')}<span class="sr-only">All positions filled</span></span>`}${s.locked ? html`<span title="Locked">${icon('lock', 'ic small-ic')}</span>` : ''}${note}</div></th>`;
                 })}</tr></thead>
               <tbody>${byTeam.map((g) => html`
-                ${byTeam.length > 1 || !teamId ? html`<tr class="team-row"><th colspan="${services.length + 1}"><span class="dot" style="background:${g.color}"></span> ${g.name}</th></tr>` : ''}
-                ${g.positions.map((p) => html`<tr><th class="pos-col">${p.name}</th>
+                ${byTeam.length > 1 || !teamId ? html`<tr class="team-row"><th scope="row" colspan="${services.length + 1}"><span class="dot" style="background:${g.color}"></span> ${g.name}</th></tr>` : ''}
+                ${g.positions.map((p) => html`<tr><th scope="row" class="pos-col">${p.name}</th>
                   ${services.map((s) => cell(s, p, cells[`${s.id}:${p.id}`], sel))}</tr>`)}`)}
               </tbody></table></div>
               <p class="muted small" style="margin:10px 0 0">${teamId ? 'Pick someone from the team list, then click open spots to place them, or drag them onto a spot. ' : 'Pick a team to see its people alongside. '}Click a name to remove it or see their reply.</p>`}
@@ -155,7 +155,7 @@ export default async function schedule(el) {
     const dropHere = can ? raw(`data-drop="${s.id}:${p.id}"`) : '';
     return html`<td class="${needed ? '' : 'not-needed'} ${open ? 'has-open' : ''}" ${dropHere}>
       ${list.map((a) => html`<button type="button" class="sch-chip st-${statusOf(a)} ${a.person_id === picked ? 'mine' : ''}" data-chip="${a.id}" data-svc="${s.id}" title="${displayName(a)} · ${STATUS[statusOf(a)]}">
-        <span class="sch-dot"></span>${displayName(a)}</button>`)}
+        <span class="sch-dot" aria-hidden="true"></span>${displayName(a)}<span class="sr-only">, ${STATUS[statusOf(a)]}</span></button>`)}
       ${can ? Array.from({ length: open }, () => html`<button type="button" class="sch-open ${ready ? 'ready' : ''}" data-add="${s.id}:${p.id}" title="${ready ? `Schedule ${displayName(sel)}` : 'Choose someone'}">${icon('plus')} ${ready ? sel.nickname || sel.first_name : 'Open'}</button>`)
         : open ? html`<span class="muted small">${open} open</span>` : ''}
       ${can && !open ? html`<button type="button" class="sch-more" data-add="${s.id}:${p.id}" title="${needed ? 'Add another' : 'Schedule someone (not usually needed)'}">${icon('plus')}</button>` : ''}

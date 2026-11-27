@@ -5,8 +5,8 @@ export const CARD_NAMES = {
   attention: 'Needs your attention',
   services: 'This week’s services',
   serving: 'Your next time serving',
-  attendance: 'Last Sunday’s attendance',
-  away: 'Who’s away',
+  attendance: 'Latest attendance',
+  away: 'Away this week',
   totals: 'People totals',
 };
 

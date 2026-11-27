@@ -1,6 +1,6 @@
 # Kids' check-in child-safety plan
 
-**Status: approved to start (owner, 2026-11-27). Version 1 is being built as six pull requests; see [v1-refresh-2026-11.md](v1-refresh-2026-11.md) for the order, the current-code check and the first PR's brief. Revision 3.2 stays the Version 2/3 reference. Nothing here is implemented yet.** Each pull request needs its own review and the owner's merge. Deployment approvals (Group III of
+**Status: approved to start (owner, 2026-11-27). Version 1 is being built as six pull requests; see [v1-refresh-2026-11.md](v1-refresh-2026-11.md) for the order, the current-code check, the first PR's brief and the owner's decisions (§5a). Revision 3.2 stays the Version 2/3 reference.** Progress: PR 1 (the check-in record, migration 40) is live; PR 2 (check-out guard) and PR 3 (history protection) are built and held as drafts; PRs 4–6 are being built. Each pull request needs its own review and the owner's merge. Deployment approvals (Group III of
 the checklist) are asked for one at a time, when each phase is ready.
 
 ## The plan (read these)

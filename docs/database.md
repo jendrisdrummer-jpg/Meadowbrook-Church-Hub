@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (39 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (40 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -65,7 +65,8 @@ Arrows show the main references.
 | `headcounts` → services | Counts per area. |
 | `rooms` → campuses | Kids' rooms by age/grade. |
 | `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. |
-| `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). |
+| `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
+| `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
 
 ### Communication
 | Table | Purpose |
@@ -105,6 +106,20 @@ Arrows show the main references.
 |---|---|
 | `backups`, `backup_files` | Nightly encrypted backup runs and which uploaded files are in Drive. |
 
+## Append-only tables
+
+Some records must outlive the things they describe, and must never be quietly changed. `checkin_events`
+is the first. The pattern:
+
+- **Triggers refuse `UPDATE` and `DELETE`** (`BEFORE UPDATE` / `BEFORE DELETE` ... `RAISE(ABORT, '... is append-only')`).
+  Corrections are new rows, never edits.
+- **No foreign keys** to people, users, households or devices, so deleting a person, account, family or station
+  never cascades into the record (and is never blocked by it). Rows hold plain ids plus a **name snapshot**, so they
+  still read correctly after the thing they name is gone. A name is joined from `people` at read time only for display.
+- The one reference that stays is `campus_id`, with no `ON DELETE` action: a campus with history can't be deleted.
+- Times are set in JavaScript (`new Date().toISOString()`), never `datetime('now')`, so tests can fix the clock.
+- Rolling the code back leaves the table in place; nothing else reads it.
+
 ## Sensitive data
 
 Where the sensitive data lives, so reviews know where to look (standards in
@@ -112,7 +127,7 @@ Where the sensitive data lives, so reviews know where to look (standards in
 
 | Class | Tables / columns |
 |---|---|
-| Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code` |
+| Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code`. `checkin_events` holds ids, codes and name snapshots only: **never allergies, medical notes, phone numbers, addresses or birthdates** (the recorder truncates an oversized `detail` rather than failing, and accepts free text only as `by_claimed` ≤ 100 and `station_label` ≤ 60 characters, and `audit_log` gets ids and actions only for check-in events) |
 | Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
 | Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |

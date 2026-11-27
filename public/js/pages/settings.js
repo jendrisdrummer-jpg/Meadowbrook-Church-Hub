@@ -3,6 +3,7 @@ import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, e
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
+import { brandWarnings, suggestShade } from '../contrast.js';
 
 const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
 
@@ -37,14 +38,15 @@ async function church(panel) {
   mount(panel, html`<form class="card stack" style="max-width:640px">
     <label class="field">Church name<input type="text" name="church_name" value="${s.church_name}" required></label>
     <div class="field"><span>Brand colour</span>
-      <div class="color-row"><input type="color" name="brand_color" value="${s.brand_color}"><code data-hex>${s.brand_color}</code>
+      <div class="color-row"><input type="color" name="brand_color" aria-label="Brand colour" value="${s.brand_color}"><code data-hex>${s.brand_color}</code>
         <button type="button" class="btn small ghost" data-reset>Reset</button></div>
+      <div data-contrast class="stack" aria-live="polite"></div>
       <span class="muted small">Used for buttons, links and highlights everywhere, including check-in and the sign-in page.</span></div>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
   <form class="card stack" style="max-width:640px" data-app>
     <h2 style="margin:0">App</h2>
-    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My Schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
+    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
     <div class="row" style="align-items:center;gap:14px">
       <img src="/app-icon/192.png?v=${s.app_icon_version}" alt="App icon" width="72" height="72" style="border-radius:16px;border:1px solid var(--line)">
       <div class="stack" style="gap:6px"><label class="btn small">${icon('upload')} Upload icon<input type="file" accept="image/*" data-icon hidden></label>
@@ -95,7 +97,20 @@ async function church(panel) {
   const preview = () => {
     panel.querySelector('[data-hex]').textContent = form.brand_color.value;
     applyTheme(state.me.theme, form.brand_color.value);
+    checkContrast();
   };
+  // Low contrast is the owner's choice, so this only warns; saving is never blocked.
+  const checkContrast = () => {
+    const box = panel.querySelector('[data-contrast]'), hex = form.brand_color.value;
+    const warnings = brandWarnings(hex), better = warnings.length ? suggestShade(hex) : null;
+    mount(box, warnings.length ? html`<div class="alert" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span data-swatch style="background:${hex};color:#fff;border-radius:10px;padding:6px 14px;font-weight:650">Button</span>
+      <span style="flex:1;min-width:200px">${warnings.join(' ')} ${better ? 'Try a different shade: ' : 'Try a different colour.'}
+        ${better ? html`<button type="button" class="btn small" data-use="${better}"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;background:${better}"></span>Use ${better}</button>` : ''}</span>
+    </div>` : html``);
+    box.querySelector('[data-use]')?.addEventListener('click', (e) => { form.brand_color.value = e.currentTarget.dataset.use; preview(); });
+  };
+  checkContrast();
   form.brand_color.oninput = preview;
   panel.querySelector('[data-reset]').onclick = () => { form.brand_color.value = '#135fd1'; preview(); };
   form.onsubmit = async (e) => {
@@ -345,15 +360,15 @@ async function accounts(panel, q = '') {
   ${list.duplicate_links?.length ? html`<div class="card" style="margin-top:14px" data-duplicates>
     <h2>${list.duplicate_links.length === 1 ? 'One person has' : `${list.duplicate_links.length} people have`} more than one account</h2>
     <p class="muted small">Each person should have one account. Nothing has been changed. For each person below, decide which account should stay linked, then press <b>Find</b> next to the other one, open it and choose <b>Unlink</b>. Please don’t delete accounts to fix this. Once it’s sorted out, the hub enforces the rule by itself.</p>
-    <div class="table-wrap"><table class="list"><thead><tr><th>Person</th><th>Accounts</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="list"><thead><tr><th scope="col">Person</th><th scope="col">Accounts</th></tr></thead><tbody>
     ${list.duplicate_links.map((d) => html`<tr><td>${d.name || 'Person'} <span class="muted small">#${d.person_id}</span></td>
       <td>${d.accounts.map((a) => html`<div class="small">${a.email} <span class="pill">${a.role}</span>${a.active ? '' : html` <span class="pill bad">Disabled</span>`} <span class="muted">last sign-in ${a.last_login ? fmtUtcDate(a.last_login) : 'never'}</span> <button class="btn small ghost" data-find="${a.email}">Find</button></div>`)}</td></tr>`)}
     </tbody></table></div></div>` : ''}
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
     <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
-    <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
-    <div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
+    <form class="row" data-search style="margin-bottom:8px"><input type="search" aria-label="Search all accounts by name or email" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
+    <div class="table-wrap"><table class="list"><thead><tr><th scope="col">Email</th><th scope="col">Person</th><th scope="col">Access</th><th scope="col">Campuses</th><th scope="col">Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
@@ -472,7 +487,7 @@ async function importPeople(panel) {
       <li>Run a <b>test import</b> first: it shows what would happen without changing anything.</li>
     </ol>
     <p class="muted small">Importing the same file again updates people instead of duplicating them.</p>
-    <input type="file" accept=".csv,text/csv" data-file>
+    <input type="file" accept=".csv,text/csv" data-file aria-label="Choose a CSV file">
     <div data-step></div>
   </div>`);
   panel.querySelector('[data-file]').onchange = async (e) => {
@@ -491,7 +506,7 @@ function drawMapping(box, csv, pv) {
     <form class="form" data-map>${pv.fields.map((f) => html`<label class="field">${FIELD_LABELS[f] || pv.labels?.[f] || f}<select name="${f}">${options(pv.headers.map((h) => ({ value: h, label: h })), pv.mapping[f], { blank: '— skip —' })}</select></label>`)}
       ${state.campuses.length ? html`<label class="field">Campus for anyone without one<select name="__campus">${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), state.campusId, { blank: '—' })}</select></label>` : ''}</form>
     <h3 style="margin-top:14px">First few rows</h3>
-    <div class="table-wrap"><table class="list small"><thead><tr>${pv.headers.map((h) => html`<th>${h}</th>`)}</tr></thead>
+    <div class="table-wrap"><table class="list small"><thead><tr>${pv.headers.map((h) => html`<th scope="col">${h}</th>`)}</tr></thead>
       <tbody>${pv.sample.map((r) => html`<tr>${pv.headers.map((h) => html`<td>${r[h]}</td>`)}</tr>`)}</tbody></table></div>
     <div class="row end" style="margin-top:14px"><button class="btn" data-run="dry">Test import</button><button class="btn primary" data-run="real">Import</button></div>
     <div data-result style="margin-top:12px"></div>`);
@@ -537,7 +552,7 @@ async function checks(panel) {
     ${reviewing && empty.count ? html`<div class="stack" data-empty>
       <h3 style="margin:0">Empty families</h3>
       <p class="muted small" style="margin:0">None of these has anyone in it (not even archived people), nor pickup people or notes.${empty.count > empty.households.length ? ` Showing the first ${empty.households.length}; remove these and review again for the rest.` : ''}</p>
-      <div style="overflow-x:auto"><table class="list"><thead><tr><th>Family</th><th>Campus</th><th>Created</th><th>Last updated</th></tr></thead>
+      <div style="overflow-x:auto"><table class="list"><thead><tr><th scope="col">Family</th><th scope="col">Campus</th><th scope="col">Created</th><th scope="col">Last updated</th></tr></thead>
         <tbody>${empty.households.map((h) => html`<tr><td>${h.name}</td><td>${h.campus || 'No campus'}</td><td>${fmtUtcDate(h.created_at)}</td><td>${fmtUtcDate(h.updated_at)}</td></tr>`)}</tbody></table></div>
       <div><button class="btn danger" type="button" data-remove>Remove ${empty.households.length} empty ${empty.households.length === 1 ? 'family' : 'families'}</button></div>
     </div>` : ''}

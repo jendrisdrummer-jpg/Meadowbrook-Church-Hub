@@ -16,6 +16,7 @@ how it's built and how to change it.
 | [security.md](security.md) | Security and privacy standards, severity scale, review checklist |
 | [development.md](development.md) | Coding standards, commands, git/PR flow, keeping docs current, efficient Claude use |
 | [beta-readiness.md](beta-readiness.md) | Staff beta readiness: deployment gate, device and email tests, import, permissions, training, configuration |
+| [guides/](guides/README.md) | **Staff beta guides** in plain language: getting started, scheduling, attendance, media, the phone app, and a 15-item beta checklist |
 | [leadership-preview.md](leadership-preview.md) | **Current milestone:** the owner's personal testing checklist on the live site, the leadership demo guide, likely questions, a one-page feature overview, known issues and next steps |
 | [deploy-runbook.md](deploy-runbook.md) | Deploying `milestone-1` to Render: pre-deploy checks, owner steps, the first hour, go/no-go, rollback, env var list, rehearsal record |
 | [restore-drill.md](restore-drill.md) | Backup restore drill on a laptop (offline mode), and its record |

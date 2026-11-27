@@ -1,7 +1,7 @@
 // The app's Watch tab: live now (when we are), the latest message, and the library with search
 // and speaker, series and topic filters. Each video has its own page with the app's title,
 // picture and trim; the player only loads when someone taps play.
-import { get, html, mount, icon, fmtDate } from '../lib.js';
+import { get, html, mount, icon, fmtDate, scrollBehavior, toast } from '../lib.js';
 import { hms, lengthText, mountPlayer } from '../video.js';
 
 const day = (d) => fmtDate(d, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -70,7 +70,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
         : latest ? html`<div class="wv-feature"><div class="m-video wv-box" data-box="${latest.id}">${poster(latest, { big: true })}</div>
           <a class="wv-head" href="#/${tab.id}/${latest.id}"><span class="wv-kicker">Latest message</span><b>${latest.title}</b><span class="muted small">${meta(latest)}</span></a></div>` : ''}
     </div>
-    <div class="wv-filters"><input type="search" data-f="q" placeholder="Search messages" value="${f.q}">
+    <div class="wv-filters"><input type="search" aria-label="Search messages" data-f="q" placeholder="Search messages" value="${f.q}">
       <div class="wv-selects">${pick('speaker', 'Speaker', speakers)}${pick('series', 'Series', series)}${pick('topic', 'Topic', topics)}
         <button class="chip" data-clear hidden>${icon('x')} Clear</button></div></div>
     ${!f.q && !f.speaker && !f.series && !f.topic && series.length ? html`<div class="wv-series-row">${series.slice(0, 12).map((s) => {
@@ -99,7 +99,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
       return play(p.parentElement, latest, () => { location.hash = `#/${tab.id}/${latest.id}?ended=1`; });
     }
     const s = e.target.closest('[data-series]');
-    if (s) { f.series = s.dataset.series; sync(); el.querySelector('.wv-filters').scrollIntoView({ behavior: 'smooth' }); }
+    if (s) { f.series = s.dataset.series; sync(); el.querySelector('.wv-filters').scrollIntoView({ behavior: scrollBehavior() }); }
     if (e.target.closest('[data-clear]')) { Object.keys(f).forEach((k) => { f[k] = ''; }); sync(); }
   };
   draw();
@@ -117,7 +117,7 @@ export async function videoPage(el, tab, id, q, { setTitle }) {
       ${m.scripture ? html`<p class="wv-scripture">${icon('book')} ${m.scripture}</p>` : ''}
       ${m.topics.length ? html`<div class="m-chips">${m.topics.map((t) => html`<a class="chip" href="#/${tab.id}?topic=${encodeURIComponent(t)}">${t}</a>`)}</div>` : ''}
       ${m.description ? html`<p class="wv-notes">${m.description}</p>` : ''}
-      ${navigator.share ? html`<button class="btn small" data-share>${icon('send')} Share</button>` : ''}
+      ${navigator.share ? html`<button class="btn small" data-share>${icon('send')} Share</button>` : navigator.clipboard?.writeText ? html`<button class="btn small" data-share>${icon('copy')} Copy link</button>` : ''}
     </div>
     <div data-after></div>
     ${m.more.length ? html`<h3 class="wv-h">More from ${m.series}</h3><div class="wv-list">${m.more.map((x) => card(x, tab))}</div>` : ''}`);
@@ -131,7 +131,9 @@ export async function videoPage(el, tab, id, q, { setTitle }) {
   el.onclick = async (e) => {
     if (e.target.closest('[data-play]')) { e.preventDefault(); return play(el.querySelector('[data-box]'), m, after); }
     if (e.target.closest('[data-share]')) {
-      navigator.share({ title: m.title, url: `${location.origin}/app/#/watch/${m.id}` }).catch(() => {});
+      const url = `${location.origin}/app/#/watch/${m.id}`;
+      if (navigator.share) navigator.share({ title: m.title, url }).catch(() => {});
+      else navigator.clipboard.writeText(url).then(() => toast('Link copied'), () => {});
     }
   };
 }

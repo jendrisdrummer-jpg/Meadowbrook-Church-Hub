@@ -43,7 +43,7 @@ const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/ta
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church'],
   ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church']];
 // The sidebar each role should see, in order (the demo admin has the announce flag). Rules: min role per item, Giving needs the Finance flag, Announcements the announce flag.
-const EVERYDAY = ['Home', 'My Schedule', 'Chat', 'Tasks'];
+const EVERYDAY = ['Home', 'My schedule', 'Chat', 'Tasks'];
 const NAV_WANT = {
   volunteer: [...EVERYDAY, 'Groups', 'Services'],
   finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
@@ -128,7 +128,7 @@ async function main() {
           const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.getAttribute('aria-label')));
           const want = NAV_WANT[who];
           if (seen.join('|') !== want.join('|')) problems.push(`menu shows [${seen.join(', ')}] but should show [${want.join(', ')}]`);
-          if (links.join('|') !== 'Help|Feedback') problems.push(`Help and Feedback beside the name: saw [${links.join(', ')}]`);
+          if (links.join('|') !== 'Help|Send feedback') problems.push(`Help and Feedback beside the name: saw [${links.join(', ')}]`);
           if (!(await page.locator('.side [data-campus]').count()) || (await page.locator('.side [data-nav]').evaluate((n) => n.previousElementSibling?.matches('.side-campus')) !== true)) problems.push('campus picker is not at the top of the sidebar');
           if (who === 'admin') {
             const tag = page.locator('[data-campus-tag]');

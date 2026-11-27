@@ -23,7 +23,7 @@ export default async function service(el, id) {
       setTitle(title, html`${s.can_lock ? html`<button class="btn" data-lock title="${lockTip}">${icon(s.locked ? 'unlock' : 'lock')} ${lockLabel}</button>` : ''}
         ${canEdit ? html`<button class="btn" data-edit>${icon('edit')} Details</button>` : ''}`);
     } else if (s.can_lock || canEdit) {
-      setTitle(title, html`<span style="position:relative"><button class="icon-btn" data-svc-menu aria-label="More for this service" aria-haspopup="menu" aria-expanded="${menuOpen}">${icon('dots')}</button>
+      setTitle(title, html`<span style="position:relative"><button class="icon-btn" data-svc-menu aria-label="More for this service" aria-haspopup="menu" aria-expanded="${String(menuOpen)}">${icon('dots')}</button>
         ${menuOpen ? html`<div class="menu" role="menu" style="top:calc(100% + 6px);bottom:auto;left:0;right:auto;width:200px">
           ${s.can_lock ? html`<button type="button" role="menuitem" data-lock>${icon(s.locked ? 'unlock' : 'lock')} ${lockLabel}</button>` : ''}
           ${canEdit ? html`<button type="button" role="menuitem" data-edit>${icon('edit')} Details</button>` : ''}</div>` : ''}</span>`);
@@ -70,7 +70,7 @@ export default async function service(el, id) {
     ${s.locked ? html`<div class="alert" style="margin-bottom:12px">${icon('lock', 'ic small-ic')} This service is locked, so its order of service and schedule can’t be changed${can('admin') ? ' (you can still edit as an admin)' : ''}.</div>` : ''}
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <style>@media (max-width: 520px) { .svc-tabs button { padding: 10px 9px; font-size: 13.5px; } }</style>
-    <div class="tabs svc-tabs" role="tablist">
+    <div class="tabs svc-tabs">
       <button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">Order of service</button>
       <button data-tab="people" class="${tab === 'people' ? 'on' : ''}">Who’s serving</button>
       ${can('leader') ? html`<button data-tab="counts" class="${tab === 'counts' ? 'on' : ''}">Attendance</button>` : ''}

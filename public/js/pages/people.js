@@ -79,9 +79,9 @@ export default async function people(el) {
   if (statusSel.value || roleSel.value || saved.field) fpanel.classList.remove('hidden'), fbtn.setAttribute('aria-expanded', 'true');
 
   function draw() {
-    mount(el.querySelector('[data-list]'), rows.length ? html`<div class="plist">${rows.map((p) => html`<div class="prow click ${picked.has(p.id) ? 'picked' : ''}" data-id="${p.id}" tabindex="0" role="link">
+    mount(el.querySelector('[data-list]'), rows.length ? html`<div class="plist" role="list">${rows.map((p) => html`<div class="prow click ${picked.has(p.id) ? 'picked' : ''}" data-id="${p.id}" role="listitem">
           ${selecting ? html`<input type="checkbox" class="prow-check" aria-label="Select ${displayName(p)}" ${picked.has(p.id) ? raw('checked') : ''}>` : ''}${avatar(p)}
-          <div class="prow-main"><div class="prow-name"><b>${displayName(p)}</b> ${can('staff') ? html`<select class="status-pick pill ${STATUS[p.status]}" data-status-of="${p.id}" aria-label="Status for ${displayName(p)}">
+          <div class="prow-main"><div class="prow-name">${selecting ? html`<b>${displayName(p)}</b>` : html`<a class="prow-link" href="#/people/${p.id}"><b>${displayName(p)}</b></a>`} ${can('staff') ? html`<select class="status-pick pill ${STATUS[p.status]}" data-status-of="${p.id}" aria-label="Status for ${displayName(p)}">
             ${Object.keys(LABEL).map((k) => html`<option value="${k}" ${k === p.status ? raw('selected') : ''}>${LABEL[k]}</option>`)}</select>`
             : html`<span class="pill ${STATUS[p.status]}">${LABEL[p.status] || p.status}</span>`}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}</div>
             <div class="muted small">${[familyName(p.household_name), state.campuses.length > 1 ? campusName(p.campus_id) : ''].filter(Boolean).join(' · ')}</div></div>
@@ -223,6 +223,8 @@ export default async function people(el) {
     if (e.target.closest('[data-bulk-cancel]')) { selecting = false; picked.clear(); return keepPlace(redraw); }
     if (e.target.closest('[data-bulk-status]')) return bulkStatus().catch(fail);
     if (e.target.closest('[data-bulk-family]')) return bulkFamily().catch(fail);
+    const nameLink = e.target.closest('.prow-link');
+    if (nameLink && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); return open(nameLink.closest('.prow').dataset.id); }
     if (e.target.closest('a, select')) return; // the call link, the status picker
     const row = e.target.closest('.prow[data-id]');
     if (row && selecting) {

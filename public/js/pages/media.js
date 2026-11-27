@@ -2,7 +2,7 @@
 // Videos come into the app on their own; here staff sort out the few that need a look, fix titles
 // and trims, and set up where videos come from. A video opens in a side panel (a full-screen
 // sheet on a phone); its address, #/media/12, still opens that panel.
-import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips } from '../lib.js';
+import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips, trapTab } from '../lib.js';
 import { setTitle, go, state, refreshAttentionBadges } from '../app.js';
 import { hms, parseHms, mountPlayer } from '../video.js';
 
@@ -77,7 +77,9 @@ export default async function media(el, tab, opts = {}) {
   };
   const draw = () => {
     const list = shown();
-    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${g === group}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
+    const se = el.querySelector('[data-series]');
+    if (se) { se.hidden = group === 'look'; if (group === 'look' && series) { series = ''; se.value = ''; } }
+    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${String(g === group)}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
     mount(el.querySelector('[data-list]'), list.length ? html`<div class="md-grid">${list.map(card)}</div>`
       : html`<div class="card empty">${lib.items.length === 0
         ? (connected ? 'No videos yet. They come in on their own; Check for new videos looks now.' : html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every video comes in on its own, or use <b>Add a video</b> for a single YouTube link.`)
@@ -129,8 +131,9 @@ async function openPanel(id, ctx) {
 
   const dlg = document.createElement('dialog');
   dlg.className = 'md-panel';
+  dlg.setAttribute('aria-labelledby', 'md-panel-title');
   mount(dlg, html`<form data-form novalidate>
-    <div class="md-panel-head"><h2>${m.title}</h2><button type="button" class="icon-btn" data-cancel aria-label="Close">${icon('x')}</button></div>
+    <div class="md-panel-head"><h2 id="md-panel-title">${m.title}</h2><button type="button" class="icon-btn" data-cancel aria-label="Close">${icon('x')}</button></div>
     <div class="md-panel-body">
       ${group === 'look' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app yet. Choose <b>Show in app</b> or <b>Hide from the app</b>.</div>`
         : group === 'out' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app. Choose <b>Show in app</b> to add it.</div>` : ''}
@@ -294,6 +297,7 @@ async function openPanel(id, ctx) {
       ctx.reload();
     } catch (err) { fail(err); save.disabled = false; }
   };
+  trapTab(dlg);
   dlg.showModal();
 }
 
@@ -366,6 +370,12 @@ async function drawSetup(el) {
     </div></div>`);
 
   const f = el.querySelector('[data-form]');
+  // Church-wide settings: only admins who cover every campus change them; others can read them.
+  if (!(state.me.role === 'admin' && !state.me.campusIds)) {
+    f.querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = true; });
+    el.querySelector('[data-hide-extras]')?.remove();
+    f.prepend(Object.assign(document.createElement('p'), { className: 'alert', textContent: 'Only an admin who covers every campus can change these settings.' }));
+  }
   f.onsubmit = async (e) => {
     e.preventDefault();
     const b = f.querySelector('button.primary');

@@ -1,5 +1,5 @@
 // App Builder: choose the member app's tabs and home screen, with a live phone preview.
-import { get, put, api, html, raw, mount, icon, options, toast, fail, chips, confirm, shrinkImage } from '../lib.js';
+import { get, put, api, html, raw, mount, icon, options, toast, fail, chips, confirm, shrinkImage, scrollBehavior } from '../lib.js';
 import { setTitle } from '../app.js';
 import { WIDGETS, SIZES, STYLES, ICONS, MAX_LINKS, DEFAULT_APP, linkableTab } from '../app-widgets.js';
 
@@ -133,7 +133,7 @@ export default async function appBuilder(el) {
     if (e.data?.type === 'app-home') { cfg.home = e.data.home; selected = e.data.select ?? selected; changed(true); }
   };
   window.addEventListener('message', onMessage);
-  const scrollToWidget = () => box.querySelector('.w-row.on')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const scrollToWidget = () => box.querySelector('.w-row.on')?.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' });
 
   // On a phone the preview opens full screen instead of sitting at the bottom of a long page.
   const sheet = (open) => { phone.classList.toggle('b-sheet-open', open); if (open) setTimeout(sendPreview, 50); };
@@ -177,7 +177,7 @@ export default async function appBuilder(el) {
           <div class="b-main"><input type="text" data-k="tabs.${i}.label" value="${t.label}" maxlength="20" aria-label="Tab name">
             <div class="muted small b-kind">${TAB_INFO[t.type][0]}<details class="b-help"><summary aria-label="What is this?">?</summary><p>${TAB_INFO[t.type][1]}</p></details></div>
             ${t.type === 'link' ? html`<input type="url" data-k="tabs.${i}.url" value="${t.url || ''}" placeholder="https://…" aria-label="Link" class="${t.url ? '' : 'bad'}"><p class="b-hint" data-hint ${t.url ? 'hidden' : ''}>Add a website</p>` : ''}
-            ${t.type === 'page' ? html`<input type="text" data-k="tabs.${i}.title" value="${t.title || ''}" placeholder="Page heading"><textarea data-k="tabs.${i}.body" rows="4" placeholder="What the page says">${t.body || ''}</textarea>` : ''}
+            ${t.type === 'page' ? html`<input type="text" data-k="tabs.${i}.title" aria-label="Page heading" value="${t.title || ''}" placeholder="Page heading"><textarea data-k="tabs.${i}.body" aria-label="What the page says" rows="4" placeholder="What the page says">${t.body || ''}</textarea>` : ''}
           </div>
           ${['more', 'home'].includes(t.type) ? html`<span class="muted small b-on">Always on</span>` : html`<label class="check small b-on"><input type="checkbox" data-k="tabs.${i}.on" ${t.on ? 'checked' : ''} ${!t.on && full ? 'disabled' : ''} ${!t.on && full ? raw('title="The bottom bar is full. Turn another tab off first."') : ''}> On</label>`}
           ${['page', 'link'].includes(t.type) ? html`<button type="button" class="icon-btn danger b-del" data-del="tabs:${i}" title="Remove" aria-label="Remove this tab">${icon('trash')}</button>` : html`<span class="b-del-gap"></span>`}

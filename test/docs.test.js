@@ -20,6 +20,9 @@ const TEAM = {
   'senior-developer': 'sonnet',
   'product-manager': 'sonnet',
   'devops-engineer': 'sonnet',
+  'accessibility-specialist': 'sonnet',
+  'mobile-engineer': 'sonnet',
+  'training-writer': 'sonnet',
 };
 const TOOLS = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebSearch', 'WebFetch', 'NotebookEdit', 'TodoWrite']);
 // Agents that must never change files.
@@ -36,7 +39,7 @@ function frontmatter(file) {
   return { fields, body: m[2] };
 }
 
-test('agent team: nine agents with valid settings', () => {
+test('agent team: twelve agents with valid settings', () => {
   const files = fs.readdirSync(agentsDir).filter((f) => f.endsWith('.md'));
   assert.deepEqual(files.map((f) => f.replace(/\.md$/, '')).sort(), Object.keys(TEAM).sort());
   for (const f of files) {

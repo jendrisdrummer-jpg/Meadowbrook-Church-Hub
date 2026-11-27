@@ -5,11 +5,11 @@ import { songFilesEditor } from '../songfiles.js';
 
 export default async function songs(el) {
   setTitle('Songs', html`<button class="btn primary" data-add>${icon('plus')} Add song</button>`);
-  mount(el, html`<div class="card"><input type="search" data-q placeholder="Search title or author" value="${hashQuery().get('q') || ''}" style="max-width:340px;margin-bottom:12px"><div class="table-wrap" data-list></div></div>`);
+  mount(el, html`<div class="card"><input type="search" aria-label="Search title or author" data-q placeholder="Search title or author" value="${hashQuery().get('q') || ''}" style="max-width:340px;margin-bottom:12px"><div class="table-wrap" data-list></div></div>`);
   let rows = [];
   const load = async () => {
     rows = await get(`/songs?q=${encodeURIComponent(el.querySelector('[data-q]').value)}`);
-    mount(el.querySelector('[data-list]'), rows.length ? html`<table class="list"><thead><tr><th>Title</th><th>Key</th><th>Files</th><th>CCLI #</th><th>Last used</th><th>Past year</th></tr></thead>
+    mount(el.querySelector('[data-list]'), rows.length ? html`<table class="list"><thead><tr><th scope="col">Title</th><th scope="col">Key</th><th scope="col">Files</th><th scope="col">CCLI #</th><th scope="col">Last used</th><th scope="col">Past year</th></tr></thead>
       <tbody>${rows.map((s, i) => html`<tr class="click" data-i="${i}"><td><b>${s.title}</b><div class="muted small">${s.author}</div></td><td>${s.default_key}</td>
         <td>${s.file_count ? html`<span class="pill info">${icon('file', 'ic small-ic')} ${s.file_count}</span>` : html`<span class="muted">—</span>`}</td>
         <td class="muted">${s.ccli}</td><td class="muted small">${s.last_used ? fmtDate(s.last_used.slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}</td><td class="num">${s.uses_year}×</td></tr>`)}</tbody></table>`

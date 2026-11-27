@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
-import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly } from './checkin-rules.js';
+import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -25,17 +25,21 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { toast('This device is out of storage space.', 'bad'); } },
 };
 
-const state = { station: store.get(KEY.station, null), token: store.get(KEY.token, null), roster: null, mode: 'in', online: navigator.onLine, authed: true, campuses: [] };
+const RELOAD_MESSAGE = 'This iPad needs the latest check-in. Close the app and open it again.';
+const state = { needsReload: false, station: store.get(KEY.station, null), token: store.get(KEY.token, null), roster: null, mode: 'in', online: navigator.onLine, authed: true, campuses: [] };
 const $main = document.querySelector('[data-main]');
 
 async function call(method, url, body) {
-  const headers = { 'x-mb': '1', 'content-type': 'application/json' };
+  const headers = { 'x-mb': '1', 'content-type': 'application/json', 'x-checkin-version': String(CHECKIN_APP_VERSION) };
   if (state.token) headers['x-station'] = state.token;
   const res = await fetch('/api' + url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   // Removed in the hub: forget the pairing and show a new code.
   if (res.status === 401 && data.station_removed) { forgetPairing(); location.reload(); throw new Error(data.error); }
   if (res.status === 401) { state.authed = false; drawStatus(); throw Object.assign(new Error('Signed out. Sign in again to sync.'), { status: 401 }); }
+  // The hub only accepts the latest check-in. What this iPad has recorded stays in its queue and outbox
+  // (they are only cleared after a 2xx answer) and syncs once the app is reopened.
+  if (res.status === 426 && data.reload) { state.needsReload = true; drawStatus(); throw Object.assign(new Error(RELOAD_MESSAGE), { status: 426 }); }
   if (!res.ok) throw Object.assign(new Error(data.error || `Error ${res.status}`), { status: res.status });
   return data;
 }
@@ -66,6 +70,7 @@ async function boot() {
   state.roster = store.get(KEY.roster(state.station.campusId), null);
   await refreshRoster();
   if (state.denied) { mount($main, html`<div class="alert bad">${state.denied}</div>`); return; }
+  if (!state.roster && state.needsReload) { mount($main, html`<div class="alert bad">${RELOAD_MESSAGE}</div>`); return; }
   if (!state.roster) { mount($main, html`<div class="alert bad">This station has no family list yet. Connect to the internet and reload.</div>`); return; }
   drawHeader();
   setMode('in');
@@ -196,12 +201,13 @@ function drawStatus() {
   mount(document.querySelector('[data-status]'), html`
     ${state.online ? html`<span class="k-online">● Online</span>` : html`<span class="k-offline">● Offline: still checking in</span>`}
     ${q ? html`<span class="k-pending">${q} waiting to sync</span>` : ''}
+    ${state.needsReload ? html`<span class="k-pending" role="alert">${RELOAD_MESSAGE}</span>` : ''}
     ${!state.authed ? html`<a class="btn small" href="/login?next=%2Fcheckin">Sign in to sync</a>` : ''}`);
 }
 
 function setMode(mode) {
   state.mode = mode;
-  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  document.querySelectorAll('[data-mode]').forEach((b) => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); });
   ({ in: drawSearch, out: drawCheckout, rooms: drawRooms })[mode]();
 }
 
@@ -212,7 +218,7 @@ const saveToday = (list) => store.set(KEY.today(state.station.campusId, day()), 
 
 // ---------------------------------------------------------------- check in
 function drawSearch() {
-  mount($main, html`<input class="k-search" type="search" data-q placeholder="Last 4 of phone, or last name" autocomplete="off" inputmode="search">
+  mount($main, html`<input class="k-search" type="search" aria-label="Last 4 of phone, or last name" data-q placeholder="Last 4 of phone, or last name" autocomplete="off" inputmode="search">
     <p class="k-hint">Type the last four digits of a parent’s phone number, or the family’s last name.</p>
     <div class="k-results" data-results></div>
     <p class="k-hint" style="margin-top:28px">First time here? <button class="btn small" data-new-family>Add a new family</button></p>`);
@@ -393,7 +399,7 @@ async function addChild(h) {
 function drawCheckout() {
   mount($main, html`<div style="max-width:420px;margin:0 auto;text-align:center">
     <h1>Check out</h1><p class="k-hint">Enter the code from the parent’s pickup tag.</p>
-    <input class="k-search" data-code maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+    <input class="k-search" data-code aria-label="Pickup code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
     <div data-match style="margin-top:16px"></div></div>`);
   const input = $main.querySelector('[data-code]');
   input.focus();
