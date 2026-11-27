@@ -115,6 +115,26 @@ export function upgradeOutbox(stored, campusId, newId) {
   return entries;
 }
 
+// ---------------------------------------------------------------- more than one service in a day
+// Today's check-ins on this iPad's list: { id, person_id, service_id, checked_in_at, checked_out_at }.
+// "Already checked in" (a child can't be checked in twice): with check-out on the iPad, any check-in that hasn't been checked out. With
+// matching tags nobody is checked out between services, so it is only a check-in for the same service; the same child can be checked
+// in again for another service the same day (a second service, or a later one). With no service chosen, one check-in a day, as ever.
+export function alreadyCheckedIn(todays, serviceId, tagMode) {
+  return todays.filter((c) => !c.checked_out_at && (!tagMode || (c.service_id ?? null) === (serviceId ?? null)));
+}
+
+// Who is in the rooms now. With matching tags a newer check-in for the same child (a second service) replaces the earlier one, so a
+// child is in one room at a time. Never rewrites anything: it only decides what to show.
+export function inRoomNow(todays, tagMode) {
+  const open = todays.filter((c) => !c.checked_out_at);
+  if (!tagMode) return open;
+  const newer = (a, b) => (a.checked_in_at === b.checked_in_at ? String(a.id) > String(b.id) : a.checked_in_at > b.checked_in_at);
+  const latest = new Map();
+  for (const c of todays) if (!latest.has(c.person_id) || newer(c, latest.get(c.person_id))) latest.set(c.person_id, c);
+  return open.filter((c) => latest.get(c.person_id) === c);
+}
+
 // ---------------------------------------------------------------- holds and who collected
 // A hold ("see coordinator") is placed by staff in the Hub. The iPad only ever learns that a child has one (`on_hold`,
 // on the roster and the active list), never why. A held child is never checked out on an iPad, online or off.

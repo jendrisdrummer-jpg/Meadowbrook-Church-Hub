@@ -219,7 +219,8 @@ export default function checkinRoutes(db) {
     const older = olderApp(req);
     const features = checkinFeatures(db);
     // Where parents show their tag, nobody is checked out on the iPad, so "in the room" is worked out here: a check-in
-    // counts only on its own campus's day (and until someone checks the child out in the Hub). Nothing is rewritten.
+    // counts only on its own campus's day, until someone checks the child out in the Hub, and only if there is no newer check-in for the
+    // same child at this campus that day (a second service). Nothing is rewritten.
     const todayHere = localNow(c.timezone).date;
     const rows = db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
         ci.checked_in_at, ci.checked_out_at, ci.checked_out_by, p.first_name, p.last_name, p.nickname,
@@ -229,7 +230,8 @@ export default function checkinRoutes(db) {
         CASE WHEN p.household_role = 'child' THEN p.birthdate END birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name,
         CASE WHEN p.household_role = 'child' AND EXISTS (SELECT 1 FROM checkin_holds ho WHERE ho.person_id = ci.person_id AND ho.lifted_at IS NULL) THEN 1 ELSE 0 END on_hold,
-        CASE WHEN ci.checked_out_at IS NULL AND (? = 0 OR ci.day = ?) THEN 1 ELSE 0 END in_room
+        CASE WHEN ci.checked_out_at IS NULL AND (? = 0 OR (ci.day = ? AND NOT EXISTS (SELECT 1 FROM checkins c2 WHERE c2.person_id = ci.person_id AND c2.campus_id = ci.campus_id AND c2.day = ci.day
+          AND c2.voided_at IS NULL AND (c2.checked_in_at > ci.checked_in_at OR (c2.checked_in_at = ci.checked_in_at AND c2.id > ci.id))))) THEN 1 ELSE 0 END in_room
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
       WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}

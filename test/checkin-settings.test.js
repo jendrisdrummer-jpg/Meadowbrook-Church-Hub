@@ -15,7 +15,7 @@ import { startSession } from '../server/auth.js';
 import { outbox as mailbox } from '../server/mail.js';
 import {
   CHECKIN_APP_VERSION, LABELS, labelStrips, labelSafety, level1, kidLabelHtml, parentTagHtml, labelName, featuresOf, holdAlertText, holdLeaveText,
-  SMALLEST_SCALE, SEE_ROOM_LEADER, SEE_DESK, weakenedSettings,
+  SMALLEST_SCALE, SEE_ROOM_LEADER, SEE_DESK, weakenedSettings, alreadyCheckedIn, inRoomNow,
 } from '../public/js/checkin-rules.js';
 
 const T0 = '2027-02-21T15:30:00Z'; // a Sunday, 9:30 in Chicago
@@ -879,4 +879,101 @@ test('the automatic-access check is lazy: a request that doesn’t need check-in
     assert.ok(!('autoReach' in me) && !('autoCheckin' in me), 'not part of what /me reports about the account');
   } finally { db.prepare = real; }
   setFeatures();
+});
+
+// ---------------------------------------------------------------- more than one service in a day
+const svcAt = (campus, title, startsAt) => Number(db.prepare('INSERT INTO services (campus_id, title, starts_at) VALUES (?, ?, ?)').run(campus, title, startsAt).lastInsertRowid);
+let m = 0;
+async function checkInFor(person, code, { who, at, service }) {
+  const id = `ci-${String(++m).padStart(4, '0')}-multi`;
+  const r = await asStation('POST', '/checkin/checkins', { campus_id: who === 'SouthDesk' ? 2 : 1, records: [{ id, person_id: person, kind: 'kid', security_code: code, station: who, service_id: service, checked_in_at: at }] }, who);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  return { id, r };
+}
+const kidsAt = async (campus) => (await api('staff', 'GET', '/attendance/weekly?weeks=4')).data.kids.filter((k) => k.campus_id === campus).reduce((n, k) => n + k.total, 0);
+const summaryKids = async (service) => (await api('staff', 'GET', '/attendance/summary?weeks=2')).data.services.find((x) => x.id === service)?.kids;
+
+test('a child checked in at one campus in the morning can be checked in at the other that afternoon (matching tags), and each campus sees only its own', async () => {
+  setFeatures({ checkout: 'tag', holds: 'alert' });
+  const hhF = Number(db.prepare("INSERT INTO households (name, campus_id) VALUES ('Flores', NULL)").run().lastInsertRowid);
+  const fran = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role) VALUES ('Fran', 'Flores', NULL, ?, 'adult')").run(hhF).lastInsertRowid);
+  const fay = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role, birthdate) VALUES ('Fay', 'Flores', NULL, ?, 'child', '2020-01-01')").run(hhF).lastInsertRowid);
+  const am = svcAt(1, 'Howard morning', '2027-02-21T09:00');
+  const pm = svcAt(2, 'Luxemburg afternoon', '2027-02-21T14:00');
+  // The family is on both campuses' lists.
+  for (const [who, campus] of [['Lobby', 1], ['SouthDesk', 2]]) {
+    const list = (await asStation('GET', `/checkin/roster?campus_id=${campus}`, undefined, who)).data;
+    assert.ok(list.households.some((h) => h.id === hhF && h.members.some((x) => x.id === fay)), `campus ${campus} offers the family`);
+  }
+  const weekBefore = { 1: await kidsAt(1), 2: await kidsAt(2) };
+  const skippedBefore = events('checkin.skipped').length;
+  const clashBefore = events('checkin.code_clash').length;
+  const morning = await checkInFor(fay, 'F1A2B', { who: 'Lobby', at: '2027-02-21T15:00:00.000Z', service: am });
+  // The same code is fine at the other campus: codes are only unique within a campus.
+  const afternoon = await checkInFor(fay, 'F1A2B', { who: 'SouthDesk', at: '2027-02-21T20:00:00.000Z', service: pm });
+  assert.equal(afternoon.r.data[0].campus_id, 2);
+  assert.equal(events('checkin.skipped').length, skippedBefore, 'nothing was skipped because of the other campus’s check-in');
+  assert.equal(events('checkin.code_clash').length, clashBefore, 'and no clash was flagged');
+  // Each campus's own list shows only its own check-in; the other campus's list is out of reach for the iPad.
+  const north = (await asStation('GET', '/checkin/active?campus_id=1')).data.filter((x) => x.person_id === fay);
+  const south = (await asStation('GET', '/checkin/active?campus_id=2', undefined, 'SouthDesk')).data.filter((x) => x.person_id === fay);
+  assert.deepEqual(north.map((x) => x.id), [morning.id]);
+  assert.deepEqual(south.map((x) => x.id), [afternoon.id]);
+  assert.equal(north[0].in_room, 1);
+  assert.equal(south[0].in_room, 1);
+  assert.equal((await asStation('GET', '/checkin/active?campus_id=2')).status, 403);
+  // Attendance counts each service once, at its own campus.
+  assert.equal(await summaryKids(am), 1);
+  assert.equal(await summaryKids(pm), 1);
+  assert.equal(await kidsAt(1), weekBefore[1] + 1);
+  assert.equal(await kidsAt(2), weekBefore[2] + 1);
+  // Checking in at one campus doesn't touch the other's open check-in (staff checking out at one campus leaves the other as it was).
+  assert.equal((await api('staff', 'POST', '/checkin/checkout', { campus_id: 1, mode: 'request', household_id: hhF, ids: [morning.id], collector: { kind: 'household_adult', person_id: fran, id_type: 'drivers_license' } })).status, 200);
+  assert.equal(row(afternoon.id).checked_out_at, null);
+  assert.equal((await asStation('GET', '/checkin/active?campus_id=2', undefined, 'SouthDesk')).data.find((x) => x.id === afternoon.id).in_room, 1);
+  setFeatures();
+});
+
+test('one campus, two services in a day, matching tags: the second service is a new check-in, and only the latest is in the room', async () => {
+  setFeatures({ checkout: 'tag', holds: 'alert' });
+  const hhG = Number(db.prepare("INSERT INTO households (name, campus_id) VALUES ('Garcia', 1)").run().lastInsertRowid);
+  db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role) VALUES ('Gil', 'Garcia', 1, ?, 'adult')").run(hhG);
+  const gus = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role, birthdate) VALUES ('Gus', 'Garcia', 1, ?, 'child', '2020-01-01')").run(hhG).lastInsertRowid);
+  const nine = svcAt(1, 'Nine', '2027-02-21T09:00');
+  const eleven = svcAt(1, 'Eleven', '2027-02-21T11:00');
+  const weekBefore = await kidsAt(1);
+  const first = await checkInFor(gus, 'G1H2J', { who: 'Lobby', at: '2027-02-21T15:00:00.000Z', service: nine });
+  const second = await checkInFor(gus, 'G1H2J', { who: 'Lobby', at: '2027-02-21T17:00:00.000Z', service: eleven });
+  assert.equal(events('checkin.code_clash').filter((e) => [first.id, second.id].includes(e.checkin_id)).length, 0, 'the same family’s own earlier check-in is not a clash');
+  const mine = (await asStation('GET', '/checkin/active?campus_id=1')).data.filter((x) => x.person_id === gus);
+  assert.equal(mine.length, 2, 'both check-ins are kept, as the record of each service');
+  assert.deepEqual(mine.map((x) => [x.id, x.in_room]).sort(), [[first.id, 0], [second.id, 1]].sort(), 'only the latest is in the room');
+  assert.equal(await summaryKids(nine), 1);
+  assert.equal(await summaryKids(eleven), 1);
+  assert.equal(await kidsAt(1), weekBefore + 2, 'each service counted once');
+  // Nothing was rewritten to get there.
+  assert.equal(row(first.id).checked_out_at, null);
+  setFeatures();
+});
+
+test('the iPad’s “already checked in” is for this service only when parents show their tag, and for the day otherwise', () => {
+  const list = [
+    { id: 'a', person_id: 1, service_id: 10, checked_in_at: '2027-02-21T15:00:00Z', checked_out_at: null },
+    { id: 'b', person_id: 2, service_id: null, checked_in_at: '2027-02-21T15:00:00Z', checked_out_at: null },
+    { id: 'c', person_id: 3, service_id: 10, checked_in_at: '2027-02-21T15:00:00Z', checked_out_at: '2027-02-21T16:00:00Z' },
+  ];
+  const who = (arr) => arr.map((c) => c.person_id).sort();
+  assert.deepEqual(who(alreadyCheckedIn(list, 10, true)), [1], 'tag: this service');
+  assert.deepEqual(who(alreadyCheckedIn(list, 11, true)), [], 'tag: another service is free');
+  assert.deepEqual(who(alreadyCheckedIn(list, null, true)), [2], 'tag: no service chosen, one a day');
+  assert.deepEqual(who(alreadyCheckedIn(list, 11, false)), [1, 2], 'check-out on the iPad: not checked out yet means still here, whichever service');
+  // The rooms: a newer check-in for the same child replaces the older one (tag), a check-out removes it.
+  const rooms = [
+    { id: 'x1', person_id: 1, checked_in_at: '2027-02-21T15:00:00Z' },
+    { id: 'x2', person_id: 1, checked_in_at: '2027-02-21T17:00:00Z' },
+    { id: 'y1', person_id: 2, checked_in_at: '2027-02-21T15:00:00Z' },
+    { id: 'y2', person_id: 2, checked_in_at: '2027-02-21T17:00:00Z', checked_out_at: '2027-02-21T17:30:00Z' },
+  ];
+  assert.deepEqual(inRoomNow(rooms, true).map((c) => c.id), ['x2'], 'tag: the latest per child, and not if that one left');
+  assert.deepEqual(inRoomNow(rooms, false).map((c) => c.id), ['x1', 'x2', 'y1'], 'check-out on the iPad: as before');
 });

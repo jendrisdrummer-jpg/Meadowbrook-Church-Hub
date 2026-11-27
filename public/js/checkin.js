@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, familyName } from './lib.js';
-import { roomFor, pickupCode, normalizeCode, showCode, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, heldPeople, rosterIsToday, collectorChoice, ID_TYPES, HOLD_MESSAGE, STALE_MESSAGE, CHECKIN_APP_VERSION, LABELS, featuresOf, holdAlertText, holdLeaveText, kidLabelHtml, parentTagHtml, labelCss } from './checkin-rules.js';
+import { roomFor, pickupCode, normalizeCode, showCode, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, alreadyCheckedIn, inRoomNow, heldPeople, rosterIsToday, collectorChoice, ID_TYPES, HOLD_MESSAGE, STALE_MESSAGE, CHECKIN_APP_VERSION, LABELS, featuresOf, holdAlertText, holdLeaveText, kidLabelHtml, parentTagHtml, labelCss } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -298,12 +298,15 @@ function currentService() {
 // Level 1, always shown: the allergen words, an EpiPen yes/no and the one-line action.
 const safetyLine = (k, br = true) => (k.allergies || hasEpi(k) || k.allergy_action ? html`${br ? html`<br>` : ''}${hasEpi(k) ? html`<span class="allergy">EPI: YES</span> ` : ''}${k.allergies ? html`<span class="allergy">⚠ ${k.allergies}</span>` : ''}${k.allergy_action ? html` <span class="small">${k.allergy_action}</span>` : ''}` : '');
 
-function drawFamily(h) {
+function drawFamily(h, chosenService) {
   const kids = h.members.filter((m) => m.household_role === 'child');
   const adults = h.members.filter((m) => m.household_role !== 'child');
-  const already = new Set(todays().filter((c) => !c.checked_out_at).map((c) => c.person_id));
   const services = state.roster.services || [];
-  const svc = currentService();
+  const svc = (chosenService && services.find((s) => s.id === chosenService)) || currentService();
+  // With matching tags, "already checked in" is for this service only: the same child can be checked in again for another one.
+  const tag = feat().checkout === 'tag';
+  const already = new Set(alreadyCheckedIn(todays(), svc?.id ?? null, tag).map((c) => c.person_id));
+  const earlier = (k) => { const e = tag && !already.has(k.id) ? todays().find((c) => c.person_id === k.id && !c.checked_out_at) : null; const s = e && services.find((x) => x.id === e.service_id); return s ? `the ${new Date(`${s.starts_at}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} service` : e ? 'an earlier service' : ''; };
   // Holds that only warn: the volunteer sees which child it is before checking them in, and the message again afterwards.
   const alertOn = feat().holds === 'alert';
   const heldNow = alertOn ? heldPeople(state.roster, todays()) : new Set();
@@ -316,7 +319,7 @@ function drawFamily(h) {
         <span class="info"><b>${displayName(k)}</b> <span class="muted">${ageLabel(k.birthdate, day())}${k.grade != null ? ` · ${gradeLabel(k.grade)}` : ''}</span>
           ${safetyLine(k)}
           ${alertOn && heldNow.has(k.id) ? html`<br><span class="pill bad">Hold: please bring a leader to the desk</span>` : ''}
-          ${done ? html`<br><span class="muted">Already checked in</span>` : ''}</span>
+          ${done ? html`<br><span class="muted">Already checked in</span>` : earlier(k) ? html`<br><span class="muted">Checked in for ${earlier(k)}. Checking in now is for this one.</span>` : ''}</span>
         <span class="room ${room ? '' : 'none'}">${room ? room.name : 'No room fits'}</span>
         ${state.roster.rooms.length > 1 ? html`<select data-room="${k.id}" style="width:auto" aria-label="Room">${options(state.roster.rooms.map((r) => ({ value: r.id, label: r.name })), room?.id, { blank: 'Room…' })}</select>` : ''}
       </label>`;
@@ -330,6 +333,7 @@ function drawFamily(h) {
       <span class="muted small">Pickup: ${adults.map((a) => displayName(a)).join(', ')}${h.pickups.length ? `, ${h.pickups.map((p) => p.name).join(', ')}` : ''}</span>
     </div>`);
   $main.querySelector('[data-back]').onclick = drawSearch;
+  $main.querySelector('[data-service]')?.addEventListener('change', (e) => drawFamily(h, Number(e.target.value)));
   $main.querySelectorAll('.k-kid input').forEach((i) => { i.onchange = () => i.closest('.k-kid').classList.toggle('on', i.checked); });
   $main.querySelector('[data-add-kid]').onclick = () => addChild(h);
   $main.querySelector('[data-go]').onclick = () => {
@@ -671,17 +675,18 @@ async function drawRooms() {
   if (navigator.onLine) await refreshRoster();
   if (state.mode !== 'rooms') return;
   const list = todays();
+  const here = inRoomNow(list, feat().checkout === 'tag');
   const rooms = [...state.roster.rooms, { id: null, name: 'No room' }];
   mount($main, html`<div class="row" style="margin-bottom:14px"><h1>In the rooms now</h1><span class="spacer"></span><button class="btn" data-refresh>Refresh</button></div>
     ${rooms.map((r) => {
-      const kids = list.filter((c) => (c.room_id ?? null) === r.id && !c.checked_out_at);
+      const kids = here.filter((c) => (c.room_id ?? null) === r.id);
       if (!kids.length && r.id === null) return '';
       return html`<div class="card k-room"><div class="card-head"><h2>${r.name}</h2><span class="pill">${kids.length}${r.capacity ? ` / ${r.capacity}` : ''}</span></div>
         ${kids.length ? html`<table class="list"><tbody>${kids.map((k) => html`<tr><td><b>${displayName(k)}</b></td>
           <td>${safetyLine(k, false)} ${feat().medical_tap ? html`<button class="btn small ghost" data-care="${k.person_id}">Care note</button>` : ''}</td>
           <td class="num" style="text-align:right"><b>${showCode(k.security_code)}</b></td></tr>`)}</tbody></table>` : html`<p class="muted">Empty</p>`}</div>`;
     })}
-    <p class="muted small">${list.filter((c) => !c.checked_out_at).length} checked in now · ${list.length} today</p>`);
+    <p class="muted small">${here.length} checked in now · ${list.length} today</p>`);
   $main.querySelector('[data-refresh]').onclick = drawRooms;
   $main.querySelectorAll('[data-care]').forEach((b) => { b.onclick = () => showCareNote(Number(b.dataset.care)); });
 }
