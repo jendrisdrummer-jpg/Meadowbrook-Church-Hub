@@ -320,7 +320,9 @@ function placement(db, cfg, v, row) {
   const word = skipWords(cfg).find((w) => title.includes(w));
   if (word) return { status: 'skipped', skip: `Title has “${word}”` };
   if (v.duration == null) return { status: 'review', skip: 'Couldn’t check its length' };
-  if (v.duration < cfg.min_minutes * 60) return { status: 'skipped', skip: `Under ${cfg.min_minutes} minutes` };
+  // With a messages playlist, the playlist is the choice: edited messages are often short, so the
+  // length rule only applies when the whole channel is read.
+  if (!cfg.playlist_id && v.duration < cfg.min_minutes * 60) return { status: 'skipped', skip: `Under ${cfg.min_minutes} minutes` };
   // Same day, nearly the same length as one already in the app: probably the same service twice.
   const twin = db.prepare("SELECT 1 FROM media WHERE status = 'published' AND day = ? AND duration IS NOT NULL AND abs(duration - ?) <= 180 LIMIT 1").get(row.day, v.duration);
   if (twin) return { status: 'review', skip: 'Possible duplicate' };

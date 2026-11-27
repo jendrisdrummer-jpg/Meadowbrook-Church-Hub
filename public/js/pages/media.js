@@ -332,6 +332,7 @@ async function drawSetup(el) {
       <h2 style="margin:10px 0 0">Which videos stay out</h2>
       <label class="field">Videos are at least<span class="row" style="gap:8px"><input type="number" name="min_minutes" min="1" max="180" value="${s.min_minutes}" style="width:90px"> minutes long</span>
         <span class="muted small">Shorter videos and YouTube Shorts stay out of the app. You’ll still find them under Not in the app.</span></label>
+      <p class="muted small" style="margin-top:-6px">Only used when there’s no messages playlist. With a playlist, every video in it comes in, however long.</p>
       <label class="field">Skip videos whose title contains…<input type="text" name="skip_words" value="${s.skip_words}" placeholder="kids, vbs, youth camp">
         <span class="muted small">Separate words with commas; capital letters don’t matter. A backup for things like kids’ ministry videos. Skipped videos are kept under Not in the app, so you can still add one by hand.</span></label>
       <label class="field">How your video titles are written<select name="title_format">${options(Object.entries(formats).map(([value, label]) => ({ value, label })), s.title_format)}</select>

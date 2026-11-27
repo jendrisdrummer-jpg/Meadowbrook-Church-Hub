@@ -121,14 +121,14 @@ test('playlist mode with the Data API reads only the playlist; title words and t
 
   yt.requests.length = 0;
   const first = await api('admin', 'POST', '/media/sync', {});
-  assert.deepEqual(first.data, { added: 1, skipped: 2, review: 0 });
+  assert.deepEqual(first.data, { added: 2, skipped: 1, review: 0 });
   const lists = yt.requests.filter((r) => r.startsWith('/api/playlistItems'));
   assert.ok(lists.length && lists.every((r) => r.includes(`playlistId=${PL}`)), 'only the messages playlist is read');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM media WHERE video_id = 'chanFFFFFFF'").get().n, 0);
 
   // Published from the schedule; skipped ones say why; live and upcoming wait until they're over.
   assert.deepEqual(rowOf('msgAAAAAAAA'), { status: 'published', skip_reason: '', title: 'Standing Firm', speaker: 'Pastor Dallas', series: 'Unshakable', duration: 3600 });
-  assert.equal(rowOf('shortBBBBBB').skip_reason, 'Under 20 minutes');
+  assert.equal(rowOf('shortBBBBBB').status, 'published', 'with a playlist, a short edited message still comes in');
   assert.equal(rowOf('kidsCCCCCCC').status, 'skipped');
   assert.equal(rowOf('kidsCCCCCCC').skip_reason, 'Title has “kids”');
   assert.equal(rowOf('liveDDDDDDD'), undefined);
@@ -136,11 +136,11 @@ test('playlist mode with the Data API reads only the playlist; title words and t
 
   // Staff see them under "Not in the app" with the reason; a skipped one can be added by hand.
   const all = (await api('staff', 'GET', '/media')).data;
-  assert.deepEqual(all.counts, { published: 1, skipped: 2 });
-  assert.deepEqual(all.items.filter((m) => m.status === 'skipped').map((m) => m.reason).sort(), ['Title has “kids”', 'Under 20 minutes']);
+  assert.deepEqual(all.counts, { published: 2, skipped: 1 });
+  assert.deepEqual(all.items.filter((m) => m.status === 'skipped').map((m) => m.reason).sort(), ['Title has “kids”']);
   const kids = all.items.find((m) => m.yt_title === 'Kids Club: Week 2');
   assert.equal((await api('staff', 'PATCH', `/media/${kids.id}`, { status: 'published' })).status, 200);
-  assert.equal((await api(null, 'GET', '/watch')).data.items.length, 2);
+  assert.equal((await api(null, 'GET', '/watch')).data.items.length, 3);
 
   // "Bring in older videos" reads only the playlist too.
   yt.requests.length = 0;
@@ -173,6 +173,11 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   yt.requests.length = 0;
   assert.deepEqual((await api('admin', 'POST', '/media/sync', {})).data, { added: 1, skipped: 0, review: 0 });
   assert.ok(yt.requests.some((r) => r.includes(`playlistId=UU${CH.slice(2)}`)));
+  // Without a playlist the length rule applies again.
+  yt.videos.tinyGGGGGGG = { title: 'Quick hello', secs: 600, at: '2025-03-12T16:30:00Z' };
+  yt.channel = ['tinyGGGGGGG', ...yt.channel];
+  assert.deepEqual((await api('admin', 'POST', '/media/sync', {})).data, { added: 0, skipped: 1, review: 0 });
+  assert.equal(rowOf('tinyGGGGGGG').skip_reason, 'Under 20 minutes');
   assert.equal(rowOf('chanFFFFFFF').status, 'published');
   // Without a speaker from the schedule that Sunday, nothing is guessed.
   assert.equal(rowOf('chanFFFFFFF').speaker, '');
