@@ -178,6 +178,12 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   yt.channel = ['tinyGGGGGGG', ...yt.channel];
   assert.deepEqual((await api('admin', 'POST', '/media/sync', {})).data, { added: 0, skipped: 1, review: 0 });
   assert.equal(rowOf('tinyGGGGGGG').skip_reason, 'Under 20 minutes');
+  // A short video that came in before its length could be read is taken out once the key can read it.
+  yt.videos.oldkidsHHHH = { title: 'Kids song', secs: 180, at: '2025-03-01T16:30:00Z' };
+  insertMedia(db, { video_id: 'oldkidsHHHH', title: 'Kids song', thumbnail: '', recorded_at: '2025-03-01 16:30:00', day: '2025-03-01', service_id: null, campus_id: null, speaker: '', series: '', was_live: 0, duration: null });
+  assert.equal(rowOf('oldkidsHHHH').status, 'published');
+  assert.equal((await api('admin', 'POST', '/media/sync', {})).status, 200);
+  assert.deepEqual([rowOf('oldkidsHHHH').status, rowOf('oldkidsHHHH').skip_reason, rowOf('oldkidsHHHH').duration], ['skipped', 'Under 20 minutes', 180]);
   assert.equal(rowOf('chanFFFFFFF').status, 'published');
   // Without a speaker from the schedule that Sunday, nothing is guessed.
   assert.equal(rowOf('chanFFFFFFF').speaker, '');

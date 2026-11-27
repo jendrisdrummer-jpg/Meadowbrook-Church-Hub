@@ -416,6 +416,22 @@ async function doSync(db, { deep = false } = {}) {
     else if (place.status === 'review') review++;
     else { added++; fresh.push({ id, ...row }); }
   }
+  // Videos that came in before their length could be read (no API key then): read it now, and
+  // take any that are too short out of the app. Only rows still missing a length are touched.
+  if (hasApiKey()) {
+    const unknown = db.prepare("SELECT id, video_id, status FROM media WHERE source = 'youtube' AND duration IS NULL AND status IN ('published', 'review') LIMIT 200").all();
+    if (unknown.length) {
+      const known = new Map((await videoDetails(unknown.map((r) => r.video_id))).filter((v) => v.duration != null && v.state === 'none').map((v) => [v.video_id, v.duration]));
+      for (const r of unknown) {
+        const secs = known.get(r.video_id);
+        if (secs == null) continue;
+        const tooShort = !cfg.playlist_id && secs < cfg.min_minutes * 60;
+        const next = tooShort ? 'skipped' : r.status === 'review' ? 'published' : r.status;
+        db.prepare('UPDATE media SET duration = ?, status = ?, skip_reason = ? WHERE id = ?').run(secs, next, tooShort ? `Under ${cfg.min_minutes} minutes` : '', r.id);
+        if (tooShort) skipped++;
+      }
+    }
+  }
   // Live now: set it. It's only over when the live check says so, or when that video itself now
   // reads as finished.
   if (live) setLive(db, cfg, live);
