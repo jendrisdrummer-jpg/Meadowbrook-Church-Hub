@@ -156,7 +156,8 @@ export default function setupRoutes(db, { uploadDir } = {}) {
 
   r.get('/me', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
-    res.json(req.user);
+    // The nav shows Check-in for the switch and for automatic access alike.
+    res.json({ ...req.user, checkin: Boolean(req.user.checkin || req.user.autoCheckin) });
   });
 
   // Personal preferences anyone can change for themselves.

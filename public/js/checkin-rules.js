@@ -4,9 +4,11 @@
 // The version of the check-in app on the iPads. It is a whole number, sent with every request in
 // x-checkin-version and compared by the server. Raise it in any change that alters what the iPad
 // sends or how it releases children, so the hub can tell which iPads still need to be reopened.
-export const CHECKIN_APP_VERSION = 4; // 2: check-out is child by child, one family at a time, with a per-release outbox
+export const CHECKIN_APP_VERSION = 5; // 2: check-out is child by child, one family at a time, with a per-release outbox
 // 3: pickup codes are a station letter plus four characters; medical details come in levels (Level 1 on the iPad and label)
 // 4: a child with a hold is never checked out on the iPad (online or off), and check-out records who is collecting
+// 5: the iPad follows the church's Check-in settings (no Check out screen when parents show a tag, a warning at check-in for a held
+//    child, the Care note button, and what a name tag says when allergy details are too long)
 
 // Age in whole months on a given date (both YYYY-MM-DD).
 export function ageMonths(birthdate, onDate) {
@@ -113,6 +115,26 @@ export function upgradeOutbox(stored, campusId, newId) {
   return entries;
 }
 
+// ---------------------------------------------------------------- more than one service in a day
+// Today's check-ins on this iPad's list: { id, person_id, service_id, checked_in_at, checked_out_at }.
+// "Already checked in" (a child can't be checked in twice): with check-out on the iPad, any check-in that hasn't been checked out. With
+// matching tags nobody is checked out between services, so it is only a check-in for the same service; the same child can be checked
+// in again for another service the same day (a second service, or a later one). With no service chosen, one check-in a day, as ever.
+export function alreadyCheckedIn(todays, serviceId, tagMode) {
+  return todays.filter((c) => !c.checked_out_at && (!tagMode || (c.service_id ?? null) === (serviceId ?? null)));
+}
+
+// Who is in the rooms now. With matching tags a newer check-in for the same child (a second service) replaces the earlier one, so a
+// child is in one room at a time. Never rewrites anything: it only decides what to show.
+export function inRoomNow(todays, tagMode) {
+  const open = todays.filter((c) => !c.checked_out_at);
+  if (!tagMode) return open;
+  const newer = (a, b) => (a.checked_in_at === b.checked_in_at ? String(a.id) > String(b.id) : a.checked_in_at > b.checked_in_at);
+  const latest = new Map();
+  for (const c of todays) if (!latest.has(c.person_id) || newer(c, latest.get(c.person_id))) latest.set(c.person_id, c);
+  return open.filter((c) => latest.get(c.person_id) === c);
+}
+
 // ---------------------------------------------------------------- holds and who collected
 // A hold ("see coordinator") is placed by staff in the Hub. The iPad only ever learns that a child has one (`on_hold`,
 // on the roster and the active list), never why. A held child is never checked out on an iPad, online or off.
@@ -197,22 +219,72 @@ export const labelText = (n) => [n.first, n.last, n.age ? `(${n.age})` : ''].fil
 // The parent tag shows how many children and their initials (first name initial, last name initial).
 export const tagInitials = (kid) => `${firstOf(kid).charAt(0).toUpperCase()}.${letters(kid, 1)}`;
 
+// ---------------------------------------------------------------- check-in settings
+// How this church runs check-in (Check-in iPads, in the Hub). The roster carries them to the iPad (`roster.features`); an
+// iPad with an older copy, or none, behaves as it always did.
+export const DEFAULT_FEATURES = { checkout: 'ipad', holds: 'block', medical_tap: true, label_overflow: 'leader' };
+export function featuresOf(roster) {
+  const f = roster?.features && typeof roster.features === 'object' ? roster.features : {};
+  const checkout = f.checkout === 'tag' ? 'tag' : 'ipad';
+  const holds = ['off', 'alert', 'block'].includes(f.holds) ? f.holds : checkout === 'tag' ? 'alert' : 'block';
+  return {
+    checkout,
+    holds: checkout === 'tag' && holds === 'block' ? 'alert' : holds,
+    medical_tap: f.medical_tap !== false,
+    label_overflow: ['leader', 'desk', 'smaller'].includes(f.label_overflow) ? f.label_overflow : 'leader',
+  };
+}
+
+// Settings changes that make check-in less protective. They need a reason, and the safeguarding leads and the all-campus admins are told.
+// `from` and `to` are complete settings ({ checkout, holds, medical_tap, auto_team_ids }); returns the names of what was weakened.
+export function weakenedSettings(from, to) {
+  const out = [];
+  if (to.holds !== from.holds && (to.holds === 'off' || (from.holds === 'block' && to.holds === 'alert'))) out.push('holds');
+  if (from.checkout !== 'tag' && to.checkout === 'tag') out.push('checkout');
+  if (from.medical_tap !== to.medical_tap) out.push('medical_tap');
+  if (!from.any_campus && to.any_campus) out.push('any_campus'); // every iPad can then see every family
+  if (JSON.stringify(from.auto_team_ids || []) !== JSON.stringify(to.auto_team_ids || [])) out.push('auto_team_ids');
+  return out;
+}
+
+// What the volunteer sees when a child with a hold is checked in (holds set to "Warn at check-in"). The child's first name only:
+// never the note, the reason or who placed the hold.
+const joinNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+const cleanNames = (names) => names.map((n) => String(n || '').trim()).filter(Boolean);
+export function holdAlertText(names) {
+  const list = cleanNames(names);
+  if (!list.length) return 'Before this child goes to their room, please ask the children’s ministry leader or a staff member to come to the desk.';
+  return `Before ${joinNames(list)} ${list.length === 1 ? 'goes to their room' : 'go to their rooms'}, please ask the children’s ministry leader or a staff member to come to the desk.`;
+}
+// The same, when a held child is about to be checked out (holds that only warn, with check-out on the iPad).
+export function holdLeaveText(names) {
+  const list = cleanNames(names);
+  return `Before ${list.length ? joinNames(list) : 'this child'} ${list.length > 1 ? 'leave' : 'leaves'}, please ask the children’s ministry leader or a staff member to come to the desk.`;
+}
+
 // ---------------------------------------------------------------- medical levels
 // Level 1 is what every volunteer must see, on the iPad and on the label: the allergen words, an EpiPen yes/no and a
-// one-line action. It is never cut short: if it doesn't fit it says to see the room leader instead.
+// one-line action. It is never cut short: if it doesn't fit it says where to go instead (the room leader, or the check-in desk,
+// or it is printed smaller; the church chooses, `label_overflow`).
 // Level 2 (the longer medical note) is fetched on tap and never printed. Level 3 stays in the Hub.
 export const SEE_LEADER = 'ALLERGIES: SEVERAL, SEE ROOM LEADER';
+export const SEE_DESK_ALLERGIES = 'ALLERGIES: SEVERAL, SEE CHECK-IN DESK';
+export const SEE_ROOM_LEADER = 'SEE ROOM LEADER';
+export const SEE_DESK = 'SEE CHECK-IN DESK';
+// "smaller" prints the words at a reduced size, never below this fraction of the normal one; past that it says to see the desk.
+export const SMALLEST_SCALE = 0.7;
 const oneLine = (t) => String(t || '').replace(/\s+/g, ' ').trim();
 export const hasEpi = (p) => Number(p?.allergy_epi) === 1;
+const seeWords = (overflow) => (overflow === 'leader' ? SEE_ROOM_LEADER : SEE_DESK);
 
 // { allergy, epi, action }: the lines to print. `max` is how many characters fit on one line of this label.
-export function level1(p, max = 40) {
+export function level1(p, max = 40, overflow = 'leader') {
   const words = oneLine(p.allergies);
   const action = oneLine(p.allergy_action);
   return {
-    allergy: !words ? '' : `ALLERGY: ${words}`.length > max ? SEE_LEADER : `ALLERGY: ${words}`,
+    allergy: !words ? '' : `ALLERGY: ${words}`.length > max ? (overflow === 'leader' ? SEE_LEADER : SEE_DESK_ALLERGIES) : `ALLERGY: ${words}`,
     epi: hasEpi(p),
-    action: !action ? '' : action.length > max ? 'SEE ROOM LEADER' : action,
+    action: !action ? '' : action.length > max ? seeWords(overflow) : action,
   };
 }
 
@@ -222,16 +294,102 @@ export function level1Text(p) {
   return [hasEpi(p) ? 'EPI: YES' : '', oneLine(p.allergies), oneLine(p.allergy_action)].filter(Boolean).join(' · ');
 }
 
-// The safety strips to print on a name tag, top to bottom (an empty list when the child has none). A roomy tag prints
-// the Level 1 lines as they are: "EPI: YES", the allergens, the action. A small tag (`compact`) has room for one strip,
-// so it joins them ("EPI: YES · Peanuts"); the one-line action doesn't fit there, so a child who has one gets
-// "SEE ROOM LEADER" in its place. Either way "EPI: YES" is always printed when true, and whatever can't fit says
-// "see room leader" instead of being lost. `max` is how many characters fit on one line.
-export function labelSafety(p, { max = 40, compact = false } = {}) {
-  const l1 = level1(p, max);
-  if (!compact) return [l1.epi ? 'EPI: YES' : '', l1.allergy, l1.action].filter(Boolean);
-  const epi = l1.epi ? 'EPI: YES' : '';
+// The size (a fraction of normal) that makes `len` characters fit a line that holds `max` at full size, or null when even the
+// smallest allowed size can't. Rounded down so a measured fit is never exceeded.
+const scaleFor = (len, max) => {
+  if (len <= max) return 1;
+  const s = Math.floor((max / len) * 100) / 100;
+  return s >= SMALLEST_SCALE ? s : null;
+};
+
+// The safety strips to print on a name tag, top to bottom, each with the size to print it at (1 is the label's normal small
+// size): [{ text, scale }], empty when the child has none. A roomy tag prints the Level 1 lines as they are: "EPI: YES", the
+// allergens, the action. A small tag (`compact`) has room for one strip, so it joins them ("EPI: YES · Peanuts").
+// "EPI: YES" is always printed when true. When something doesn't fit one line, `overflow` decides:
+//   leader   says "SEE ROOM LEADER" instead
+//   desk     says "SEE CHECK-IN DESK" instead
+//   smaller  prints it smaller (down to SMALLEST_SCALE) so it can all be read, and only says "SEE CHECK-IN DESK" when even that can't fit
+// `max` is how many characters fit on one line at full size. Nothing here touches the name, room or pickup code.
+export function labelStrips(p, { max = 40, compact = false, overflow = 'leader' } = {}) {
+  const mode = ['leader', 'desk', 'smaller'].includes(overflow) ? overflow : 'leader';
+  const epi = hasEpi(p) ? 'EPI: YES' : '';
   const words = oneLine(p.allergies);
-  const joined = [epi, words, oneLine(p.allergy_action) ? 'SEE ROOM LEADER' : ''].filter(Boolean).join(' · ');
-  return [joined.length > max ? [epi, 'SEE ROOM LEADER'].filter(Boolean).join(' · ') : joined].filter(Boolean);
+  const action = oneLine(p.allergy_action);
+  const one = (text, scale = 1) => ({ text, scale });
+  if (!compact) {
+    const out = [];
+    if (epi) out.push(one(epi));
+    if (words) {
+      const line = `ALLERGY: ${words}`;
+      const s = mode === 'smaller' ? scaleFor(line.length, max) : line.length <= max ? 1 : null;
+      out.push(s ? one(line, s) : one(mode === 'leader' ? SEE_LEADER : SEE_DESK_ALLERGIES));
+    }
+    if (action) {
+      const s = mode === 'smaller' ? scaleFor(action.length, max) : action.length <= max ? 1 : null;
+      out.push(s ? one(action, s) : one(seeWords(mode)));
+    }
+    return out;
+  }
+  const see = seeWords(mode);
+  if (mode !== 'smaller') {
+    // The one-line action doesn't fit a small tag, so a child who has one gets the "see" words in its place.
+    const joined = [epi, words, action ? see : ''].filter(Boolean).join(' · ');
+    return [joined.length > max ? [epi, see].filter(Boolean).join(' · ') : joined].filter(Boolean).map((t) => one(t));
+  }
+  const full = [epi, words, action].filter(Boolean).join(' · ');
+  if (!full) return [];
+  const sFull = scaleFor(full.length, max);
+  if (sFull) return [one(full, sFull)];
+  const mid = [epi, words, action ? see : ''].filter(Boolean).join(' · ');
+  const sMid = scaleFor(mid.length, max);
+  if (sMid) return [one(mid, sMid)];
+  return [one([epi, see].filter(Boolean).join(' · '))];
+}
+
+// Just the words of the strips (for callers that only need the text).
+export const labelSafety = (p, opts = {}) => labelStrips(p, opts).map((s) => s.text);
+
+// ---------------------------------------------------------------- the printed name tag
+// The tag sizes, and the markup for a child's name tag and the parent's pickup tag. The iPad prints exactly this, and the
+// print measurements run it too, so what is measured is what is printed.
+// `fit` is how many characters of the safety line fit on one line at the small size; `nameFit` is how many characters of name fit
+// at full size (a longer name is shrunk, never cut); `compact` is a small tag with one joined safety strip.
+export const LABELS = {
+  'brother-62x29': { w: '62mm', h: '29mm', pad: '1.5mm 2.5mm', name: '20pt', small: '8pt', code: '14pt', fit: 30, nameFit: 10, compact: true },
+  'brother-62x100': { w: '62mm', h: '100mm', pad: '4mm', name: '30pt', small: '11pt', code: '22pt', fit: 70, nameFit: 8 },
+  'dymo-30252': { w: '3.5in', h: '1.125in', pad: '0.06in 0.12in', name: '20pt', small: '8pt', code: '14pt', fit: 36, nameFit: 14, compact: true },
+  'dymo-30256': { w: '4in', h: '2.3125in', pad: '0.12in', name: '30pt', small: '11pt', code: '22pt', fit: 60, nameFit: 12 },
+  letter: { w: '3.5in', h: '2in', pad: '0.15in', name: '26pt', small: '10pt', code: '18pt', page: 'letter', fit: 50, nameFit: 12 },
+};
+const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const scaled = (size, scale) => {
+  const m = /^([\d.]+)(.*)$/.exec(size);
+  return m ? `${Math.round(parseFloat(m[1]) * scale * 100) / 100}${m[2]}` : size;
+};
+
+// `name` is labelName(...); `room` is { name } or null; `date` and `time` are already formatted.
+export function kidLabelHtml({ kid, name: n, room, code, date, time, size, overflow = 'leader' }) {
+  const strips = labelStrips(kid, { max: size.fit, compact: size.compact, overflow });
+  // The name, room, time and pickup code come first and are never clipped; a long first name is shrunk to fit.
+  const last = [n.last, n.age ? `(${n.age})` : ''].filter(Boolean).join(' ');
+  const namePt = Math.min(parseFloat(size.name), (parseFloat(size.name) * size.nameFit) / Math.max(n.first.length + last.length * 0.6, 1));
+  return `<div class="label">
+      <div class="name" style="font-size:${namePt}pt">${escapeHtml(n.first)} <span class="last" style="font-size:${size.small}">${escapeHtml(last)}</span></div>
+      <div class="meta" style="font-size:${size.small}"><span>${escapeHtml(room?.name || '')}</span><span>${escapeHtml(date)} ${escapeHtml(time)}</span><span class="code" style="font-size:${size.code}">${escapeHtml(showCode(code))}</span></div>
+      ${strips.map((t) => `<div class="alert-strip" style="font-size:${scaled(size.small, t.scale)}">${escapeHtml(t.text)}</div>`).join('')}
+    </div>`;
+}
+
+export function parentTagHtml({ kids, code, date, time, size }) {
+  return `<div class="label">
+      <div style="font-size:${size.small}">PARENT PICKUP TAG</div>
+      <div class="code" style="font-size:${size.name}">${escapeHtml(showCode(code))}</div>
+      <div style="font-size:${size.small}">${kids.length} ${kids.length === 1 ? 'child' : 'children'}: ${kids.map((k) => escapeHtml(tagInitials(k))).join(' · ')} · ${escapeHtml(date)} ${escapeHtml(time)}</div>
+      <div style="font-size:${size.small}">Keep this tag. You hand it over at pickup. We may ask for ID.</div>
+    </div>`;
+}
+
+export function labelCss(size) {
+  return `<style>@page { size: ${size.page || `${size.w} ${size.h}`}; margin: ${size.page ? '0.5in' : '0'}; }
+    .label { width: ${size.w}; height: ${size.h}; padding: ${size.pad}; box-sizing: border-box; ${size.page ? 'border: 1px dashed #999; margin-bottom: 0.2in;' : ''} }</style>`;
 }

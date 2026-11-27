@@ -1018,6 +1018,11 @@ a.sf-sheet-row:hover { border-color: var(--accent); background: var(--accent-sof
 .st-how ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 .st-switch { min-height: 44px; display: flex; align-items: center; gap: 10px; }
 .st-switch input { width: 22px; height: 22px; flex: none; }
+/* Check-in settings: groups of choices, each with a one-line explanation */
+.st-set { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; display: grid; gap: 6px; }
+.st-set legend { font-weight: 700; padding: 0; margin-bottom: 4px; }
+.st-choice { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; }
+.st-choice input { width: 22px; height: 22px; flex: none; margin-top: 2px; }
 .st-code { font-size: 28px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 /* Search (Ctrl/⌘ K) */
 .search-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 12px; min-width: 210px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }

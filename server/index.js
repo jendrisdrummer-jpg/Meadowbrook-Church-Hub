@@ -14,6 +14,7 @@ import songFileRoutes from './routes/songfiles.js';
 import seriesRoutes from './routes/series.js';
 import checkinRoutes from './routes/checkin.js';
 import checkinHoldRoutes from './routes/checkin-holds.js';
+import checkinSettingsRoutes from './routes/checkin-settings.js';
 import stationRoutes, { stationAuth } from './routes/stations.js';
 import attendanceRoutes from './routes/attendance.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -91,6 +92,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(stationRoutes(db));
   api.use(checkinRoutes(db));
   api.use(checkinHoldRoutes(db));
+  api.use(checkinSettingsRoutes(db));
   api.use(attendanceRoutes(db));
   api.use(dashboardRoutes(db));
   api.use(fieldRoutes(db));

@@ -11,7 +11,8 @@ import { legalHold, saveHold, HOLD_MSG, HOLD_COOLING_DAYS } from '../history.js'
 import { notify } from '../notify.js';
 import { roomFor, pickupCode, normalizeCode, level1Text, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
 import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-events.js';
-import { heldSet, holdAt, holdSince, tellLeads, resolveCollector, unverifiedCollector } from '../holds.js';
+import { heldSet, holdAt, holdSince, activeHold, tellLeads, resolveCollector, unverifiedCollector } from '../holds.js';
+import { checkinFeatures, ipadFeatures } from '../checkin-settings.js';
 
 // Check-in safety switches live in one settings key with their own admin endpoint, so they never
 // appear in GET /settings and can't be changed through PATCH /settings. Later releases add keys here.
@@ -24,6 +25,9 @@ const CLASH_ROWS = 20;
 const LEVELS_APP_VERSION = 3;
 const REFUSED_ROWS = 20;
 // Said at the station, so it is calm and says nothing about why. Older iPads show it followed by "Nothing was checked out."
+// Said to an iPad that asks to check a child out where parents show their tag instead. Older iPads add "Nothing was checked out."
+const CHECKOUT_OFF_MESSAGE = 'Check-out isn’t done on the iPad here: parents show their matching tag.';
+const MEDICAL_OFF_MESSAGE = 'Care notes aren’t shown on the iPad here. Please ask a staff member.';
 const HOLD_BLOCK_MESSAGE = 'A staff member needs to help with this child. Please ask one to come to the desk before anyone leaves with them.';
 export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
@@ -79,7 +83,10 @@ export default function checkinRoutes(db) {
     // households have none yet, and leaving them out would hide real children from check-in. Once
     // staff assign a campus (People → household → edit), the family appears only at that campus.
     // A family visiting another campus is looked up online or added as a guest.
-    const households = db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
+    // With "Families can be checked in at any campus" (Check-in settings) every family is on every iPad's list.
+    const anyCampus = checkinFeatures(db).any_campus;
+    const households = anyCampus ? db.prepare('SELECT id, name, phone, campus_id FROM households').all()
+      : db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
     // Only what the check-in screen uses: no photos, and no adult's birthdate or medical details. Children keep
     // their birthdate (rooms are by age) and Level 1 (allergen words, EpiPen, one-line action). The longer medical
     // note (Level 2) is never in the roster: it is fetched on tap, online, and logged. Care notes (Level 3) never leave the Hub.
@@ -87,11 +94,13 @@ export default function checkinRoutes(db) {
         allergies, allergy_epi, allergy_action, phone FROM people WHERE archived = 0 AND household_id IS NOT NULL`).all();
     const older = olderApp(req);
     // Only that a child has a hold ("see coordinator"), never why: the iPad blocks their release online and off.
-    const held = new Set(db.prepare('SELECT person_id FROM checkin_holds WHERE lifted_at IS NULL').all().map((x) => x.person_id));
+    // With holds switched off in Check-in settings the roster carries nothing about them.
+    const features = checkinFeatures(db);
+    const held = features.holds === 'off' ? new Set() : new Set(db.prepare('SELECT person_id FROM checkin_holds WHERE lifted_at IS NULL').all().map((x) => x.person_id));
     const byHousehold = new Map(households.map((h) => [h.id, { ...h, members: [], pickups: [] }]));
     for (const p of people) {
       if (!byHousehold.has(p.household_id)) continue;
-      if (p.household_role === 'child') p.on_hold = held.has(p.id) ? 1 : 0;
+      if (p.household_role === 'child' && features.holds !== 'off') p.on_hold = held.has(p.id) ? 1 : 0;
       if (p.household_role !== 'child') { p.allergies = null; p.allergy_epi = 0; p.allergy_action = ''; p.birthdate = null; }
       else if (older) p.allergies = level1Text(p);
       byHousehold.get(p.household_id).members.push(p);
@@ -114,6 +123,7 @@ export default function checkinRoutes(db) {
       services: db.prepare("SELECT id, title, starts_at, duration_min FROM services WHERE campus_id = ? AND substr(starts_at, 1, 10) = ? ORDER BY starts_at").all(c.id, today),
       households: shown,
       label_size: getSetting(db, 'label_size', 'brother-62x29'),
+      features: ipadFeatures(features),
       print_parent_tag: getSetting(db, 'checkin_print_parent_tag', true),
       church_name: getSetting(db, 'church_name', 'Meadowbrook Church'),
     });
@@ -126,6 +136,8 @@ export default function checkinRoutes(db) {
     if (!records.length) throw bad('Nothing to check in.');
     if (records.length > 500) throw bad('Too many at once.');
     const rooms = db.prepare('SELECT * FROM rooms WHERE campus_id = ?').all(c.id);
+    const features = checkinFeatures(db);
+    const holdAlerts = []; // told to the safeguarding lead once the check-ins are saved (holds set to "Warn at check-in")
     const ins = db.prepare(`INSERT OR IGNORE INTO checkins (id, campus_id, service_id, person_id, room_id, kind, security_code, station, day, checked_in_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     // Children deleted on the server since the tablet's roster was downloaded are skipped, not fatal,
@@ -140,12 +152,12 @@ export default function checkinRoutes(db) {
       const id = str(rec.id, 64);
       if (!/^[\w-]{8,64}$/.test(id)) throw bad('Each check-in needs an id.');
       const personId = int(rec.person_id, 'Person');
-      const person = db.prepare(`SELECT p.id, p.household_id, p.birthdate, p.grade, h.campus_id household_campus
+      const person = db.prepare(`SELECT p.id, p.household_id, p.birthdate, p.grade, p.household_role, TRIM(COALESCE(NULLIF(p.nickname, ''), p.first_name, '') || ' ' || COALESCE(p.last_name, '')) child, h.campus_id household_campus
         FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?`).get(personId);
       if (!person) { skips.not_found.push(personId); return null; }
       // Same rule as the roster: never a family assigned to another campus, so check-in can't be used
       // to pull another campus's child into this campus's lists. (Visiting families: later item.)
-      if (person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
+      if (!features.any_campus && person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
       const at = Number.isNaN(Date.parse(rec.checked_in_at)) ? new Date() : new Date(rec.checked_in_at);
       const day = localNow(c.timezone, at).date;
       const kind = oneOf(rec.kind, ['kid', 'adult', 'volunteer'], 'kid');
@@ -169,6 +181,14 @@ export default function checkinRoutes(db) {
         if (others.length) clashes.push({ code: saved.security_code, checkin_id: id, person_id: person.id, household_id: person.household_id, others: others.map((o) => o.id) });
         recordEvent(db, req, { action: 'checkin', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, code: saved.security_code,
           clientAt: rec.checked_in_at, detail: { kind, room_id: saved.room_id, service_id: saved.service_id, station_label: str(rec.station, 60) } });
+        // A held child may be checked in when holds only warn. The volunteer is asked to bring a leader to the desk (the iPad
+        // shows that), the record notes it, and the safeguarding lead is told, the first time each day for each child.
+        const hold = features.holds === 'alert' && person.household_role === 'child' ? activeHold(db, person.id) : null;
+        if (hold) {
+          const first = !db.prepare("SELECT 1 FROM checkin_events WHERE campus_id = ? AND day = ? AND action = 'checkin.hold_alert' AND person_id = ?").get(c.id, day, person.id);
+          recordEvent(db, req, { action: 'checkin.hold_alert', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, code: saved.security_code, detail: { hold_id: hold.id } });
+          if (first) holdAlerts.push({ title: 'A child with a hold was checked in', body: `${person.child} was checked in at ${c.name}${req.user.station ? ` on ${req.user.station.name}` : ''} while a hold is on. Please follow up.`, personId: person.id });
+        }
       }
       return saved;
     }).filter(Boolean);
@@ -182,7 +202,11 @@ export default function checkinRoutes(db) {
     }
     return done;
     });
-    res.status(201).json(out);
+    for (const a of holdAlerts) tellLeads(db, a);
+    // Which of these children have a hold, so an iPad whose family list was made before the hold can still show the
+    // message to the volunteer. Only that there is one, never why.
+    const flagged = features.holds === 'alert' ? heldSet(db, out.map((x) => x.person_id)) : new Set();
+    res.status(201).json(flagged.size ? out.map((x) => (flagged.has(x.person_id) ? { ...x, on_hold: 1 } : x)) : out);
   });
 
   // Who is checked in today (or on ?day=), with rooms; ?room_id narrows to one room.
@@ -196,6 +220,11 @@ export default function checkinRoutes(db) {
     // parent checked in) never is, and nobody's longer medical note is (it is fetched on tap).
     res.set('Cache-Control', 'no-store');
     const older = olderApp(req);
+    const features = checkinFeatures(db);
+    // Where parents show their tag, nobody is checked out on the iPad, so "in the room" is worked out here: a check-in
+    // counts only on its own campus's day, until someone checks the child out in the Hub, and only if there is no newer check-in for the
+    // same child at this campus that day (a second service). Nothing is rewritten.
+    const todayHere = localNow(c.timezone).date;
     const rows = db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
         ci.checked_in_at, ci.checked_out_at, ci.checked_out_by, p.first_name, p.last_name, p.nickname,
         CASE WHEN p.household_role = 'child' THEN p.allergies END allergies,
@@ -203,11 +232,14 @@ export default function checkinRoutes(db) {
         CASE WHEN p.household_role = 'child' THEN p.allergy_action ELSE '' END allergy_action,
         CASE WHEN p.household_role = 'child' THEN p.birthdate END birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name,
-        CASE WHEN p.household_role = 'child' AND EXISTS (SELECT 1 FROM checkin_holds ho WHERE ho.person_id = ci.person_id AND ho.lifted_at IS NULL) THEN 1 ELSE 0 END on_hold
+        CASE WHEN p.household_role = 'child' AND EXISTS (SELECT 1 FROM checkin_holds ho WHERE ho.person_id = ci.person_id AND ho.lifted_at IS NULL) THEN 1 ELSE 0 END on_hold,
+        CASE WHEN ci.checked_out_at IS NULL AND (? = 0 OR (ci.day = ? AND NOT EXISTS (SELECT 1 FROM checkins c2 WHERE c2.person_id = ci.person_id AND c2.campus_id = ci.campus_id AND c2.day = ci.day
+          AND c2.voided_at IS NULL AND (c2.checked_in_at > ci.checked_in_at OR (c2.checked_in_at = ci.checked_in_at AND c2.id > ci.id))))) THEN 1 ELSE 0 END in_room
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
-      WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
-      ORDER BY rm.sort, rm.name, p.first_name`).all(...args);
+      WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND ${features.any_campus ? '1 = 1' : '(h.campus_id IS NULL OR h.campus_id = ci.campus_id)'}${extra}
+      ORDER BY rm.sort, rm.name, p.first_name`).all(features.checkout === 'tag' ? 1 : 0, todayHere, ...args);
+    if (features.holds === 'off') for (const x of rows) delete x.on_hold;
     res.json(older ? rows.map((x) => ({ ...x, allergies: x.allergies == null ? null : level1Text(x) })) : rows);
   });
 
@@ -223,6 +255,14 @@ export default function checkinRoutes(db) {
   r.post('/checkin/checkout', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.body?.campus_id);
     const b = req.body || {};
+    const features = checkinFeatures(db);
+    const holdMode = features.holds;
+    const tagReport = features.checkout === 'tag' && b.mode === 'report';
+    // Where parents show their tag, children aren't checked out on an iPad (or by a leader's signed-in browser). Staff in the
+    // Hub still can. A report of a release that already happened (an iPad catching up) is still recorded, as before.
+    if (features.checkout === 'tag' && b.mode !== 'report' && (req.user.station || rank(req.user.role) < rank('staff'))) {
+      return res.status(409).json({ error: CHECKOUT_OFF_MESSAGE, reason: 'checkout_off' });
+    }
     const mode = b.mode === undefined ? null : oneOf(b.mode, ['request', 'report'], null);
     if (b.mode !== undefined && !mode) throw bad('That isn’t a kind of check-out.');
     if (mode && b.security_code) throw bad('Choose the children to check out.');
@@ -296,7 +336,7 @@ export default function checkinRoutes(db) {
       }
       // The hold guard. A child with a hold is never released here, whoever asks (an iPad, a leader, staff or an admin):
       // staff release them in the Hub, with a reason. A report of a release that already happened is never refused (below).
-      if (mode !== 'report') {
+      if (holdMode === 'block' && mode !== 'report') {
         const open = known.filter((x) => x.checked_out_at == null);
         const held = heldSet(db, open.map((x) => x.person_id));
         const blocked = open.filter((x) => held.has(x.person_id));
@@ -350,8 +390,10 @@ export default function checkinRoutes(db) {
         // A child released offline while a hold was on (the iPad's list was from before the hold) is recorded and flagged.
         // The iPad's time can't be trusted to clear a hold, so a hold placed since the release it reports (an offline iPad that
         // caught up late) or one on at any point since check-in (a made-up earlier time) is flagged too, as "placed_after_release".
-        const reporting = mode === 'report' && ci.checked_out_at == null;
-        const heldAtRelease = reporting ? holdAt(db, ci.person_id, when.at) : null;
+        // Where holds only warn, a live release of a held child goes ahead and is flagged the same way. With holds off, nothing is looked at.
+        const reporting = holdMode !== 'off' && mode === 'report' && ci.checked_out_at == null;
+        const live = holdMode === 'alert' && mode !== 'report' && ci.checked_out_at == null;
+        const heldAtRelease = reporting ? holdAt(db, ci.person_id, when.at) : live ? activeHold(db, ci.person_id) : null;
         const holdLater = reporting && !heldAtRelease ? holdSince(db, ci.person_id, ci.checked_in_at, now) : null;
         const hold = heldAtRelease || holdLater;
         if (Number(upd.run(when.at, by, actor.device, actor.user, reportAt ? reportAt.toISOString() : null, who?.name ?? '', who?.relationship ?? '', who?.kind ?? '', who?.id_type ?? '', heldAtRelease ? 1 : 0, ci.id, c.id).changes) !== 1) {
@@ -361,17 +403,23 @@ export default function checkinRoutes(db) {
         count += 1;
         released.push(ci);
         recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
-          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(heldAtRelease ? { held: true } : {}) } });
+          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(heldAtRelease ? { held: true } : {}), ...(tagReport ? { tag_mode: true } : {}) } });
         if (hold) {
           recordEvent(db, req, { action: 'checkout.held_released', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
-            detail: { hold_id: hold.id, via: 'offline', ...modeDetail, reported_by: reporter, reported_while_online: reportedOnline, ...(holdLater ? { placed_after_release: true } : {}) } });
-          audit(db, req, 'checkin.hold.released_offline', { checkin_id: ci.id, hold_id: hold.id, person_id: ci.person_id, campus_id: c.id, device_id: actor.device, device_name: station?.name ?? '', reported_by: reporterText, reported_while_online: reportedOnline, placed_after_release: Boolean(holdLater) });
+            detail: { hold_id: hold.id, via: live ? 'alert' : 'offline', ...modeDetail, reported_by: reporter, reported_while_online: reportedOnline, ...(holdLater ? { placed_after_release: true } : {}) } });
+          audit(db, req, live ? 'checkin.hold.released_alert' : 'checkin.hold.released_offline', { checkin_id: ci.id, hold_id: hold.id, person_id: ci.person_id, campus_id: c.id, device_id: actor.device, device_name: station?.name ?? '', reported_by: reporterText, reported_while_online: reportedOnline, placed_after_release: Boolean(holdLater) });
           const who2 = `Reported by ${reporterText}, ${reportedText}.`;
-          alerts.push(holdLater
+          alerts.push(live
+            ? { title: 'A child with a hold was checked out', body: `${ci.child} was checked out by ${reporterText} while a hold was on (holds are set to warn, not block). Please follow up.`, personId: ci.person_id }
+            : holdLater
             ? { title: 'A child was checked out around the time a hold was placed', body: `${ci.child} was checked out at about the time a hold was placed. Please check where they are. ${who2}`, personId: ci.person_id }
             : { title: station ? 'A child with a hold was checked out on an iPad' : 'A child with a hold was reported as checked out',
               body: `${ci.child} was checked out ${station ? `on ${station.name}` : 'and reported from the Hub'} while a hold was on. ${station ? 'The iPad didn’t have the hold yet. ' : ''}Please follow up. ${who2}`, personId: ci.person_id });
         }
+      }
+      // With matching tags nobody should be checked out on an iPad, so a report that one was is noted, once per iPad or account per day.
+      if (tagReport && released.length && todayCount('checkout.reported_in_tag_mode') === 0) {
+        recordEvent(db, req, { action: 'checkout.reported_in_tag_mode', campusId: c.id, checkinId: released[0].id, personId: released[0].person_id, householdId: released[0].household_id, detail: { count: released.length, reporter } });
       }
       // Children already released: one summary row per request (count and the first 20 ids), like unknown ids.
       if (repeats.length) recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: repeats[0].id, personId: repeats[0].person_id, householdId: repeats[0].household_id,
@@ -560,10 +608,12 @@ export default function checkinRoutes(db) {
     const personId = int(req.params.personId, 'Child');
     // After pickup the note is for staff only (iPads and switch holders only need it while the child is in a room).
     const staffReader = !req.user.station && rank(req.user.role) >= rank('staff');
+    // With the Care note button switched off in Check-in settings, only staff in the Hub can read it.
+    if (!staffReader && !checkinFeatures(db).medical_tap) return res.status(403).json({ error: MEDICAL_OFF_MESSAGE, reason: 'medical_tap_off' });
     const row = db.prepare(`SELECT ci.id checkin_id, p.id person_id, p.household_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id
       WHERE ci.campus_id = ? AND ci.day = ? AND ci.person_id = ? AND ci.voided_at IS NULL AND p.household_role = 'child'
-        AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)
+        AND ${checkinFeatures(db).any_campus ? '1 = 1' : '(h.campus_id IS NULL OR h.campus_id = ci.campus_id)'}
         AND (p.household_id IS NOT NULL OR p.campus_id IS NULL OR p.campus_id = ci.campus_id)
         AND (ci.checked_out_at IS NULL OR ?) ORDER BY ci.checked_in_at DESC LIMIT 1`).get(c.id, day, personId, staffReader ? 1 : 0);
     if (!row) throw notFound('A child checked in here today');

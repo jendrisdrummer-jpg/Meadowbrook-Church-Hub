@@ -7,6 +7,7 @@ import { bad, notFound, forbidden, int, str, required, audit, localNow, HttpErro
 import { positionKept, MSG } from '../history.js';
 import { seesTeamDetail } from '../team-scope.js';
 import { revokeCheckin } from './checkin.js';
+import { autoTeamIds, pruneAutoTeams } from '../checkin-settings.js';
 import { closeStreams } from '../live.js';
 
 export default function teamRoutes(db) {
@@ -120,6 +121,8 @@ export default function teamRoutes(db) {
       if (!canCampus(req.user, b.campus_id)) throw forbidden();
     }
     updateFields(db, 'teams', t.id, b, ['name', 'campus_id', 'color', 'description', 'archived']);
+    // An archived team can't stay on the automatic check-in list, or unarchiving it would quietly bring the access back.
+    if (db.prepare('SELECT archived FROM teams WHERE id = ?').get(t.id)?.archived) pruneAutoTeams(db, req, 'team_archived');
     res.json(getTeam(t.id));
   });
 
@@ -177,23 +180,32 @@ export default function teamRoutes(db) {
     const positionIds = (req.body?.position_ids || []).map((x) => int(x)).filter((x) => valid.has(x));
     const leader = req.body?.is_leader ? 1 : 0;
     if (leader && rank(req.user.role) < rank('staff')) throw forbidden();
+    const wasLeader = Boolean(db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND person_id = ? AND is_leader = 1').get(t.id, personId));
     tx(db, () => {
       db.prepare('DELETE FROM team_members WHERE team_id = ? AND person_id = ?').run(t.id, personId);
       const ins = db.prepare('INSERT INTO team_members (team_id, person_id, position_id, is_leader) VALUES (?, ?, ?, ?)');
       if (!positionIds.length) ins.run(t.id, personId, null, leader);
       for (const pid of positionIds) ins.run(t.id, personId, pid, leader);
       syncLeaderAccess(personId, req);
+      autoGrantAudit(req, t.id, personId, wasLeader, Boolean(leader));
     });
     res.json({ ok: true });
   });
+
+  // Leading a team an admin chose for automatic check-in is a grant of check-in access, so each change is audited.
+  const autoGrantAudit = (req, teamId, personId, was, now) => {
+    if (was !== now && autoTeamIds(db).includes(teamId)) audit(db, req, 'checkin.auto_grant', { person_id: personId, team_id: teamId, granted: now });
+  };
 
   const syncLeaderAccess = (personId, req) => syncLeaderAccessFor(db, personId, req);
 
   r.delete('/teams/:id/members/:personId', requireRole('leader'), (req, res) => {
     const t = team(req, req.params.id);
     if (!canManage(req, t)) throw forbidden();
+    const wasLeader = Boolean(db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND person_id = ? AND is_leader = 1').get(t.id, int(req.params.personId)));
     db.prepare('DELETE FROM team_members WHERE team_id = ? AND person_id = ?').run(t.id, int(req.params.personId));
     syncLeaderAccess(int(req.params.personId), req);
+    autoGrantAudit(req, t.id, int(req.params.personId), wasLeader, false);
     res.json({ ok: true });
   });
 

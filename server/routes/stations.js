@@ -9,6 +9,7 @@ import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '
 import { tx } from '../db.js';
 import { recordEvent, appVersion } from '../checkin-events.js';
 import { STATION_LETTERS } from '../../public/js/checkin-rules.js';
+import { checkinFeatures, ipadFeatures } from '../checkin-settings.js';
 
 const HEADER = 'x-station';
 const PAIR_MIN = 15;
@@ -83,7 +84,7 @@ export default function stationRoutes(db) {
   r.get('/checkin/station', (req, res) => {
     if (!req.user?.station) throw notFound('Station');
     res.set('Cache-Control', 'no-store');
-    res.json(station(req.user.station.id));
+    res.json({ ...station(req.user.station.id), features: ipadFeatures(checkinFeatures(db)) });
   });
 
   // ---------------------------------------------------------------- the hub
