@@ -270,7 +270,7 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   deleting a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
   authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
-  **children's** allergies and medical notes, never an adult's. Every route checks the campus.
+  **children's** allergies and medical notes, never an adult's. Every route checks the campus. A live check-out (`mode: 'request'`) is refused (409) for children of more than one family, for everyone including admins; an offline report is never refused but is recorded and flagged. The released-by identity comes from the paired station or session, not the request.
 - **The check-in record** (`GET /checkin/events`) is for **staff and admins at that campus** (`requireRole('staff')` plus
   `canCampus`). Never a station, and not a leader even with check-in access: the log names who released which child.
   **Check-in safety settings** (`/checkin/safety`) are for admins; reading is open to campus-limited admins, changing

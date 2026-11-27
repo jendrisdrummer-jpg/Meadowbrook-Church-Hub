@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (40 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (41 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -64,7 +64,7 @@ Arrows show the main references.
 | `attendance` → services, people | Roll call (marked by the attendance team). |
 | `headcounts` → services | Counts per area. |
 | `rooms` → campuses | Kids' rooms by age/grade. |
-| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. |
+| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Migration 41 (child-safety V1, PR 2) adds `checked_out_device_id` and `checked_out_user_id` (plain ids, no foreign keys, so they outlive the iPad or account; exactly one is set by a release, from what the server knows) and `client_checked_out_at` (the time an offline iPad said it released the child, as sent; `checked_out_at` holds that time kept between the check-in and the sync). `checked_out_by` is now the iPad's or account's name from the server, never the text the iPad sends. The child-safety plan numbers this migration 42; the number is the place in `MIGRATIONS`, so it is 41 here. |
 | `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
 | `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
 
