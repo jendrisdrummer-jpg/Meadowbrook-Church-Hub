@@ -69,7 +69,7 @@ test('migration 44: the new columns, and stations paired before get letters in t
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-m44-')), 'x.db');
   let d = openDb(file);
   // Put the database back to how it was after migration 43, with stations that have no letter yet.
-  d.exec(`DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter;
+  d.exec(`DROP TRIGGER checkins_collector_is_final; DROP TRIGGER checkins_checkout_is_final; DROP TRIGGER people_keep_hold_history; DROP TABLE checkin_holds; ALTER TABLE checkins DROP COLUMN checked_out_to_name; ALTER TABLE checkins DROP COLUMN checked_out_to_relationship; ALTER TABLE checkins DROP COLUMN checked_out_to_kind; ALTER TABLE checkins DROP COLUMN checked_out_id_type; ALTER TABLE checkins DROP COLUMN checked_out_held; DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter;
     ALTER TABLE people DROP COLUMN allergy_epi; ALTER TABLE people DROP COLUMN allergy_action; ALTER TABLE people DROP COLUMN medical_sorted_at;
     DROP TABLE person_care_notes; PRAGMA user_version = 43;`);
   d.exec(`INSERT INTO campuses (id, name, short_name) VALUES (1, 'North', 'N'), (2, 'South', 'S');`);

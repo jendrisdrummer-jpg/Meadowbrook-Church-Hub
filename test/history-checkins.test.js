@@ -35,7 +35,8 @@ test('migration 42: the database refuses to delete a check-in, and a void can’
   assert.equal(db.prepare('SELECT COUNT(*) n FROM checkins').get().n, 3);
   // Other edits are untouched: a check-in still gets checked out.
   assert.equal(db.prepare("UPDATE checkins SET checked_out_at = '2020-03-01T16:00:00.000Z' WHERE id = 'ci-abby-001'").run().changes, 1);
-  db.prepare("UPDATE checkins SET checked_out_at = NULL WHERE id = 'ci-abby-001'").run();
+  // Once set, it is final (migration 45).
+  assert.throws(() => db.prepare("UPDATE checkins SET checked_out_at = NULL WHERE id = 'ci-abby-001'").run(), /can’t be changed/);
 });
 
 test('DELETE says no (405) and points to Void; campus and access checks still come first', async () => {

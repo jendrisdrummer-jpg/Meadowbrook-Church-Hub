@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (43 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (45 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -71,6 +71,17 @@ Arrows show the main references.
 Migration 44 (pickup codes and medical levels) adds `checkin_devices.station_letter`, the `people` columns `allergy_epi` (0/1), `allergy_action` and
 `medical_sorted_at`, and `person_care_notes (person_id PK, note, updated_by, updated_by_name, updated_at)`: private notes, one row per person, staff only, never
 sent to a station. Pickup codes in `checkins.security_code` are now five characters (station letter + four); four-character codes on older check-ins stay valid.
+
+Migration 45 (holds and who collected) adds `checkin_holds (id, person_id, person_name, campus_id, note, placed_at, placed_by, placed_by_name, changed_at,
+changed_by, changed_by_name, lifted_at, lifted_by, lifted_by_name, lift_reason)`: one row per hold, never deleted. A child has at most one **active** hold
+(`lifted_at IS NULL`, enforced by a partial unique index); lifting sets `lifted_at` and a later hold is a new row. `person_id` is a plain id with a name
+snapshot (no foreign key), like `checkin_events`, so the history outlives the person record; `campus_id` is where it was placed (who may manage it), while it blocks release at
+every campus. `note` is private to staff in the Hub (a pointer to the confidential list, at most 300 characters). Triggers: no `DELETE`, who/where/when can't change, a lifted
+hold can't change, and a person with a hold on record can't be deleted (`people_keep_hold_history`). `checkins` gains `checked_out_to_name`,
+`checked_out_to_relationship`, `checked_out_to_kind` (`household_adult`, `pickup_contact`, `other`, `unverified`, or empty when an older iPad sent none),
+`checked_out_id_type` (`drivers_license`, `passport`, `other_photo_id`, `known`, `not_checked`; never an ID number) and `checked_out_held` (1 = released while a hold was on). The trigger
+`checkins_collector_is_final` refuses any change to those columns once `checked_out_at` is set. The safeguarding lead is the setting `checkin_safeguarding`
+(`{lead_ids: [user ids]}`; up to 5).
 
 ### Communication
 | Table | Purpose |
@@ -193,6 +204,7 @@ Where the sensitive data lives, so reviews know where to look (standards in
 
 | Class | Tables / columns |
 |---|---|
+| Pickup holds | `checkin_holds.note` (private, Hub only; staff with check-in access and the named safeguarding lead can read it). Never in `checkin_events`, the audit log, notifications, emails, the roster or any iPad response (the iPad only gets a yes/no `on_hold`). `checkins.checked_out_to_*` names who collected a child, with the kind of ID shown and never its number |
 | Children's medical and safety | `people.allergies`, `people.allergy_epi`, `people.allergy_action` (Level 1), `people.medical_notes` (Level 2), `person_care_notes.note` (Level 3, migration 44), `people.medical_sorted_at` (set when staff have sorted a child's details into the levels), `household_pickups`, `checkins.security_code`. `checkin_events` holds ids, codes and name snapshots only: **never allergies, medical notes, phone numbers, addresses or birthdates** (the recorder truncates an oversized `detail` rather than failing, and accepts free text only as `by_claimed` ≤ 100 and `station_label` ≤ 60 characters, and `audit_log` gets ids and actions only for check-in events) |
 | Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
 | Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |

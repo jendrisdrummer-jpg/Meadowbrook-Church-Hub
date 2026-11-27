@@ -1,8 +1,8 @@
 // Check-in stations: iPads (or any tablet) paired with a code, so kids check in without anyone
 // signed in on them. Each station belongs to one campus and can only do check-in.
-import { get, post, patch, del, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
 import { state, setTitle, visibleCampuses } from '../app.js';
-import { CHECKIN_APP_VERSION, STATION_LETTERS } from '../checkin-rules.js';
+import { CHECKIN_APP_VERSION, STATION_LETTERS, leadRows } from '../checkin-rules.js';
 
 const seen = (t) => {
   if (!t) return 'Not yet';
@@ -33,6 +33,10 @@ export default async function stations(el) {
   const url = `${location.origin}/checkin`;
   // The safety switch is for admins only; an admin limited to some campuses can read it but not change it.
   const safety = state.me.role === 'admin' ? await get('/checkin/safety') : null;
+  // Who is told about check-in holds (admins name them; every admin is told until then).
+  const lead = safety ? await get('/checkin/safeguarding') : null;
+  const accounts = lead ? (await get('/users')).users.filter((u) => u.active) : [];
+  const leadList = lead ? leadRows(accounts, lead) : [];
   const allCampuses = !state.me.campusIds;
   // Children whose allergy and medical details haven't been sorted into the check-in levels yet (see the person's page).
   const review = await get('/checkin/medical/review');
@@ -60,6 +64,10 @@ export default async function stations(el) {
       <label class="check st-switch"><input type="checkbox" data-safety ${safety.require_current_app ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> Only let iPads with the latest check-in sync</label>
       <p class="muted small" style="margin:6px 0 0">Turn this on once every iPad above says Up to date. Older iPads keep what they’ve recorded and sync after they’re reopened.</p>
       ${allCampuses ? '' : html`<p class="muted small" style="margin:6px 0 0">${ALL_CAMPUSES_MESSAGE}</p>`}
+      <h3 style="margin:16px 0 6px">Safeguarding lead</h3>
+      <p class="muted small" style="margin:0 0 8px">Told in the Hub, and by email if it’s set up, every time someone puts a hold on a child, changes it or lifts it, and if a child with a hold is released. ${lead.fallback ? 'Nobody is named yet, so every admin is told.' : ''}</p>
+      ${leadList.length ? html`<div class="stack" data-leads>${leadList.map((u) => html`<label class="check"><input type="checkbox" value="${u.id}" ${u.checked ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> ${u.name} ${u.role ? html`<span class="muted small">${u.role}</span>` : ''}</label>`)}</div>
+        <button class="btn small" style="margin-top:8px" data-save-leads ${allCampuses ? '' : 'disabled'}>Save</button>` : ''}
       <h3 style="margin:16px 0 6px">Legal hold</h3>
       ${holdBlock(safety.legal_hold)}
       <button class="btn ${safety.legal_hold.on ? '' : 'danger'} small" data-hold="${safety.legal_hold.on ? 'release' : 'set'}" ${allCampuses ? '' : 'disabled'}>${safety.legal_hold.on ? 'Release the hold' : 'Put a legal hold on'}</button></div>` : ''}`);
@@ -71,6 +79,11 @@ export default async function stations(el) {
       toast(r.require_current_app ? 'Older iPads will be asked to reload.' : 'Older iPads can sync again.');
     } catch (err) { sw.checked = !sw.checked; fail(err); }
   };
+
+  el.querySelector('[data-save-leads]')?.addEventListener('click', async () => {
+    const ids = [...el.querySelectorAll('[data-leads] input:checked')].map((i) => Number(i.value));
+    try { await api('PUT', '/checkin/safeguarding', { lead_ids: ids }); toast(ids.length ? 'Saved.' : 'Saved. Every admin will be told about holds.'); } catch (err) { fail(err); }
+  });
 
   // A legal hold keeps everything as it is: nothing is voided or merged and no backup copy is deleted. Say why, both ways.
   const hold = el.querySelector('[data-hold]');

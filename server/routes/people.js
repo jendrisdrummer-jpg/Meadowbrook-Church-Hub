@@ -181,8 +181,11 @@ export default function peopleRoutes(db, { uploadDir }) {
       // Away reasons are private to staff and the leaders of a team this person is on.
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id)
         .map((b) => (showReasons ? b : withoutKeys(b, ['reason']))),
-      checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
-        WHERE ci.person_id = ? AND ci.voided_at IS NULL ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
+      // Who collected a child is for staff (and above) only.
+      checkins: db.prepare(`SELECT ci.id, ci.campus_id, ci.checked_in_at, ci.checked_out_at, ci.kind, rm.name room, ci.checked_out_to_name, ci.checked_out_to_relationship, ci.checked_out_to_kind, ci.checked_out_id_type, ci.checked_out_held
+        FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
+        WHERE ci.person_id = ? AND ci.voided_at IS NULL ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id)
+        .map((c) => (rank(req.user.role) >= rank('staff') ? c : { checked_in_at: c.checked_in_at, kind: c.kind, room: c.room })),
       account: accountFor(req, p.id),
     });
   });
@@ -286,6 +289,10 @@ export default function peopleRoutes(db, { uploadDir }) {
     const dupId = int(req.body?.duplicate_id, 'Duplicate');
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
+    // A hold follows the child's record, so it has to be lifted (or placed on the record being kept) before a merge.
+    if (db.prepare('SELECT 1 FROM checkin_holds WHERE person_id = ? AND lifted_at IS NULL').get(dup.id)) {
+      throw new HttpError(409, 'The duplicate has a check-in hold. Lift it first, and place a hold on the person you’re keeping if it should continue.');
+    }
     // One person, one account: merging two people who both have accounts would leave two on one person.
     const dupUsers = db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id);
     const dupUser = dupUsers[0];

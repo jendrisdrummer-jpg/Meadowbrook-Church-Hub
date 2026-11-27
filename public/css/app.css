@@ -239,6 +239,7 @@ select:not([multiple]):not([size]):hover { border-color: var(--text-2); }
 input:focus, select:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
 label.field { display: grid; gap: 4px; font-size: 13px; font-weight: 550; color: var(--text-2); }
 label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+[data-leads] .check { min-height: 44px; }
 .form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .form .wide { grid-column: 1 / -1; }
 

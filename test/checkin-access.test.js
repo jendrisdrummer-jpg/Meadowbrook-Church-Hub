@@ -67,7 +67,7 @@ test('migration 43 copies the old grant: leaders on the list keep access, nothin
   const add = (e, role) => Number(d.prepare('INSERT INTO users (email, role) VALUES (?, ?)').run(e, role).lastInsertRowid);
   const l1 = add('l1@t', 'leader'); const l2 = add('l2@t', 'leader'); const v1 = add('v1@t', 'volunteer'); const s1 = add('s1@t', 'staff');
   setSetting(d, 'checkin_user_ids', [l1, v1, s1, 9999]);
-  d.exec('ALTER TABLE users DROP COLUMN checkin; DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter; ALTER TABLE people DROP COLUMN allergy_epi; ALTER TABLE people DROP COLUMN allergy_action; ALTER TABLE people DROP COLUMN medical_sorted_at; DROP TABLE person_care_notes; PRAGMA user_version = 42');
+  d.exec('DROP TRIGGER checkins_collector_is_final; DROP TRIGGER checkins_checkout_is_final; DROP TRIGGER people_keep_hold_history; DROP TABLE checkin_holds; ALTER TABLE checkins DROP COLUMN checked_out_to_name; ALTER TABLE checkins DROP COLUMN checked_out_to_relationship; ALTER TABLE checkins DROP COLUMN checked_out_to_kind; ALTER TABLE checkins DROP COLUMN checked_out_id_type; ALTER TABLE checkins DROP COLUMN checked_out_held; ALTER TABLE users DROP COLUMN checkin; DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter; ALTER TABLE people DROP COLUMN allergy_epi; ALTER TABLE people DROP COLUMN allergy_action; ALTER TABLE people DROP COLUMN medical_sorted_at; DROP TABLE person_care_notes; PRAGMA user_version = 42');
   d.close();
   d = openDb(file);
   const flag = (id) => d.prepare('SELECT checkin FROM users WHERE id = ?').get(id).checkin;

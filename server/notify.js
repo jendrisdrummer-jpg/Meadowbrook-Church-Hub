@@ -67,7 +67,7 @@ function pushAll(db, subs, msg) {
   for (const sub of subs) {
     // Taps open the app the device signed up from: the member app or the dashboard.
     const url = sub.ui === 'app' ? msg.app_url || '/app/' : msg.url || '/';
-    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url, tag: msg.tag, renotify: msg.renotify, actions: msg.actions, data: msg.data || {} };
+    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.pushBody ?? (msg.body || ''), url, tag: msg.tag, renotify: msg.renotify, actions: msg.actions, data: msg.data || {} };
     sendPush(sub, payload, keys, subject(), { urgency: msg.kind === 'reminder' ? 'high' : 'normal' })
       .then((status) => {
         // The person uninstalled the app or turned notifications off: forget that device.

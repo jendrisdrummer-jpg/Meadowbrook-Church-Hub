@@ -126,6 +126,7 @@ const SECTIONS = [
       html`Staff and admins can use it. Team leaders can use it once the church office has given them access.`,
       html`If you need to use it, ask the church office to give your account access.`,
       html`It’s ${b('Kids Check-in')} in the menu. Without access, it tells you to ask the office.`,
+      html`If a child can’t go home with just anyone, staff can put a ${b('hold')} on them (open the child, then Pickup hold). The iPad then shows “Hold: see coordinator” and won’t check that child out. Fetch a staff member. Staff name who is collecting each time a child leaves.`,
     ],
     note: 'Step-by-step help for check-in is coming separately.',
   },
