@@ -267,10 +267,15 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   are **staff and up** on a person's page (`GET /people/:id`). Leaders, including anyone with leader
   access only because they lead a team, see contact and serving details but not those fields.
 - **Kids' check-in** (`/checkin/roster`, `/checkin/checkins`, `/checkin/active`, `/checkin/checkout`,
-  deleting a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
+  voiding a check-in) is for **paired stations, staff and admins, and leader accounts an admin has
   authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
   **children's** allergies and medical notes, never an adult's. Every route checks the campus. A live check-out (`mode: 'request'`) is refused (409) for children of more than one family, for everyone including admins; an offline report is never refused but is recorded and flagged. The released-by identity comes from the paired station or session, not the request.
+- **Voiding a check-in** (`POST /checkin/checkins/:id/void`) is for accounts with check-in access at that campus (staff, admins and
+  authorised leaders) **signed in to the Hub, never a paired iPad**, so the record always names a person; a reason is required. Nobody can
+  delete a check-in (`DELETE` answers 405 and the database refuses). **The legal hold** (`POST /checkin/legal-hold` and `/release`) is for
+  **admins who cover every campus** (`requireAllCampuses`), each time with a reason; campus-limited admins can see it but not change it. While
+  it is on, voiding, merging people and disconnecting Google Drive are refused for everyone, and no backup copy is deleted.
 - **The check-in record** (`GET /checkin/events`) is for **staff and admins at that campus** (`requireRole('staff')` plus
   `canCampus`). Never a station, and not a leader even with check-in access: the log names who released which child.
   **Check-in safety settings** (`/checkin/safety`) are for admins; reading is open to campus-limited admins, changing
