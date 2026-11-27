@@ -45,4 +45,14 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **Deployed to production:** 26 November 2026, 11:18 AM CT, PR #79 (`main` at `b1099cc`, the tested `milestone-1` release `3e74bbf`): milestone 1, Part A (#81–#84) and Part B (#85, #86, #88–#93); B8 (#87) held back. Migrations 30–35 ran; the one-account index was created (no duplicates; no warning in the log); sessions were hashed. Live in under a minute, start-up log clean. Settings → Checks: "Nothing here blocks real use". Follow-up: `MB_TRUST_PROXY` changed from `1` to `2` on Render the same morning, because with `1` the hub saw Cloudflare's address; with `2` the address matches the visitor's (the Checks page is updated to accept it in the next release). Rollback: none.
 
+**Later deploys on 26 November 2026** (each merged to `main` by the owner after a fresh backup; all live within a minute, Checks clean, no rollback):
+- `31d2345` (#99): household save fix, Who's serving "All teams", dropdown pickers.
+- `818b290` (#101): app-wide dropdowns, family search by member name, Christmas items and QA fixes, "Can't be reached" with a reason, Find a replacement.
+- `ffdeb26` (#104): People page status change, back button that remembers your place, select several to set status or put them in one family.
+- `26cc0f1` (#106): floating Select button, families take full rows in Take attendance, confirm before removing an accepted person.
+- `7943719` (#109): B8 attendance access switch (migration 36), after a restore drill on real data (`restore-drill.md`).
+- `d9ff826` (#112): attendance dashboard, "We've missed…" for all leaders, Home attendance card, the iPhone demo app (`mobile/`).
+
+**Next deploy (waiting for the owner):** PR #117 into `milestone-1`, then `milestone-1` → `main`. The member app polish for the iPhone app (shell awareness, Back and swipe-back, 16px inputs, tap targets, refresh on return), This week card, My info (phone, birthday, an adult's household address, Tell the office), App Builder fixes, Announcement and Link list widgets, the **Edit the app** flag, the empty-families cleanup tool, and Customise Home. Migrations: 37 (accounts on the old `light` default follow the device; This week added once at the top of a saved app layout), 38 (`users.app_editor`, off for everyone: staff without it lose App Builder access until an admin switches it on), 39 (`users.home_layout`). All additive or a one-time update of preferences. Take a backup first. After deploy: switch on Edit the app for anyone who edits the app; rebuild the iPhone app once in Xcode for swipe-back.
+
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).
