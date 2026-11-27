@@ -114,7 +114,7 @@ test('a North person does not count South connect cards, sign-ups or services', 
 
 test('a volunteer gets no staff counts', async () => {
   const light = (await api('vic', '/attention')).data;
-  assert.deepEqual(Object.values(light), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(light), [0, 0, 0, 0, 0, 0, 0]); // including the Media menu count
   const d = await dash('vic');
   assert.equal(d.attention, undefined);
   assert.equal(d.services, undefined);

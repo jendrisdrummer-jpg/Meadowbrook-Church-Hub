@@ -8,7 +8,7 @@ Where data lives: [database.md](database.md#sensitive-data).
 ## Non-negotiables
 
 1. **Secrets live only in Render's environment settings** (`STRIPE_*`, `MUX_*`, `MB_SMTP_PASS`,
-   `MB_DAILY_API_KEY`, `MB_BACKUP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `YOUTUBE_API_KEY`). Never in
+   `MB_DAILY_API_KEY`, `MB_BACKUP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `YOUTUBE_API_KEY`; the key is only ever sent to YouTube’s API, and Media → Setup shows only whether it is on). Never in
    code, tests, docs, commits, PRs, chat or logs. `.env` is git-ignored.
 2. **Every API route has an explicit guard**: a role, a permission flag, membership, a signed
    link, or a deliberate public decision with a comment saying why.

@@ -1,6 +1,8 @@
 // Media: the library of past services the app's Watch tab shows. Videos come in on their own
-// from the church's YouTube channel (see ../media.js); staff give each one the app's own title,
-// trim, speaker, series, scripture and topics. Watch is public, like the rest of the app.
+// from the church's YouTube channel or messages playlist (see ../media.js); staff give each one the
+// app's own title, trim, speaker, series, scripture and topics. Watch is public, like the rest of
+// the app. Mux (our own video host) and the podcast are dormant: their routes below still work for
+// anything already set up, but nothing in the staff screens offers them.
 import { Router } from 'express';
 import { requireRole, requireAllCampuses } from '../auth.js';
 import { setSetting } from '../db.js';
@@ -8,7 +10,7 @@ import crypto from 'node:crypto';
 import { bad, notFound, int, str, audit } from '../http.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import {
-  mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, fetchVideo, describeVideo, insertMedia, fromService, hasApiKey, TITLE_FORMATS,
+  mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, resolvePlaylist, playlistMembers, fetchVideo, describeVideo, insertMedia, fromService, sameSeries, hasApiKey, TITLE_FORMATS,
 } from '../media.js';
 import { podcastSettings, savePodcast, audioSource } from '../podcast.js';
 import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
@@ -56,9 +58,8 @@ export default function mediaRoutes(db) {
   const r = Router();
 
   // ---------------------------------------------------------------- the app (public)
-  // What the app can show: published, playable, and (if the church chose so) only what plays in
-  // our own player.
-  const shown = () => `m.status = 'published' AND (m.source != 'mux' OR m.playback_id IS NOT NULL)${mediaSettings(db).own_player_only ? " AND m.source = 'mux'" : ''}`;
+  // What the app can show: published and playable (a Mux video needs its playback id).
+  const shown = () => "m.status = 'published' AND (m.source != 'mux' OR m.playback_id IS NOT NULL)";
 
   r.get('/watch', (_req, res) => {
     const items = db.prepare(`${LIST} WHERE ${shown()} ORDER BY m.day DESC, m.recorded_at DESC LIMIT 600`).all().map(publicItem);
@@ -76,32 +77,38 @@ export default function mediaRoutes(db) {
   });
 
   // ---------------------------------------------------------------- the hub (staff)
+  const STATUSES = ['published', 'hidden', 'skipped', 'review'];
+  // Why a video isn't in the app, in words.
+  const why = (m) => (m.status === 'published' ? '' : m.skip_reason || (m.status === 'hidden' ? 'Hidden by staff' : ''));
+
+  // The whole library at once (the screen filters it: In the app, Not in the app, Needs a look).
   r.get('/media', requireRole('staff'), (req, res) => {
-    const status = ['published', 'hidden', 'skipped'].includes(req.query.status) ? req.query.status : 'published';
-    const items = db.prepare(`${LIST} WHERE m.status = ? ORDER BY m.day DESC, m.recorded_at DESC LIMIT 1000`).all(status)
-      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at), clip_status: m.clip_status, upload_status: m.upload_status }));
+    const only = STATUSES.includes(req.query.status) ? req.query.status : null;
+    const items = db.prepare(`${LIST} ${only ? 'WHERE m.status = ?' : ''} ORDER BY m.day DESC, m.recorded_at DESC LIMIT 1500`).all(...(only ? [only] : []))
+      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, reason: why(m), yt_title: m.yt_title, duration: m.duration, source: m.source, video_id: m.video_id, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at) }));
     const counts = Object.fromEntries(db.prepare('SELECT status, COUNT(*) n FROM media GROUP BY status').all().map((x) => [x.status, x.n]));
-    const all = db.prepare("SELECT speaker, series, topics FROM media WHERE status != 'skipped'").all();
+    const all = db.prepare("SELECT speaker, series FROM media WHERE status != 'skipped'").all();
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
     res.json({
       items, counts,
       speakers: uniq(all.map((m) => m.speaker)),
       series: uniq(all.map((m) => m.series)),
-      topics: uniq(all.flatMap(topicsOf)),
-      settings: mediaSettings(db),
+      settings: uiSettings(),
       status: mediaStatus(db),
     });
   });
 
+  // Mux has no settings screen any more, so its settings and the old "own player only" switch stay out of what the screens get.
+  const uiSettings = () => { const { keep_full_days, ...s } = mediaSettings(db); return s; };
+  r.get('/media/setup', requireRole('staff'), (_req, res) => {
+    res.json({ settings: uiSettings(), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey() });
+  });
+
+  // Mux (dormant): make the stream key (once), reset it, and optionally forward the stream to YouTube.
   const muxInfo = () => {
     const m = muxSettings(db);
     return { configured: muxConfigured(), live_stream_id: m.live_stream_id || null, server: RTMP_SERVER, stream_key: m.stream_key || '', youtube_forward: Boolean(m.simulcast_id) };
   };
-  r.get('/media/setup', requireRole('staff'), (_req, res) => {
-    res.json({ settings: mediaSettings(db), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey(), mux: muxInfo() });
-  });
-
-  // Mux: make the stream key (once), reset it, and optionally forward the stream to YouTube.
   const muxCall = async (res, fn) => {
     try { await fn(); } catch (e) { throw bad(e.message); }
     res.json(muxInfo());
@@ -123,38 +130,77 @@ export default function mediaRoutes(db) {
     res.json({ live });
   });
 
+  // "Skip videos whose title contains…": a tidy comma list, at most 20 words.
+  const cleanWords = (v) => [...new Set(String(v).split(',').map((w) => w.trim().replace(/\s+/g, ' ').slice(0, 60)).filter(Boolean).map((w) => w.toLowerCase()))].slice(0, 20).join(', ');
+
   r.put('/media/setup', requireRole('staff'), async (req, res) => {
     const b = req.body || {};
     const cfg = mediaSettings(db);
     const input = str(b.channel, 300);
-    if (input !== cfg.channel_input || (input && !cfg.channel_id)) {
+    if (b.channel !== undefined && (input !== cfg.channel_input || (input && !cfg.channel_id))) {
       if (input) {
         let ch;
         try { ch = await resolveChannel(input); } catch (e) { throw bad(e.message); }
         Object.assign(cfg, { channel_id: ch.id, channel_title: ch.title, channel_input: input });
       } else Object.assign(cfg, { channel_id: '', channel_title: '', channel_input: '' });
     }
+    // The Sunday messages playlist: a link or id; empty goes back to the whole channel.
+    if (b.playlist !== undefined) {
+      const link = str(b.playlist, 300);
+      if (link !== cfg.playlist_input || (link && !cfg.playlist_id)) {
+        if (link) {
+          let pl;
+          try { pl = await resolvePlaylist(link); } catch (e) { throw bad(e.message); }
+          Object.assign(cfg, { playlist_id: pl.id, playlist_title: pl.title, playlist_input: link });
+        } else Object.assign(cfg, { playlist_id: '', playlist_title: '', playlist_input: '' });
+      }
+    }
+    if (b.skip_words !== undefined) cfg.skip_words = cleanWords(str(b.skip_words, 1000));
     if (TITLE_FORMATS[b.title_format]) cfg.title_format = b.title_format;
     if (b.min_minutes !== undefined) cfg.min_minutes = Math.min(180, Math.max(1, Math.round(Number(b.min_minutes) || 20)));
     if (typeof b.notify_new === 'boolean') cfg.notify_new = b.notify_new;
     if (typeof b.notify_live === 'boolean') cfg.notify_live = b.notify_live;
-    if (typeof b.own_player_only === 'boolean') cfg.own_player_only = b.own_player_only;
-    if (b.keep_full_days !== undefined) cfg.keep_full_days = Math.min(3650, Math.max(0, Math.round(Number(b.keep_full_days) || 0)));
+    delete cfg.own_player_only; // an old switch that could hide everything on YouTube; gone
     setSetting(db, 'media', cfg);
-    audit(db, req, 'media.setup', { channel: cfg.channel_id });
-    res.json({ settings: cfg, status: mediaStatus(db) });
+    audit(db, req, 'media.setup', { channel: cfg.channel_id, playlist: cfg.playlist_id });
+    res.json({ settings: uiSettings(), status: mediaStatus(db) });
+  });
+
+  // Videos in the app that aren't in the messages playlist (for the one-time "Hide N videos" action
+  // after a playlist is chosen). Only YouTube videos; never anything already hidden or skipped.
+  const notInPlaylist = async () => {
+    const cfg = mediaSettings(db);
+    if (!cfg.playlist_id) throw bad('Choose a messages playlist first (Media → Setup).');
+    let members;
+    try { members = await playlistMembers(cfg); } catch (e) { throw bad(`Couldn’t read the playlist: ${e.message}`); }
+    // Without the API key a long playlist is only partly visible, and hiding by a partial list would hide real messages.
+    if (!members.complete) throw bad(hasApiKey() ? 'This playlist is too long for the hub to read all of it (over 2,000 videos), so it can’t tell which ones are missing.' : 'This playlist has more videos than the hub can see without the YouTube key, so it can’t tell which ones are missing. Add the key (see Setup) first.');
+    const rows = db.prepare("SELECT id, video_id FROM media WHERE status = 'published' AND source = 'youtube'").all();
+    return { cfg, ids: rows.filter((m) => !members.ids.has(m.video_id)).map((m) => m.id) };
+  };
+  r.get('/media/playlist-extras', requireRole('staff'), async (_req, res) => {
+    const { cfg, ids } = await notInPlaylist();
+    res.json({ count: ids.length, playlist_title: cfg.playlist_title });
+  });
+  // Moves them to Not in the app ("Not in the messages playlist"). Nothing is deleted; Show in app puts one back.
+  r.post('/media/playlist-extras/hide', requireRole('staff'), async (req, res) => {
+    const { ids } = await notInPlaylist();
+    const hide = db.prepare("UPDATE media SET status = 'hidden', skip_reason = 'Not in the messages playlist', edited_by = ?, edited_at = datetime('now') WHERE id = ? AND status = 'published'");
+    for (const id of ids) hide.run(req.user.id, id);
+    audit(db, req, 'media.hide_not_in_playlist', { count: ids.length, ids: ids.slice(0, 2000) });
+    res.json({ hidden: ids.length });
   });
 
   // Look now. deep: go back through the whole channel (with the API key).
   r.post('/media/sync', requireRole('staff'), async (req, res) => {
     const streaming = muxStreaming(db);
-    if (!mediaSettings(db).channel_id && !streaming) throw bad('Add your YouTube channel or set up streaming first.');
+    if (!mediaSettings(db).channel_id && !streaming) throw bad('Add your YouTube channel first (Media → Setup).');
     if (req.body?.deep && !hasApiKey()) throw bad('Bringing in older videos needs a YouTube API key (see the steps under Setup).');
     const before = db.prepare("SELECT COUNT(*) n FROM media WHERE status = 'published'").get().n;
     if (streaming && !req.body?.deep) {
       try { await muxTick(db); } catch (e) { throw bad(`Couldn’t reach Mux: ${e.message}`); }
     }
-    let r = { added: 0, skipped: 0 };
+    let r = { added: 0, skipped: 0, review: 0 };
     try {
       r = await syncMedia(db, { deep: Boolean(req.body?.deep) });
     } catch (e) { throw bad(`Couldn’t reach YouTube: ${e.message}`); }
@@ -176,7 +222,7 @@ export default function mediaRoutes(db) {
     res.status(201).json({ id });
   });
 
-  // ---------------------------------------------------------------- the podcast
+  // ---------------------------------------------------------------- the podcast (on hold: no screen offers it)
   r.get('/media/podcast', requireRole('staff'), (req, res) => {
     const rows = db.prepare("SELECT * FROM media WHERE status = 'published' ORDER BY day DESC LIMIT 60").all();
     res.json({
@@ -205,6 +251,8 @@ export default function mediaRoutes(db) {
       changes.image = b.image || '';
     }
     const next = { ...podcastSettings(db), ...changes };
+    // The podcast is on hold (no screen offers it): it can't be turned on without the Mux audio it needs.
+    if (changes.enabled && !muxConfigured()) throw bad('The podcast isn’t set up yet. It’s on hold for now.');
     if (next.enabled && !next.email) throw bad('Podcast apps need a contact email for the owner.');
     savePodcast(db, changes);
     audit(db, req, 'media.podcast', changes);
@@ -248,8 +296,7 @@ export default function mediaRoutes(db) {
     const service = m.service_id ? db.prepare('SELECT s.id, s.title, s.series, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE s.id = ?').get(m.service_id) : null;
     // Services that day, to link it to another one.
     const services = db.prepare('SELECT s.id, s.title, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE substr(s.starts_at, 1, 10) = ? ORDER BY s.starts_at').all(m.day);
-    res.json({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
-      upload_status: m.upload_status, mux_ready: muxConfigured(), podcast: Boolean(m.podcast), podcast_on: podcastSettings(db).enabled, audio_ready: m.audio_status === 'ready' && audioSource(m)?.asset === m.audio_asset_id,
+    res.json({ ...publicItem(m), source: m.source, video_id: m.source === 'mux' ? null : m.video_id, status: m.status, skip_reason: m.skip_reason, reason: why(m), yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
       raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null,
       campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live) });
   });
@@ -268,6 +315,7 @@ export default function mediaRoutes(db) {
     const set = {};
     if (b.title !== undefined) { set.title = str(b.title, 200); if (!set.title) throw bad('Give it a title.'); }
     for (const [k, max] of [['description', 4000], ['speaker', 120], ['series', 120], ['scripture', 200]]) if (b[k] !== undefined) set[k] = str(b[k], max);
+    if (set.series) set.series = sameSeries(db, set.series); // "unshakable" joins "Unshakable", not a second series
     if (b.topics !== undefined) {
       const list = (Array.isArray(b.topics) ? b.topics : String(b.topics).split(',')).map((t) => str(t, 40)).filter(Boolean);
       set.topics = JSON.stringify([...new Set(list)].slice(0, 12));
@@ -292,7 +340,7 @@ export default function mediaRoutes(db) {
     if (b.end !== undefined) set.end_sec = end != null && m.duration && end >= m.duration ? null : end;
     if (typeof b.podcast === 'boolean') set.podcast = b.podcast ? 1 : 0;
     if (b.status !== undefined) {
-      if (!['published', 'hidden'].includes(b.status)) throw bad('Publish or hide it.');
+      if (!['published', 'hidden'].includes(b.status)) throw bad('Show it in the app or hide it.');
       set.status = b.status;
       set.skip_reason = '';
     }

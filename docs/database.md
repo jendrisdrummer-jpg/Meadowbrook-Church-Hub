@@ -98,7 +98,7 @@ Arrows show the main references.
 ### Media
 | Table | Purpose |
 |---|---|
-| `media` | The library: YouTube or Mux source, the app's own title/picture/trim/tags, upload state, trimmed copy (`clip_*`), podcast audio (`audio_*`), `status` published/hidden/skipped. |
+| `media` | The library: YouTube or Mux source, the app's own title/picture/trim/tags, upload state, trimmed copy (`clip_*`), podcast audio (`audio_*`), `status` published / hidden / skipped (left out by a rule) / **review** (“Needs a look”: `skip_reason` holds why). `status` is free text, so adding `review` needed no migration. The playlist, skip words and minimum length are keys inside the `media` settings value (`playlist_id`, `playlist_input`, `playlist_title`, `skip_words`, `min_minutes`). |
 
 ### Operations
 | Table | Purpose |

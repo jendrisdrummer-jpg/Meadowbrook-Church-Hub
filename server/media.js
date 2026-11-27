@@ -1,10 +1,18 @@
-// The media library's link to YouTube: finds the church's channel, picks up new videos every hour
-// (full services only), fills in date, campus, speaker, series and title from the matching
-// service, and notices when the church is live.
+// The media library's link to YouTube: finds the church's channel, picks up new videos every hour,
+// fills in date, campus, speaker, series and title from the matching service, and notices when
+// the church is live.
 //
-// With YOUTUBE_API_KEY (a free key from Google Cloud) the hub sees every video on the channel, with
-// its exact length and whether it's live. Without one it reads the channel's public feed (the
-// latest 15 videos) and each new video's page.
+// Every video comes into the library on its own. Each one lands in one of three places: In the app
+// (published), Not in the app (skipped: a Short, too short, or a skipped title word; or hidden by
+// staff) or Needs a look (status 'review': its length couldn't be read, or it may be a copy of a
+// video already in the app). Staff can move any of them.
+//
+// With a playlist set (Media → Setup → "Only bring in videos from this playlist") only that
+// playlist is read. Otherwise it's the channel's uploads.
+//
+// With YOUTUBE_API_KEY (a free key from Google Cloud) the hub sees every video, with its exact
+// length and whether it's live. Without one it reads the public feed (the latest 15 videos) and
+// each new video's page.
 import { getSetting, setSetting } from './db.js';
 import { localNow } from './http.js';
 import { notify, pushGuests } from './notify.js';
@@ -21,7 +29,8 @@ export const TITLE_FORMATS = {
   title_series: 'Title | Series',
 };
 
-export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30, own_player_only: false };
+// keep_full_days belongs to Mux (dormant: the church doesn't use it), so it has no screen any more.
+export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', playlist_id: '', playlist_input: '', playlist_title: '', skip_words: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30 };
 export const mediaSettings = (db) => ({ ...DEFAULTS, ...getSetting(db, 'media', {}) });
 const status = (db) => getSetting(db, 'media_status', {});
 const setStatus = (db, changes) => setSetting(db, 'media_status', { ...status(db), ...changes });
@@ -84,9 +93,34 @@ export async function resolveChannel(input) {
   return { id, title: feed.title };
 }
 
-// The channel's public feed: its latest 15 videos.
-async function readFeed(channelId) {
-  const xml = await getText(`${SITE()}/feeds/videos.xml?channel_id=${channelId}`);
+// What someone pastes for the playlist: a link with list=… in it, or the id itself (PL…).
+export function parsePlaylistId(input) {
+  const s = String(input || '').trim();
+  const id = (/[?&]list=([\w-]+)/.exec(s) || /^([\w-]{12,})$/.exec(s) || [])[1];
+  if (!id || !/^(PL|OL|FL|UU)[\w-]{10,}$/.test(id)) throw new Error('That doesn’t look like a YouTube playlist. Open the playlist on YouTube and paste its address (it has list=PL… in it).');
+  return id;
+}
+
+// Checks a playlist can be read (public or unlisted) and finds its name: { id, title }.
+export async function resolvePlaylist(input) {
+  const id = parsePlaylistId(input);
+  try {
+    if (hasApiKey()) {
+      const r = await api('playlists', { part: 'snippet', id });
+      if (!r.items?.[0]) throw new Error('missing');
+      return { id, title: r.items[0].snippet?.title || '' };
+    }
+    return { id, title: (await readFeed({ playlist: id })).title };
+  } catch (e) {
+    if (e.status === 403 && /key|quota|API/i.test(e.message)) throw e;
+    throw new Error('YouTube couldn’t find that playlist. Check that it’s public or unlisted, not private.');
+  }
+}
+
+// The public feed (its latest 15 videos) of the channel (an id), or of a playlist ({ playlist }).
+async function readFeed(source) {
+  const channelId = typeof source === 'string' ? source : null;
+  const xml = await getText(`${SITE()}/feeds/videos.xml?${channelId ? `channel_id=${channelId}` : `playlist_id=${source.playlist}`}`);
   const tag = (s, name) => decode((new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`).exec(s) || [])[1]?.trim() || '');
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(([, e]) => ({
     video_id: tag(e, 'yt:videoId'),
@@ -140,9 +174,8 @@ async function videoDetails(ids) {
   return out;
 }
 
-// The newest uploads' ids, a page (50) at a time; deep goes back through the whole channel.
-async function uploadIds(channelId, pages) {
-  const playlistId = `UU${channelId.slice(2)}`;
+// A playlist's video ids, a page (50) at a time. The channel's uploads are the playlist UU… + its id.
+async function playlistVideoIds(playlistId, pages) {
   const ids = [];
   let pageToken = '';
   for (let n = 0; n < pages; n++) {
@@ -151,25 +184,39 @@ async function uploadIds(channelId, pages) {
     pageToken = r.nextPageToken;
     if (!pageToken) break;
   }
+  ids.more = Boolean(pageToken); // stopped at the page limit with more still to read
   return ids;
 }
 
 // Newest first, as much as we can see: [{ video_id, title, …, state, duration (may be null) }]
+// With a playlist set, only its videos (each marked in_playlist: it's where the church puts its messages).
 async function latestVideos(db, cfg, { deep = false, knownIds = new Set() } = {}) {
+  const inPlaylist = Boolean(cfg.playlist_id);
   if (hasApiKey()) {
-    const ids = await uploadIds(cfg.channel_id, deep ? 40 : 1);
+    const ids = await playlistVideoIds(inPlaylist ? cfg.playlist_id : `UU${cfg.channel_id.slice(2)}`, deep ? 40 : 1);
     const want = ids.filter((id) => !knownIds.has(id));
-    return videoDetails(want);
+    return (await videoDetails(want)).map((v) => ({ ...v, in_playlist: inPlaylist }));
   }
-  const feed = await readFeed(cfg.channel_id);
+  const feed = await readFeed(inPlaylist ? { playlist: cfg.playlist_id } : cfg.channel_id);
   const out = [];
   for (const e of feed.entries.filter((x) => !knownIds.has(x.video_id))) {
-    if (e.short) { out.push({ ...e, duration: null, state: 'none', was_live: false, started: null }); continue; }
+    if (e.short) { out.push({ ...e, duration: null, state: 'none', was_live: false, started: null, in_playlist: inPlaylist }); continue; }
     let page = { duration: null, state: 'none', was_live: false, started: null, unread: true };
-    try { page = await readWatchPage(e.video_id); } catch { /* the page couldn't be read: decide from the schedule */ }
-    out.push({ ...e, ...page });
+    try { page = await readWatchPage(e.video_id); } catch { /* the page couldn't be read: it goes to Needs a look */ }
+    out.push({ ...e, ...page, in_playlist: inPlaylist });
   }
   return out;
+}
+
+// Every video in the messages playlist: { ids: Set, complete }. Through the Data API that is the
+// whole playlist; the public feed shows only 15, so a full feed may be missing some (complete: false).
+export async function playlistMembers(cfg) {
+  if (hasApiKey()) {
+    const ids = await playlistVideoIds(cfg.playlist_id, 40);
+    return { ids: new Set(ids), complete: !ids.more };
+  }
+  const { entries } = await readFeed({ playlist: cfg.playlist_id });
+  return { ids: new Set(entries.map((e) => e.video_id)), complete: entries.length < 15 };
 }
 
 // One video by its address, for "Add a video".
@@ -191,15 +238,17 @@ export async function fetchVideo(urlOrId) {
 const GENERIC = /^(the )?(message|sermon|preaching|the word|word|teaching|preacher)$/i;
 const person = (r) => (r?.first_name ? `${r.nickname || r.first_name} ${r.last_name}`.trim() : '');
 
-// The service a video was streamed from: the same day, the nearest start time.
-export function matchService(db, whenUtc) {
+// The service a video was streamed from. It needs a service on the video's day, and then either a
+// start time within 4 hours of it (a stream starts a little before the service, an upload comes
+// later the same day) or the video being in the church's messages playlist. Anything less certain
+// is left blank rather than guessed: a wrong speaker is worse than none.
+export function matchService(db, whenUtc, { inPlaylist = false } = {}) {
   const local = localNow(churchTz(db), new Date(whenUtc));
   const mins = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const rows = db.prepare('SELECT id, campus_id, title, series, starts_at FROM services WHERE substr(starts_at, 1, 10) = ?').all(local.date);
   if (!rows.length) return { day: local.date, service: null };
-  // A stream usually starts a little before the service; an upload later the same day.
   const best = rows.map((s) => ({ s, gap: Math.abs(mins(s.starts_at.slice(11, 16)) - mins(local.time)) })).sort((a, b) => a.gap - b.gap)[0];
-  return { day: local.date, service: best.gap <= 4 * 60 || rows.length === 1 ? best.s : null };
+  return { day: local.date, service: best.gap <= 4 * 60 || inPlaylist ? best.s : null };
 }
 
 // What the service's order of service says: the message's title and who preached.
@@ -220,6 +269,14 @@ export function fromService(db, serviceId) {
   };
 }
 
+// A series name as the library already spells it ("unshakable" → "Unshakable"), so a stray
+// capital never makes a second series.
+export function sameSeries(db, name) {
+  const s = String(name || '').trim();
+  if (!s) return '';
+  return db.prepare("SELECT series FROM media WHERE series != '' AND lower(series) = lower(?) GROUP BY series ORDER BY COUNT(*) DESC, series LIMIT 1").get(s)?.series || s;
+}
+
 // "Series | Title" style YouTube titles, split as the church set in Media → Setup.
 export function splitTitle(title, format) {
   const parts = String(title || '').split(/\s+[|]\s+/).map((x) => x.trim()).filter(Boolean);
@@ -234,7 +291,7 @@ export function splitTitle(title, format) {
 // A new video's row: the schedule fills in what it can, then the YouTube title.
 function describe(db, cfg, v) {
   const when = v.started || v.published || new Date().toISOString();
-  const { day, service } = matchService(db, when);
+  const { day, service } = matchService(db, when, { inPlaylist: Boolean(v.in_playlist) });
   const svc = service ? fromService(db, service.id) : null;
   const parsed = splitTitle(v.title, cfg.title_format);
   return {
@@ -249,18 +306,31 @@ function describe(db, cfg, v) {
     service_id: svc?.service_id ?? null,
     campus_id: svc?.campus_id ?? null,
     speaker: svc?.speaker || parsed.speaker || '',
-    series: svc?.series || parsed.series || '',
+    series: sameSeries(db, svc?.series || parsed.series || ''),
     was_live: v.was_live ? 1 : 0,
   };
 }
 
-// Is it a full service? Shorts and short clips stay out (in Skipped, where they can be published).
-function skipReason(cfg, v, row) {
-  if (v.short) return 'A YouTube Short';
-  if (v.duration != null) return v.duration < cfg.min_minutes * 60 ? `Under ${cfg.min_minutes} minutes` : '';
-  // Its length couldn't be read (YouTube doesn't always show it to servers): keep it, since
-  // most of a church's channel is services. Hide any that aren't; a YouTube API key avoids this.
-  return '';
+// The words in "Skip videos whose title contains…": comma list, any case.
+export const skipWords = (cfg) => String(cfg.skip_words || '').split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
+
+// Where a new video goes: { status: 'published' | 'skipped' | 'review', skip: why }.
+// Shorts, clips under the minimum and titles with a skip word stay out of the app (Not in the app,
+// where staff can add one); a length that couldn't be read, or a likely copy of a video already in
+// the app, waits in Needs a look. Nothing is published on a guess.
+function placement(db, cfg, v, row) {
+  if (v.short) return { status: 'skipped', skip: 'A YouTube Short' };
+  const title = String(v.title || '').toLowerCase();
+  const word = skipWords(cfg).find((w) => title.includes(w));
+  if (word) return { status: 'skipped', skip: `Title has “${word}”` };
+  if (v.duration == null) return { status: 'review', skip: 'Couldn’t check its length' };
+  // With a messages playlist, the playlist is the choice: edited messages are often short, so the
+  // length rule only applies when the whole channel is read.
+  if (!cfg.playlist_id && v.duration < cfg.min_minutes * 60) return { status: 'skipped', skip: `Under ${cfg.min_minutes} minutes` };
+  // Same day, nearly the same length as one already in the app: probably the same service twice.
+  const twin = db.prepare("SELECT 1 FROM media WHERE status = 'published' AND day = ? AND duration IS NOT NULL AND abs(duration - ?) <= 180 LIMIT 1").get(row.day, v.duration);
+  if (twin) return { status: 'review', skip: 'Possible duplicate' };
+  return { status: 'published', skip: '' };
 }
 
 export function insertMedia(db, row, { status = 'published', skip = '' } = {}) {
@@ -323,7 +393,7 @@ export function syncMedia(db, opts = {}) {
 async function doSync(db, { deep = false } = {}) {
   const cfg = mediaSettings(db);
   // Streaming through Mux: recordings come from there, and YouTube only for older videos.
-  if (!cfg.channel_id || (muxStreaming(db) && !deep)) return { added: 0, skipped: 0 };
+  if (!cfg.channel_id || (muxStreaming(db) && !deep)) return { added: 0, skipped: 0, review: 0 };
   const first = !db.prepare('SELECT 1 FROM media LIMIT 1').get();
   const knownIds = new Set(db.prepare('SELECT video_id FROM media').all().map((r) => r.video_id));
   let videos;
@@ -335,6 +405,7 @@ async function doSync(db, { deep = false } = {}) {
   }
   let added = 0;
   let skipped = 0;
+  let review = 0;
   const fresh = [];
   const live = videos.find((v) => v.state === 'live');
   const liveId = liveNow(db)?.video_id;
@@ -342,11 +413,29 @@ async function doSync(db, { deep = false } = {}) {
   // the stream on now is over).
   for (const v of videos.filter((x) => x.state === 'none' && !(x.unread && x.video_id === liveId)).reverse()) {
     const row = describe(db, cfg, v);
-    const why = skipReason(cfg, v, row);
-    const id = insertMedia(db, row, why ? { status: 'skipped', skip: why } : {});
+    const place = placement(db, cfg, v, row);
+    const id = insertMedia(db, row, place);
     if (!id) continue;
-    if (why) skipped++;
+    if (place.status === 'skipped') skipped++;
+    else if (place.status === 'review') review++;
     else { added++; fresh.push({ id, ...row }); }
+  }
+  // Videos that came in before their length could be read (no API key then): read it now, and
+  // take any that are too short out of the app. Only rows still missing a length are touched.
+  if (hasApiKey()) {
+    const unknown = db.prepare("SELECT id, video_id, status FROM media WHERE source = 'youtube' AND duration IS NULL AND status IN ('published', 'review') AND edited_at IS NULL LIMIT 200").all();
+    if (unknown.length) {
+      const known = new Map((await videoDetails(unknown.map((r) => r.video_id))).filter((v) => v.duration != null && v.state === 'none').map((v) => [v.video_id, v.duration]));
+      for (const r of unknown) {
+        const secs = known.get(r.video_id);
+        if (secs == null) continue;
+        // (A video staff chose by hand is left as they set it.)
+        const tooShort = !cfg.playlist_id && secs < cfg.min_minutes * 60;
+        const next = tooShort ? 'skipped' : r.status === 'review' ? 'published' : r.status;
+        db.prepare('UPDATE media SET duration = ?, status = ?, skip_reason = ? WHERE id = ?').run(secs, next, tooShort ? `Under ${cfg.min_minutes} minutes` : '', r.id);
+        if (tooShort) skipped++;
+      }
+    }
   }
   // Live now: set it. It's only over when the live check says so, or when that video itself now
   // reads as finished.
@@ -359,7 +448,7 @@ async function doSync(db, { deep = false } = {}) {
     const m = recent.at(-1);
     announce(db, { title: `New message: ${m.title}`, body: [m.speaker, m.series].filter(Boolean).join(' · ') || 'Watch it in the app.', app_url: `/app/#/watch/${m.id}`, tag: `media-${m.id}` });
   }
-  return { added, skipped };
+  return { added, skipped, review };
 }
 
 // Every few minutes around service times (from 30 minutes before to 2 hours after a service
@@ -396,4 +485,7 @@ export async function checkLive(db) {
   return live;
 }
 
-export const mediaStatus = (db) => ({ ...status(db), live: liveNow(db), api_key: hasApiKey(), mux: muxStreaming(db) });
+// What the staff screens see. (Mux is dormant: the church streams on YouTube, so it isn't shown.)
+export const mediaStatus = (db) => ({ ...status(db), live: liveNow(db), api_key: hasApiKey() });
+// How many videos are waiting in Needs a look, for the menu badge.
+export const reviewCount = (db) => db.prepare("SELECT COUNT(*) n FROM media WHERE status = 'review'").get().n;
