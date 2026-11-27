@@ -102,7 +102,7 @@ Not part of this migration (Stage 3).
 |---|---|---|---|
 | Media library from YouTube: hourly sync, filled in from the order of service, own titles/trims/tags | Needs outside setup (YouTube key) | `media.js`, `routes/media.js` | `pages/media.js`, `media-item.js` |
 | Watch tab: latest, series, search, filters, video pages; live detection and "We're live" | Needs outside setup (YouTube or Mux) | | `member/watch.js`, `js/video.js` |
-| Mux streaming: permanent stream key, live in our own player, recordings, real trims | Needs outside setup (paid Mux account) The developer setup steps are folded under “Setup steps for whoever manages hosting”; Media opens on Library once a channel or Mux is connected. | `mux.js` | Media → Setup |
+| Mux streaming: permanent stream key, live in our own player, recordings, real trims | Needs outside setup (paid Mux account) The developer setup steps are folded under “Setup steps for whoever manages hosting”; Media opens on Library once a channel or Mux is connected. Until Mux is set up, its card moves to a collapsed line at the bottom of Setup, and the Upload videos buttons and the item page’s own-player card are hidden. | `mux.js` | Media → Setup |
 | Upload past services to Mux (single and bulk) | Needs outside setup (Mux) | `mux.js` | `js/mux-upload.js` |
 | Podcast feed from Mux audio | Needs outside setup (Mux) | `podcast.js` | Media → Podcast |
 
