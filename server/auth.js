@@ -269,6 +269,10 @@ export function checkPassword(pw, stored) {
   return crypto.timingSafeEqual(want, got);
 }
 
+// Checked against when an email has no account or no password, so the answer takes as long as a
+// real check and timing can't show which emails have accounts. Made once at start-up.
+const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
+
 const codeHash = (email, code) => crypto.createHash('sha256').update(`${email.toLowerCase()}:${code}`).digest('hex');
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
 
@@ -437,7 +441,9 @@ export function authRoutes(app, db) {
       return res.status(429).json({ error: 'Too many tries. Wait a few minutes, or use “Email me a code”.' });
     }
     const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
-    if (!user?.password_hash || !checkPassword(req.body?.password || '', user.password_hash)) return mismatch();
+    // Always one scrypt check, whether or not there is an account or a password.
+    const matches = checkPassword(req.body?.password || '', user?.password_hash || DUMMY_HASH);
+    if (!user?.password_hash || !matches) return mismatch();
     startSession(db, req, res, user.id);
     res.json({ ok: true });
   });
@@ -493,13 +499,25 @@ export function authRoutes(app, db) {
   app.post('/auth/code/verify', (req, res) => {
     const b = req.body || {};
     const email = String(b.email || '').trim().toLowerCase();
+    // Wrong guesses are refused the same way whether or not this email was sent a code, so the
+    // answers can't show who is in People. The address first, then the email (no new keys when refused).
+    const tooMany = () => res.status(429).json({ error: 'Too many tries. Wait a few minutes, then try again or send a new code.' });
+    if (!ipAllowed(limits, 'verifyip', req.ip, 60, 15 * 60e3, { wide: 8 })) return tooMany();
+    const dayKey = `verifyday:${email.slice(0, 200)}`;
+    if (!emailLimits.allowed(dayKey, 20, 24 * 60 * 60e3)) return tooMany();
     const row = db.prepare("SELECT * FROM login_codes WHERE email = ? AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(email);
-    if (!row || row.attempts >= 5) return res.status(400).json({ error: 'That code has expired. Send a new one.' });
+    const live = row && row.attempts < 5;
     const given = String(b.code || '').replace(/\D/g, '');
-    const ok = given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
+    const ok = live && given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
     if (!ok) {
-      db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
-      return res.status(400).json({ error: row.attempts >= 4 ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right. Check the email and try again.' });
+      if (live) db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+      emailLimits.record(dayKey, 20, 24 * 60 * 60e3);
+      // Counted per email whether or not a code row exists: the 5th wrong try says "too many",
+      // later ones the usual wording.
+      const k = `verify:${email.slice(0, 200)}`;
+      const counted = emailLimits.hit(k, 5, 15 * 60e3);
+      const fifth = counted && !emailLimits.allowed(k, 5, 15 * 60e3);
+      return res.status(400).json({ error: fifth ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right, or it has expired. Check the email or send a new one.' });
     }
     const user = userForEmail(db, email, { first_name: b.first_name, last_name: b.last_name });
     if (user?.needsName) return res.status(400).json({ need_name: true, error: 'Welcome! Tell us your name to create your account.' });

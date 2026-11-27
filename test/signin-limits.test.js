@@ -1,11 +1,12 @@
 // Sign-in and public-route rate limits: flooding, code emails, /48 factors. Uses its own small
 // apps (fresh limiters each time) and X-Forwarded-For (trusted from loopback in tests) for addresses.
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import express from 'express';
 import { openDb, setSetting } from '../server/db.js';
-import { authRoutes } from '../server/auth.js';
+import { authRoutes, hashPassword } from '../server/auth.js';
 import { createApp, trustProxy } from '../server/index.js';
 import { outbox } from '../server/mail.js';
 import { productionChecks } from '../server/routes/checks.js';
@@ -327,4 +328,93 @@ test('code emails: every valid request takes a slot from the cap, so filling it 
       assert.equal(outbox.at(-1).to, 'member2@example.com', 'members are never held back');
     } finally { console.warn = origWarn; t.close(); }
   }
+});
+
+// ---- sign-in leaks: same answers for wrong codes, one scrypt per password try, overall code limits
+
+const T0 = Date.parse('2027-03-01T12:00:00Z'); // a fixed clock: nothing here depends on today's date
+const WRONG = 'That code isn’t right, or it has expired. Check the email or send a new one.';
+
+test('wrong codes: an email outside the policy and one with a code get the same answers, tries 1 to 6', async () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 });
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'directory');
+  db.prepare("INSERT INTO people (first_name, last_name, email) VALUES ('Pat', 'Member', 'pat@example.com')").run();
+  const t = await authApp(db);
+  try {
+    await t.post('/auth/code', { email: 'pat@example.com' });
+    await t.post('/auth/code', { email: 'outsider@example.com' });
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM login_codes WHERE email = 'pat@example.com'").get().n, 1, 'Pat got a code');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM login_codes WHERE email = 'outsider@example.com'").get().n, 0, 'the outsider did not');
+    const real = outbox.filter((m) => m.to === 'pat@example.com').at(-1).subject.slice(0, 6);
+    const wrong = real === '111111' ? '222222' : '111111';
+    for (let i = 1; i <= 6; i++) {
+      const a = await t.post('/auth/code/verify', { email: 'pat@example.com', code: wrong });
+      const b = await t.post('/auth/code/verify', { email: 'outsider@example.com', code: wrong });
+      assert.deepEqual([a.status, a.data], [b.status, b.data], `try ${i}`);
+      assert.equal(a.status, 400);
+      assert.equal(a.data.error, i === 5 ? 'Too many wrong codes. Send a new one.' : WRONG, `try ${i} wording`);
+    }
+    // A malformed email and an empty body get the same wording too.
+    const m = await t.post('/auth/code/verify', { email: 'nope', code: wrong });
+    assert.deepEqual([m.status, m.data.error], [400, WRONG]);
+    // After five wrong tries even the real code is refused until a new one is sent.
+    assert.equal((await t.post('/auth/code/verify', { email: 'pat@example.com', code: real })).data.error, WRONG);
+  } finally { t.close(); mock.timers.reset(); }
+});
+
+test('wrong codes: 60 tries per 15 minutes per address, then 429; another address and a later window are fine', async () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 });
+  const t = await authApp();
+  try {
+    for (let i = 0; i < 60; i++) assert.equal((await t.post('/auth/code/verify', { email: `e${i}@example.com`, code: '000000' }, '198.51.100.20')).status, 400);
+    const keys = t.limiters.emailLimits.size;
+    assert.equal((await t.post('/auth/code/verify', { email: 'late@example.com', code: '000000' }, '198.51.100.20')).status, 429);
+    assert.equal(t.limiters.emailLimits.size, keys, 'a refused client creates no email keys');
+    assert.equal((await t.post('/auth/code/verify', { email: 'late@example.com', code: '000000' }, '198.51.100.21')).status, 400);
+    mock.timers.setTime(T0 + 16 * 60e3);
+    assert.equal((await t.post('/auth/code/verify', { email: 'late@example.com', code: '000000' }, '198.51.100.20')).status, 400);
+  } finally { t.close(); mock.timers.reset(); }
+});
+
+test('wrong codes: 20 per email per day, then 429 for any email alike; the next day starts fresh', async () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 });
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'directory');
+  db.prepare("INSERT INTO people (first_name, last_name, email) VALUES ('Pat', 'Member', 'pat@example.com')").run();
+  const t = await authApp(db);
+  try {
+    await t.post('/auth/code', { email: 'pat@example.com' });
+    for (let i = 0; i < 20; i++) {
+      mock.timers.setTime(T0 + i * 16 * 60e3); // each try in its own 15-minute window, so only the daily cap can stop it
+      for (const e of ['pat@example.com', 'outsider@example.com']) assert.equal((await t.post('/auth/code/verify', { email: e, code: '000000' }, `198.51.100.${30 + (i % 50)}`)).status, 400, `${e} try ${i + 1}`);
+    }
+    mock.timers.setTime(T0 + 20 * 16 * 60e3); // under 24 hours after the first try
+    for (const e of ['pat@example.com', 'outsider@example.com']) {
+      const r = await t.post('/auth/code/verify', { email: e, code: '000000' });
+      assert.equal(r.status, 429, e);
+    }
+    mock.timers.setTime(T0 + 25 * 3600e3);
+    assert.equal((await t.post('/auth/code/verify', { email: 'outsider@example.com', code: '000000' })).status, 400);
+  } finally { t.close(); mock.timers.reset(); }
+});
+
+test('password sign-in runs scrypt exactly once: unknown email, no password, wrong password', async () => {
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO users (email, role) VALUES ('nopass@example.com', 'volunteer')").run();
+  db.prepare('INSERT INTO users (email, role, password_hash) VALUES (?, ?, ?)').run('haspass@example.com', 'volunteer', hashPassword('right password 1'));
+  const t = await authApp(db);
+  try {
+    const spy = mock.method(crypto, 'scryptSync');
+    for (const [email, password] of [['nobody@example.com', 'x'], ['nopass@example.com', 'x'], ['haspass@example.com', 'wrong password']]) {
+      spy.mock.resetCalls();
+      const r = await t.post('/auth/password', { email, password });
+      assert.equal(r.status, 401, email);
+      assert.match(r.data.error, /don’t match/);
+      assert.equal(spy.mock.callCount(), 1, `${email}: scrypt ran once`);
+    }
+    spy.mock.resetCalls();
+    assert.equal((await t.post('/auth/password', { email: 'haspass@example.com', password: 'right password 1' })).status, 200);
+    assert.equal(spy.mock.callCount(), 1);
+  } finally { mock.restoreAll(); t.close(); }
 });
