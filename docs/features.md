@@ -91,7 +91,7 @@ even admins.
 
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Online giving (card, ACH, wallets, cover fee, recurring, guests), funds | Needs outside setup (Stripe); never tested with live payments | `routes/giving.js`, `stripe.js` | `js/give.js`, `give.html` |
+| Online giving (card, ACH, wallets, cover fee, recurring, guests), funds | Live (Stripe live keys); one real card gift and its refund tested by the owner on 26 Nov 2026. ACH, wallets, recurring and guest gifts not yet tried live | `routes/giving.js`, `stripe.js` | `js/give.js`, `give.html` |
 | My giving, statements; cash/check batches; year-end statements; finance dashboard and weekly view | Needs outside setup (Stripe for online gifts; Finance flag) | `routes/finance.js` | `pages/giving.js` |
 
 ## Media (SS)
