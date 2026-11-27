@@ -1117,6 +1117,57 @@ const MIGRATIONS = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 45: holds and who collected (child-safety V1, PR 6). checkin_holds is a staff-placed "Hold: see coordinator" on
+  // a child: while one is active, no iPad or hub screen checks the child out (a release of a held child is done by
+  // staff in the Hub). It is a history, one row per hold: placing, changing the private note and lifting are
+  // all kept, nothing is deleted, and a lifted hold stays lifted (triggers). It holds plain ids with name
+  // snapshots and no foreign keys to people or users, like checkin_events, so it outlives them. The note is
+  // private to staff in the Hub: it never goes to an iPad, the record, the audit log or a notification.
+  // checkins gains who collected the child (a name, how they are connected, whether they were a household adult,
+  // a listed pickup person or someone else, and the kind of ID shown, never its number) and whether the child
+  // was released over a hold. Once a child is checked out those fields can't be changed.
+  `
+  CREATE TABLE checkin_holds (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER NOT NULL,                    -- plain id: the hold outlives the person record
+    person_name TEXT NOT NULL DEFAULT '',          -- name when the hold was placed
+    campus_id INTEGER NOT NULL REFERENCES campuses(id),   -- the campus it was placed at (who may manage it); it blocks release at every campus
+    note TEXT NOT NULL DEFAULT '',                 -- private, Hub only; at most a pointer to the confidential list
+    placed_at TEXT NOT NULL,                       -- ISO UTC, set in JS
+    placed_by INTEGER,
+    placed_by_name TEXT NOT NULL DEFAULT '',
+    changed_at TEXT,
+    changed_by INTEGER,
+    changed_by_name TEXT NOT NULL DEFAULT '',
+    lifted_at TEXT,                                -- NULL while the hold is on
+    lifted_by INTEGER,
+    lifted_by_name TEXT NOT NULL DEFAULT '',
+    lift_reason TEXT NOT NULL DEFAULT ''
+  );
+  CREATE UNIQUE INDEX checkin_holds_active ON checkin_holds (person_id) WHERE lifted_at IS NULL;
+  CREATE INDEX checkin_holds_campus ON checkin_holds (campus_id, lifted_at);
+  CREATE INDEX checkin_holds_person ON checkin_holds (person_id, id);
+  CREATE TRIGGER checkin_holds_no_delete BEFORE DELETE ON checkin_holds
+    BEGIN SELECT RAISE(ABORT, 'Holds are kept for the record, so they can’t be deleted. Lift the hold instead.'); END;
+  CREATE TRIGGER checkin_holds_keep_origin BEFORE UPDATE OF person_id, person_name, campus_id, placed_at, placed_by, placed_by_name ON checkin_holds
+    BEGIN SELECT RAISE(ABORT, 'Who a hold is for, where and when it was placed can’t be changed.'); END;
+  CREATE TRIGGER checkin_holds_lift_is_final BEFORE UPDATE ON checkin_holds
+    WHEN OLD.lifted_at IS NOT NULL
+    BEGIN SELECT RAISE(ABORT, 'A lifted hold stays lifted. Place a new hold instead.'); END;
+  CREATE TRIGGER people_keep_hold_history BEFORE DELETE ON people
+    WHEN EXISTS (SELECT 1 FROM checkin_holds WHERE person_id = OLD.id)
+    BEGIN SELECT RAISE(ABORT, 'This person has a check-in hold on record, so they’re kept in the record. Archive them instead.'); END;
+
+  ALTER TABLE checkins ADD COLUMN checked_out_to_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE checkins ADD COLUMN checked_out_to_relationship TEXT NOT NULL DEFAULT '';
+  ALTER TABLE checkins ADD COLUMN checked_out_to_kind TEXT NOT NULL DEFAULT '';   -- household_adult | pickup_contact | other | unverified | '' (not recorded)
+  ALTER TABLE checkins ADD COLUMN checked_out_id_type TEXT NOT NULL DEFAULT '';
+  ALTER TABLE checkins ADD COLUMN checked_out_held INTEGER NOT NULL DEFAULT 0;    -- 1 = released while a hold was on
+  CREATE TRIGGER checkins_collector_is_final BEFORE UPDATE OF checked_out_to_name, checked_out_to_relationship, checked_out_to_kind, checked_out_id_type, checked_out_held ON checkins
+    WHEN OLD.checked_out_at IS NOT NULL AND (NEW.checked_out_to_name IS NOT OLD.checked_out_to_name OR NEW.checked_out_to_relationship IS NOT OLD.checked_out_to_relationship
+      OR NEW.checked_out_to_kind IS NOT OLD.checked_out_to_kind OR NEW.checked_out_id_type IS NOT OLD.checked_out_id_type OR NEW.checked_out_held IS NOT OLD.checked_out_held)
+    BEGIN SELECT RAISE(ABORT, 'Who collected a child is part of the record and can’t be changed.'); END;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

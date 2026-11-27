@@ -55,6 +55,12 @@ export const MSG = {
   person: 'This person has check-in or serving records, so they’re kept in the record. Archive them instead.',
   restatus: 'This person already served at that service, so their answer can’t be changed. It’s kept in the record.',
   retime: 'This service has already happened and has records, so it can’t be moved to a later time. It’s kept in the record.',
+  // Migration 45: check-in holds and who collected a child.
+  holdDelete: 'Holds are kept for the record, so they can’t be deleted. Lift the hold instead.',
+  holdOrigin: 'Who a hold is for, where and when it was placed can’t be changed.',
+  holdFinal: 'A lifted hold stays lifted. Place a new hold instead.',
+  personHold: 'This person has a check-in hold on record, so they’re kept in the record. Archive them instead.',
+  collector: 'Who collected a child is part of the record and can’t be changed.',
 };
 export const isHistoryError = (err) => err?.code === 'ERR_SQLITE_ERROR' && Object.values(MSG).includes(err.message);
 
