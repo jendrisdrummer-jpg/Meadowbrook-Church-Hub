@@ -38,7 +38,7 @@ export async function backups(panel) {
       <p class="muted small" style="margin:8px 0 0">Uploaded files are in the folder’s <b>Uploaded files</b>, one locked file each, unlocked the same way.</p></div>
   </div>
   <div class="card" style="margin-top:14px"><h2>Copies</h2>
-    ${d.backups.length ? html`<table class="list"><thead><tr><th>When</th><th>Size</th><th>Where</th><th>Status</th><th></th></tr></thead><tbody>
+    ${d.backups.length ? html`<table class="list"><thead><tr><th scope="col">When</th><th scope="col">Size</th><th scope="col">Where</th><th scope="col">Status</th><th scope="col"></th></tr></thead><tbody>
       ${d.backups.map((b) => html`<tr class="${b.status === 'failed' ? 'muted' : ''}"><td class="nowrap">${when(b.created_at)}${b.reason === 'manual' ? html` <span class="pill">By hand</span>` : ''}</td>
         <td class="small">${b.size ? size(b.size) : '—'}${b.files ? html`<div class="muted">+${b.files} files</div>` : ''}</td>
         <td class="small">${[b.in_drive ? 'Google Drive' : '', b.local ? 'This server' : ''].filter(Boolean).join(' · ') || html`<span class="muted">Cleaned up</span>`}</td>

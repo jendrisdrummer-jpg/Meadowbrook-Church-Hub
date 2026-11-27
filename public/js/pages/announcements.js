@@ -34,10 +34,10 @@ export default async function announcements(el) {
         <label class="field">Title<input type="text" name="title" maxlength="80" value="${draft.title}" placeholder="Service moved to 11am" required><span class="muted small count" data-count="title">${draft.title.length}/80</span></label>
         <label class="field">Message<textarea name="body" maxlength="400" rows="3" placeholder="Because of the weather, we’ll meet at 11 this Sunday. See you there!">${draft.body}</textarea><span class="muted small count" data-count="body">${draft.body.length}/400</span></label>
         <div class="field"><span>When someone taps it, open</span>
-          <select name="link_kind">${options([{ value: '', label: 'Their notifications in the app' }, { value: 'tab', label: 'A tab in the app' }, ...(events.length ? [{ value: 'event', label: 'An event' }] : []), { value: 'url', label: 'A website' }], linkKind)}</select>
-          ${linkKind === 'tab' ? html`<select name="link_tab">${options(tabs.map((t) => ({ value: `#/${t.id}`, label: t.label })), draft.link)}</select>` : ''}
-          ${linkKind === 'event' ? html`<select name="link_event">${options(events.map((e) => ({ value: `#/events/${e.id}`, label: `${e.title} · ${fmtDate(e.starts_at.slice(0, 10), { month: 'short', day: 'numeric' })}` })), draft.link)}</select>` : ''}
-          ${linkKind === 'url' ? html`<input type="url" name="link_url" value="${draft.link}" placeholder="https://…">` : ''}</div>
+          <select name="link_kind" aria-label="When someone taps it, open">${options([{ value: '', label: 'Their notifications in the app' }, { value: 'tab', label: 'A tab in the app' }, ...(events.length ? [{ value: 'event', label: 'An event' }] : []), { value: 'url', label: 'A website' }], linkKind)}</select>
+          ${linkKind === 'tab' ? html`<select name="link_tab" aria-label="Which tab">${options(tabs.map((t) => ({ value: `#/${t.id}`, label: t.label })), draft.link)}</select>` : ''}
+          ${linkKind === 'event' ? html`<select name="link_event" aria-label="Which event">${options(events.map((e) => ({ value: `#/events/${e.id}`, label: `${e.title} · ${fmtDate(e.starts_at.slice(0, 10), { month: 'short', day: 'numeric' })}` })), draft.link)}</select>` : ''}
+          ${linkKind === 'url' ? html`<input type="url" name="link_url" aria-label="Website address" value="${draft.link}" placeholder="https://…">` : ''}</div>
         <div class="field"><span>Send to</span><div class="seg ann-aud">${AUDIENCES.map(([k, label]) => html`<button type="button" class="${draft.type === k ? 'on' : ''}" data-aud="${k}">${label}</button>`)}</div>
           ${draft.type === 'campus' ? html`<div class="row ann-picks">${visibleCampuses().map((c) => html`<label class="check"><input type="checkbox" data-pick="${c.id}" ${draft.ids.includes(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>` : ''}
           ${draft.type === 'team' ? html`<div class="row ann-picks">${teams.map((t) => html`<label class="check"><input type="checkbox" data-pick="${t.id}" ${draft.ids.includes(t.id) ? 'checked' : ''}> ${t.name}</label>`)}</div>` : ''}
@@ -45,7 +45,7 @@ export default async function announcements(el) {
           <p class="muted small" style="margin:6px 0 0" data-reach>…</p></div>
         <div class="field"><span>When</span><div class="row" style="gap:16px"><label class="check"><input type="radio" name="when" value="now" ${draft.later ? '' : 'checked'}> Now</label>
           <label class="check"><input type="radio" name="when" value="later" ${draft.later ? 'checked' : ''}> Later</label>
-          ${draft.later ? html`<input type="datetime-local" name="send_at" value="${draft.send_at}" style="width:auto">` : ''}</div></div>
+          ${draft.later ? html`<input type="datetime-local" name="send_at" aria-label="Send on" value="${draft.send_at}" style="width:auto">` : ''}</div></div>
         <div class="row end"><button class="btn primary" data-send>${icon('send')} ${draft.later ? 'Schedule' : 'Send now'}</button></div>
       </form>
       <div class="stack" style="gap:14px">
@@ -57,7 +57,7 @@ export default async function announcements(el) {
         <div class="card"><h2>Reaching more people</h2><p class="small" style="margin:0">Anyone can turn on announcements from the app’s <b>More</b> tab, even without an account. On iPhones, the app has to be added to the home screen first.</p></div>
       </div></div>
     <div class="card" style="margin-top:14px"><h2>Sent and scheduled</h2>
-      ${list.length ? html`<table class="list"><thead><tr><th>Announcement</th><th>To</th><th>When</th><th>Reached</th><th></th></tr></thead><tbody>
+      ${list.length ? html`<table class="list"><thead><tr><th scope="col">Announcement</th><th scope="col">To</th><th scope="col">When</th><th scope="col">Reached</th><th scope="col"></th></tr></thead><tbody>
         ${list.map((a) => html`<tr class="${a.status === 'canceled' ? 'muted' : ''}"><td><b>${a.title}</b>${a.body ? html`<div class="muted small ann-body">${a.body}</div>` : ''}</td>
           <td class="small">${a.audience_label}</td><td class="nowrap small">${whenLabel(a.sent_at || a.send_at)}<br>${STATUS[a.status]}</td>
           <td class="small">${a.status === 'sent' ? html`${a.people} ${a.people === 1 ? 'person' : 'people'}<br><span class="muted">${a.devices} ${a.devices === 1 ? 'phone' : 'phones'}</span>` : html`<span class="muted">—</span>`}</td>

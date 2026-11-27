@@ -45,7 +45,7 @@ export default async function team(el, id, opts = {}) {
         <input type="search" placeholder="Add someone to ${t.name}: type a name" data-member-q autocomplete="off" aria-label="Add someone to the team">
         <div class="suggest hidden" data-member-list></div></div>` : ''}
       ${roster.length ? html`<div class="table-wrap roster-wrap"><table class="roster">
-        <thead><tr><th>Person</th>${t.positions.map((p) => html`<th>${p.name}</th>`)}${staff ? html`<th>Leader</th>` : ''}${manage ? html`<th></th>` : ''}</tr></thead>
+        <thead><tr><th scope="col">Person</th>${t.positions.map((p) => html`<th scope="col">${p.name}</th>`)}${staff ? html`<th scope="col">Leader</th>` : ''}${manage ? html`<th scope="col"></th>` : ''}</tr></thead>
         <tbody>${roster.map((m) => html`<tr data-person="${m.person_id}" class="${m.person_id === opts.added ? 'just-added' : ''}">
           <td><a class="person-cell" href="#/people/${m.person_id}" style="color:inherit">${avatar(m)}<span><b>${displayName(m)}</b>${m.is_leader ? html` <span class="pill info">Leader</span>` : ''}
             ${m.has_account ? html` <span class="pill good" title="They can sign in to the hub and the app">Has account</span>` : html` <span class="pill" title="They haven’t got a sign-in yet, so they can’t use the app">No account</span>`}

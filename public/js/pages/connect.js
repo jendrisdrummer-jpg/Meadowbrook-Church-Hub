@@ -6,8 +6,8 @@ export default async function connect(el) {
   let status = 'open';
   // Connect cards, or people who created their own account in the app.
   let tab = hashQuery().get('tab') === 'signups' ? 'signups' : 'cards';
-  setTitle('Connect cards', html`<div class="seg" role="tablist"><button data-tab="cards" class="${tab === 'cards' ? 'on' : ''}">Connect cards</button><button data-tab="signups" class="${tab === 'signups' ? 'on' : ''}">App sign-ups</button></div>
-    <div class="seg" role="tablist"><button data-status="open" class="on">To follow up</button><button data-status="done">Done</button></div>`);
+  setTitle('Connect cards', html`<div class="seg"><button data-tab="cards" class="${tab === 'cards' ? 'on' : ''}">Connect cards</button><button data-tab="signups" class="${tab === 'signups' ? 'on' : ''}">App sign-ups</button></div>
+    <div class="seg"><button data-status="open" class="on">To follow up</button><button data-status="done">Done</button></div>`);
   const top = document.querySelector('[data-actions]');
   top.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => {
     status = b.dataset.status;
