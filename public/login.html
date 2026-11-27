@@ -121,12 +121,14 @@
       document.documentElement.style.setProperty('--accent', opts.brandColor);
       try { localStorage.setItem('mb.accent', opts.brandColor); } catch {}
     }
-    $('#google').classList.toggle('hidden', !opts.google);
+    // Google refuses sign-in inside an app's embedded web view, so the phone app shell (Capacitor) uses email only.
+    const google = opts.google && !window.Capacitor?.isNativePlatform?.();
+    $('#google').classList.toggle('hidden', !google);
     $('#password').classList.toggle('hidden', !opts.email);
-    $('#or').classList.toggle('hidden', !(opts.google && opts.email));
+    $('#or').classList.toggle('hidden', !(google && opts.email));
     $('#create-link').classList.toggle('hidden', !opts.signups);
     $('#dev').classList.toggle('hidden', !opts.dev);
-    $('#none').classList.toggle('hidden', opts.google || opts.email || opts.dev);
+    $('#none').classList.toggle('hidden', google || opts.email || opts.dev);
 
     document.addEventListener('click', (e) => {
       const go = e.target.closest('[data-go]');
