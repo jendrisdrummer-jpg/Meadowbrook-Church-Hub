@@ -37,9 +37,25 @@ Xcode again (steps 7 and 12; your data is on the server, nothing is lost).
   The member app's screens are `#/` addresses, so each one you open is a step to swipe back to. If you rename the
   Xcode target, keep `customModule="App"` in `Main.storyboard` in step with it.
 - **No notifications in this demo app.** Notifications still come from the home-screen version of the member app.
-- Links to other websites (maps, etc.) open in Safari. If the phone has no connection, the app shows
+- Links to other websites (maps, etc.) open in Safari. Files from this site (song sheets, chat attachments, statements) open in a viewer over the app with a Back button (`public/js/member/shell.js`). If the phone has no connection, the app shows
   "Can't reach Meadowbrook right now" with a **Try again** button.
 - The app needs the live site to be awake; the first open after a quiet spell can take a few seconds.
+
+## What to test on the phone (links and files)
+
+Sign in first, then check each of these. Note anything that fails, with what you tapped.
+
+1. Open a service plan with a song that has a PDF, tap the file chip: a viewer opens with a **Back** button and the PDF scrolls. Back returns to the plan.
+2. Play a song's audio file: it plays without leaving the app.
+3. More, Give, "statement" link: the statement shows in the viewer; Back works.
+4. Chat: tap a picture (viewer, Back), a PDF (viewer), and a Word/Excel/CSV file (should say it can't be shown yet, not blank).
+5. Chat: tap the paperclip. Choose **Take Photo**, **Photo Library** and **Choose File** in turn; each should attach. The first time, iOS asks for camera and photo permission with our wording.
+6. Chat: start a video call. The camera and microphone ask once. "Open in browser" opens Safari.
+7. Watch: "Watch" on an external video, and the Give "Give now" button, open Safari; return to the app with the app switcher.
+8. Maps links (event address, campus address, More) open Apple or Google Maps or Safari.
+9. Watch a sermon page: the Share button opens the iPhone share sheet (if it shows "Copy link" instead, tap it and paste somewhere).
+10. More, **Staff dashboard** (leader or above): the staff site loads inside the app; swipe from the left edge to return. Note: file links on the staff site itself still go to Safari (not signed in there).
+11. Swipe from the left edge while a file viewer is open: it must never leave a blank screen.
 
 ## What is in this folder (for developers)
 
