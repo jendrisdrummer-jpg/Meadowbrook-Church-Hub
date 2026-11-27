@@ -33,12 +33,12 @@ export default async function stations(el) {
         <li>It shows a 6-letter code. Choose <b>Add a station</b> here and type it in.</li>
         <li>That’s it: the iPad checks kids in at that campus with no one signed in. Remove it here anytime.</li></ol></div>
     <div class="card"><h2>Check-in iPads</h2>
-      ${list.length ? html`<table class="list"><thead><tr><th scope="col">Station</th><th scope="col">Campus</th><th scope="col">Device</th><th scope="col">Name tags</th><th scope="col">Last used</th><th scope="col"></th></tr></thead><tbody>
+      ${list.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th scope="col">Station</th><th scope="col">Campus</th><th scope="col">Device</th><th scope="col">Name tags</th><th scope="col">Last used</th><th scope="col"></th></tr></thead><tbody>
         ${list.map((d) => html`<tr><td><b>${d.name}</b>${d.added_by ? html`<div class="muted small">Added by ${d.added_by}</div>` : ''}<div style="margin-top:4px">${versionPill(d)}</div></td><td>${d.campus_name}</td>
           <td class="small">${d.device || '—'}</td><td>${d.print ? html`<span class="pill good">Prints</span>` : html`<span class="pill">Off</span>`}</td>
           <td class="small nowrap">${seen(d.last_seen)}</td>
           <td style="text-align:right" class="nowrap"><button class="btn small ghost" data-edit="${d.id}">Edit</button><button class="btn small ghost danger" data-remove="${d.id}">Remove</button></td></tr>`)}
-      </tbody></table>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
+      </tbody></table></div>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
     ${safety ? html`<div class="card st-safety"><h2>Check-in safety</h2>
       <label class="check st-switch"><input type="checkbox" data-safety ${safety.require_current_app ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> Only let iPads with the latest check-in sync</label>
       <p class="muted small" style="margin:6px 0 0">Turn this on once every iPad above says Up to date. Older iPads keep what they’ve recorded and sync after they’re reopened.</p>

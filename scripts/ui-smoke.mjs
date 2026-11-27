@@ -67,6 +67,8 @@ async function main() {
     const db = new DatabaseSync(env.MB_DB);
     db.prepare("INSERT INTO users (email, role) VALUES ('leader@meadowbrook.church', 'leader')").run();
     db.prepare("INSERT INTO users (email, role, finance) VALUES ('finance@meadowbrook.church', 'volunteer', 1)").run();
+    // A paired check-in iPad, so the Stations page is checked with a real row (its table once ran off phones).
+    db.prepare("INSERT INTO checkin_devices (name, campus_id, token_hash, device) VALUES ('Kids hallway iPad', (SELECT MIN(id) FROM campuses), 'ui-smoke-token-hash', 'iPad (10th generation)')").run();
     db.close();
   }
   const port = await freePort();
