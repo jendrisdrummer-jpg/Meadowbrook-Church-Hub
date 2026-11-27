@@ -106,7 +106,7 @@ async function week(panel) {
       <div class="stat"><b>${w.gifts}</b><span>${w.gifts === 1 ? 'Gift' : 'Gifts'} from ${w.givers} ${w.givers === 1 ? 'giver' : 'givers'}</span></div>
     </div>
     <div class="card"><h2>By fund</h2>
-      ${funds.length ? html`<div class="table-scroll"><table class="list week-table"><thead><tr><th>Fund</th><th class="num">Cash</th><th class="num">Check</th><th class="num">Online</th><th class="num">Total</th></tr></thead><tbody>
+      ${funds.length ? html`<div class="table-scroll"><table class="list week-table"><thead><tr><th scope="col">Fund</th><th scope="col" class="num">Cash</th><th scope="col" class="num">Check</th><th scope="col" class="num">Online</th><th scope="col" class="num">Total</th></tr></thead><tbody>
         ${sections.map((sec) => html`<tr class="sec"><td colspan="5">${sec}</td></tr>
           ${funds.filter((f) => f.section === sec).map((f) => html`<tr><td>${f.name}</td>${cell(f.methods.cash)}${cell(f.methods.check)}${cell(online(f.methods))}<td class="num"><b>${money(f.total)}</b></td></tr>`)}`)}
         </tbody><tfoot><tr><td>Total</td>${cell(col('cash'))}${cell(col('check'))}${cell(col('online'))}<td class="num"><b>${money(w.total)}</b></td></tr></tfoot></table></div>
@@ -136,10 +136,10 @@ async function gifts(panel, q, filter = {}) {
   const total = list.filter((g) => g.status === 'succeeded').reduce((s, g) => s + g.amount_cents, 0);
   mount(panel, html`<div class="giving-filters">
       <input type="search" aria-label="Search giver name or email" data-q value="${filter.q || ''}" placeholder="Search giver name or email">
-      <select data-fund><option value="">All funds</option>${fundsList.map((f) => html`<option value="${f.id}" ${String(f.id) === String(filter.fund_id || '') ? 'selected' : ''}>${f.name}</option>`)}</select>
+      <select data-fund aria-label="Fund"><option value="">All funds</option>${fundsList.map((f) => html`<option value="${f.id}" ${String(f.id) === String(filter.fund_id || '') ? 'selected' : ''}>${f.name}</option>`)}</select>
       <a class="btn" href="/api/finance/gifts.csv?${params}">${icon('download')} Export CSV</a></div>
     <div class="card"><div class="card-head"><h2>${list.length} gifts</h2><b>${money(total)}</b></div>
-    <table class="list"><thead><tr><th>Date</th><th>Giver</th><th>Fund</th><th>How</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+    <table class="list"><thead><tr><th scope="col">Date</th><th scope="col">Giver</th><th scope="col">Fund</th><th scope="col">How</th><th scope="col" style="text-align:right">Amount</th></tr></thead><tbody>
       ${list.map((g) => html`<tr><td class="nowrap">${fmtDate(g.given_on)}</td>
         <td>${g.person_id ? html`<a href="#/people/${g.person_id}">${g.giver}</a>` : html`${g.giver} <button class="btn small ghost" data-link="${g.id}" title="Not in People yet">Link to People…</button>`}
           ${g.email && !g.person_id ? html`<div class="muted small">${g.email}</div>` : ''}</td>
@@ -162,7 +162,7 @@ async function gifts(panel, q, filter = {}) {
 async function donors(panel, q) {
   const list = await get(`/finance/donors?${q}`);
   mount(panel, html`<div class="card"><div class="card-head"><h2>${list.length} givers</h2></div>
-    <table class="list"><thead><tr><th>Giver</th><th>Gifts</th><th>Last gift</th><th style="text-align:right">Total</th></tr></thead><tbody>
+    <table class="list"><thead><tr><th scope="col">Giver</th><th scope="col">Gifts</th><th scope="col">Last gift</th><th scope="col" style="text-align:right">Total</th></tr></thead><tbody>
     ${list.map((d) => html`<tr><td>${d.person_id ? html`<a href="#/people/${d.person_id}">${d.giver}</a>` : html`${d.giver} <span class="pill">Not in People</span>`}${d.email ? html`<div class="muted small">${d.email}</div>` : ''}</td>
       <td>${d.gifts}</td><td class="nowrap">${fmtDate(d.last_gift)}</td><td style="text-align:right"><b>${money(d.total)}</b></td></tr>`)}
     ${list.length ? '' : html`<tr><td colspan="4" class="muted">No gifts in this range.</td></tr>`}</tbody></table></div>`);
@@ -172,7 +172,7 @@ async function donors(panel, q) {
 async function recurring(panel) {
   const list = await get('/finance/recurring');
   const pill = { active: html`<span class="pill good">Active</span>`, past_due: html`<span class="pill bad">Payment failed</span>`, canceled: html`<span class="pill">Stopped</span>` };
-  mount(panel, html`<div class="card"><table class="list"><thead><tr><th>Giver</th><th>Gift</th><th>Fund</th><th>Started</th><th>Status</th></tr></thead><tbody>
+  mount(panel, html`<div class="card"><table class="list"><thead><tr><th scope="col">Giver</th><th scope="col">Gift</th><th scope="col">Fund</th><th scope="col">Started</th><th scope="col">Status</th></tr></thead><tbody>
     ${list.map((g) => html`<tr><td>${g.person_id ? html`<a href="#/people/${g.person_id}">${g.giver}</a>` : g.giver}</td><td class="nowrap"><b>${money(g.amount_cents)}</b> ${g.every_label}</td>
       <td>${g.fund || '—'}</td><td class="nowrap">${fmtDate(g.created_at.slice(0, 10))}</td><td>${pill[g.status] || g.status}</td></tr>`)}
     ${list.length ? '' : html`<tr><td colspan="5" class="muted">No recurring gifts yet.</td></tr>`}</tbody></table>
@@ -225,7 +225,7 @@ async function record(panel) {
   const batches = await get('/finance/batches');
   mount(panel, html`<div class="card"><div class="card-head"><h2>Cash & check batches</h2><button class="btn primary" data-new>${icon('plus')} New batch</button></div>
     <p class="muted small">Enter each Sunday’s offering (or any cash and checks) as a batch. Gifts with a name go on that person’s giving statement; loose cash counts toward the fund totals.</p>
-    <table class="list"><thead><tr><th>Date</th><th>Batch</th><th>Campus</th><th>Gifts</th><th style="text-align:right">Total</th><th></th></tr></thead><tbody>
+    <table class="list"><thead><tr><th scope="col">Date</th><th scope="col">Batch</th><th scope="col">Campus</th><th scope="col">Gifts</th><th scope="col" style="text-align:right">Total</th><th scope="col"></th></tr></thead><tbody>
     ${batches.map((b) => html`<tr><td class="nowrap">${fmtDate(b.given_on)}</td><td>${b.label || '—'}</td><td>${b.campus || ''}</td><td>${b.gifts}</td><td style="text-align:right"><b>${money(b.total)}</b></td>
       <td style="text-align:right" class="nowrap"><button class="btn small ghost" data-edit="${b.id}">Open</button><button class="icon-btn danger" data-del="${b.id}" title="Delete batch">${icon('trash')}</button></td></tr>`)}
     ${batches.length ? '' : html`<tr><td colspan="6" class="muted">No batches yet.</td></tr>`}</tbody></table></div><div data-editor></div>`);
@@ -260,13 +260,13 @@ async function batchEditor(panel, batch = null) {
       <div class="form"><label class="field">Date given<input type="date" name="given_on" value="${b.given_on}" required></label>
         <label class="field">Label<input type="text" name="label" value="${b.label}" maxlength="120"></label>
         ${state.campuses.length > 1 ? html`<label class="field">Campus<select name="campus_id">${state.campuses.map((c) => html`<option value="${c.id}" ${c.id === b.campus_id ? 'selected' : ''}>${c.name}</option>`)}</select></label>` : ''}</div>
-      <table class="list batch-rows"><thead><tr><th>Giver</th><th>Fund</th><th>How</th><th>Check #</th><th style="text-align:right">Amount</th><th></th></tr></thead><tbody>
+      <table class="list batch-rows"><thead><tr><th scope="col">Giver</th><th scope="col">Fund</th><th scope="col">How</th><th scope="col">Check #</th><th scope="col" style="text-align:right">Amount</th><th scope="col"></th></tr></thead><tbody>
       ${rows.map((r, i) => html`<tr data-i="${i}">
         <td>${r.person ? html`<span class="row nowrap" style="gap:4px"><b>${displayName(r.person)}</b><button type="button" class="icon-btn" data-unperson="${i}" title="Remove">${icon('x')}</button></span>`
           : html`<span class="row nowrap" style="gap:4px"><input type="text" data-f="name" value="${r.name}" aria-label="Name" placeholder="Loose cash / no name"><button type="button" class="btn small ghost" data-person="${i}">${icon('search')} Person</button></span>`}</td>
-        <td><select data-f="fund_id">${funds.map((f) => html`<option value="${f.id}" ${f.id === r.fund_id ? 'selected' : ''}>${f.name}</option>`)}</select></td>
-        <td><select data-f="method"><option value="check" ${r.method === 'check' ? 'selected' : ''}>Check</option><option value="cash" ${r.method === 'cash' ? 'selected' : ''}>Cash</option><option value="other" ${r.method === 'other' ? 'selected' : ''}>Other</option></select></td>
-        <td><input type="text" data-f="check_number" value="${r.check_number}" ${r.method === 'check' ? '' : 'disabled'} style="width:90px"></td>
+        <td><select data-f="fund_id" aria-label="Fund">${funds.map((f) => html`<option value="${f.id}" ${f.id === r.fund_id ? 'selected' : ''}>${f.name}</option>`)}</select></td>
+        <td><select data-f="method" aria-label="How it was given"><option value="check" ${r.method === 'check' ? 'selected' : ''}>Check</option><option value="cash" ${r.method === 'cash' ? 'selected' : ''}>Cash</option><option value="other" ${r.method === 'other' ? 'selected' : ''}>Other</option></select></td>
+        <td><input type="text" data-f="check_number" aria-label="Check number" value="${r.check_number}" ${r.method === 'check' ? '' : 'disabled'} style="width:90px"></td>
         <td><input type="text" inputmode="decimal" data-f="amount" value="${r.amount}" aria-label="Amount" placeholder="0.00" style="width:110px;text-align:right"></td>
         <td><button type="button" class="icon-btn" data-remove="${i}" title="Remove line">${icon('trash')}</button></td></tr>`)}</tbody></table>
       <div class="row"><button type="button" class="btn small" data-add-row>${icon('plus')} Add line</button><span class="muted small">Tip: press Enter in an amount to add the next line.</span>
@@ -321,7 +321,7 @@ async function statements(panel, _q, year) {
       <select data-year aria-label="Year">${[1, 0, 2, 3].map((n) => thisYear - n).sort((a, b) => b - a).map((y) => html`<option ${String(y) === d.year ? 'selected' : ''}>${y}</option>`)}</select>
       <span class="spacer"></span>${d.mail ? html`<button class="btn primary" data-send-all ${toSend.length ? '' : 'disabled'}>${icon('send')} Email ${toSend.length} statement${toSend.length === 1 ? '' : 's'}</button>` : html`<span class="pill warn">Email isn’t set up</span>`}</div>
     <p class="muted small">Everyone who gave in ${d.year} with a name or email: one statement each, listing every gift and the total (including fees they chose to cover). Emailing skips anyone already sent. Givers can also download theirs from the app (More → My giving).</p>
-    <table class="list"><thead><tr><th>Giver</th><th>Email</th><th>Gifts</th><th style="text-align:right">Total</th><th>Sent</th><th></th></tr></thead><tbody>
+    <table class="list"><thead><tr><th scope="col">Giver</th><th scope="col">Email</th><th scope="col">Gifts</th><th scope="col" style="text-align:right">Total</th><th scope="col">Sent</th><th scope="col"></th></tr></thead><tbody>
     ${d.donors.map((x) => html`<tr><td>${x.person_id ? html`<a href="#/people/${x.person_id}">${x.name}</a>` : x.name}</td><td class="small">${x.email || html`<span class="pill warn">No email</span>`}</td>
       <td>${x.gifts}</td><td style="text-align:right"><b>${money(x.total)}</b></td><td class="small muted nowrap">${x.sent_at ? fmtDate(x.sent_at.slice(0, 10)) : ''}</td>
       <td style="text-align:right" class="nowrap"><a class="btn small ghost" href="/api/finance/statements/${encodeURIComponent(x.key)}?year=${d.year}" target="_blank" rel="noopener">${icon('printer')} View</a>

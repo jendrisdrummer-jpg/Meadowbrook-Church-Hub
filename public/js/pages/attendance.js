@@ -44,7 +44,7 @@ export default async function attendance(el) {
     <details class="card att-more"><summary><b>By campus</b> <span class="muted small">Adults and students, kids and volunteers for the last 12 weeks</span></summary>
     <div class="legend" style="margin:12px 0"><span><i></i>Counted</span><span><i class="kids"></i>Kids checked in</span></div>
     ${camps.length ? camps.map((c) => html`<div class="card"><h2>${c.name}</h2>${chart(c.id)}
-      <div class="table-wrap" style="margin-top:12px"><table class="list"><thead><tr><th>Week of</th><th>Counted</th><th>Source</th><th>Kids</th><th>Total</th><th>On the roll</th><th>Volunteers</th></tr></thead>
+      <div class="table-wrap" style="margin-top:12px"><table class="list"><thead><tr><th scope="col">Week of</th><th scope="col">Counted</th><th scope="col">Source</th><th scope="col">Kids</th><th scope="col">Total</th><th scope="col">On the roll</th><th scope="col">Volunteers</th></tr></thead>
       <tbody>${weeks.slice().reverse().filter((w) => sum(d.adults, c.id, w) || sum(d.kids, c.id, w) || sum(d.marked, c.id, w) || sum(d.volunteers, c.id, w)).map((w) => {
         const a = sum(d.adults, c.id, w); const k = sum(d.kids, c.id, w);
         return html`<tr><td>${fmtDate(w)}</td><td class="num">${a || '—'}</td><td class="small muted nowrap">${sourceLabel[sourceOf(c.id, w)] || '—'}</td><td class="num">${k || '—'}</td><td class="num"><b>${a + k || '—'}</b></td><td class="num">${sum(d.marked, c.id, w) || '—'}</td><td class="num">${sum(d.volunteers, c.id, w) || '—'}</td></tr>`;
@@ -116,10 +116,10 @@ async function drawDashboard(box) {
     ${trendChart(d.weeks, `Weekly attendance, ${rangeName.toLowerCase()}, with the same weeks last year`)}
     <p class="att-read muted small" data-read aria-live="polite">Tap or hover a week to see its numbers.</p>
     <details class="att-alt"><summary class="small muted">Show the weekly numbers as a table</summary>
-      <div class="table-wrap"><table class="list"><thead><tr><th>Week of</th><th class="num">Attendance</th><th class="num">Same week last year</th></tr></thead>
+      <div class="table-wrap"><table class="list"><thead><tr><th scope="col">Week of</th><th scope="col" class="num">Attendance</th><th scope="col" class="num">Same week last year</th></tr></thead>
       <tbody>${d.weeks.slice().reverse().map((w) => html`<tr><td>${fmtDate(w.week)}</td><td class="num">${w.total ?? '—'}</td><td class="num">${w.prev_total ?? '—'}</td></tr>`)}</tbody></table></div></details>
     <h3 class="att-sub">Each service</h3>
-    <div class="table-wrap"><table class="list att-services"><thead><tr><th>Date</th><th>Campus</th><th class="att-time">Time</th><th class="num">Attendance</th></tr></thead>
+    <div class="table-wrap"><table class="list att-services"><thead><tr><th scope="col">Date</th><th scope="col">Campus</th><th scope="col" class="att-time">Time</th><th scope="col" class="num">Attendance</th></tr></thead>
       <tbody>${d.services.map((s) => html`<tr><td class="nowrap"><a href="#/services/${s.id}">${fmtDate(s.date)}</a></td><td>${s.campus_short || s.campus}<span class="att-time-inline muted small"><br>${fmtTime12(s.time)}</span></td><td class="att-time">${fmtTime12(s.time)}${s.title ? html`<br><span class="muted small">${s.title}</span>` : ''}</td>
         <td class="num"><b>${s.attendance}</b>${SOURCE_NOTE[s.source] ? html`<br><span class="muted small">${SOURCE_NOTE[s.source]}</span>` : ''}</td></tr>`)}</tbody></table></div>
     <p class="muted small">One number per service: the headcount if one was entered, otherwise the people marked present in roll call, plus kids checked in.</p>

@@ -189,6 +189,15 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
   not just bold. Scroll with `behavior: scrollBehavior()` (respects reduced motion). Dialogs are labelled by their title.
 - Secondary button borders use `--line-input` (3:1 against the page in both themes). Heading colours that use the
   brand colour on dark backgrounds use `--accent-text`, not `--accent`.
+- **Hub button groups** (`.seg`, `.tabs`, `.md-fchip`, People/Teams filter chips) are plain buttons, not `role="tablist"`.
+  The active one has class `on`; `watchPressed()` in `lib.js` (started in `app.js`) mirrors that to `aria-pressed`, and gives
+  any icon-only button that has a `title` the same text as its `aria-label`. Still write `aria-label` on new icon buttons.
+- **Tables:** header cells are `<th scope="col">`; the first cell of a row that names the row (Schedule position) is
+  `<th scope="row">`. The People list is a `role="list"` whose rows hold a real link on the person's name (the whole row also
+  opens it for mouse users). Fields in a `.field` div (no `<label>`) need their own `aria-label`.
+- **Dialogs:** `dialog()` and the Media side panel call `trapTab()` so Tab wraps inside; the browser returns focus to the
+  opener on close. A new `<dialog>` built by hand must do the same and set `aria-labelledby`.
+- On touch screens dense controls (chips, segmented buttons, the People status picker, Schedule add buttons) are at least 32-36px.
 - Not covered by code: the brand colour chosen in Settings can fail contrast; a server-side check is a separate task.
 
 ## Mobile checklist

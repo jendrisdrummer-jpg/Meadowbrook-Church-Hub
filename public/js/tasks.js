@@ -140,7 +140,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', showBack
     mount(el, html`<form class="card task-detail" data-form autocomplete="off">
         <div class="task-top">
           ${isNew ? '' : html`<button type="button" class="task-check big ${t.done_at ? 'on' : ''}" data-toggle-done aria-label="${t.done_at ? 'Mark not done' : 'Mark done'}">${icon('check')}</button>`}
-          <textarea name="title" rows="1" class="task-title-input" placeholder="What needs doing?" maxlength="200" required>${t.title}</textarea>
+          <textarea name="title" rows="1" class="task-title-input" aria-label="Task" placeholder="What needs doing?" maxlength="200" required>${t.title}</textarea>
         </div>
         ${t.done_at ? html`<div class="alert good small" style="margin:0 0 12px">Done ${fmtDate(t.done_at.slice(0, 10))}.</div>` : ''}
         <div class="form task-fields">
@@ -166,7 +166,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', showBack
             <div class="grow"><div><b>${k.name}</b> <span class="muted small">${new Date(`${k.created_at.replace(' ', 'T')}Z`).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             ${k.mine ? html`<button type="button" class="icon-btn" data-uncomment="${k.id}" aria-label="Delete comment">${icon('trash')}</button>` : ''}</div>
             <div class="task-comment-body">${k.body}</div></div></div>`)}</div>` : html`<p class="muted small">No comments yet. Ask a question or give an update.</p>`}
-          <form class="task-comment-form" data-comment><textarea name="body" rows="2" placeholder="Write a comment" required maxlength="2000"></textarea><button class="btn">Post</button></form></div>
+          <form class="task-comment-form" data-comment><textarea name="body" rows="2" aria-label="Comment" placeholder="Write a comment" required maxlength="2000"></textarea><button class="btn">Post</button></form></div>
           ${t.can_delete ? html`<div class="row" style="margin-top:14px"><span class="spacer"></span><button type="button" class="btn danger ghost small" data-delete>${icon('trash')} Delete task</button></div>` : ''}`}`);
     const title = el.querySelector('.task-title-input');
     const grow = () => { title.style.height = 'auto'; title.style.height = `${title.scrollHeight}px`; };

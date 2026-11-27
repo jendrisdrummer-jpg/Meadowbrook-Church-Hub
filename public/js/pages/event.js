@@ -72,7 +72,7 @@ function editor(el, e) {
               <div class="field"><span>Questions to ask</span>
                 <div class="q-list">${ev.questions.map((q, i) => html`<div class="q-row" data-q="${i}">
                   <input type="text" data-qk="label" value="${q.label}" aria-label="Question" placeholder="Question, e.g. T-shirt size" maxlength="200">
-                  <select data-qk="type">${options(Object.entries(QTYPES).map(([value, label]) => ({ value, label })), q.type)}</select>
+                  <select data-qk="type" aria-label="Answer type">${options(Object.entries(QTYPES).map(([value, label]) => ({ value, label })), q.type)}</select>
                   <label class="check small"><input type="checkbox" data-qk="required" ${q.required ? 'checked' : ''}> Required</label>
                   <button type="button" class="icon-btn danger" data-qdel="${i}" title="Remove">${icon('x')}</button>
                   ${q.type === 'choice' ? html`<input type="text" data-qk="options" class="q-opts" aria-label="Choices" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Small, Medium, Large">` : ''}
@@ -168,7 +168,7 @@ async function signups(el, e) {
       ${ev.price_cents ? html`<div class="stat"><b>${money(paid)}</b><span>paid</span></div>` : ''}
     </div>
     <p class="muted small" style="margin:-4px 0 12px">${eventWhen(ev)} · ${d.sign_ups.open ? 'Sign-ups are open' : d.sign_ups.closed || 'Sign-ups are closed'}</p>
-    <div class="card table-scroll"><table class="list"><thead><tr><th>Name</th><th>People</th>${ev.questions.map((q) => html`<th>${q.label}</th>`)}${ev.price_cents ? html`<th>Paid</th>` : ''}<th>Signed up</th><th></th></tr></thead><tbody>
+    <div class="card table-scroll"><table class="list"><thead><tr><th scope="col">Name</th><th scope="col">People</th>${ev.questions.map((q) => html`<th scope="col">${q.label}</th>`)}${ev.price_cents ? html`<th scope="col">Paid</th>` : ''}<th scope="col">Signed up</th><th scope="col"></th></tr></thead><tbody>
       ${d.rows.map((s) => html`<tr class="${s.status === 'confirmed' ? '' : 'muted'}">
         <td>${s.person_id ? html`<a href="#/people/${s.person_id}"><b>${s.name}</b></a>` : html`<b>${s.name}</b>`}${s.email || s.phone ? html`<div class="muted small">${[s.email, s.phone].filter(Boolean).join(' · ')}</div>` : ''}</td>
         <td>${s.count}</td>${ev.questions.map((q) => html`<td>${s.answers[q.id] || html`<span class="muted">—</span>`}</td>`)}

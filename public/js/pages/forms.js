@@ -29,7 +29,7 @@ async function list(el) {
     <td>${f.can_manage ? html`<b>${f.total}</b> ${f.total === 1 ? 'response' : 'responses'}${f.new_count ? html` <span class="pill info">${f.new_count} new</span>` : ''}` : html`<span class="muted small">Church-wide: office staff only</span>`}</td>
     <td style="text-align:right">${f.active ? html`<button class="btn small ghost" data-copy="${f.slug}">${icon('copy')} Copy link</button>` : html`<span class="pill">Turned off</span>`}</td></tr>`;
   mount(el, html`<p class="muted" style="margin-top:-6px">Set up a form once, share its link (a text, a bulletin QR code, the church app), and read the answers here. Only staff can see responses.</p>
-    ${all.length ? html`<div class="card table-scroll"><table class="list"><thead><tr><th>Form</th><th>Responses</th><th></th></tr></thead><tbody>${[...on, ...off].map(row)}</tbody></table></div>`
+    ${all.length ? html`<div class="card table-scroll"><table class="list"><thead><tr><th scope="col">Form</th><th scope="col">Responses</th><th scope="col"></th></tr></thead><tbody>${[...on, ...off].map(row)}</tbody></table></div>`
       : html`<div class="card empty">No forms yet. <a href="#/forms/new">Make the first one</a>.</div>`}`);
   el.onclick = (e) => {
     const c = e.target.closest('[data-copy]');
@@ -65,15 +65,15 @@ async function editor(el, e) {
           <label class="field">Tell this person about new responses<select name="notify_user_id">${options(staff.map((u) => ({ value: u.id, label: u.name })), f.notify_user_id, { blank: 'No one' })}</select>
             <span class="muted small">They get a notice, never the answers. They read those here.</span></label>
           <label class="toggle-row"><span><b>Open for responses</b><br><span class="muted small">Turn off to close the form. The link stops working; responses stay here.</span></span><input type="checkbox" class="switch" name="active" ${f.active ? 'checked' : ''}></label>
-          ${e ? html`<div class="field"><span>Link to share</span><div class="row"><input type="text" readonly value="${publicLink(e)}" style="flex:1" data-link><button type="button" class="btn small" data-copy>${icon('copy')} Copy link</button></div></div>` : html`<p class="muted small" style="margin:0">You’ll get a link to share once it’s created.</p>`}
+          ${e ? html`<div class="field"><span>Link to share</span><div class="row"><input type="text" readonly aria-label="Link to share" value="${publicLink(e)}" style="flex:1" data-link><button type="button" class="btn small" data-copy>${icon('copy')} Copy link</button></div></div>` : html`<p class="muted small" style="margin:0">You’ll get a link to share once it’s created.</p>`}
         </div>
         <div class="card stack"><h2 style="margin:0">Questions</h2>
           <div class="q-list q-wide">${f.questions.map((q, i) => html`<div class="q-row" data-q="${i}">
-            <input type="text" data-qk="label" value="${q.label}" placeholder="Question, e.g. Where would you like to serve?" maxlength="200">
-            <select data-qk="type">${options(Object.entries(QTYPES).map(([value, label]) => ({ value, label })), q.type)}</select>
+            <input type="text" data-qk="label" aria-label="Question" value="${q.label}" placeholder="Question, e.g. Where would you like to serve?" maxlength="200">
+            <select data-qk="type" aria-label="Answer type">${options(Object.entries(QTYPES).map(([value, label]) => ({ value, label })), q.type)}</select>
             <label class="check small"><input type="checkbox" data-qk="required" ${q.required ? 'checked' : ''}> Required</label>
             <span class="row" style="gap:2px;flex-wrap:nowrap"><button type="button" class="icon-btn" data-qup="${i}" title="Move up" ${i ? '' : 'disabled'}>${icon('up')}</button><button type="button" class="icon-btn" data-qdown="${i}" title="Move down" ${i < f.questions.length - 1 ? '' : 'disabled'}>${icon('down')}</button><button type="button" class="icon-btn danger" data-qdel="${i}" title="Remove">${icon('x')}</button></span>
-            ${['choice', 'multichoice'].includes(q.type) ? html`<input type="text" data-qk="options" class="q-opts" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Kids, Music, Welcome team">` : ''}
+            ${['choice', 'multichoice'].includes(q.type) ? html`<input type="text" data-qk="options" aria-label="Choices" class="q-opts" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Kids, Music, Welcome team">` : ''}
           </div>`)}</div>
           <p class="muted small" style="margin:0">Please don’t use forms to collect children’s medical or safeguarding details. Use check-in for that.</p>
           ${f.questions.length < 30 ? html`<div><button type="button" class="btn small ghost" data-qadd>${icon('plus')} Add a question</button></div>` : ''}

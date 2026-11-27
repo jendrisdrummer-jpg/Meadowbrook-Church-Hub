@@ -70,7 +70,7 @@ export default async function service(el, id) {
     ${s.locked ? html`<div class="alert" style="margin-bottom:12px">${icon('lock', 'ic small-ic')} This service is locked, so its order of service and schedule can’t be changed${can('admin') ? ' (you can still edit as an admin)' : ''}.</div>` : ''}
     ${s.notes ? html`<div class="alert info" style="margin-bottom:12px;white-space:pre-wrap">${s.notes}</div>` : ''}
     <style>@media (max-width: 520px) { .svc-tabs button { padding: 10px 9px; font-size: 13.5px; } }</style>
-    <div class="tabs svc-tabs" role="tablist">
+    <div class="tabs svc-tabs">
       <button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">Order of service</button>
       <button data-tab="people" class="${tab === 'people' ? 'on' : ''}">Who’s serving</button>
       ${can('leader') ? html`<button data-tab="counts" class="${tab === 'counts' ? 'on' : ''}">Attendance</button>` : ''}
