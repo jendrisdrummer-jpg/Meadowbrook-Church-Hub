@@ -6,6 +6,7 @@ import { ensureServices } from './series.js';
 import { ledTeamIds, ledPositionsClause } from '../team-scope.js';
 import { missingPeople } from '../attendance-missing.js';
 import { manages } from './forms.js';
+import { reviewCount } from '../media.js';
 
 const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 
@@ -152,7 +153,8 @@ export default function dashboardRoutes(db) {
   // For the menu badges: light, so the app can ask often.
   r.get('/attention', requireRole('volunteer'), (req, res) => {
     const a = attention(req.user, int(req.query.campus_id));
-    res.json({ connect_cards: a.connect_cards, forms_new: a.forms_new, signups: a.signups, open_spots: a.open_spots, not_replied: a.not_replied, declines: a.declines });
+    // Videos waiting in Media → Needs a look: staff only (it's their page), zero for everyone else.
+    res.json({ connect_cards: a.connect_cards, forms_new: a.forms_new, signups: a.signups, open_spots: a.open_spots, not_replied: a.not_replied, declines: a.declines, media_review: rank(req.user.role) >= rank('staff') ? reviewCount(db) : 0 });
   });
 
   r.get('/dashboard', requireRole('volunteer'), (req, res) => {
