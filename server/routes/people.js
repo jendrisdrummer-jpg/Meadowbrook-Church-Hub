@@ -359,6 +359,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   // iPad or the check-in roster. Opening one is written to the audit log, like every change.
   r.get('/people/:id/care-notes', requireRole('staff'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
+    if (p.household_id) visibleHousehold(req, p.household_id); // the family's campus counts too
     const n = db.prepare('SELECT note, updated_by_name, updated_at FROM person_care_notes WHERE person_id = ?').get(p.id);
     audit(db, req, 'person.care_notes.view', { person_id: p.id });
     res.set('Cache-Control', 'no-store');
@@ -367,6 +368,7 @@ export default function peopleRoutes(db, { uploadDir }) {
 
   r.put('/people/:id/care-notes', requireRole('staff'), (req, res) => {
     const p = visiblePerson(req, req.params.id);
+    if (p.household_id) visibleHousehold(req, p.household_id); // the family's campus counts too
     if (typeof req.body?.note !== 'string') throw bad('Write the note.');
     const note = req.body.note.trim();
     if (note.length > CARE_NOTE_MAX) throw bad(`That note is too long (up to ${CARE_NOTE_MAX} characters).`);

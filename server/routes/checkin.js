@@ -465,10 +465,13 @@ export default function checkinRoutes(db) {
   // Staff review list: children whose allergy or medical details haven't been sorted into the levels yet, with a count
   // per campus. Staff only (never an iPad). Sorting a child is PATCH /people/:id with { medical_sorted: true }.
   r.get('/checkin/medical/review', requireRole('staff'), (req, res) => {
-    const cf = campusFilter(req.user, 'p.campus_id');
+    // Both the child's own campus and the family's campus must be one of the viewer's (like the check-in routes).
+    const pf = campusFilter(req.user, 'p.campus_id');
+    const hf = campusFilter(req.user, 'h.campus_id');
+    const cf = { sql: `${pf.sql} AND ${hf.sql}`, args: [...pf.args, ...hf.args] };
     const unsorted = `p.archived = 0 AND p.household_role = 'child' AND p.medical_sorted_at IS NULL
       AND (TRIM(COALESCE(p.allergies, '')) != '' OR TRIM(COALESCE(p.medical_notes, '')) != '' OR p.allergy_epi = 1 OR TRIM(COALESCE(p.allergy_action, '')) != '')`;
-    const counts = db.prepare(`SELECT p.campus_id, COUNT(*) remaining FROM people p WHERE ${unsorted} AND ${cf.sql} GROUP BY p.campus_id`).all(...cf.args);
+    const counts = db.prepare(`SELECT p.campus_id, COUNT(*) remaining FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE ${unsorted} AND ${cf.sql} GROUP BY p.campus_id`).all(...cf.args);
     const args = [...cf.args];
     let extra = '';
     if (req.query.campus_id !== undefined && req.query.campus_id !== '') {
@@ -479,7 +482,9 @@ export default function checkinRoutes(db) {
     }
     const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.campus_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes,
         EXISTS (SELECT 1 FROM person_care_notes n WHERE n.person_id = p.id AND TRIM(n.note) != '') has_care_notes
-      FROM people p WHERE ${unsorted} AND ${cf.sql}${extra} ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 200`).all(...args);
+      FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE ${unsorted} AND ${cf.sql}${extra} ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 200`).all(...args);
+    // The list carries the longer medical notes, so opening it is audited (the count, never the text).
+    audit(db, req, 'checkin.medical.review', { campus_id: extra ? args.at(-1) : null, count: rows.length });
     res.set('Cache-Control', 'no-store');
     res.json({ remaining: counts.reduce((n, x) => n + x.remaining, 0), by_campus: counts, rows });
   });
@@ -488,12 +493,19 @@ export default function checkinRoutes(db) {
     const c = campus(req, req.query.campus_id);
     const day = localNow(c.timezone).date;
     const personId = int(req.params.personId, 'Child');
+    // After pickup the note is for staff only (iPads and switch holders only need it while the child is in a room).
+    const staffReader = !req.user.station && rank(req.user.role) >= rank('staff');
     const row = db.prepare(`SELECT ci.id checkin_id, p.id person_id, p.household_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id
       WHERE ci.campus_id = ? AND ci.day = ? AND ci.person_id = ? AND ci.voided_at IS NULL AND p.household_role = 'child'
-        AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id) ORDER BY ci.checked_in_at DESC LIMIT 1`).get(c.id, day, personId);
+        AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)
+        AND (p.household_id IS NOT NULL OR p.campus_id IS NULL OR p.campus_id = ci.campus_id)
+        AND (ci.checked_out_at IS NULL OR ?) ORDER BY ci.checked_in_at DESC LIMIT 1`).get(c.id, day, personId, staffReader ? 1 : 0);
     if (!row) throw notFound('A child checked in here today');
-    recordEvent(db, req, { action: 'medical.view', campusId: c.id, checkinId: row.checkin_id, personId: row.person_id, householdId: row.household_id, detail: { level: 2 } });
+    // Flag a read by whoever made the check-in, so "checked in, read, voided" stands out in the record.
+    const who = req.user.station ? ['device_id', req.user.station.id] : ['user_id', req.user.id];
+    const selfCheckin = Boolean(db.prepare(`SELECT 1 FROM checkin_events WHERE checkin_id = ? AND action = 'checkin' AND ${who[0]} = ?`).get(row.checkin_id, who[1]));
+    recordEvent(db, req, { action: 'medical.view', campusId: c.id, checkinId: row.checkin_id, personId: row.person_id, householdId: row.household_id, detail: { level: 2, self_checkin: selfCheckin } });
     res.set('Cache-Control', 'no-store');
     res.json({ person_id: row.person_id, allergies: row.allergies || '', allergy_epi: row.allergy_epi, allergy_action: row.allergy_action || '', medical_notes: row.medical_notes || '' });
   });
