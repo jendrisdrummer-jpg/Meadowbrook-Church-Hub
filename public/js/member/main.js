@@ -19,7 +19,8 @@ import { loadThisWeek } from './thisweek.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
-const preview = new URLSearchParams(location.search).has('preview');
+// Only inside the App Builder's own frame; opened on its own, ?preview does nothing.
+const preview = new URLSearchParams(location.search).has('preview') && window.parent !== window;
 // In the App Builder, the preview's home screen can be rearranged (?preview=1&edit=1).
 const editing = preview && new URLSearchParams(location.search).has('edit');
 // "Preview as a guest" inside the App Builder: draw the signed-out view without signing anyone out.

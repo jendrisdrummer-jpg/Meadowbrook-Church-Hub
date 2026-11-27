@@ -179,3 +179,24 @@ test('the starting layout is a valid save', async () => {
   // "I’m new here" opens the Connect tab, which is built in and stays reachable while switched off.
   assert.equal(r.data.home.find((w) => w.id === 'new').tab, 'connect');
 });
+
+test('picture uploads must really be pictures, are capped per hour, and are audited', async () => {
+  const send = (body, type = 'image/png') => fetch(`${base}/api/app/images`, { method: 'POST', headers: { cookie: cookies.leaderFlag, 'x-mb': '1', 'content-type': type }, body });
+  assert.equal((await send(Buffer.from('<html><script>alert(1)</script></html>'))).status, 400, 'HTML sent as a PNG is refused');
+  const ok = await send(png, 'image/png; x=1');
+  assert.equal(ok.status, 201);
+  assert.match((await ok.json()).url, /\.png$/, 'the saved name comes from the file itself');
+  assert.ok(audits('app.image').length >= 1);
+  let last;
+  for (let i = 0; i < 31; i++) last = await send(png);
+  assert.equal(last.status, 429);
+});
+
+test('links must be https, and a newly added website is written to the audit log', async () => {
+  const cfg = await current();
+  const withLink = (u) => ({ ...cfg, home: [...cfg.home, { id: 'lk', type: 'button', size: 'M', style: 'soft', label: 'Site', icon: 'link', url: u }] });
+  assert.equal((await api('admin', 'PUT', '/app/config', withLink('http://example.org/'))).status, 400);
+  assert.equal((await api('admin', 'PUT', '/app/config', withLink('https://example.org/new'))).status, 200);
+  const last = db.prepare("SELECT detail FROM audit_log WHERE action = 'app.config' ORDER BY id DESC LIMIT 1").get();
+  assert.match(last.detail, /https:\/\/example\.org\/new/);
+});

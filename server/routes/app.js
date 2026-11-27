@@ -23,7 +23,7 @@ const id = (v, i) => (str(v, 40).replace(/[^\w-]/g, '') || `x${i}`);
 const url = (v) => {
   const s = str(v, 500);
   if (!s) return '';
-  if (!/^https?:\/\//i.test(s)) throw bad('Links start with https://');
+  if (!/^https:\/\//i.test(s)) throw bad(`Links need to start with https:// (check ${s.slice(0, 60)})`);
   return s;
 };
 
@@ -116,10 +116,18 @@ export default function appRoutes(db, { uploadDir } = {}) {
   // Pictures for home screen widgets. Everyone sees the app, so these are public (/uploads/app/).
   r.post('/app/images', requireAppEditor, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }), (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad('Send a JPEG, PNG or WebP image.');
-    const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.get('content-type')];
+    // The file itself must be the picture type it claims to be.
+    const b = req.body;
+    const ext = b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? 'jpg'
+      : b.length > 12 && b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ? 'png'
+        : b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP' ? 'webp' : null;
+    if (!ext) throw bad('That file isn’t a JPEG, PNG or WebP picture.');
+    // A cap per account, so the disk the database lives on can't be filled with pictures.
+    if (!limits.hit(`appimg:${req.user.id}`, 30, 3600e3)) throw new HttpError(429, 'That’s a lot of pictures in an hour. Please try again a little later.');
     const name = `${crypto.randomBytes(9).toString('hex')}.${ext}`;
     fs.mkdirSync(imageDir, { recursive: true });
     fs.writeFileSync(path.join(imageDir, name), req.body);
+    audit(db, req, 'app.image', { name, bytes: req.body.length });
     res.status(201).json({ url: `/uploads/app/${name}` });
   });
 
@@ -151,8 +159,12 @@ export default function appRoutes(db, { uploadDir } = {}) {
 
   r.put('/app/config', requireAppEditor, (req, res) => {
     const config = cleanConfig(req.body);
+    // Record any website the app now links to that it didn't before, so a changed link can be traced.
+    const links = (c) => new Set(JSON.stringify(c).match(/https:\/\/[^"\\]+/gi) || []);
+    const before = links(appConfig(db));
+    const added = [...links(config)].filter((u) => !before.has(u)).slice(0, 20);
     setSetting(db, 'app_config', config);
-    audit(db, req, 'app.config');
+    audit(db, req, 'app.config', added.length ? { new_links: added } : undefined);
     res.json(config);
   });
 
