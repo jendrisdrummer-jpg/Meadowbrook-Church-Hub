@@ -1,11 +1,16 @@
-// Media: the library the app's Watch tab shows. New services come in from YouTube on their own;
-// here staff fix titles and trims, tag them, and set up the channel.
-import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, options, debounce, confirm, shrinkImage } from '../lib.js';
-import { setTitle, go } from '../app.js';
-import { hms } from '../video.js';
-import { uploadToMux, looseTitle } from '../mux-upload.js';
+// Media: one Library of every video from the church's YouTube channel (or its messages playlist).
+// Videos come into the app on their own; here staff sort out the few that need a look, fix titles
+// and trims, and set up where videos come from. A video opens in a side panel (a full-screen
+// sheet on a phone); its address, #/media/12, still opens that panel.
+import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips } from '../lib.js';
+import { setTitle, go, state, refreshAttentionBadges } from '../app.js';
+import { hms, parseHms, mountPlayer } from '../video.js';
 
-const TABS = [['published', 'Library'], ['skipped', 'Skipped'], ['hidden', 'Hidden'], ['podcast', 'Podcast'], ['setup', 'Setup']];
+// The three places a video can be, with the chip that shows each.
+const GROUPS = [['app', 'In the app'], ['out', 'Not in the app'], ['look', 'Needs a look']];
+const groupOf = (m) => (m.status === 'published' ? 'app' : m.status === 'review' ? 'look' : 'out');
+let lastGroup = '';
+
 const ago = (utc) => {
   if (!utc) return 'never';
   const mins = Math.round((Date.now() - new Date(`${utc.replace(' ', 'T')}Z`)) / 60e3);
@@ -14,21 +19,34 @@ const ago = (utc) => {
   if (mins < 60 * 36) return `${Math.round(mins / 60)} hours ago`;
   return fmtDate(new Date(`${utc.replace(' ', 'T')}Z`).toLocaleDateString('en-CA'), { month: 'short', day: 'numeric' });
 };
+const when = (m) => fmtDate(m.day, { month: 'short', day: 'numeric', year: 'numeric' });
 
-export default async function media(el, tab) {
-  const setup = await get('/media/setup');
-  tab ||= setup.settings.channel_id || setup.mux.configured ? 'published' : 'setup';
+// tab: 'setup' draws Setup; anything else is the Library (old links like /media/skipped open it
+// on that chip). opts.open: a video to open in the panel (the deep link /media/12).
+export default async function media(el, tab, opts = {}) {
+  if (tab === 'setup') return drawSetup(el);
+  const lib = await get('/media');
+  const cfg = lib.settings;
+  const count = (g) => lib.items.filter((m) => groupOf(m) === g).length;
+  let group = tab === 'skipped' || tab === 'hidden' ? 'out' : lastGroup;
+  if (!group) group = count('app') ? 'app' : count('look') ? 'look' : count('out') ? 'out' : 'app';
+  let q = '';
+  let series = '';
+  const connected = Boolean(cfg.channel_id);
+
   setTitle('Media', html`<button class="btn primary" data-add>${icon('plus')} Add a video</button>
-    <button class="btn" data-sync ${setup.settings.channel_id || setup.status.mux ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
-    ${setup.mux.configured ? html`<label class="btn">${icon('upload')} Upload videos<input type="file" accept="video/*" multiple data-bulk hidden></label>` : ''}`);
+    <button class="btn" data-sync ${connected ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
+    <a class="btn ghost" href="#/media/setup">${icon('settings')} Setup</a>`);
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-sync]').onclick = async (e) => {
     const b = e.currentTarget;
     b.disabled = true;
     try {
       const r = await post('/media/sync', {});
-      toast(r.added ? `${r.added} new ${r.added === 1 ? 'video' : 'videos'} added.` : 'You’re up to date.');
-      media(el, tab === 'setup' ? 'published' : tab);
+      const bits = [r.added ? `${r.added} new in the app` : '', r.review ? `${r.review} to look at` : '', r.skipped ? `${r.skipped} left out` : ''].filter(Boolean);
+      toast(bits.length ? `${bits.join(', ')}.` : 'You’re up to date.');
+      refreshAttentionBadges(true);
+      media(el, tab);
     } catch (err) { fail(err); b.disabled = false; }
   };
   actions.querySelector('[data-add]').onclick = async () => {
@@ -36,130 +54,300 @@ export default async function media(el, tab) {
     const ok = await dialog({
       title: 'Add a video', submit: 'Add',
       body: html`<label class="field">YouTube address<input type="url" name="url" placeholder="https://www.youtube.com/watch?v=…" required></label>
-        <p class="muted small" style="margin:0">For a special service or anything the automatic check skipped. It shows in the app with its own title and trim, which you set next.</p>`,
+        <p class="muted small" style="margin:0">For a special service, or anything left out. It goes straight into the app; you can fix its title and trim next.</p>`,
       onSubmit: async (f) => { made = await post('/media', { url: f.url.value }); },
     });
-    if (ok && made) go(`/media/${made.id}`);
+    if (ok && made) { lastGroup = 'app'; await media(el, tab, { open: made.id }); }
   };
 
-  const bulk = actions.querySelector('[data-bulk]');
-  if (bulk) bulk.onchange = () => { const files = [...bulk.files]; bulk.value = ''; if (files.length) bulkUpload(el, files, () => media(el, tab)); };
-
-  const head = (counts) => html`<div class="tabs md-tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}${counts?.[k] ? html` <span class="muted">${counts[k]}</span>` : ''}</button>`)}</div>`;
-  el.onclick = async (e) => {
-    const t = e.target.closest('[data-tab]');
-    if (t) go(t.dataset.tab === 'published' ? '/media' : `/media/${t.dataset.tab}`);
-    if (e.target.closest('[data-show-live]')) {
-      try { await post('/media/live/show', {}); toast('It’s in the app now.'); media(el, tab); } catch (err) { fail(err); }
-    }
-  };
-
-  if (tab === 'setup') return drawSetup(el, setup, head);
-  if (tab === 'podcast') return drawPodcast(el, head);
-
-  const d = await get(`/media?status=${tab}`);
-  const live = d.status.live;
-  let q = '';
-  let speaker = '';
-  let series = '';
-  const draw = () => {
+  const shown = () => {
     const needle = q.toLowerCase();
-    const shown = d.items.filter((m) => (!speaker || m.speaker === speaker) && (!series || m.series === series)
+    return lib.items.filter((m) => groupOf(m) === group && (!series || m.series === series)
       && (!needle || [m.title, m.speaker, m.series, m.scripture, m.yt_title, ...m.topics].join(' ').toLowerCase().includes(needle)));
-    mount(el.querySelector('[data-list]'), shown.length ? html`<div class="md-grid">${shown.map((m) => html`<a class="md-card" href="#/media/${m.id}">
-        <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}${m.source === 'mux' ? html`<span class="md-src">${m.upload_status ? 'Getting ready…' : 'Mux'}</span>` : ''}</span>
-        <span class="md-body"><b>${m.title}</b>
-          <span class="muted small">${[fmtDate(m.day, { month: 'short', day: 'numeric', year: 'numeric' }), m.speaker].filter(Boolean).join(' · ')}</span>
-          ${m.series ? html`<span class="pill">${m.series}</span>` : ''}
-          ${tab === 'skipped' ? html`<span class="muted small">${m.skip_reason}</span>` : ''}</span></a>`)}</div>`
-      : html`<div class="card empty">${d.items.length ? 'Nothing matches.' : tab === 'skipped' ? 'Nothing skipped. Short clips and Shorts land here, in case you want one in the library.' : tab === 'hidden' ? 'Nothing hidden.' : !d.settings.channel_id && !d.status.mux ? html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every service comes in on its own, or use <b>Add a video</b> for a single YouTube link.` : 'No videos yet. They come in on their own after each service; Check for new videos looks now.'}</div>`);
   };
-  mount(el, html`${head(d.counts)}
-    ${live && live.public === false ? html`<div class="alert md-live"><span class="md-dot"></span><span class="grow"><b>Receiving a stream</b> outside service times (a rehearsal?). It isn’t in the app.</span><button class="btn small primary" data-show-live>Show it in the app</button></div>`
-      : live ? html`<div class="alert good md-live"><span class="md-dot"></span><b>Live now:</b> ${live.title}. The app’s Watch tab is showing it.</div>` : ''}
-    ${d.status.last_error ? html`<div class="alert bad">The last check didn’t work: ${d.status.last_error}</div>` : ''}
-    ${tab === 'skipped' ? html`<p class="muted" style="margin-top:0">Videos that didn’t look like a full service (Shorts, or under ${d.settings.min_minutes} minutes). Open one and choose <b>Publish</b> to add it to the library.</p>` : ''}
-    <div class="row md-tools"><input type="search" placeholder="Search titles, speakers, topics…" data-q class="grow">
-      ${d.speakers.length ? html`<select data-speaker>${options(d.speakers.map((x) => ({ value: x, label: x })), '', { blank: 'Every speaker' })}</select>` : ''}
-      ${d.series.length ? html`<select data-series>${options(d.series.map((x) => ({ value: x, label: x })), '', { blank: 'Every series' })}</select>` : ''}</div>
+  const card = (m) => {
+    const g = groupOf(m);
+    return html`<button type="button" class="md-card" data-open="${m.id}">
+      <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}</span>
+      <span class="md-body"><b>${m.title}</b>
+        <span class="muted small">${when(m)}</span>
+        ${m.series || m.speaker ? html`<span class="muted small">${[m.series, m.speaker].filter(Boolean).join(' · ')}</span>` : ''}
+        <span class="md-status">${g === 'app' ? html`<span class="pill good">${icon('check')} In the app</span>` : g === 'look' ? html`<span class="pill warn">Needs a look</span>` : html`<span class="pill">Not in the app</span>`}</span>
+        ${m.reason ? html`<span class="md-why small">${m.reason}</span>` : ''}</span></button>`;
+  };
+  const draw = () => {
+    const list = shown();
+    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${g === group}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
+    mount(el.querySelector('[data-list]'), list.length ? html`<div class="md-grid">${list.map(card)}</div>`
+      : html`<div class="card empty">${lib.items.length === 0
+        ? (connected ? 'No videos yet. They come in on their own; Check for new videos looks now.' : html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every video comes in on its own, or use <b>Add a video</b> for a single YouTube link.`)
+        : q || series ? 'Nothing matches.'
+          : group === 'look' ? 'Nothing needs a look. You’re all caught up.' : group === 'out' ? 'Nothing is left out. Short clips and Shorts land here, in case you want one in the app.' : 'Nothing in the app yet.'}</div>`);
+    const hint = el.querySelector('[data-hint]');
+    hint.hidden = group === 'app';
+    hint.textContent = group === 'look' ? 'Open a video and choose Show in app, or Hide it. Nothing here is in the app until you decide.'
+      : group === 'out' ? `Left out because it’s a Short, shorter than ${cfg.min_minutes} minutes, has a skipped word in its title, or you hid it. Open one and choose Show in app to add it.` : '';
+  };
+
+  const live = lib.status.live;
+  mount(el, html`${live ? html`<div class="alert good md-live"><span class="md-dot"></span><span><b>Live now:</b> ${live.title}. The app’s Watch tab is showing it.</span></div>` : ''}
+    ${lib.status.last_error ? html`<div class="alert bad">The last check didn’t work: ${lib.status.last_error}</div>` : ''}
+    <div class="md-chips" data-chips></div>
+    <p class="muted small md-hint" data-hint hidden></p>
+    <div class="row md-tools"><input type="search" placeholder="Search titles, speakers, series…" data-q class="grow" aria-label="Search">
+      ${lib.series.length ? html`<select data-series aria-label="Series">${options(lib.series.map((x) => ({ value: x, label: x })), '', { blank: 'Every series' })}</select>` : ''}</div>
     <div data-list></div>
-    <p class="muted small">${d.status.mux ? 'Streaming through Mux: each service comes in a few minutes after the stream ends.' : d.status.last_sync ? html`Last checked YouTube ${ago(d.status.last_sync)}${d.settings.channel_title ? ` (${d.settings.channel_title})` : ''}. New services come in on their own within the hour.` : html`Not checked yet.${d.settings.channel_id ? ' New services come in on their own within the hour.' : ''}`}</p>`);
+    <p class="muted small md-last">${lib.status.last_sync ? html`Last checked ${ago(lib.status.last_sync)}${cfg.playlist_id ? ` · reading the playlist “${cfg.playlist_title || 'Sunday messages'}”` : cfg.channel_title ? ` · ${cfg.channel_title}` : ''}. New videos come in on their own every hour.`
+      : connected ? 'Not checked yet. New videos come in on their own every hour.' : 'Not connected to YouTube yet.'}</p>`);
+
+  el.onclick = (e) => {
+    const g = e.target.closest('[data-group]');
+    if (g) { group = g.dataset.group; lastGroup = group; draw(); return; }
+    const c = e.target.closest('[data-open]');
+    if (c) openPanel(Number(c.dataset.open), { lib, el, redraw: draw, reload: async () => { Object.assign(lib, await get('/media')); draw(); refreshAttentionBadges(true); } });
+  };
   el.querySelector('[data-q]').oninput = debounce((e) => { q = e.target.value; draw(); }, 150);
-  const sp = el.querySelector('[data-speaker]');
-  if (sp) sp.onchange = () => { speaker = sp.value; draw(); };
   const se = el.querySelector('[data-series]');
   if (se) se.onchange = () => { series = se.value; draw(); };
   draw();
+  if (opts.open) openPanel(opts.open, { lib, el, redraw: draw, reload: async () => { Object.assign(lib, await get('/media')); draw(); refreshAttentionBadges(true); } });
 }
 
-function streamingCard(x, s) {
-  const steps = html`<p class="small" style="margin:0">One-time setup: the church needs a Mux account (the video service that carries the stream), and whoever manages the church’s hosting adds its two codes to the hub. After that, come back here for your stream key.</p>
-    <details class="small"><summary><b>Setup steps for whoever manages hosting</b></summary><ol class="small md-steps">
-    <li>Sign up at <a href="https://dashboard.mux.com/signup" target="_blank" rel="noopener">dashboard.mux.com/signup</a> and add a card (Billing).</li>
-    <li>In Mux: <b>Settings → Access Tokens → Generate new token</b>. Pick the <b>Production</b> environment and tick <b>Mux Video</b> with Read and Write.</li>
-    <li>In Render → your service → <b>Environment</b>, add <code>MUX_TOKEN_ID</code> and <code>MUX_TOKEN_SECRET</code> with the two values it shows, and save. (Only there, never in an email or chat.)</li>
-    <li>Come back here for your stream key.</li></ol></details>`;
-  if (!x.configured) {
-    return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill">Not set up</span></h2>
-      <p class="small" style="margin:0">Stream from vMix to the church’s own video host (Mux). The app plays it in its own player, with no YouTube, and every service lands here when it ends, ready to trim.</p>${steps}</div>`;
-  }
-  if (!x.live_stream_id) {
-    return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill good">${icon('check')} Mux connected</span></h2>
-      <p class="small" style="margin:0">Make your stream key. It stays the same every week, so it goes into vMix once.</p>
-      <button class="btn primary" data-make-key>${icon('video')} Make the stream key</button></div>`;
-  }
-  return html`<div class="card stack md-stream"><h2 style="margin:0">Live streaming <span class="pill good">${icon('check')} Ready</span></h2>
-    <p class="small" style="margin:0">In vMix: <b>Settings → Outputs / Streaming</b> (the gear next to <b>Stream</b>), Destination <b>Custom RTMP Server</b>:</p>
-    <div class="md-key"><span class="muted small">URL</span><code>${x.server}</code><button class="btn small ghost" data-copy="${x.server}">${icon('copy')} Copy</button></div>
-    <div class="md-key"><span class="muted small">Stream key</span><code data-key>${'•'.repeat(18)}</code><button class="btn small ghost" data-reveal>Show</button><button class="btn small ghost" data-copy="${x.stream_key}">${icon('copy')} Copy</button></div>
-    <p class="muted small" style="margin:0">Anyone with the key can stream to your app, so keep it to the media team. During a service (from 30 minutes before) it goes live in the app on its own; any other time it waits here until you choose <b>Show it in the app</b>.</p>
-    <h3 style="margin:6px 0 0">Also on YouTube</h3>
-    <p class="small" style="margin:0">Cheapest: in vMix, add YouTube as a second destination (vMix sends both at once). Or have Mux forward it (about 2¢ a minute):</p>
-    <form class="row" data-yt style="gap:8px;flex-wrap:wrap">${x.youtube_forward
-      ? html`<span class="pill good">${icon('check')} Forwarding to YouTube</span><button type="button" class="btn small ghost" data-yt-off>Stop</button>`
-      : html`<input type="password" name="key" placeholder="YouTube stream key (YouTube Studio → Go live → Stream)" class="grow" autocomplete="off"><button class="btn small">Forward to YouTube</button>`}</form>
-    <form class="row" data-keep style="gap:8px;align-items:flex-end;flex-wrap:wrap"><label class="field" style="margin:0">After trimming, keep the full recording<select name="keep_full_days">${options([{ value: 7, label: 'For a week' }, { value: 30, label: 'For 30 days' }, { value: 90, label: 'For 90 days' }, { value: 0, label: 'Always' }], s.keep_full_days ?? 30)}</select></label>
-      <span class="muted small grow">Then only the trimmed copy is kept, which costs less to store.</span></form>
-    <button class="btn small ghost danger" data-reset-key style="justify-self:start">Make a new stream key</button></div>`;
+// ---------------------------------------------------------------- one video, in a side panel
+async function openPanel(id, ctx) {
+  const { lib } = ctx;
+  let m;
+  try { m = await get(`/media/${id}`); } catch (e) { fail(e); history.replaceState(null, '', '#/media'); return; }
+  history.replaceState(null, '', `#/media/${id}`);
+  let topics = [...m.topics];
+  let image = m.image;
+  let player = null;
+  let dirty = false;
+  const trimmed = Boolean(m.start || m.end) && !m.raw_deleted;
+  const group = groupOf(m);
+  const yt = m.source !== 'mux' && m.video_id ? `https://www.youtube.com/watch?v=${m.video_id}` : '';
+
+  const dlg = document.createElement('dialog');
+  dlg.className = 'md-panel';
+  mount(dlg, html`<form data-form novalidate>
+    <div class="md-panel-head"><h2>${m.title}</h2><button type="button" class="icon-btn" data-cancel aria-label="Close">${icon('x')}</button></div>
+    <div class="md-panel-body">
+      ${group === 'look' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app yet. Choose <b>Show in app</b> or <b>Hide from the app</b>.</div>`
+        : group === 'out' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app. Choose <b>Show in app</b> to add it.</div>` : ''}
+      <div class="md-pic md-pic-big" data-pic style="background-image:url('${m.image || m.mux_thumb || m.thumbnail || m.picture}')"></div>
+      <label class="field">Title in the app<input type="text" name="title" value="${m.title}" maxlength="200" required>
+        ${yt ? html`<span class="muted small">On YouTube: ${m.yt_title || '—'}</span>` : ''}</label>
+      <div class="form">
+        <label class="field">Date<input type="date" name="day" value="${m.day}"></label>
+        <label class="field">Series<input type="text" name="series" value="${m.series}" list="md-series" maxlength="120" autocomplete="off" placeholder="Pick one or type a new one"></label>
+        <label class="field">Speaker<input type="text" name="speaker" value="${m.speaker}" list="md-speakers" maxlength="120" autocomplete="off"></label>
+        <label class="field">Scripture<input type="text" name="scripture" value="${m.scripture}" maxlength="200" placeholder="Acts 2:38"></label>
+        <label class="field">Campus<select name="campus_id">${options(state.campuses.map((c) => ({ value: c.id, label: c.name })), m.campus_id ?? '', { blank: 'All campuses' })}</select></label>
+      </div>
+      <datalist id="md-series">${lib.series.map((x) => html`<option value="${x}">`)}</datalist>
+      <datalist id="md-speakers">${lib.speakers.map((x) => html`<option value="${x}">`)}</datalist>
+      <label class="field">Notes under the video<textarea name="description" rows="4" maxlength="4000" placeholder="Sermon notes, a link to the series, next steps…">${m.description}</textarea></label>
+      <details class="md-more" ${trimmed ? 'open' : ''} data-trim-box><summary>Trim the start and end</summary>
+        <div class="md-more-body">
+          <div class="m-video md-player" data-player></div>
+          <div class="md-trim-row"><label class="field">Starts at<input type="text" name="start" value="${m.raw_deleted ? '' : m.start ? hms(m.start) : ''}" placeholder="0:00" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
+            <button type="button" class="btn small" data-mark="start">${icon('clock')} Set to now</button>
+            <button type="button" class="btn small ghost" data-jump="start">${icon('play')} Play from here</button></div>
+          <div class="md-trim-row"><label class="field">Ends at<input type="text" name="end" value="${m.raw_deleted ? '' : m.end ? hms(m.end) : ''}" placeholder="${m.duration ? hms(m.duration) : 'The end'}" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
+            <button type="button" class="btn small" data-mark="end">${icon('clock')} Set to now</button>
+            <button type="button" class="btn small ghost" data-jump="end">${icon('play')} Play the last 10 s</button></div>
+          <p class="muted small" data-plays style="margin:0"></p>
+          <p class="muted small" style="margin:0">Skip the pre-service and announcements: play to where it should start, pause, and choose <b>Set to now</b>. The app plays only this part. The video on YouTube doesn’t change.</p>
+        </div></details>
+      <details class="md-more"><summary>Topics, picture and service</summary>
+        <div class="md-more-body">
+          <div class="field"><span>Topics</span><div data-topics></div><span class="muted small">People can tap a topic in the app to see every message on it.</span></div>
+          <div class="field"><span>Picture</span>
+            <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn small">${icon('upload')} Use my own picture<input type="file" accept="image/*" data-upload hidden></label>
+              <button type="button" class="btn small ghost" data-yt-pic ${m.image ? '' : 'hidden'}>Use the picture from the video</button></div>
+            <span class="muted small">Shown on the card and before it plays. A 16:9 picture works best.</span></div>
+          <label class="field">Service<select name="service_id">${options(m.services.map((s) => ({ value: s.id, label: `${fmtTime(s.starts_at)} · ${s.campus}${s.title ? ` · ${s.title}` : ''}` })), m.service_id ?? '', { blank: m.services.length ? 'Not linked' : 'No services that day' })}</select>
+            <span class="row small" style="gap:8px"><button type="button" class="btn small ghost" data-refill ${m.service_id ? '' : 'disabled'}>${icon('wand')} Fill in from the order of service</button></span></label>
+        </div></details>
+      <p class="muted small" style="margin:0">${m.was_live ? 'Streamed live' : 'Added'} ${fmtDate(new Date(`${m.recorded_at.replace(' ', 'T')}Z`).toLocaleDateString('en-CA'), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}${m.duration ? ` · ${hms(m.duration)} long` : ''}</p>
+    </div>
+    <div class="md-panel-foot">
+      ${m.status === 'published' ? html`<button type="button" class="btn" data-status="hidden">Hide from the app</button>` : html`<button type="button" class="btn ${group === 'app' ? '' : 'primary'}" data-status="published">${icon('check')} Show in app</button>`}
+      ${yt ? html`<a class="btn ghost" href="${yt}" target="_blank" rel="noopener">${icon('external')} Open on YouTube</a>` : ''}
+      <span class="grow"></span>
+      <button type="button" class="btn" data-cancel>Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div></form>`);
+  document.body.append(dlg);
+  const f = dlg.querySelector('[data-form]');
+  const startIn = f.start;
+  const endIn = f.end;
+  chips(dlg.querySelector('[data-topics]'), topics, (list) => { topics = list; dirty = true; }, { placeholder: 'Faith, Prayer, Family…' });
+
+  const plays = () => {
+    const s = parseHms(startIn.value) || 0;
+    const e = parseHms(endIn.value) ?? m.duration;
+    dlg.querySelector('[data-plays]').textContent = Number.isNaN(s) || Number.isNaN(e) ? 'Use minutes and seconds, like 12:30 or 1:05:00.'
+      : e ? `The app plays ${hms(Math.max(0, e - s))}${m.duration ? ` of ${hms(m.duration)}` : ''}.` : '';
+  };
+  startIn.oninput = plays;
+  endIn.oninput = plays;
+  plays();
+  // The player loads only when the trim section is opened (it's a heavy embed).
+  const box = dlg.querySelector('[data-trim-box]');
+  let mounted = false;
+  const mountIt = () => {
+    if (mounted || !box.open) return;
+    mounted = true;
+    const src = m.source === 'mux' ? { playbackId: m.raw_playback_id || m.playback_id, poster: m.mux_thumb || m.picture } : { videoId: m.video_id };
+    if (m.source === 'mux' && !src.playbackId) dlg.querySelector('[data-player]').innerHTML = '<div class="md-wait">This video isn’t ready to play here yet.</div>';
+    else mountPlayer(dlg.querySelector('[data-player]'), { ...src, start: m.raw_deleted ? 0 : m.start || 0 }).then((p) => { player = p; });
+  };
+  box.addEventListener('toggle', mountIt);
+  mountIt();
+
+  const body = () => ({
+    title: f.title.value, speaker: f.speaker.value, series: f.series.value, scripture: f.scripture.value, day: f.day.value,
+    service_id: f.service_id.value || null, campus_id: f.campus_id.value || null, description: f.description.value,
+    topics, image, start: startIn.value.trim() || 0, end: endIn.value.trim() || null,
+  });
+  // A series typed in another case joins the one already in the library.
+  f.series.onchange = () => { const hit = lib.series.find((x) => x.toLowerCase() === f.series.value.trim().toLowerCase()); if (hit) f.series.value = hit; };
+  dlg.addEventListener('input', () => { dirty = true; });
+
+  const finish = () => { player?.destroy(); player = null; window.removeEventListener('hashchange', onHash); dlg.close(); };
+  const onHash = () => finish();
+  window.addEventListener('hashchange', onHash);
+  dlg.addEventListener('close', () => {
+    dlg.remove();
+    if (location.hash === `#/media/${id}`) history.replaceState(null, '', '#/media');
+  });
+  const askClose = async () => {
+    if (dirty && !(await confirm('Leave without saving?', 'Your changes to this video won’t be kept.', 'Leave', { danger: false }))) return;
+    finish();
+  };
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); askClose(); });
+  dlg.addEventListener('click', async (e) => {
+    if (e.target === dlg) return askClose();
+    if (e.target.closest('[data-cancel]')) return askClose();
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.mark) {
+      const t = player?.time();
+      if (t == null) return toast('Play the video first, or type the time.');
+      (b.dataset.mark === 'start' ? startIn : endIn).value = hms(t);
+      dirty = true;
+      plays();
+    }
+    if (b.dataset.jump) {
+      const s = parseHms(startIn.value) || 0;
+      const end = parseHms(endIn.value);
+      if (b.dataset.jump === 'start') player?.seek(s);
+      else player?.seek(Math.max(s, (end ?? m.duration ?? 10) - 10));
+    }
+    if (b.matches('[data-refill]')) {
+      try {
+        const s = await get(`/media/from-service/${f.service_id.value}`);
+        if (s.title) f.title.value = s.title;
+        if (s.speaker) f.speaker.value = s.speaker;
+        if (s.series) f.series.value = s.series;
+        f.day.value = s.day;
+        f.campus_id.value = s.campus_id ?? '';
+        dirty = true;
+        toast(s.title || s.speaker ? 'Filled in. Save to keep it.' : 'That order of service doesn’t name a message or speaker yet.');
+      } catch (err) { fail(err); }
+    }
+    if (b.matches('[data-yt-pic]')) { image = ''; dirty = true; dlg.querySelector('[data-pic]').style.backgroundImage = `url('${m.mux_thumb || m.thumbnail}')`; b.hidden = true; }
+    if (b.dataset.status) {
+      const status = b.dataset.status;
+      b.disabled = true;
+      try {
+        await patch(`/media/${m.id}`, { ...(dirty ? body() : {}), status });
+        toast(status === 'published' ? 'It’s in the app now.' : 'Hidden from the app.');
+        finish();
+        ctx.reload();
+      } catch (err) { fail(err); b.disabled = false; }
+    }
+  });
+  f.service_id.onchange = () => { dlg.querySelector('[data-refill]').disabled = !f.service_id.value; };
+  dlg.querySelector('[data-upload]').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      toast('Uploading…');
+      image = (await api('POST', '/app/images', await shrinkImage(file, 1600))).url;
+      dirty = true;
+      dlg.querySelector('[data-pic]').style.backgroundImage = `url('${image}')`;
+      dlg.querySelector('[data-yt-pic]').hidden = false;
+    } catch (err) { fail(err); }
+  };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!f.reportValidity()) return;
+    const save = f.querySelector('button[type=submit]');
+    save.disabled = true;
+    try {
+      const r = await patch(`/media/${m.id}`, body());
+      if (r.clip_error) toast(`Saved, but the trimmed copy couldn’t be made: ${r.clip_error}`, 'bad');
+      else toast(m.status === 'published' ? 'Saved. The app shows it now.' : 'Saved.');
+      finish();
+      ctx.reload();
+    } catch (err) { fail(err); save.disabled = false; }
+  };
+  dlg.showModal();
 }
 
-function drawSetup(el, setup, head) {
+// ---------------------------------------------------------------- Setup
+async function drawSetup(el) {
+  const setup = await get('/media/setup');
   const { settings: s, status, formats, api_key: hasKey } = setup;
-  const muxOn = setup.mux.configured;
-  mount(el, html`${head(null)}${muxOn ? streamingCard(setup.mux, s) : ''}<div class="grid two md-setup">
+  setTitle('Media setup', html`<a class="btn ghost" href="#/media">${icon('back')} Library</a>`);
+  mount(el, html`<div class="md-setup-col stack">
     <form class="card stack" data-form>
-      <h2 style="margin:0">YouTube channel</h2>
-      ${status.mux ? html`<p class="small" style="margin:0"><span class="pill">Older videos only</span> You’re streaming through Mux, so new services come from there. The channel is for bringing in past services.</p>` : ''}
-      <p class="muted small" style="margin:0">Every hour the hub checks your channel. When a service is over, it lands in the app’s Watch tab with its date, campus, speaker, series and title filled in from that day’s order of service. Nothing on YouTube changes.</p>
+      <h2 style="margin:0">YouTube channel ${s.channel_id ? html`<span class="pill good">${icon('check')} Connected</span>` : html`<span class="pill warn">Not connected</span>`}</h2>
+      <p class="muted small" style="margin:0">Videos come in on their own, every hour. Each one gets its date, campus, speaker, series and title from that day’s order of service when it can. Nothing on YouTube ever changes.</p>
       <label class="field">Channel address or @handle<input type="text" name="channel" value="${s.channel_input}" placeholder="youtube.com/@yourchurch">
-        ${s.channel_id ? html`<span class="small"><span class="pill good">${icon('check')} ${s.channel_title || s.channel_id}</span> · last checked ${ago(status.last_sync)}</span>` : ''}</label>
+        ${s.channel_id ? html`<span class="small">${s.channel_title || s.channel_id} · last checked ${ago(status.last_sync)}</span>` : ''}</label>
       ${status.last_error ? html`<div class="alert bad">${status.last_error}</div>` : ''}
+
+      <h2 style="margin:10px 0 0">Sunday messages playlist ${s.playlist_id ? html`<span class="pill good">${icon('check')} In use</span>` : html`<span class="pill">Not set</span>`}</h2>
+      <label class="field">Only bring in videos from this playlist<input type="text" name="playlist" value="${s.playlist_input}" placeholder="youtube.com/playlist?list=PL…">
+        <span class="muted small">${s.playlist_id ? `Reading “${s.playlist_title || 'your playlist'}”. Only videos you add to it come into the app.` : 'Make a playlist on YouTube for your Sunday messages, then paste its address here. Leave this empty to bring in every video on the channel.'}</span></label>
+
+      <h2 style="margin:10px 0 0">Which videos stay out</h2>
+      <label class="field">Videos are at least<span class="row" style="gap:8px"><input type="number" name="min_minutes" min="1" max="180" value="${s.min_minutes}" style="width:90px"> minutes long</span>
+        <span class="muted small">Shorter videos and YouTube Shorts stay out of the app. You’ll still find them under Not in the app.</span></label>
+      <label class="field">Skip videos whose title contains…<input type="text" name="skip_words" value="${s.skip_words}" placeholder="kids, vbs, youth camp">
+        <span class="muted small">Separate words with commas; capital letters don’t matter. A backup for things like kids’ ministry videos. Skipped videos are kept under Not in the app, so you can still add one by hand.</span></label>
       <label class="field">How your video titles are written<select name="title_format">${options(Object.entries(formats).map(([value, label]) => ({ value, label })), s.title_format)}</select>
-        <span class="muted small">Used when the order of service doesn’t name the message. With “Series | Title”, a video called <i>Unshakable | Standing Firm</i> becomes the title “Standing Firm” in the series “Unshakable”.</span></label>
-      <label class="field">Full services are at least<span class="row" style="gap:8px"><input type="number" name="min_minutes" min="1" max="180" value="${s.min_minutes}" style="width:90px"> minutes</span>
-        <span class="muted small">Shorter videos (and Shorts) go to Skipped instead of the app.</span></label>
-      <label class="check"><input type="checkbox" name="own_player_only" ${s.own_player_only ? 'checked' : ''}> Only show videos that play in our own player</label>
-      <span class="muted small" style="margin-top:-6px">Hides ones still on YouTube until their video file is uploaded (Upload videos).</span>
-      <label class="check"><input type="checkbox" name="notify_live" ${s.notify_live ? 'checked' : ''}> Notify the app when we go live</label>
-      <label class="check"><input type="checkbox" name="notify_new" ${s.notify_new ? 'checked' : ''}> Notify the app when a new message is added</label>
+        <span class="muted small">Used when the order of service doesn’t name the message. With “Series | Title”, a video called <i>Unshakable | Standing Firm</i> becomes “Standing Firm” in the series “Unshakable”.</span></label>
+
+      <h2 style="margin:10px 0 0">Notices</h2>
+      <label class="check"><input type="checkbox" name="notify_live" ${s.notify_live ? 'checked' : ''}> Tell the app when we go live</label>
+      <label class="check"><input type="checkbox" name="notify_new" ${s.notify_new ? 'checked' : ''}> Tell the app when a new message is added</label>
       <span class="muted small" style="margin-top:-6px">Goes to everyone with notifications on, including guests who turned on announcements. People can turn these off for themselves.</span>
       <div class="row end"><button class="btn primary">Save</button></div>
     </form>
+
     <div class="card stack">
-      <h2 style="margin:0">See every video ${hasKey ? html`<span class="pill good">${icon('check')} On</span>` : html`<span class="pill">Optional</span>`}</h2>
+      <h2 style="margin:0">YouTube API key ${hasKey ? html`<span class="pill good">${icon('check')} On</span>` : html`<span class="pill">Off</span>`}</h2>
       ${hasKey
-        ? html`<p class="small" style="margin:0">The hub can see your whole channel, with each video’s exact length and when you’re live.</p>
-          <button class="btn" data-deep ${s.channel_id ? '' : 'disabled'}>${icon('download')} Bring in older videos</button>
-          <span class="muted small">Goes back through the whole channel once. Full services land in the library; you can hide any.</span>`
-        : html`<p class="small" style="margin:0">Without this the hub sees your latest 15 videos, which is plenty week to week. To bring in older services too, ask whoever manages the church’s hosting to add a free YouTube key (about 5 minutes).</p>
-          <details class="small"><summary><b>Setup steps for whoever manages hosting</b></summary><ol class="small md-steps"><li>Go to <b>console.cloud.google.com</b>, in the same project you use for Google sign-in.</li>
+        ? html`<p class="small" style="margin:0">With the key on, the hub can <b>see all your videos, not just the latest 15</b>, with each one’s exact length and whether it’s live.</p>
+          <button class="btn" data-deep style="justify-self:start" ${s.channel_id ? '' : 'disabled'}>${icon('download')} Bring in older videos</button>
+          <span class="muted small">Goes back through ${s.playlist_id ? 'the whole playlist' : 'the whole channel'} once. Each video is sorted the same way as new ones.</span>`
+        : html`<p class="small" style="margin:0">Off. Without a key the hub sees only the latest 15 videos and has to read each one’s page for its length, so some may need a look. A free key lets it <b>see all your videos, not just the latest 15</b>.</p>
+          <details class="small"><summary><b>Steps for whoever manages the church’s hosting (about 5 minutes)</b></summary><ol class="small md-steps">
+            <li>Go to <b>console.cloud.google.com</b>, in the same project you use for Google sign-in.</li>
             <li><b>APIs &amp; Services → Library</b>: find <b>YouTube Data API v3</b> and click <b>Enable</b>.</li>
             <li><b>APIs &amp; Services → Credentials → Create credentials → API key</b>. Click the key, under <b>API restrictions</b> pick <b>YouTube Data API v3</b>, and save.</li>
-            <li>In Render → your service → <b>Environment</b>, add <code>YOUTUBE_API_KEY</code> with that key.</li></ol></details>`}
-      <h2 style="margin:8px 0 0">In the app</h2>
-      <p class="small" style="margin:0">The <b>Watch</b> tab shows the library with your titles, pictures and trims: search, and filter by speaker, series and topic. When you’re live, the live service is at the top. Add a <b>Latest message</b> widget to the home screen in the App Builder.</p>
-    </div></div>
-    ${muxOn ? '' : html`<details class="md-own-host"><summary class="muted small">Own video hosting (Mux, paid) — not set up</summary>${streamingCard(setup.mux, s)}</details>`}`);
+            <li>In Render → your service → <b>Environment</b>, add <code>YOUTUBE_API_KEY</code> with that key. (Only there, never in an email or chat.)</li></ol></details>`}
+    </div>
+
+    <div class="card stack">
+      <h2 style="margin:0">Going live</h2>
+      <p class="small" style="margin:0">Around service times (from 30 minutes before a service starts to 2 hours after) the hub asks YouTube every couple of minutes whether you’re live. When you are, the Watch tab shows it at the top. A live video comes into the library once it’s over. At other times the hourly check is enough.</p>
+      ${status.live ? html`<span class="pill good">Live now: ${status.live.title}</span>` : ''}
+    </div></div>`);
 
   const f = el.querySelector('[data-form]');
   f.onsubmit = async (e) => {
@@ -167,45 +355,18 @@ function drawSetup(el, setup, head) {
     const b = f.querySelector('button.primary');
     b.disabled = true;
     try {
-      const r = await put('/media/setup', { channel: f.channel.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked, own_player_only: f.own_player_only.checked });
+      const r = await put('/media/setup', { channel: f.channel.value, playlist: f.playlist.value, skip_words: f.skip_words.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked });
       const first = r.settings.channel_id && !s.channel_id;
-      if (first) {
-        toast(`Connected to ${r.settings.channel_title || 'your channel'}. Looking for videos…`);
+      if (first || r.settings.playlist_id !== s.playlist_id) {
+        toast(first ? `Connected to ${r.settings.channel_title || 'your channel'}. Looking for videos…` : 'Saved. Looking for videos…');
         await post('/media/sync', {}).catch(fail);
+        refreshAttentionBadges(true);
         return go('/media');
       }
       toast('Saved.');
-      media(el, 'setup');
+      drawSetup(el);
     } catch (err) { fail(err); b.disabled = false; }
   };
-  const card = el.querySelector('.md-stream');
-  if (!muxOn) return;
-  card.onclick = async (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    try {
-      if (b.matches('[data-make-key]')) { b.disabled = true; await post('/media/mux/stream', {}); toast('Your stream key is ready.'); return media(el, 'setup'); }
-      if (b.dataset.copy) { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied.'); }
-      if (b.matches('[data-reveal]')) { const k = card.querySelector('[data-key]'); const shown = b.textContent === 'Hide'; k.textContent = shown ? '•'.repeat(18) : setup.mux.stream_key; b.textContent = shown ? 'Show' : 'Hide'; }
-      if (b.matches('[data-yt-off]')) { await put('/media/mux/youtube', { key: '' }); toast('Stopped forwarding to YouTube.'); media(el, 'setup'); }
-      if (b.matches('[data-reset-key]')) {
-        if (!(await confirm('Make a new stream key?', 'The old key stops working right away, so vMix needs the new one before the next service.', 'Make a new key'))) return;
-        await post('/media/mux/reset-key', {});
-        toast('New key made. Put it in vMix.');
-        media(el, 'setup');
-      }
-    } catch (err) { fail(err); b.disabled = false; }
-  };
-  const yt = card.querySelector('[data-yt]');
-  if (yt && yt.key) {
-    yt.onsubmit = async (e) => {
-      e.preventDefault();
-      if (!yt.key.value.trim()) return toast('Paste the stream key from YouTube Studio.');
-      try { await put('/media/mux/youtube', { key: yt.key.value.trim() }); toast('Mux will send the stream on to YouTube too.'); media(el, 'setup'); } catch (err) { fail(err); }
-    };
-  }
-  const keep = card.querySelector('[data-keep]');
-  if (keep) keep.keep_full_days.onchange = async () => { try { await put('/media/setup', { keep_full_days: Number(keep.keep_full_days.value) }); toast('Saved.'); } catch (err) { fail(err); } };
   const deep = el.querySelector('[data-deep]');
   if (deep) {
     deep.onclick = async () => {
@@ -213,130 +374,10 @@ function drawSetup(el, setup, head) {
       deep.textContent = 'Bringing in older videos…';
       try {
         const r = await post('/media/sync', { deep: true });
-        toast(`${r.added} added to the library${r.skipped ? `, ${r.skipped} skipped` : ''}.`);
+        toast(`${r.added} added to the app${r.review ? `, ${r.review} to look at` : ''}${r.skipped ? `, ${r.skipped} left out` : ''}.`);
+        refreshAttentionBadges(true);
         go('/media');
       } catch (err) { fail(err); deep.disabled = false; }
     };
   }
-}
-
-// Several video files at once (downloaded from YouTube Studio, or anything else). Each one goes
-// onto the library video with the same title, so it switches to our own player; any other file
-// becomes a new video.
-async function bulkUpload(el, files, done) {
-  const lists = await Promise.all(['published', 'hidden', 'skipped'].map((st) => get(`/media?status=${st}`)));
-  const all = lists.flatMap((d) => d.items);
-  const box = document.createElement('div');
-  box.className = 'card stack md-bulk';
-  el.prepend(box);
-  const rows = files.map((f) => {
-    const key = looseTitle(f.name);
-    const match = all.find((m) => looseTitle(m.yt_title) === key || looseTitle(m.title) === key);
-    return { file: f, match, state: 'Waiting', pct: 0 };
-  });
-  const draw = () => mount(box, html`<h2 style="margin:0">Uploading ${files.length} ${files.length === 1 ? 'video' : 'videos'} <span class="muted small">Keep this page open</span></h2>
-    ${rows.map((r) => html`<div class="md-bulk-row"><span class="grow"><b>${r.file.name}</b><br><span class="muted small">${r.match ? `Onto “${r.match.title}”` : 'A new video'} · ${r.state}</span></span>
-      <span class="meter" style="width:160px"><span style="width:${r.pct}%"></span></span></div>`)}`);
-  draw();
-  for (const r of rows) {
-    try {
-      if (r.match?.source === 'mux' && !r.match.upload_status) { r.state = 'Already in our player'; r.pct = 100; draw(); continue; }
-      r.state = 'Uploading';
-      draw();
-      const { id, url } = r.match ? { id: r.match.id, ...(await post(`/media/${r.match.id}/upload`, {})) } : await post('/media/uploads', { title: r.file.name });
-      let last = 0;
-      await uploadToMux(url, r.file, (f) => { r.pct = Math.round(f * 100); if (r.pct !== last) { last = r.pct; draw(); } });
-      await post(`/media/${id}/upload/done`, {});
-      r.state = 'Uploaded; Mux is getting it ready';
-    } catch (err) { r.state = `Didn’t work: ${err.message}`; }
-    draw();
-  }
-  toast('Uploads finished. Each switches to our own player once Mux has it ready (a few minutes).');
-  setTimeout(done, 1500);
-}
-
-// ---------------------------------------------------------------- the podcast
-const EP_STATE = {
-  ready: html`<span class="pill good">In the podcast</span>`,
-  making: html`<span class="pill warn">Making the audio…</span>`,
-  uploading: html`<span class="pill warn">Video on its way to Mux</span>`,
-  failed: html`<span class="pill bad">Audio didn’t work</span>`,
-  youtube: html`<span class="pill">Only on YouTube</span>`,
-  off: html`<span class="pill">Left out</span>`,
-};
-
-async function drawPodcast(el, head) {
-  const d = await get('/media/podcast');
-  const p = d.settings;
-  let image = p.image;
-  mount(el, html`${head(null)}
-    ${!d.mux ? html`<div class="alert">The podcast uses the audio of messages streamed or uploaded through Mux. Set up streaming in <a href="#/media/setup">Setup</a> first.</div>` : ''}
-    <div class="grid two md-setup">
-      <form class="card stack" data-pod>
-        <h2 style="margin:0">Podcast ${p.enabled ? html`<span class="pill good">${icon('check')} On</span>` : html`<span class="pill">Off</span>`}</h2>
-        <p class="small" style="margin:0">Every message in the library becomes a podcast episode on its own: the audio of its trimmed part, with its title, speaker, series and scripture. Podcast apps check for new ones every few hours.</p>
-        <label class="check"><input type="checkbox" name="enabled" ${p.enabled ? 'checked' : ''}> Turn on the podcast</label>
-        <label class="field">Podcast name<input type="text" name="title" value="${p.title}" maxlength="150" required></label>
-        <label class="field">Host or church<input type="text" name="author" value="${p.author}" maxlength="120"></label>
-        <label class="field">About the podcast<textarea name="description" rows="3" maxlength="4000" placeholder="Messages from our Sunday services…">${p.description}</textarea></label>
-        <label class="field">Owner email<input type="email" name="email" value="${p.email}" placeholder="media@yourchurch.org">
-          <span class="muted small">Podcast apps send a code here to confirm the podcast is yours. It’s in the feed, so use a church address.</span></label>
-        <label class="field">Category<select name="subcategory">${options([{ value: 'Christianity', label: 'Religion & Spirituality › Christianity' }, { value: 'Religion', label: 'Religion & Spirituality › Religion' }, { value: 'Spirituality', label: 'Religion & Spirituality › Spirituality' }], p.subcategory)}</select></label>
-        <div class="field"><span>Cover art</span>
-          <div class="row" style="gap:12px;align-items:center"><span class="pod-art" data-art style="${image ? `background-image:url('${image}')` : ''}">${image ? '' : icon('image')}</span>
-            <span class="stack" style="gap:6px"><label class="btn small" style="justify-self:start">${icon('upload')} Upload a square picture<input type="file" accept="image/jpeg,image/png" data-art-file hidden></label>
-              <span class="muted small">At least 1400 × 1400 (3000 × 3000 is best), JPG or PNG.</span></span></div></div>
-        <div class="row end"><button class="btn primary">Save</button></div>
-      </form>
-      <div class="card stack">
-        <h2 style="margin:0">Put it on Apple Podcasts and Spotify</h2>
-        <p class="small" style="margin:0">Your feed’s address. Submit it once to each app; after that they pick up new episodes on their own.</p>
-        <div class="md-key"><code>${d.feed_url}</code><button class="btn small ghost" data-copy="${d.feed_url}">${icon('copy')} Copy</button></div>
-        <ol class="small md-steps">
-          <li><b>Apple Podcasts:</b> sign in at <a href="https://podcastsconnect.apple.com" target="_blank" rel="noopener">podcastsconnect.apple.com</a> → <b>+</b> → <b>New Show</b> → <b>Add a show with an RSS feed</b>, paste the address, and submit. Apple reviews it (usually a day or two).</li>
-          <li><b>Spotify:</b> at <a href="https://creators.spotify.com" target="_blank" rel="noopener">creators.spotify.com</a> choose to add an existing podcast, paste the address, and enter the code Spotify emails to the owner email.</li>
-          <li>Others (Amazon Music, Pocket Casts, Overcast…) find it through Apple, or take the same address.</li></ol>
-        <p class="muted small" style="margin:0">Turn the podcast on and have at least one episode ready before submitting: the apps check the feed when you do.</p>
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px"><h2>Episodes</h2>
-      ${d.episodes.length ? html`<table class="list"><thead><tr><th>Message</th><th>Date</th><th>Podcast</th><th></th></tr></thead><tbody>
-        ${d.episodes.map((e) => html`<tr><td><a href="#/media/${e.id}"><b>${e.title}</b></a>${e.speaker ? html`<div class="muted small">${e.speaker}</div>` : ''}</td>
-          <td class="nowrap small">${fmtDate(e.day, { month: 'short', day: 'numeric', year: 'numeric' })}</td><td>${EP_STATE[e.state] || ''}</td>
-          <td style="text-align:right"><button class="btn small ghost" data-ep="${e.id}" data-on="${e.podcast ? '' : '1'}">${e.podcast ? 'Leave out' : 'Include'}</button></td></tr>`)}</tbody></table>`
-        : html`<p class="muted" style="margin:0">No messages yet.</p>`}
-      <p class="muted small" style="margin:8px 0 0">“Only on YouTube” ones can join once their video file is uploaded (open the video → Play it in our own player).</p></div>`);
-
-  const f = el.querySelector('[data-pod]');
-  f.onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await put('/media/podcast', { enabled: f.enabled.checked, title: f.title.value, author: f.author.value, description: f.description.value, email: f.email.value, subcategory: f.subcategory.value, image });
-      toast(f.enabled.checked ? 'Saved. Episodes appear in the feed as their audio is ready.' : 'Saved.');
-      drawPodcast(el, head);
-    } catch (err) { fail(err); }
-  };
-  el.querySelector('[data-art-file]').onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const img = await createImageBitmap(file).catch(() => null);
-    if (img && (img.width < 1400 || Math.abs(img.width - img.height) > 4)) toast('Podcast apps want a square picture at least 1400 × 1400. This one may be turned down.', 'bad');
-    try {
-      image = (await api('POST', '/app/images', await shrinkImage(file, 3000))).url;
-      const art = el.querySelector('[data-art]');
-      art.style.backgroundImage = `url('${image}')`;
-      art.textContent = '';
-      toast('Cover art added. Save to keep it.');
-    } catch (err) { fail(err); }
-  };
-  el.onclick = async (e) => {
-    const t = e.target.closest('[data-tab]');
-    if (t) return go(t.dataset.tab === 'published' ? '/media' : `/media/${t.dataset.tab}`);
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.copy) { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied.'); }
-    if (b.dataset.ep) {
-      try { await patch(`/media/${b.dataset.ep}`, { podcast: Boolean(b.dataset.on) }); drawPodcast(el, head); } catch (err) { fail(err); }
-    }
-  };
 }

@@ -33,7 +33,7 @@ const NAV = [
     { path: '/announcements', label: 'Announcements', icon: 'bell', min: 'volunteer', announce: true },
     { path: '/forms', label: 'Forms', icon: 'file', min: 'staff', badge: 'forms' },
     { path: '/connect', label: 'Connect cards', icon: 'hand', min: 'leader', badge: 'connect' },
-    { path: '/media', label: 'Media', icon: 'play', min: 'staff' },
+    { path: '/media', label: 'Media', icon: 'play', min: 'staff', badge: 'media' },
     { path: '/app-builder', label: 'App Builder', icon: 'phone', min: 'volunteer', appEditor: true },
   ] },
   { group: 'More', items: [
@@ -162,7 +162,7 @@ async function boot() {
 
 // Counts on menu items: unread chat messages, and my tasks due today or late.
 const badgeCounts = {};
-const MORE_KINDS = ['tasks', 'forms', 'connect'];
+const MORE_KINDS = ['tasks', 'forms', 'connect', 'media'];
 function setBadge(kind, n) {
   badgeCounts[kind] = n;
   // The phone's More button carries the counts for pages that aren't on the bottom bar.
@@ -193,6 +193,7 @@ export async function refreshAttentionBadges(force = false) {
     const a = await get(`/attention${campusQuery()}`);
     setBadge('connect', a.connect_cards + a.signups);
     setBadge('forms', a.forms_new);
+    setBadge('media', a.media_review || 0);
   } catch { /* try again later */ }
 }
 
