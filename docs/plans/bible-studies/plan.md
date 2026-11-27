@@ -315,6 +315,23 @@ Never run two editing agents at once. PRs 2–5 follow PR 1 one at a time, in an
 5. **CSV import** of history.
 No new dependencies, services or costs.
 
+## Owner answers (27 Nov 2026)
+
+The owner approved the plan and gave these answers:
+1. **Coordinator access:** an admin switches on the "Bible studies coordinator" flag for that person (`users.studies`). More than one coordinator is allowed. There is one today, and that may change.
+2. **Teachers** need no separate approval step. The coordinator can pick anyone.
+3. **Material:** usually picked by the teacher. The teacher (on their own study) or a coordinator sets it, and the person asking can suggest one in their request.
+4. **Progress:** shown to students in the app when a study has a planned number of lessons. Many studies have no end date and no set number of lessons; those show "Active since <month>", or a session count if the teacher records one. Neither field is required.
+5. **Teachers without accounts** are allowed, but everyone should ideally have one, especially teachers. When a study is set up for a teacher with no account, prompt the coordinator to invite them.
+6. **Campuses:** studies belong to the whole church (campus is optional and only used for reporting). One coordinator currently covers both campuses.
+7. **Contact details:** a teacher sees a student's phone and email only if the student agrees, by ticking "share my contact details with my teacher" in the request or when added. Otherwise the coordinator makes the introduction.
+8. **New requests:** every coordinator is notified.
+9. **A short coordinator-only note** on each study is kept, capped at 280 characters.
+10. **Finishing:** a teacher can mark a student finished, and a coordinator can undo it (soft revoke, audited).
+11. **Name:** "Bible studies".
+
+**Migration number:** Bible studies will probably ship before the child-safety pilot, so it takes the next free number on `milestone-1` (41). The held child-safety stack (#130–#140) renumbers at merge, following the rule that the unshipped one renumbers.
+
 ## Questions for the owner (plain language)
 
 1. **Who is the coordinator?** Shall an admin switch on "Bible studies coordinator" for that person (recommended),
