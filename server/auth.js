@@ -13,6 +13,7 @@ import { closeStreams } from './live.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
+import { legalHold } from './history.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -381,6 +382,9 @@ export function authRoutes(app, db) {
     if (!r.ok || !t.refresh_token) return back(`Google didn’t allow Drive access (${t.error || 'no long-term access was given'}). Try again, and tick the Google Drive box.`);
     if (!String(t.scope || '').includes(DRIVE_SCOPE)) return back('The Google Drive box wasn’t ticked. Try again and allow it.');
     const claims = t.id_token ? JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url').toString()) : {};
+    // While a legal hold is on, the held copies are in the connected Google account: a different one would walk away from them.
+    const current = getSetting(db, 'backup_drive', null);
+    if (legalHold(db).on && current?.email && current.email !== (claims.email || '')) return back('A legal hold is on, so Google Drive can’t be switched to a different account. Release the hold first.');
     connectDrive(db, { refresh_token: t.refresh_token, email: claims.email || '' });
     back('');
   }

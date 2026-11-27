@@ -136,7 +136,7 @@ export default function checkinRoutes(db) {
       const serviceId = int(rec.service_id);
       const info = ins.run(id, c.id, serviceId && db.prepare('SELECT 1 FROM services WHERE id = ? AND campus_id = ?').get(serviceId, c.id) ? serviceId : null,
         person.id, roomId, kind, str(rec.security_code, 8).toUpperCase() || securityCode(), str(rec.station, 60), day, at.toISOString());
-      const saved = db.prepare('SELECT * FROM checkins WHERE id = ?').get(id);
+      const saved = db.prepare('SELECT id, campus_id, service_id, person_id, room_id, kind, security_code, station, day, checked_in_at, checked_out_at, checked_out_by FROM checkins WHERE id = ? AND campus_id = ? AND voided_at IS NULL').get(id, c.id);
       // Only a new row is recorded; re-sending a batch after a dropped connection writes nothing.
       if (info.changes === 1) {
         recordEvent(db, req, { action: 'checkin', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, code: saved.security_code,
@@ -316,13 +316,19 @@ export default function checkinRoutes(db) {
     res.set('Allow', 'POST').status(405).json({ error: 'A check-in can’t be deleted, because it’s part of the record. Use “Void” instead and say why.' });
   });
 
-  // Void a check-in (body: { reason }). Staff, admins and authorised leaders signed in to the Hub, never an iPad,
+  // Void a check-in (body: { reason }). Staff, admins and accounts with the Kids’ check-in switch signed in to the Hub, never an iPad,
   // so the record always names a person. Not allowed while a legal hold is on.
   r.post('/checkin/checkins/:id/void', requireCheckin, (req, res) => {
     if (req.user.station) throw new HttpError(403, 'An iPad can’t void a check-in. Ask a staff member to void it from the Hub.');
     const ci = db.prepare('SELECT ci.*, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
     if (!canCheckinCampus(db, req.user, ci.campus_id)) throw forbidden();
+    // Staff and admins may void any check-in at their campuses. A leader with check-in access may only void one that is still open
+    // (not checked out) from today at that campus, which covers "checked in the wrong child" and nothing older.
+    if (rank(req.user.role) < rank('staff')) {
+      const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(ci.campus_id)?.timezone || 'UTC';
+      if (ci.checked_out_at || ci.day !== localNow(tz).date) throw new HttpError(403, 'Leaders can void a check-in that is still open from today. Ask a staff member to void this one.');
+    }
     const reason = str(req.body?.reason, 300);
     if (!reason) throw bad('Say why you’re voiding this check-in.');
     if (legalHold(db).on) throw new HttpError(409, HOLD_MSG);
@@ -413,7 +419,9 @@ export default function checkinRoutes(db) {
     tx(db, () => {
       setSetting(db, 'checkin_safety', to);
       audit(db, req, 'checkin.safety', { from, to });
-      recordEvent(db, req, { action: 'safety.settings', detail: { from, to } });
+      // The record only notes which switches changed; the hold's reason and names stay in the audit log.
+      const changed = Object.keys(b);
+      recordEvent(db, req, { action: 'safety.settings', detail: { changed, require_current_app: to.require_current_app } });
     });
     res.json(safetyView());
   });

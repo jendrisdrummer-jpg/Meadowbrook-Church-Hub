@@ -6,6 +6,7 @@ import { requireRole, requireAppEditor, canCampus, campusFilter, rank } from '..
 import { getSetting, setSetting } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, audit, localNow } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
+import { assignmentFrozen, MSG } from '../history.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -188,6 +189,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
     const status = req.body?.status === 'declined' ? 'declined' : req.body?.status === 'accepted' ? 'accepted' : null;
     if (!status) throw bad('Choose accept or decline.');
     if (view(a).past) throw bad('This date has already passed.');
+    if (status !== a.status && assignmentFrozen(db, a.id)) throw new HttpError(409, MSG.restatus);
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
     if (status !== a.status) notifyResponse(db, a.id, status);

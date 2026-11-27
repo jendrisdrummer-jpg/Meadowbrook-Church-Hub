@@ -110,7 +110,7 @@ Arrows show the main references.
 
 Check-ins and past serving records are part of the church's safeguarding record, so migration 42 (child-safety V1, PR 3)
 makes the **database itself** refuse to delete them. Mistakes are marked, not removed: a check-in is **voided** (`voided_at`,
-`voided_by`, `voided_by_name`, `void_reason`; staff only, with a reason, audited), and a past service is simply kept.
+`voided_by`, `voided_by_name`, `void_reason`; Staff and admins may void any check-in at their campuses; a leader with check-in access only one that is still open (not checked out) from today at that campus; an iPad never; a reason is required; audited), and a past service is simply kept.
 
 **What the triggers refuse** (`BEFORE DELETE`, `RAISE(ABORT, <plain sentence>)`; the sentences are listed in `MSG` in
 `server/history.js`, and `errorHandler` turns any that reach it into a plain 409):
@@ -120,11 +120,14 @@ makes the **database itself** refuse to delete them. Mistakes are marked, not re
 | `checkins_no_delete` | any check-in | never (void it) |
 | `checkins_void_is_final` (`BEFORE UPDATE OF` the four void columns) | un-voiding or editing a voided check-in | never |
 | `assignments_keep_history` | an **accepted** assignment on a service that is past | the assignment is pending or declined, or the service is upcoming |
+| `assignments_no_restatus` (`BEFORE UPDATE OF status`) | changing an accepted assignment's status once its service began 14+ hours ago (so it can't be declined and then deleted) | the service began less than 14 hours ago, or the status isn't changing |
+| `services_no_retime` (`BEFORE UPDATE OF starts_at`) | moving a service that began 14+ hours ago, and has the records below, to a later time (so it can't become "upcoming" and then be deleted) | the new time is still 14+ hours ago (a correction), or the service has no records |
 | `services_keep_history` | a service that is past **and** has an accepted or sent assignment, a roll-call mark, a headcount or a check-in | the service is upcoming, or has none of those |
 | `positions_keep_history` | a position with an assignment on a past service | nobody served in it at a past service |
 | `people_keep_history` | a person with a check-in, a roll-call mark or any assignment | none of those (no route deletes people; they are archived) |
 
-- **Past** means `starts_at <= strftime('%Y-%m-%dT%H:%M','now','+14 hours')`. `starts_at` is campus-local time and no time
+- **Two windows, on purpose.** Deletes use **now + 14 hours** (a service starting within a day is already protected). Updates (retime, status) use **now - 14 hours**, which is past in every US time zone, so leaders can still move tomorrow's service or change a Saturday-night answer without a workaround. Routes: `PATCH /assignments/:id` is refused (409) for any status change once the service began 14+ hours ago; `PATCH /services/:id` for a blocked retime; `PATCH /series/:id` clamps `from_date` to today and leaves a kept service's time alone.
+- **Past (for deletes)** means `starts_at <= strftime('%Y-%m-%dT%H:%M','now','+14 hours')`. `starts_at` is campus-local time and no time
   zone is more than 14 hours from UTC, so this is past everywhere. `server/history.js` (`PAST_CUTOFF`, `serviceKeptSql`,
   `assignmentKeptSql`) holds the same rule for the routes, so a route says no politely first; change one and change the other.
 - **The triggers fire through cascades** (spike, below): deleting a team stops at its positions, a campus at its services and
@@ -135,8 +138,7 @@ makes the **database itself** refuse to delete them. Mistakes are marked, not re
   `test/history-services.test.js` fails if one is missing.
 - **Rolling the code back** leaves the triggers; older code that tries to delete a protected row gets a generic error (the safe
   direction). Only a later migration (`DROP TRIGGER`) removes them, which needs the owner's approval.
-- **Not guarded in V1** (see [tech-debt.md](tech-debt.md)): changing a past assignment's status or a past service's time,
-  roll-call un-marking and headcount edits, and a `SET NULL` on `checkins.service_id` when an upcoming service is deleted.
+- **Not guarded in V1** (see [tech-debt.md](tech-debt.md)): roll-call un-marking and headcount edits (**owner decision:** guard them, and should a legal hold freeze them?), and a `SET NULL` on `checkins.service_id` when an upcoming service is deleted.
 - **Legal hold:** `checkin_safety.legal_hold` in `settings` (`{on, reason, set_by, set_by_name, set_at, released_at, released_by,
   released_by_name, release_reason}`), changed only through `POST /checkin/legal-hold` and `/release`. While it is on, a
   check-in can't be voided, people can't be merged, Google Drive can't be disconnected and `server/backup.js` deletes no copy
@@ -154,6 +156,8 @@ and `ON DELETE SET NULL` (an update, not a delete) does not fire them.
 | `DELETE /services/:id` (`routes/services.js:192`) | Yes, when past with records (and its cascade into `assignments`) | 409 with the plain sentence; the service page says "kept" instead of showing Delete (`kept` in `GET /services/:id`); upcoming or empty services delete as before |
 | `DELETE /series/:id?from=` (`routes/series.js:209`) | Yes: it deleted past dates too | Never deletes before today, and skips (and counts as `kept`) any service the triggers would keep |
 | `PATCH /series/:id` with an earlier `ends_on` (`routes/series.js:197`) | Yes: same | Same: only upcoming services after the new end date, skipping kept ones |
+| `PATCH /assignments/:id` (`routes/services.js:597`; also the signed link in `routes/app.js`) | Not a delete, but a past accepted answer could be declined and then deleted | 409 once the service began 14+ hours ago; `assignments_no_restatus` backs it |
+| `PATCH /services/:id` and `PATCH /series/:id` `from_date` (`routes/services.js:168`, `routes/series.js:182`) | Not a delete, but a past service could be moved to the future and then deleted | 409 for a service with records; `from_date` is clamped to today; `services_no_retime` backs it |
 | `DELETE /assignments/:id` (`routes/services.js:612`) | Yes: past accepted | 409 "already served, kept in the record"; the remove buttons are hidden for them; drafts, declines and upcoming still delete |
 | `DELETE /positions/:id`, including `force` (`routes/teams.js:160`) | Yes: cascades past assignments | 409 "people have served in this position... rename it instead"; unused or upcoming-only positions delete as before |
 | `POST /people/:id/merge` (`routes/people.js:308`) | Yes: it deleted the duplicate's leftover assignments | Leftovers that are past and accepted **stay on the archived duplicate**; other leftovers (duplicates of what the kept person has, upcoming) go as before; check-ins and everything else move as before; blocked by a legal hold |

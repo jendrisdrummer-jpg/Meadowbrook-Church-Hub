@@ -311,7 +311,7 @@ test('safety settings: admins read, only all-campus admins change, strict body, 
   assert.deepEqual(JSON.parse(a.detail), { from: { require_current_app: false }, to: { require_current_app: true } });
   const ev = events('safety.settings');
   assert.equal(ev.length, 1);
-  assert.deepEqual([ev[0].campus_id, ev[0].day, ev[0].user_id, ev[0].d], [null, null, ids.admin, { from: { require_current_app: false }, to: { require_current_app: true } }]);
+  assert.deepEqual([ev[0].campus_id, ev[0].day, ev[0].user_id, ev[0].d], [null, null, ids.admin, { changed: ['require_current_app'], require_current_app: true }]);
   assert.equal((await api('admin', 'PATCH', '/checkin/safety', { require_current_app: false })).status, 200);
 
   for (const who of ['admin', 'volunteer']) {

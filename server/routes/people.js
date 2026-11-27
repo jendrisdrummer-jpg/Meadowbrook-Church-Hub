@@ -12,6 +12,7 @@ import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, Htt
 import { csvRecords, toCsv } from '../csv.js';
 import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
 import { legalHold, assignmentKeptSql, HOLD_MSG } from '../history.js';
+import { recordEvent } from '../checkin-events.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
@@ -293,6 +294,12 @@ export default function peopleRoutes(db, { uploadDir }) {
     }
     const movedUsers = []; // accounts whose linked person changes: their live chat reconnects
     tx(db, () => {
+      // Check-ins that move to the kept person are written to the record (ids, first 20 and the count), so a merge can't move them unseen.
+      const movingCheckins = db.prepare('SELECT id, campus_id FROM checkins WHERE person_id = ? ORDER BY checked_in_at').all(dup.id);
+      if (movingCheckins.length) {
+        recordEvent(db, req, { action: 'checkin.merge', campusId: movingCheckins[0].campus_id, personId: keep.id,
+          detail: { from_person_id: dup.id, to_person_id: keep.id, count: movingCheckins.length, checkin_ids: movingCheckins.slice(0, 20).map((c) => c.id), truncated: movingCheckins.length > 20 } });
+      }
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
         db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
       }

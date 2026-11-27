@@ -15,6 +15,7 @@ import { getSetting } from '../server/db.js';
 
 let app, db, call, ids, google;
 const calls = [];
+let nextEmail = 'office@church.org';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-hold-'));
 const P = {};
 
@@ -36,6 +37,10 @@ before(async () => {
     req.on('end', () => {
       calls.push({ method: req.method, url: req.url });
       const send = (o) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(o));
+      if (req.url === '/token' && Buffer.concat(chunks).toString().includes('grant_type=authorization_code')) {
+        const claims = Buffer.from(JSON.stringify({ email: nextEmail })).toString('base64url');
+        return send({ access_token: 'at-2', refresh_token: 'rt-new', scope: 'openid email https://www.googleapis.com/auth/drive.file', id_token: `x.${claims}.y` });
+      }
       if (req.url === '/token') return send({ access_token: 'at-1' });
       if (req.method === 'DELETE') return res.writeHead(204).end();
       if (req.method === 'GET') return send({ id: req.url.split('/').pop().split('?')[0], trashed: false });
@@ -73,6 +78,11 @@ test('who may set and release it, and what it needs', async () => {
   assert.equal((await call('admin', 'PATCH', '/checkin/safety', { legal_hold: null })).status, 400);
   assert.ok(!JSON.stringify((await call('admin', 'GET', '/settings')).data).includes('A claim arrived'));
   assert.equal((await call('admin', 'PATCH', '/checkin/safety', { require_current_app: false })).data.legal_hold.on, true, 'other switches leave the hold alone');
+  // The check-in record notes only which switch changed, never the hold's reason or names; the audit log keeps the full detail.
+  const changed = db.prepare("SELECT detail FROM checkin_events WHERE action = 'safety.settings' ORDER BY id DESC LIMIT 1").get().detail;
+  assert.deepEqual(JSON.parse(changed), { changed: ['require_current_app'], require_current_app: false });
+  assert.ok(!db.prepare("SELECT group_concat(detail) d FROM checkin_events").get().d.includes('A claim arrived'));
+  assert.ok(db.prepare("SELECT detail FROM audit_log WHERE action = 'checkin.safety' ORDER BY id DESC LIMIT 1").get().detail.includes('A claim arrived'));
 });
 
 test('while it is on: no void, no merge, Google Drive stays connected', async () => {
@@ -105,6 +115,23 @@ test('while it is on: backup copies are never deleted, in Drive or on this serve
   for (let i = 0; i < 3; i++) assert.equal((await call('admin', 'POST', '/backups/run', {})).status, 201);
   assert.ok(db.prepare('SELECT COUNT(*) n FROM backups WHERE local = 1').get().n >= 3);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM backups WHERE local = 1').get().n, fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.endsWith('.enc')).length);
+});
+
+test('while it is on: Google Drive can’t be switched to a different account (but the same one can reconnect)', async () => {
+  connectDrive(db, { refresh_token: 'rt-good', email: 'office@church.org' });
+  const callback = async (email) => {
+    nextEmail = email;
+    const start = await fetch(`${app.base}/auth/google/drive`, { headers: { cookie: app.cookies.admin }, redirect: 'manual' });
+    const state = /state=([^&]+)/.exec(start.headers.get('location'))[1];
+    return fetch(`${app.base}/auth/google/callback?state=${state}&code=abc`, { headers: { cookie: `${app.cookies.admin}; mb_drive=${state}` }, redirect: 'manual' });
+  };
+  const other = await callback('someone-else@gmail.com');
+  assert.match(decodeURIComponent(other.headers.get('location')), /legal hold is on.*different account/);
+  assert.equal(getSetting(db, 'backup_drive').email, 'office@church.org');
+  assert.equal(getSetting(db, 'backup_drive').refresh_token, 'rt-good');
+  const same = await callback('office@church.org');
+  assert.match(same.headers.get('location'), /drive=connected/);
+  assert.equal(getSetting(db, 'backup_drive').refresh_token, 'rt-new');
 });
 
 test('release: needs a reason, is audited, and the 7-day wait keeps copies a little longer', async () => {

@@ -220,7 +220,7 @@ Names only, never values. Render → the service → **Environment**.
 
 ## Rehearsal: migration 42 (history protection)
 
-Migration 42 (child-safety V1, PR 3) adds four columns to `checkins` and six triggers that make the database refuse to delete check-ins and
+Migration 42 (child-safety V1, PR 3) adds four columns to `checkins` and eight triggers that make the database refuse to delete check-ins and
 past serving records. It changes no existing row, but it changes what the live app may do, so it is **rehearsed on a copy of real data first**
 (the owner's condition, 27 Nov 2026). The developer does this, on a laptop, never on Render:
 
@@ -232,7 +232,7 @@ past serving records. It changes no existing row, but it changes what the live a
    - `PRAGMA user_version` is **42** (it was 41), `PRAGMA integrity_check` is `ok`, `PRAGMA foreign_key_check` returns no rows.
    - Row counts of `checkins`, `assignments`, `services`, `people`, `households` and `audit_log` equal the step 2 counts (the migration changes no rows).
    - `SELECT name FROM sqlite_master WHERE type = 'trigger'` lists `checkins_no_delete`, `checkins_void_is_final`, `assignments_keep_history`,
-     `services_keep_history`, `positions_keep_history` and `people_keep_history` (as well as the two `checkin_events_*` ones).
+     `assignments_no_restatus`, `services_no_retime`, `services_keep_history`, `positions_keep_history` and `people_keep_history` (as well as the two `checkin_events_*` ones).
    - `SELECT COUNT(*) FROM checkins WHERE voided_at IS NOT NULL` is 0.
 5. **Try the refusals on the copy** (each must fail with a plain sentence, and change nothing): delete one check-in; delete a past service that has
    accepted volunteers; delete one past accepted assignment; delete a person who has been checked in. Delete one upcoming service: that must still work.
@@ -248,7 +248,7 @@ a later migration (`DROP TRIGGER`) removes them, and that needs the owner's appr
 
 | Date | Release | What was rehearsed | Result |
 |---|---|---|---|
-| 2026-11-27 | History protection (migration 42) over the check-out guard branch (schema 41) | **Made-up demo data only; not yet run on a copy of real data (owner/devops step).** The previous release's demo seed built a database at schema 41 (145 check-ins, 402 assignments, 39 services, 72 people); the new code opened a copy | Schema 42; `integrity_check` ok; `foreign_key_check` no rows; every original table has the same rows and the same original-column contents; four columns and six triggers added; deleting a check-in, all check-ins, a past service with records, a past accepted assignment, a person who was checked in and a campus were each refused with a plain sentence and changed nothing; an upcoming service still deleted; a second open did nothing; `npm test` 368 passing, `npm run test:ui` 396/396 |
+| 2026-11-27 | History protection (migration 42) over the check-out guard branch (schema 41) | **Made-up demo data only; not yet run on a copy of real data (owner/devops step).** The previous release's demo seed built a database at schema 41 (145 check-ins, 402 assignments, 39 services, 72 people); the new code opened a copy | Schema 42; `integrity_check` ok; `foreign_key_check` no rows; every original table has the same rows and the same original-column contents; four columns and six triggers added (two more update guards were added afterwards, after a security review; re-run this rehearsal); deleting a check-in, all check-ins, a past service with records, a past accepted assignment, a person who was checked in and a campus were each refused with a plain sentence and changed nothing; an upcoming service still deleted; a second open did nothing; `npm test` 368 passing, `npm run test:ui` 396/396 |
 | 2026-11-25 | `milestone-1` at `bbc6b4d` over `main` at `03b094f` | Made-up data only. `main`'s demo seed built a database at schema 29; three sign-ins on `main` created old-style sessions. `milestone-1` started on copies in offline mode. Then `main` started on the upgraded copy (rollback) | Migrations 30–35 applied (schema 35, all six new tables and three columns, integrity ok); `/healthz` answered; three sessions hashed and capped to 24 hours, old cookie still signed in; index created on the clean copy, skipped with the warning on a copy with one duplicate; `npm test` 146/146, `npm run test:ui` 224/224. Rollback: `main` started on schema 35, `/healthz` ok, old cookies refused, a stored hash accepted as a cookie (why sessions are cleared); the cleanup one-liner ran |
 
 The real-data rehearsal is the restore drill run with the `milestone-1` code

@@ -1052,6 +1052,18 @@ const MIGRATIONS = [
   CREATE TRIGGER assignments_keep_history BEFORE DELETE ON assignments
     WHEN OLD.status = 'accepted' AND EXISTS (SELECT 1 FROM services s WHERE s.id = OLD.service_id AND s.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours'))
     BEGIN SELECT RAISE(ABORT, 'This person already served at that service, so it’s kept in the record.'); END;
+  -- Updates use "now - 14 hours" (past in every US time zone), so correcting tomorrow's service is never blocked.
+  CREATE TRIGGER assignments_no_restatus BEFORE UPDATE OF status ON assignments
+    WHEN OLD.status = 'accepted' AND NEW.status IS NOT OLD.status
+      AND EXISTS (SELECT 1 FROM services s WHERE s.id = OLD.service_id AND s.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours'))
+    BEGIN SELECT RAISE(ABORT, 'This person already served at that service, so their answer can’t be changed. It’s kept in the record.'); END;
+  CREATE TRIGGER services_no_retime BEFORE UPDATE OF starts_at ON services
+    WHEN OLD.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours') AND NEW.starts_at > strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours') AND (
+      EXISTS (SELECT 1 FROM assignments a WHERE a.service_id = OLD.id AND (a.status = 'accepted' OR a.sent_at IS NOT NULL))
+      OR EXISTS (SELECT 1 FROM attendance t WHERE t.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM headcounts h WHERE h.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM checkins c WHERE c.service_id = OLD.id))
+    BEGIN SELECT RAISE(ABORT, 'This service has already happened and has records, so it can’t be moved to a later time. It’s kept in the record.'); END;
   CREATE TRIGGER services_keep_history BEFORE DELETE ON services
     WHEN OLD.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours') AND (
       EXISTS (SELECT 1 FROM assignments a WHERE a.service_id = OLD.id AND (a.status = 'accepted' OR a.sent_at IS NOT NULL))

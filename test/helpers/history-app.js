@@ -57,5 +57,5 @@ export async function makeApp() {
     if (made.status !== 201) throw new Error(`pairing failed: ${made.status}`);
     return (await call(null, 'GET', `/checkin/pair/${p.secret}`)).data.token;
   };
-  return { db, ids, cookies, call, add, make, pair, close: () => server.close() };
+  return { db, ids, cookies, base, call, add, make, pair, close: () => server.close() };
 }
