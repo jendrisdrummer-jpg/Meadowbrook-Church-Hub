@@ -4,10 +4,18 @@
 // with no internet. Each check-in gets its id and pickup code on the tablet, and uploads are
 // idempotent: re-sending a batch after a dropped connection never double-counts anyone.
 import { Router } from 'express';
-import { requireRole, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAllCampuses, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit } from '../http.js';
-import { roomFor, securityCode } from '../../public/js/checkin-rules.js';
+import { roomFor, securityCode, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
+import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-events.js';
+
+// Check-in safety switches live in one settings key with their own admin endpoint, so they never
+// appear in GET /settings and can't be changed through PATCH /settings. Later releases add keys here.
+const SAFETY_DEFAULTS = { require_current_app: false };
+const SAFETY_TYPES = { require_current_app: 'boolean' };
+const CODE_MISS_ROWS = 5;
+export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
 // Who may use kids' check-in (the family roster with children's allergies and medical notes,
 // checking in and out): paired stations, staff and admins, and leader accounts an admin has
@@ -41,13 +49,27 @@ export default function checkinRoutes(db) {
     return c;
   }
 
+  // When an admin has turned on "only let iPads with the latest check-in sync", a paired iPad that
+  // reports an older version (or none) is turned away with 426 before it can read or change anything.
+  // Its queue stays on the iPad, so nothing is lost. Hub users and the pairing routes are never held.
+  const currentApp = (req, res, next) => {
+    const station = req.user?.station;
+    if (!station || !safetySettings(db).require_current_app) return next();
+    const sent = appVersion(req);
+    if (sent !== '' && Number(sent) >= CHECKIN_APP_VERSION) return next();
+    if (!recordedToday(db, req, 'version.refused', station.campus_id)) {
+      recordEvent(db, req, { action: 'version.refused', campusId: station.campus_id, detail: { sent: sent === '' ? null : Number(sent), required: CHECKIN_APP_VERSION } });
+    }
+    res.status(426).json({ error: 'This iPad is running an older check-in. Close the app and open it again, then try once more.', reload: true });
+  };
+
   // The campuses this account may set a station up for (setup lists only these).
   r.get('/checkin/campuses', requireCheckin, (req, res) => {
     res.json(db.prepare('SELECT id, name, short_name, active FROM campuses ORDER BY active DESC, sort, name').all().filter((c) => canCampus(req.user, c.id)));
   });
 
   // Everything a tablet needs to check families in with no connection.
-  r.get('/checkin/roster', requireCheckin, (req, res) => {
+  r.get('/checkin/roster', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.query.campus_id);
     const today = localNow(c.timezone).date;
     // This campus's families, plus families with no campus set. Never a family assigned to another
@@ -67,13 +89,19 @@ export default function checkinRoutes(db) {
       byHousehold.get(p.household_id)?.members.push(p);
     }
     for (const p of pickups) byHousehold.get(p.household_id)?.pickups.push(p);
+    const shown = [...byHousehold.values()].filter((h) => h.members.some((m) => m.household_role === 'child'));
+    // One row per iPad (or account) per campus per day, so a tablet refreshing every ten minutes doesn't fill the record.
+    if (!recordedToday(db, req, 'roster.download', c.id)) {
+      recordEvent(db, req, { action: 'roster.download', campusId: c.id,
+        detail: { households: shown.length, children: shown.reduce((n, h) => n + h.members.filter((m) => m.household_role === 'child').length, 0) } });
+    }
     res.json({
       campus: c,
       today,
       generated_at: new Date().toISOString(),
       rooms: db.prepare('SELECT * FROM rooms WHERE campus_id = ? AND archived = 0 ORDER BY sort, name').all(c.id),
       services: db.prepare("SELECT id, title, starts_at, duration_min FROM services WHERE campus_id = ? AND substr(starts_at, 1, 10) = ? ORDER BY starts_at").all(c.id, today),
-      households: [...byHousehold.values()].filter((h) => h.members.some((m) => m.household_role === 'child')),
+      households: shown,
       label_size: getSetting(db, 'label_size', 'brother-62x29'),
       print_parent_tag: getSetting(db, 'checkin_print_parent_tag', true),
       church_name: getSetting(db, 'church_name', 'Meadowbrook Church'),
@@ -81,7 +109,7 @@ export default function checkinRoutes(db) {
   });
 
   // Upload check-ins: { campus_id, records: [{ id, person_id, room_id?, service_id?, kind, security_code, station, checked_in_at }] }
-  r.post('/checkin/checkins', requireCheckin, (req, res) => {
+  r.post('/checkin/checkins', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.body?.campus_id);
     const records = Array.isArray(req.body?.records) ? req.body.records : [];
     if (!records.length) throw bad('Nothing to check in.');
@@ -91,15 +119,18 @@ export default function checkinRoutes(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     // Children deleted on the server since the tablet's roster was downloaded are skipped, not fatal,
     // so one stale record can't block a tablet's whole offline queue.
-    const out = tx(db, () => records.map((rec) => {
+    const skips = { other_campus: [], not_found: [] };
+    const out = tx(db, () => {
+    const done = records.map((rec) => {
       const id = str(rec.id, 64);
       if (!/^[\w-]{8,64}$/.test(id)) throw bad('Each check-in needs an id.');
-      const person = db.prepare(`SELECT p.id, p.birthdate, p.grade, h.campus_id household_campus
-        FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?`).get(int(rec.person_id, 'Person'));
-      if (!person) return null;
+      const personId = int(rec.person_id, 'Person');
+      const person = db.prepare(`SELECT p.id, p.household_id, p.birthdate, p.grade, h.campus_id household_campus
+        FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?`).get(personId);
+      if (!person) { skips.not_found.push(personId); return null; }
       // Same rule as the roster: never a family assigned to another campus, so check-in can't be used
       // to pull another campus's child into this campus's lists. (Visiting families: later item.)
-      if (person.household_campus != null && person.household_campus !== c.id) return null;
+      if (person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
       const at = Number.isNaN(Date.parse(rec.checked_in_at)) ? new Date() : new Date(rec.checked_in_at);
       const day = localNow(c.timezone, at).date;
       const kind = oneOf(rec.kind, ['kid', 'adult', 'volunteer'], 'kid');
@@ -107,15 +138,27 @@ export default function checkinRoutes(db) {
       if (roomId && !rooms.some((rm) => rm.id === roomId)) roomId = null;
       if (!roomId && kind === 'kid') roomId = roomFor(person, rooms, day)?.id ?? null;
       const serviceId = int(rec.service_id);
-      ins.run(id, c.id, serviceId && db.prepare('SELECT 1 FROM services WHERE id = ? AND campus_id = ?').get(serviceId, c.id) ? serviceId : null,
+      const info = ins.run(id, c.id, serviceId && db.prepare('SELECT 1 FROM services WHERE id = ? AND campus_id = ?').get(serviceId, c.id) ? serviceId : null,
         person.id, roomId, kind, str(rec.security_code, 8).toUpperCase() || securityCode(), str(rec.station, 60), day, at.toISOString());
-      return db.prepare('SELECT * FROM checkins WHERE id = ?').get(id);
-    })).filter(Boolean);
+      const saved = db.prepare('SELECT * FROM checkins WHERE id = ?').get(id);
+      // Only a new row is recorded; re-sending a batch after a dropped connection writes nothing.
+      if (info.changes === 1) {
+        recordEvent(db, req, { action: 'checkin', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, code: saved.security_code,
+          clientAt: rec.checked_in_at, detail: { kind, room_id: saved.room_id, service_id: saved.service_id, station_label: str(rec.station, 60) } });
+      }
+      return saved;
+    }).filter(Boolean);
+    // One summary row per reason per request, so a stale queue can't flood the record.
+    for (const [reason, list] of Object.entries(skips)) {
+      if (list.length) recordEvent(db, req, { action: 'checkin.skipped', campusId: c.id, personId: list[0], detail: { reason, count: list.length, person_ids: list.slice(0, 20) } });
+    }
+    return done;
+    });
     res.status(201).json(out);
   });
 
   // Who is checked in today (or on ?day=), with rooms; ?room_id narrows to one room.
-  r.get('/checkin/active', requireCheckin, (req, res) => {
+  r.get('/checkin/active', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.query.campus_id);
     const day = isDate(req.query.day) ? req.query.day : localNow(c.timezone).date;
     const args = [c.id, day];
@@ -134,32 +177,116 @@ export default function checkinRoutes(db) {
   });
 
   // Check out by pickup code (every child on that code) or by check-in ids.
-  r.post('/checkin/checkout', requireCheckin, (req, res) => {
+  r.post('/checkin/checkout', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.body?.campus_id);
     const day = localNow(c.timezone).date;
-    const by = str(req.body?.by, 100) || req.user.name;
+    const claimed = str(req.body?.by, 100);
+    const by = claimed || req.user.name;
+    const path = req.body?.security_code ? 'code' : 'ids';
+    const code = path === 'code' ? str(req.body.security_code, 8).toUpperCase() : '';
     let rows;
-    if (req.body?.security_code) {
+    if (path === 'code') {
       rows = db.prepare('SELECT id FROM checkins WHERE campus_id = ? AND day = ? AND security_code = ? AND checked_out_at IS NULL')
-        .all(c.id, day, str(req.body.security_code, 8).toUpperCase());
-      if (!rows.length) throw notFound('A checked-in child with that code');
+        .all(c.id, day, code);
+      if (!rows.length) {
+        // A few misses per actor per campus per day are recorded (with a running count); guessing codes can't flood the record.
+        const today = localNow(c.timezone).date;
+        const who = req.user.station ? ['device_id', req.user.station.id] : ['user_id', req.user.id];
+        const misses = db.prepare(`SELECT COUNT(*) n FROM checkin_events WHERE campus_id = ? AND day = ? AND action = 'checkout.code_miss' AND ${who[0]} = ?`).get(c.id, today, who[1]).n;
+        if (misses < CODE_MISS_ROWS) recordEvent(db, req, { action: 'checkout.code_miss', campusId: c.id, code, detail: { attempt: misses + 1, last_recorded: misses + 1 === CODE_MISS_ROWS } });
+        throw notFound('A checked-in child with that code');
+      }
     } else {
-      rows = (req.body?.ids || []).map((id) => ({ id: str(id, 64) }));
+      const given = req.body?.ids || [];
+      if (given.length > 500) throw bad('Too many at once.');
+      rows = [...new Set(given.map((id) => str(id, 64)))].map((id) => ({ id }));
     }
     const upd = db.prepare("UPDATE checkins SET checked_out_at = ?, checked_out_by = ? WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL");
+    const find = db.prepare('SELECT ci.id, ci.person_id, ci.security_code, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ? AND ci.campus_id = ?');
     const now = new Date().toISOString();
     let count = 0;
-    tx(db, () => rows.forEach((row) => { count += Number(upd.run(now, by, row.id, c.id).changes); }));
+    tx(db, () => {
+      const released = [];
+      const unknown = [];
+      rows.forEach((row) => {
+        const ci = find.get(row.id, c.id);
+        if (!ci) { unknown.push(row.id); return; }
+        if (Number(upd.run(now, by, row.id, c.id).changes) !== 1) {
+          recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, detail: { path } });
+          return;
+        }
+        count += 1;
+        released.push(ci);
+        recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, detail: { path, by_claimed: claimed } });
+      });
+      // Ids not found at this campus: one summary row per request, not one per id.
+      if (unknown.length) recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: unknown[0], detail: { path, count: unknown.length, ids: unknown.slice(0, 20) } });
+      // Releasing children of more than one family in one go is recorded for now; a later release refuses it.
+      const families = new Set(released.map((x) => x.household_id ?? `p${x.person_id}`));
+      if (families.size > 1) {
+        const households = [...new Set(released.map((x) => x.household_id).filter((h) => h != null))];
+        recordEvent(db, req, { action: 'checkout.mixed', campusId: c.id, code,
+          detail: { path, count: released.length, household_count: households.length, households: households.slice(0, 20), checkin_ids: released.slice(0, 20).map((x) => x.id), truncated: released.length > 20 || households.length > 20 } });
+      }
+    });
     res.json({ checked_out: count });
   });
 
-  // Undo a mistaken check-in.
-  r.delete('/checkin/checkins/:id', requireCheckin, (req, res) => {
-    const ci = db.prepare('SELECT * FROM checkins WHERE id = ?').get(req.params.id);
+  // Undo a mistaken check-in. The record keeps a snapshot of what was deleted.
+  r.delete('/checkin/checkins/:id', requireCheckin, currentApp, (req, res) => {
+    const ci = db.prepare('SELECT ci.*, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
     if (!canCampus(req.user, ci.campus_id)) throw forbidden();
-    db.prepare('DELETE FROM checkins WHERE id = ?').run(ci.id);
+    tx(db, () => {
+      recordEvent(db, req, { action: 'checkin.delete', campusId: ci.campus_id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code,
+        detail: { kind: ci.kind, room_id: ci.room_id, service_id: ci.service_id, day: ci.day, checked_in_at: ci.checked_in_at, checked_out_at: ci.checked_out_at } });
+      db.prepare('DELETE FROM checkins WHERE id = ?').run(ci.id);
+    });
     res.json({ ok: true });
+  });
+
+  // ---------------------------------------------------------------- the check-in record and safety switches
+  // What happened at one campus on one day, oldest first. Staff and admins only, never a station.
+  r.get('/checkin/events', requireRole('staff'), (req, res) => {
+    if (req.user.station) throw forbidden();
+    const c = campus(req, req.query.campus_id);
+    if (!isDate(req.query.day)) throw bad('Pick a day like 2027-02-21.');
+    const args = [c.id, req.query.day];
+    let extra = '';
+    if (req.query.action !== undefined) {
+      if (!ACTIONS.includes(req.query.action)) throw bad('That isn’t a kind of check-in event.');
+      extra = ' AND e.action = ?';
+      args.push(req.query.action);
+    }
+    const rows = db.prepare(`SELECT e.*, p.first_name, p.last_name FROM checkin_events e LEFT JOIN people p ON p.id = e.person_id
+      WHERE e.campus_id = ? AND e.day = ?${extra} ORDER BY e.id LIMIT 5001`).all(...args);
+    audit(db, req, 'checkin.events.view', { campus_id: c.id, day: req.query.day });
+    // Pickup codes are only live on the day; staff already see today's, so earlier days show them masked.
+    const past = req.query.day < localNow(c.timezone).date;
+    res.json({ events: rows.slice(0, 5000).map((e) => ({ ...e, security_code: past && e.security_code ? '••••' : e.security_code, detail: JSON.parse(e.detail) })), truncated: rows.length > 5000 });
+  });
+
+  r.get('/checkin/safety', requireRole('admin'), (_req, res) => {
+    res.json({ require_current_app: safetySettings(db).require_current_app, current_app_version: CHECKIN_APP_VERSION });
+  });
+
+  // Body: { require_current_app: boolean }. Stricter than PATCH /settings: unknown keys and wrong types are refused.
+  r.patch('/checkin/safety', requireRole('admin'), requireAllCampuses, (req, res) => {
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const keys = Object.keys(b);
+    if (!keys.length) throw bad('Nothing to change.');
+    for (const k of keys) {
+      if (!Object.hasOwn(SAFETY_TYPES, k)) throw bad(`“${k.slice(0, 40)}” isn’t a check-in safety setting.`);
+      if (typeof b[k] !== SAFETY_TYPES[k]) throw bad(`Invalid value for ${k}.`);
+    }
+    const from = safetySettings(db);
+    const to = { ...from, ...b };
+    tx(db, () => {
+      setSetting(db, 'checkin_safety', to);
+      audit(db, req, 'checkin.safety', { from, to });
+      recordEvent(db, req, { action: 'safety.settings', detail: { from, to } });
+    });
+    res.json({ require_current_app: to.require_current_app, current_app_version: CHECKIN_APP_VERSION });
   });
 
   // ---------------------------------------------------------------- attendance

@@ -1015,6 +1015,8 @@ a.sf-sheet-row:hover { border-color: var(--accent); background: var(--accent-sof
 .ann-body { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Check-in stations */
 .st-how ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.st-switch { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+.st-switch input { width: 22px; height: 22px; flex: none; }
 .st-code { font-size: 1.75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 /* Search (Ctrl/⌘ K) */
 .search-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 12px; min-width: 210px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
