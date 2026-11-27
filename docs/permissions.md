@@ -121,6 +121,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
 | Events, Forms, Media, check-in stations | | | ✓ | ✓ |
+| Media → Setup (channel, messages playlist, skip rules, hide videos not in the playlist): church-wide, so only an admin who covers every campus changes it; staff can read it | | | | ✓ (every campus) |
 | App Builder (open it, save the app, upload its pictures) | Only with the **Edit the app** flag (any role) | | | ✓ (always) |
 | Settings, campuses, accounts, profile fields, import, merge duplicates, backups, reset Mux key | | | | ✓ |
 

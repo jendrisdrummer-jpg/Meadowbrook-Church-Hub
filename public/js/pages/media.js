@@ -366,6 +366,12 @@ async function drawSetup(el) {
     </div></div>`);
 
   const f = el.querySelector('[data-form]');
+  // Church-wide settings: only admins who cover every campus change them; others can read them.
+  if (!(state.me.role === 'admin' && !state.me.campusIds)) {
+    f.querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = true; });
+    el.querySelector('[data-hide-extras]')?.remove();
+    f.prepend(Object.assign(document.createElement('p'), { className: 'alert', textContent: 'Only an admin who covers every campus can change these settings.' }));
+  }
   f.onsubmit = async (e) => {
     e.preventDefault();
     const b = f.querySelector('button.primary');

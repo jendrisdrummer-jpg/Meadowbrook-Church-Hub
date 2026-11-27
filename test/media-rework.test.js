@@ -154,9 +154,10 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   assert.equal((await api('vol', 'GET', '/media/playlist-extras')).status, 403);
   assert.equal((await api('vol', 'POST', '/media/playlist-extras/hide', {})).status, 403);
   assert.equal((await api('staff', 'GET', '/media/playlist-extras')).data.count, 1);
-  const noHeader = await fetch(`${base}/api/media/playlist-extras/hide`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookies.staff }, body: '{}' });
+  const noHeader = await fetch(`${base}/api/media/playlist-extras/hide`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookies.admin }, body: '{}' });
   assert.equal(noHeader.status, 403);
-  assert.deepEqual((await api('staff', 'POST', '/media/playlist-extras/hide', {})).data, { hidden: 1 });
+  assert.equal((await api('staff', 'POST', '/media/playlist-extras/hide', {})).status, 403, 'church-wide: admins only');
+  assert.deepEqual((await api('admin', 'POST', '/media/playlist-extras/hide', {})).data, { hidden: 1 });
   const hidden = (await api('staff', 'GET', '/media')).data.items.find((m) => m.id === stray);
   assert.deepEqual([hidden.status, hidden.reason], ['hidden', 'Not in the messages playlist']);
   assert.match(db.prepare("SELECT detail FROM audit_log WHERE action = 'media.hide_not_in_playlist'").get().detail, new RegExp(`"ids":\\[${stray}\\]`), 'the audit names what was hidden');
@@ -286,7 +287,8 @@ test('staff only, the app header, series spelling, and Mux and the podcast stay 
   assert.equal(setup.status.mux, undefined);
   assert.ok(!('own_player_only' in setup.settings) && !('keep_full_days' in setup.settings));
   assert.equal(setup.api_key, false);
-  const put = await api('staff', 'PUT', '/media/setup', { own_player_only: true, keep_full_days: 7, min_minutes: 25 });
+  assert.equal((await api('staff', 'PUT', '/media/setup', { min_minutes: 25 })).status, 403, 'staff can read setup but not change it');
+  const put = await api('admin', 'PUT', '/media/setup', { own_player_only: true, keep_full_days: 7, min_minutes: 25 });
   assert.equal(put.data.settings.min_minutes, 25);
   assert.ok(!('own_player_only' in put.data.settings));
 

@@ -133,7 +133,8 @@ export default function mediaRoutes(db) {
   // "Skip videos whose title contains…": a tidy comma list, at most 20 words.
   const cleanWords = (v) => [...new Set(String(v).split(',').map((w) => w.trim().replace(/\s+/g, ' ').slice(0, 60)).filter(Boolean).map((w) => w.toLowerCase()))].slice(0, 20).join(', ');
 
-  r.put('/media/setup', requireRole('staff'), async (req, res) => {
+  // Church-wide: the channel, playlist and rules are for admins who cover every campus (owner, Nov 2026).
+  r.put('/media/setup', requireRole('admin'), requireAllCampuses, async (req, res) => {
     const b = req.body || {};
     const cfg = mediaSettings(db);
     const input = str(b.channel, 300);
@@ -183,7 +184,7 @@ export default function mediaRoutes(db) {
     res.json({ count: ids.length, playlist_title: cfg.playlist_title });
   });
   // Moves them to Not in the app ("Not in the messages playlist"). Nothing is deleted; Show in app puts one back.
-  r.post('/media/playlist-extras/hide', requireRole('staff'), async (req, res) => {
+  r.post('/media/playlist-extras/hide', requireRole('admin'), requireAllCampuses, async (req, res) => {
     const { ids } = await notInPlaylist();
     const hide = db.prepare("UPDATE media SET status = 'hidden', skip_reason = 'Not in the messages playlist', edited_by = ?, edited_at = datetime('now') WHERE id = ? AND status = 'published'");
     for (const id of ids) hide.run(req.user.id, id);
