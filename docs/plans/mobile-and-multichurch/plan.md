@@ -31,6 +31,11 @@ direction"](../../master-product-roadmap.md#12-stage-2-and-stage-3), decision 20
 
 ## Owner decisions, 26 November 2026
 
+- **Update, 26 Nov evening:** the first store app is a **Meadowbrook Church app from the church's own Apple and
+  Google developer accounts** (the ones Subsplash uses), kept permanently for Meadowbrook; the product app comes
+  later from the LLC's accounts, from the same code (different name, icon, settings). This brings TestFlight forward
+  with no new cost. See master roadmap §13 items 21–22.
+
 - **Approved:** this plan, Phase 0 (the demo app) and option (a), one database file per church plus a directory.
 - **Sign-in:** like Faith Teams. Download the app, enter email and password (or a code), and land in your church.
 - **Keep Google sign-in in the app.** Google blocks it inside an embedded web view, so the shell opens Google in

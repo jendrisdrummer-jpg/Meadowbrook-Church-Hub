@@ -415,6 +415,22 @@ This is the **one list of owner decisions**. Other pages link here rather than k
     and Google Play (about $25 once) accounts; the product name; where the work sits against the check-in pilot and
     the Easter freeze.
 
+21. **Meadowbrook's app from the church's own developer accounts** (owner, 26 Nov): the first store app is a
+    **"Meadowbrook Church" app** published from the church's existing Apple and Google developer accounts (the
+    ones Subsplash uses), not sold or public as a product. It stays as Meadowbrook's app permanently; the product
+    app for other churches comes later from the LLC's own accounts, built from the same code. Possibly the new app
+    replaces the Subsplash listing as an update (no new download), but only once giving, media and kids' check-in
+    have a home, and after confirming with Subsplash who controls the listing and the contract end. Still needed:
+    the owner's access to App Store Connect (the account's 2-factor phone is unknown: find the holder, ask Subsplash
+    support, or Apple Developer Support) and an Admin or App Manager invite for the owner's own Apple ID.
+22. **Business setup before selling to other churches** (owner, 26 Nov; not legal or tax advice — check with an
+    attorney and accountant): (1) form an LLC that owns the product: code, name, domain, its own Apple and Google
+    accounts, hosting; (2) settle ownership of what's built so far in writing; (3) a service agreement with
+    Meadowbrook approved by its leadership (the owner is on staff), stating the church owns its data, the price and
+    how either side can end it; Meadowbrook then pays the LLC, covering its costs; (4) the product name and domain
+    under the LLC; (5) the LLC's Apple account (needs a D-U-N-S number, free) and Google Play account; (6) then the
+    product app. None of this blocks Meadowbrook's own app (item 21).
+
 ## 14. How the agent reviews settled the main questions
 | Question | Outcome |
 |---|---|
