@@ -67,7 +67,7 @@ test('migration 43 copies the old grant: leaders on the list keep access, nothin
   const add = (e, role) => Number(d.prepare('INSERT INTO users (email, role) VALUES (?, ?)').run(e, role).lastInsertRowid);
   const l1 = add('l1@t', 'leader'); const l2 = add('l2@t', 'leader'); const v1 = add('v1@t', 'volunteer'); const s1 = add('s1@t', 'staff');
   setSetting(d, 'checkin_user_ids', [l1, v1, s1, 9999]);
-  d.exec('ALTER TABLE users DROP COLUMN checkin; PRAGMA user_version = 42');
+  d.exec('ALTER TABLE users DROP COLUMN checkin; DROP INDEX checkin_devices_letter; ALTER TABLE checkin_devices DROP COLUMN station_letter; ALTER TABLE people DROP COLUMN allergy_epi; ALTER TABLE people DROP COLUMN allergy_action; ALTER TABLE people DROP COLUMN medical_sorted_at; DROP TABLE person_care_notes; PRAGMA user_version = 42');
   d.close();
   d = openDb(file);
   const flag = (id) => d.prepare('SELECT checkin FROM users WHERE id = ?').get(id).checkin;
@@ -135,10 +135,11 @@ test('the roster is smaller: no photos, no adult birthdates or medical notes, pi
   assert.equal(adult.phone, '555-0101');
   assert.equal(adult.birthdate, null);
   assert.equal(adult.allergies, null);
-  assert.equal(adult.medical_notes, null);
+  assert.equal(adult.medical_notes, undefined);
   assert.ok(!JSON.stringify(res.data).includes('.jpg') && !('photo' in adult) && !('photo' in kid));
   assert.equal(kid.birthdate, '2020-01-01');
-  assert.equal(kid.allergies, 'peanuts', 'children keep their allergies and notes for now');
+  assert.equal(kid.allergies, 'peanuts', 'children keep their allergy words (Level 1)');
+  assert.ok(!('medical_notes' in kid), 'the longer medical note is not in the roster');
   assert.deepEqual(hhs[0].pickups.map((p) => p.name), ['Uncle Al']);
   assert.ok(!JSON.stringify(res.data).includes('Aunt Sue'));
   const active = await api('staff', 'GET', '/checkin/active?campus_id=1');

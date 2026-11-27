@@ -1090,6 +1090,33 @@ const MIGRATIONS = [
   UPDATE users SET checkin = 1 WHERE role = 'leader' AND id IN (
     SELECT j.value FROM json_each(COALESCE((SELECT CASE WHEN json_valid(value) THEN value END FROM settings WHERE key = 'checkin_user_ids'), '[]')) j);
   `,
+  // 44: pickup codes and medical levels (child-safety V1, PR 5). Each paired iPad gets a station letter, unique
+  // within its campus, so the codes two iPads make can't be the same: a code is the letter plus four characters.
+  // Stations paired before this get letters A, B, C... in the order they were added (letters that look alike,
+  // like O/0 or I/1, are left out; a campus with more than 21 stations leaves the rest without one, and they
+  // make a random letter instead). Old pickup codes on open check-ins are untouched and stay valid.
+  // Medical details move to three levels: Level 1 (allergen words in `allergies`, an EpiPen yes/no and a
+  // one-line action) goes to the iPad and the label; Level 2 (`medical_notes`) is fetched on tap, online and
+  // logged; Level 3 (person_care_notes) is for the office in the Hub and never reaches an iPad.
+  // medical_sorted_at marks a child whose existing notes staff have sorted into those levels.
+  `
+  ALTER TABLE checkin_devices ADD COLUMN station_letter TEXT;
+  UPDATE checkin_devices SET station_letter = (
+    SELECT substr('ABCDEFGHJKMNPQRTUVWXY', x.rn, 1) FROM (
+      SELECT id, row_number() OVER (PARTITION BY campus_id ORDER BY id) rn FROM checkin_devices) x
+    WHERE x.id = checkin_devices.id AND x.rn <= 21);
+  CREATE UNIQUE INDEX checkin_devices_letter ON checkin_devices(campus_id, station_letter) WHERE station_letter IS NOT NULL;
+  ALTER TABLE people ADD COLUMN allergy_epi INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE people ADD COLUMN allergy_action TEXT NOT NULL DEFAULT '';
+  ALTER TABLE people ADD COLUMN medical_sorted_at TEXT;
+  CREATE TABLE person_care_notes (
+    person_id INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+    note TEXT NOT NULL DEFAULT '',
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_by_name TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
