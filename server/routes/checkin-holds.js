@@ -6,6 +6,7 @@ import { rank, requireRole, requireAllCampuses, canCheckin, canCheckinCampus, ca
 import { setSetting, tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, audit, HttpError } from '../http.js';
 import { recordEvent } from '../checkin-events.js';
+import { checkinFeatures } from '../checkin-settings.js';
 import { activeHold, isLead, leadIds, leadAccounts, tellLeads, resolveCollector, MAX_LEADS } from '../holds.js';
 
 const NOTE_MAX = 300;
@@ -42,18 +43,31 @@ export default function checkinHoldRoutes(db) {
     res.set('Cache-Control', 'no-store');
     if (req.query.person_id !== undefined) {
       const id = int(req.query.person_id, 'Person');
-      const rows = db.prepare(`${SELECT} WHERE h.person_id = ? ORDER BY h.id DESC LIMIT 50`).all(id).filter((h) => may(h.campus_id));
-      return res.json({ holds: rows.map(view), can_manage: mgr });
+      const all = db.prepare(`${SELECT} WHERE h.person_id = ? ORDER BY h.id DESC LIMIT 50`).all(id);
+      const rows = all.filter((h) => may(h.campus_id));
+      const out = rows.map(view);
+      // A hold placed at a campus this account can't see still has to be visible as a hold, or staff here would see "No hold" on a
+      // child who has one. Staff with check-in access at the child's or family's campus learn only that it exists: never the
+      // note, who placed it, or why.
+      if (mgr && all.some((h) => h.lifted_at == null) && !rows.some((h) => h.lifted_at == null)) {
+        const p = db.prepare('SELECT p.campus_id, hh.campus_id household_campus FROM people p LEFT JOIN households hh ON hh.id = p.household_id WHERE p.id = ?').get(id);
+        const campuses = p ? [p.campus_id, p.household_campus].filter((x) => x != null) : [];
+        if (p && (campuses.length ? campuses.some((x) => canCheckinCampus(db, req.user, x)) : canCheckinCampus(db, req.user, null))) {
+          out.unshift({ person_id: id, active: true, other_campus: true });
+        }
+      }
+      return res.json({ holds: out, can_manage: mgr, hold_mode: checkinFeatures(db).holds });
     }
     const c = campusRow(req.query.campus_id);
     if (!may(c.id)) throw forbidden();
     const rows = db.prepare(`${SELECT} WHERE h.campus_id = ? AND h.lifted_at IS NULL ORDER BY h.placed_at DESC LIMIT 500`).all(c.id);
-    res.json({ holds: rows.map(view), can_manage: mgr });
+    res.json({ holds: rows.map(view), can_manage: mgr, hold_mode: checkinFeatures(db).holds });
   });
 
   // Place a hold on a child. Body: { person_id, campus_id, note? }. The note is private to staff in the Hub (a pointer to
   // the confidential list, not the details). One hold at a time per child.
   r.post('/checkin/holds', requireManager, (req, res) => {
+    if (checkinFeatures(db).holds === 'off') throw new HttpError(409, 'Pickup holds are switched off for this church. An admin can turn them on under Check-in iPads.');
     const c = campusRow(req.body?.campus_id);
     if (!canCheckinCampus(db, req.user, c.id)) throw forbidden();
     const p = db.prepare('SELECT p.*, h.campus_id household_campus FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?').get(int(req.body?.person_id, 'Child'));

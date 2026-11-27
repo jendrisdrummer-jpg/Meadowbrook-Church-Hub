@@ -40,6 +40,12 @@ export default async function stations(el) {
   const allCampuses = !state.me.campusIds;
   // Children whose allergy and medical details haven't been sorted into the check-in levels yet (see the person's page).
   const review = await get('/checkin/medical/review');
+  // How this church runs check-in. Anyone here can read it; changing it is for an admin who covers every campus.
+  const feats = await get('/checkin/settings');
+  const canEdit = state.me.role === 'admin' && allCampuses;
+  const teamList = canEdit ? await get('/teams') : [];
+  const radio = (name, value, label, hint, current, off = false) => html`<label class="check st-choice"><input type="radio" name="${name}" value="${value}" ${current === value ? 'checked' : ''} ${canEdit && !off ? '' : 'disabled'}>
+    <span><b>${label}</b><br><span class="muted small">${hint}</span></span></label>`;
   const campusLabel = (id) => visibleCampuses().find((c) => c.id === id)?.name || 'No campus set';
   mount(el, html`<div class="card st-how"><h2>Set up an iPad</h2>
       <ol class="small"><li>On the iPad, open <b>${url.replace(/^https?:\/\//, '')}</b> in Safari. (Tip: Share → Add to Home Screen for a full-screen app.)</li>
@@ -53,6 +59,28 @@ export default async function stations(el) {
           <td class="small nowrap">${seen(d.last_seen)}</td>
           <td style="text-align:right" class="nowrap"><button class="btn small ghost" data-edit="${d.id}">Edit</button><button class="btn small ghost danger" data-remove="${d.id}">Remove</button></td></tr>`)}
       </tbody></table></div>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
+    <div class="card st-settings" data-settings><h2>Check-in settings</h2>
+      <p class="muted small" style="margin:0 0 10px">How this church runs check-in. The iPads pick up a change the next time they refresh (about every ten minutes) or are reopened.</p>
+      <fieldset class="st-set"><legend>How do children go home?</legend>
+        ${radio('checkout', 'tag', 'Parents show their matching tag', 'Nobody checks children out on the iPad, and the iPad has no Check out screen. Staff can still check a child out in the Hub.', feats.checkout)}
+        ${radio('checkout', 'ipad', 'Check out on the iPad', 'A volunteer types the code from the parent’s tag, then chooses who is collecting and the ID they showed.', feats.checkout)}</fieldset>
+      <fieldset class="st-set"><legend>Pickup holds</legend>
+        ${radio('holds', 'off', 'Off', 'Hold cards and buttons are hidden in the Hub, and iPads know nothing about holds. Any holds already placed are kept.', feats.holds)}
+        ${radio('holds', 'alert', 'Warn at check-in', 'A child with a hold can still be checked in. The volunteer is asked to bring the children’s ministry leader or a staff member to the desk, and the safeguarding lead is told straight away.', feats.holds)}
+        ${radio('holds', 'block', 'Block check-out', 'An iPad won’t check a held child out until staff release them in the Hub. This needs check-out on the iPad.', feats.holds, feats.checkout === 'tag')}</fieldset>
+      <fieldset class="st-set"><legend>Care notes on the iPad</legend>
+        <label class="check st-choice"><input type="checkbox" name="medical_tap" ${feats.medical_tap ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
+          <span><b>Show the Care note button on the Rooms screen</b><br><span class="muted small">Volunteers can tap to read a child’s longer medical note while the child is checked in. Each look is recorded. Staff in the Hub can always read it.</span></span></label></fieldset>
+      <fieldset class="st-set"><legend>When allergy details are too long for a name tag</legend>
+        ${radio('label_overflow', 'leader', '“SEE ROOM LEADER”', 'Good when every room has a leader to ask.', feats.label_overflow)}
+        ${radio('label_overflow', 'desk', '“SEE CHECK-IN DESK”', 'Good when allergy details are sorted out at the check-in desk.', feats.label_overflow)}
+        ${radio('label_overflow', 'smaller', 'Print it smaller', 'The allergy words are printed in smaller type so they all fit. Only when even small type can’t fit does it say “SEE CHECK-IN DESK”.', feats.label_overflow)}
+        <p class="muted small" style="margin:6px 0 0">“EPI: YES” always prints, whichever you choose.</p></fieldset>
+      <fieldset class="st-set"><legend>Kids’ check-in for team leaders</legend>
+        <p class="muted small" style="margin:0 0 8px">Leaders of the teams you tick can open Kids’ check-in at their own campuses (the family list, each child’s allergy line, and care notes on tap) while they lead the team, as if you had switched it on for their account. It stops when they stop leading it. Leave every team unticked to give check-in only account by account.</p>
+        ${canEdit ? (teamList.length ? html`<div class="stack" data-auto-teams>${teamList.map((t) => html`<label class="check"><input type="checkbox" value="${t.id}" ${feats.auto_team_ids.includes(t.id) ? 'checked' : ''}> ${t.name} ${t.campus_id ? html`<span class="muted small">${campusLabel(t.campus_id)}</span>` : ''}</label>`)}</div>` : html`<p class="muted small" style="margin:0">There are no teams yet.</p>`)
+          : html`<p class="small" style="margin:0">${feats.auto_teams.length ? feats.auto_teams.map((t) => t.name).join(', ') : 'No teams chosen.'}</p>`}</fieldset>
+      ${canEdit ? html`<button class="btn primary" data-save-settings>Save check-in settings</button>` : html`<p class="muted small" style="margin:0">${ALL_CAMPUSES_MESSAGE}</p>`}</div>
     <div class="card"><h2>Medical details to sort</h2>
       ${review.remaining ? html`<p class="small" style="margin:0 0 8px"><b>${review.remaining}</b> ${review.remaining === 1 ? 'child has' : 'children have'} allergy or medical details nobody has sorted yet:
           ${review.by_campus.map((x) => `${campusLabel(x.campus_id)} ${x.remaining}`).join(' · ')}. Open each child, put allergens and EpiPen in the safety line, private matters in care notes, leave the rest as the medical note, then tick “Sorted”.</p>
@@ -71,6 +99,22 @@ export default async function stations(el) {
       <h3 style="margin:16px 0 6px">Legal hold</h3>
       ${holdBlock(safety.legal_hold)}
       <button class="btn ${safety.legal_hold.on ? '' : 'danger'} small" data-hold="${safety.legal_hold.on ? 'release' : 'set'}" ${allCampuses ? '' : 'disabled'}>${safety.legal_hold.on ? 'Release the hold' : 'Put a legal hold on'}</button></div>` : ''}`);
+
+  // With matching tags there is nothing for a hold to block, so that choice is unavailable (and moves to "Warn" if it was picked).
+  const settings = el.querySelector('[data-settings]');
+  const picked = (name) => settings.querySelector(`input[name=${name}]:checked`)?.value;
+  const syncBlock = () => {
+    const block = settings.querySelector('input[name=holds][value=block]');
+    const tag = picked('checkout') === 'tag';
+    block.disabled = tag || !canEdit;
+    if (tag && block.checked) settings.querySelector('input[name=holds][value=alert]').checked = true;
+  };
+  settings.querySelectorAll('input[name=checkout]').forEach((i) => { i.onchange = syncBlock; });
+  settings.querySelector('[data-save-settings]')?.addEventListener('click', async () => {
+    const body = { checkout: picked('checkout'), holds: picked('holds'), medical_tap: settings.querySelector('input[name=medical_tap]').checked, label_overflow: picked('label_overflow'),
+      auto_team_ids: [...settings.querySelectorAll('[data-auto-teams] input:checked')].map((i) => Number(i.value)) };
+    try { await api('PUT', '/checkin/settings', body); toast('Saved. iPads pick this up the next time they refresh.'); stations(el); } catch (err) { fail(err); }
+  });
 
   const sw = el.querySelector('[data-safety]');
   if (sw) sw.onchange = async () => {

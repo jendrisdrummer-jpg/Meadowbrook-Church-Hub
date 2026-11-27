@@ -80,7 +80,7 @@ every campus. `note` is private to staff in the Hub (a pointer to the confidenti
 hold can't change, and a person with a hold on record can't be deleted (`people_keep_hold_history`). `checkins` gains `checked_out_to_name`,
 `checked_out_to_relationship`, `checked_out_to_kind` (`household_adult`, `pickup_contact`, `other`, `unverified`, or empty when an older iPad sent none),
 `checked_out_id_type` (`drivers_license`, `passport`, `other_photo_id`, `known`, `not_checked`; never an ID number) and `checked_out_held` (1 = released while a hold was on). The trigger
-`checkins_collector_is_final` refuses any change to those columns once `checked_out_at` is set. The safeguarding lead is the setting `checkin_safeguarding`
+`checkins_collector_is_final` refuses any change to those columns once `checked_out_at` is set. How the church runs check-in is the setting `checkin_features` (`{checkout, holds, medical_tap, label_overflow, auto_team_ids}`; no migration, read through `checkinFeatures()` in `server/checkin-settings.js`, which fills in defaults). The safeguarding lead is the setting `checkin_safeguarding`
 (`{lead_ids: [user ids]}`; up to 5).
 
 ### Communication

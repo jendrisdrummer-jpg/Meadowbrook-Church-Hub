@@ -14,6 +14,7 @@ import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
 import { legalHold } from './history.js';
+import { leadsAutoTeam } from './checkin-settings.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -63,13 +64,13 @@ export function loadUser(db) {
     const token = parseCookies(req)[COOKIE];
     const hash = token ? hashToken(token) : null;
     const row = hash && find.get(hash, new Date().toISOString());
-    req.user = row ? toUser(row) : null;
+    req.user = row ? toUser(row, db) : null;
     req.sessionHash = row ? hash : null;
     next();
   };
 }
 
-function toUser(row) {
+function toUser(row, db) {
   return {
     id: row.id,
     email: row.email,
@@ -82,6 +83,8 @@ function toUser(row) {
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
     checkin: Boolean(row.checkin),
+    // Kids' check-in because they lead a team an admin chose (Check-in settings). Worked out here, on every request, and never stored.
+    autoCheckin: !row.checkin && rank(row.role) < rank('staff') && leadsAutoTeam(db, row.person_id),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
     homeLayout: parseLayout(row.home_layout),
@@ -132,8 +135,9 @@ export function requireAttendance(req, res, next) {
   next();
 }
 // Kids' check-in (the family roster, checking in and out, voiding): paired stations, staff and admins
-// automatically; anyone else (a leader or volunteer) only with the per-account Kids' check-in switch.
-export const canCheckin = (user) => Boolean(user) && (Boolean(user.station) || rank(user.role) >= rank('staff') || Boolean(user.checkin));
+// automatically; anyone else (a leader or volunteer) only with the per-account Kids' check-in switch, or while they
+// lead a team an admin chose under Check-in settings (`autoCheckin`, same campus rules, nothing stored).
+export const canCheckin = (user) => Boolean(user) && (Boolean(user.station) || rank(user.role) >= rank('staff') || Boolean(user.checkin) || Boolean(user.autoCheckin));
 // Is this campus one the account may run check-in at? As canCampus, except a switch-only account below
 // leader with no campus list on a church with several campuses fails closed rather than meaning "all"
 // (the account dialog requires a list). Leaders keep their existing meaning of no list.
