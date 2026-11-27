@@ -3,6 +3,7 @@ import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, e
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
+import { brandWarnings, suggestShade } from '../contrast.js';
 
 const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
 
@@ -39,6 +40,7 @@ async function church(panel) {
     <div class="field"><span>Brand colour</span>
       <div class="color-row"><input type="color" name="brand_color" value="${s.brand_color}"><code data-hex>${s.brand_color}</code>
         <button type="button" class="btn small ghost" data-reset>Reset</button></div>
+      <div data-contrast class="stack" aria-live="polite"></div>
       <span class="muted small">Used for buttons, links and highlights everywhere, including check-in and the sign-in page.</span></div>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
@@ -95,7 +97,20 @@ async function church(panel) {
   const preview = () => {
     panel.querySelector('[data-hex]').textContent = form.brand_color.value;
     applyTheme(state.me.theme, form.brand_color.value);
+    checkContrast();
   };
+  // Low contrast is the owner's choice, so this only warns; saving is never blocked.
+  const checkContrast = () => {
+    const box = panel.querySelector('[data-contrast]'), hex = form.brand_color.value;
+    const warnings = brandWarnings(hex), better = warnings.length ? suggestShade(hex) : null;
+    mount(box, warnings.length ? html`<div class="alert" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span data-swatch style="background:${hex};color:#fff;border-radius:10px;padding:6px 14px;font-weight:650">Button</span>
+      <span style="flex:1;min-width:200px">${warnings.join(' ')} ${better ? 'Try a different shade: ' : 'Try a different colour.'}
+        ${better ? html`<button type="button" class="btn small" data-use="${better}"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;background:${better}"></span>Use ${better}</button>` : ''}</span>
+    </div>` : html``);
+    box.querySelector('[data-use]')?.addEventListener('click', (e) => { form.brand_color.value = e.currentTarget.dataset.use; preview(); });
+  };
+  checkContrast();
   form.brand_color.oninput = preview;
   panel.querySelector('[data-reset]').onclick = () => { form.brand_color.value = '#135fd1'; preview(); };
   form.onsubmit = async (e) => {
