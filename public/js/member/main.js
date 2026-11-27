@@ -12,6 +12,7 @@ import { editHome } from './home-edit.js';
 import { eventsPage, eventPage } from './events.js';
 import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
+import { wireShellLinks } from './shell.js';
 import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
 import { myInfoPage } from './myinfo.js';
@@ -107,6 +108,7 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'navigate') location.href = e.data.url; });
   }
+  wireShellLinks();
   route();
 }
 
