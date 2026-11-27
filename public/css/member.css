@@ -131,6 +131,7 @@ a.w:hover { text-decoration: none; }
 .m-seg a.on { color: var(--text); background: var(--panel); box-shadow: var(--shadow); }
 .m-cal-card .row { justify-content: space-between; }
 .m-cal-title { font-size: 17px; }
+[hidden] { display: none !important; }
 .m-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
 .m-chips .chip { padding: 5px 12px; font-weight: 600; background: var(--panel); }
 .m-chips .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }

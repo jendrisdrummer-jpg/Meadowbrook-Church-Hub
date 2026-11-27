@@ -185,9 +185,7 @@ function ownPlayerCard(m) {
   if (m.upload_status === 'uploading' || m.upload_status === 'processing') {
     return html`<div class="card stack" data-own>${head}<p class="small" style="margin:0"><span class="pill warn">Getting it ready</span> Mux has the file and is preparing it (a few minutes for a long service). It switches over on its own; until then the app keeps playing it as before.</p></div>`;
   }
-  if (!m.mux_ready) {
-    return html`<div class="card stack" data-own>${head}<p class="small" style="margin:0">This plays in YouTube’s player. To play it in our own, set up streaming (Mux) in <a href="#/media/setup">Media → Setup</a> first.</p></div>`;
-  }
+  if (!m.mux_ready) return '';  // Mux isn’t set up: YouTube is the player, so there’s nothing to offer
   return html`<div class="card stack" data-own>${head}
     ${m.upload_status === 'failed' ? html`<div class="alert bad">The last upload didn’t work. Try again.</div>` : ''}
     <p class="small" style="margin:0">This plays in YouTube’s player. To play it in our own, upload the video file: in <b>YouTube Studio → Content</b>, point at the video, click <b>⋮ → Download</b>, then choose that file here. Its title, tags and trim stay as they are.</p>
