@@ -18,7 +18,8 @@ const stateWords = (s) => ({
 
 export async function myClassesList(el, { setTitle }) {
   setTitle('My classes');
-  const list = await get('/me/classes');
+  let list;
+  try { list = await get('/me/classes'); } catch (e) { return mount(el, html`<div class="m-empty">${icon('book')}<p>${e.message}</p></div>`); } // for example, an account the office hasn’t linked yet
   mount(el, list.length ? html`<div class="card m-list">${list.map((c) => html`<a href="#/classes/${c.id}">${icon('book')}<span class="grow"><b>${c.title}</b><br>
       <span class="muted small">${c.completed_at ? 'Finished' : `${c.done} of ${c.total} steps done`}</span>${c.total && !c.completed_at ? html`<span class="meter"><span style="width:${Math.round((100 * c.done) / c.total)}%"></span></span>` : ''}</span>${c.completed_at ? html`<span class="pill good">${icon('check')} Finished</span>` : ''}</a>`)}</div>`
     : html`<div class="m-empty">${icon('book')}<p>You aren’t in any classes yet. When someone adds you, they’ll show here.</p></div>`);
