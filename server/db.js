@@ -987,6 +987,39 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN home_layout TEXT;
   `,
+  // 40: kids' check-in record (child-safety V1, PR 1). checkin_events is append-only (triggers refuse
+  // UPDATE and DELETE) and holds plain ids with name snapshots, no foreign keys to people, users,
+  // households or devices, so it outlives anything it mentions. It never holds medical text, phone
+  // numbers or addresses. checkin_devices gains the check-in app version each iPad last reported.
+  `
+  CREATE TABLE checkin_events (
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,                              -- server time, ISO UTC, set in JS (never datetime('now'))
+    day TEXT,                                      -- campus-local date of "at"; NULL for church-wide events
+    client_at TEXT,                                -- when the iPad says it happened (ISO UTC), if it said
+    campus_id INTEGER REFERENCES campuses(id),     -- no ON DELETE action: a campus with history can't be deleted
+    action TEXT NOT NULL,                          -- closed list in server/checkin-events.js
+    checkin_id TEXT,                               -- plain id: the event outlives the check-in
+    person_id INTEGER,                             -- plain id
+    household_id INTEGER,                          -- server-derived when recorded; plain id
+    security_code TEXT NOT NULL DEFAULT '',
+    device_id INTEGER,                             -- plain id, with a name snapshot
+    device_name TEXT NOT NULL DEFAULT '',
+    user_id INTEGER,                               -- plain id, with a name snapshot
+    user_name TEXT NOT NULL DEFAULT '',
+    app_version TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '{}'              -- JSON object
+  );
+  CREATE INDEX checkin_events_day ON checkin_events (campus_id, day, action);
+  CREATE INDEX checkin_events_checkin ON checkin_events (checkin_id);
+  CREATE INDEX checkin_events_person ON checkin_events (person_id, id);
+  CREATE TRIGGER checkin_events_no_update BEFORE UPDATE ON checkin_events
+    BEGIN SELECT RAISE(ABORT, 'checkin_events is append-only'); END;
+  CREATE TRIGGER checkin_events_no_delete BEFORE DELETE ON checkin_events
+    BEGIN SELECT RAISE(ABORT, 'checkin_events is append-only'); END;
+  ALTER TABLE checkin_devices ADD COLUMN app_version TEXT NOT NULL DEFAULT '';
+  ALTER TABLE checkin_devices ADD COLUMN app_version_at TEXT;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

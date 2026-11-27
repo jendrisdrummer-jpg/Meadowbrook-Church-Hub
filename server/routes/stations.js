@@ -6,6 +6,8 @@ import { createLimiter, ipAllowed } from '../ratelimit.js';
 import crypto from 'node:crypto';
 import { requireRole, canCampus } from '../auth.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
+import { tx } from '../db.js';
+import { recordEvent, appVersion } from '../checkin-events.js';
 
 const HEADER = 'x-station';
 const PAIR_MIN = 15;
@@ -20,6 +22,7 @@ const stationMay = (req) => req.path.startsWith('/checkin/') || req.path === '/c
 // to its own campus. Everything else stays signed out.
 export function stationAuth(db) {
   const find = db.prepare('SELECT d.*, c.name campus_name FROM checkin_devices d JOIN campuses c ON c.id = d.campus_id WHERE d.token_hash = ?');
+  const setVersion = db.prepare('UPDATE checkin_devices SET app_version = ?, app_version_at = ? WHERE id = ?');
   const seen = db.prepare("UPDATE checkin_devices SET last_seen = datetime('now') WHERE id = ? AND (last_seen IS NULL OR last_seen < datetime('now', '-5 minutes'))");
   return (req, res, next) => {
     const token = req.get(HEADER);
@@ -27,6 +30,9 @@ export function stationAuth(db) {
     const d = find.get(hash(String(token)));
     if (!d) return res.status(401).json({ error: 'This station was removed. Pair it again.', station_removed: true });
     seen.run(d.id);
+    // Remember which check-in app version this iPad runs, so the hub can show who needs to reload.
+    const version = appVersion(req);
+    if (version !== d.app_version) setVersion.run(version, new Date().toISOString(), d.id);
     req.user = { id: null, role: 'leader', name: d.name, campusIds: [d.campus_id], station: d };
     next();
   };
@@ -73,7 +79,7 @@ export default function stationRoutes(db) {
 
   // ---------------------------------------------------------------- the hub
   r.get('/checkin/devices', requireRole('staff'), (req, res) => {
-    const rows = db.prepare(`SELECT d.id, d.name, d.campus_id, d.print, d.device, d.created_at, d.last_seen, c.name campus_name,
+    const rows = db.prepare(`SELECT d.id, d.name, d.campus_id, d.print, d.device, d.created_at, d.last_seen, d.app_version, d.app_version_at, c.name campus_name,
         COALESCE(NULLIF(p.nickname, ''), p.first_name) || ' ' || p.last_name added_by
       FROM checkin_devices d JOIN campuses c ON c.id = d.campus_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN people p ON p.id = u.person_id
       ORDER BY c.sort, c.name, d.name`).all();
@@ -92,10 +98,14 @@ export default function stationRoutes(db) {
     if (!canCampus(req.user, campusId)) throw forbidden();
     const name = required(b.name, 'Station name').slice(0, 60);
     const token = crypto.randomBytes(32).toString('hex');
-    const id = db.prepare('INSERT INTO checkin_devices (name, campus_id, print, token_hash, device, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(name, campusId, b.print === false ? 0 : 1, hash(token), p.device, req.user.id).lastInsertRowid;
-    db.prepare('UPDATE device_pairings SET token = ?, device_id = ? WHERE code = ?').run(token, id, code);
-    audit(db, req, 'checkin.device', `${name} (${p.device || 'device'})`);
+    const id = tx(db, () => {
+      const newId = db.prepare('INSERT INTO checkin_devices (name, campus_id, print, token_hash, device, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(name, campusId, b.print === false ? 0 : 1, hash(token), p.device, req.user.id).lastInsertRowid;
+      db.prepare('UPDATE device_pairings SET token = ?, device_id = ? WHERE code = ?').run(token, newId, code);
+      audit(db, req, 'checkin.device', `${name} (${p.device || 'device'})`);
+      recordEvent(db, req, { action: 'device.pair', campusId, deviceId: Number(newId), deviceName: name, detail: { name } });
+      return newId;
+    });
     res.status(201).json({ id: Number(id) });
   });
 
@@ -106,8 +116,13 @@ export default function stationRoutes(db) {
     const b = req.body || {};
     const campusId = b.campus_id !== undefined ? int(b.campus_id, 'Campus') : d.campus_id;
     if (!campusId || !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId) || !canCampus(req.user, campusId)) throw bad('Pick a campus.');
-    db.prepare('UPDATE checkin_devices SET name = ?, campus_id = ?, print = ? WHERE id = ?')
-      .run(str(b.name ?? d.name, 60) || d.name, campusId, b.print === undefined ? d.print : b.print ? 1 : 0, d.id);
+    const name = str(b.name ?? d.name, 60) || d.name;
+    const print = b.print === undefined ? d.print : b.print ? 1 : 0;
+    tx(db, () => {
+      db.prepare('UPDATE checkin_devices SET name = ?, campus_id = ?, print = ? WHERE id = ?').run(name, campusId, print, d.id);
+      const fields = [name !== d.name && 'name', campusId !== d.campus_id && 'campus', print !== d.print && 'print'].filter(Boolean);
+      recordEvent(db, req, { action: 'device.update', campusId, deviceId: d.id, deviceName: name, detail: { fields, from_campus: d.campus_id, to_campus: campusId } });
+    });
     res.json({ ok: true });
   });
 
@@ -116,8 +131,11 @@ export default function stationRoutes(db) {
     const d = db.prepare('SELECT * FROM checkin_devices WHERE id = ?').get(int(req.params.id));
     if (!d) throw notFound('Station');
     if (!canCampus(req.user, d.campus_id)) throw forbidden();
-    db.prepare('DELETE FROM checkin_devices WHERE id = ?').run(d.id);
-    audit(db, req, 'checkin.device.remove', d.name);
+    tx(db, () => {
+      db.prepare('DELETE FROM checkin_devices WHERE id = ?').run(d.id);
+      audit(db, req, 'checkin.device.remove', d.name);
+      recordEvent(db, req, { action: 'device.remove', campusId: d.campus_id, deviceId: d.id, deviceName: d.name, detail: { name: d.name } });
+    });
     res.json({ ok: true });
   });
 
