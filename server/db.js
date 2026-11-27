@@ -1020,6 +1020,15 @@ const MIGRATIONS = [
   ALTER TABLE checkin_devices ADD COLUMN app_version TEXT NOT NULL DEFAULT '';
   ALTER TABLE checkin_devices ADD COLUMN app_version_at TEXT;
   `,
+  // 41: check-out guard (child-safety V1, PR 2). A release now records who made it from what the
+  // server knows (the paired iPad or the signed-in account), as plain ids with no foreign keys so
+  // they outlive the iPad or account, and the time the iPad says an offline release really happened.
+  // checked_out_by keeps its meaning but is now filled from the server's own knowledge of the actor.
+  `
+  ALTER TABLE checkins ADD COLUMN checked_out_device_id INTEGER;
+  ALTER TABLE checkins ADD COLUMN checked_out_user_id INTEGER;
+  ALTER TABLE checkins ADD COLUMN client_checked_out_at TEXT;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

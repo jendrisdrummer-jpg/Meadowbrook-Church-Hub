@@ -6,7 +6,7 @@ import { localNow } from './http.js';
 
 export const ACTIONS = [
   'checkin', 'checkin.skipped', 'checkin.delete',
-  'checkout', 'checkout.mixed', 'checkout.repeat', 'checkout.unknown', 'checkout.code_miss',
+  'checkout', 'checkout.mixed', 'checkout.refused', 'checkout.repeat', 'checkout.unknown', 'checkout.code_miss',
   'roster.download',
   'device.pair', 'device.update', 'device.remove',
   'version.refused', 'safety.settings',

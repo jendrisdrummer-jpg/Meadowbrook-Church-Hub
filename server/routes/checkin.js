@@ -15,6 +15,7 @@ import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-even
 const SAFETY_DEFAULTS = { require_current_app: false };
 const SAFETY_TYPES = { require_current_app: 'boolean' };
 const CODE_MISS_ROWS = 5;
+const REFUSED_ROWS = 20;
 export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
 // Who may use kids' check-in (the family roster with children's allergies and medical notes,
@@ -166,7 +167,8 @@ export default function checkinRoutes(db) {
     if (req.query.room_id) { extra = ' AND ci.room_id = ?'; args.push(int(req.query.room_id)); }
     // Children's allergies and medical notes are for kids' safety; an adult's (a volunteer or a
     // parent checked in) are never sent.
-    res.json(db.prepare(`SELECT ci.*, p.first_name, p.last_name, p.nickname,
+    res.json(db.prepare(`SELECT ci.id, ci.campus_id, ci.service_id, ci.person_id, ci.room_id, ci.kind, ci.security_code, ci.station, ci.day,
+        ci.checked_in_at, ci.checked_out_at, ci.checked_out_by, p.first_name, p.last_name, p.nickname,
         CASE WHEN p.household_role = 'child' THEN p.allergies END allergies,
         CASE WHEN p.household_role = 'child' THEN p.medical_notes END medical_notes, p.photo, p.birthdate, p.grade,
         p.household_id, rm.name room_name, h.name household_name
@@ -176,59 +178,125 @@ export default function checkinRoutes(db) {
       ORDER BY rm.sort, rm.name, p.first_name`).all(...args));
   });
 
-  // Check out by pickup code (every child on that code) or by check-in ids.
+  // Check out. Three shapes:
+  //   { campus_id, mode: 'request', household_id?, ids }  a release happening now, online. All the children must be
+  //       one family's (a child with no family counts as a family of their own), or nothing is released (409).
+  //   { campus_id, mode: 'report', ids, at? }             a release that already happened (an offline iPad catching
+  //       up). It is never refused: each child is recorded at the time the iPad says (kept within sane limits), and
+  //       a report that spans families is recorded and flagged for a person to look at.
+  //   { campus_id, security_code | ids, by? }             the older shape, still accepted. A code that matches more
+  //       than one family is refused (a code is only ever typed live); a mixed list of ids is recorded and flagged.
+  // Who released is always what the server knows (the iPad's name or the signed-in account), never the `by` text.
   r.post('/checkin/checkout', requireCheckin, currentApp, (req, res) => {
     const c = campus(req, req.body?.campus_id);
+    const b = req.body || {};
+    const mode = b.mode === undefined ? null : oneOf(b.mode, ['request', 'report'], null);
+    if (b.mode !== undefined && !mode) throw bad('That isn’t a kind of check-out.');
+    if (mode && b.security_code) throw bad('Choose the children to check out.');
     const day = localNow(c.timezone).date;
-    const claimed = str(req.body?.by, 100);
-    const by = claimed || req.user.name;
-    const path = req.body?.security_code ? 'code' : 'ids';
-    const code = path === 'code' ? str(req.body.security_code, 8).toUpperCase() : '';
+    const claimed = str(b.by, 100);
+    const station = req.user.station;
+    const by = (station ? station.name : req.user.name) || '';
+    const actor = { device: station ? station.id : null, user: station ? null : req.user.id ?? null };
+    const path = !mode && b.security_code ? 'code' : 'ids';
+    const code = path === 'code' ? str(b.security_code, 8).toUpperCase() : '';
+    const claimedHousehold = mode === 'request' ? int(b.household_id, 'Family') : null;
+    const given = Array.isArray(b.ids) ? b.ids : [];
+    if (given.length > 500) throw bad('Too many at once.');
+    if (mode === 'request' && !given.length) throw bad('Choose the children to check out.');
+    const reportAt = mode === 'report' && typeof b.at === 'string' && !Number.isNaN(Date.parse(b.at)) ? new Date(b.at) : null;
+    const modeDetail = mode ? { mode } : {};
+    // A few rows per actor per campus per day for the same kind of event, so a loop can't flood the record.
+    const todayCount = (action) => {
+      const who = station ? ['device_id', station.id] : ['user_id', req.user.id];
+      return db.prepare(`SELECT COUNT(*) n FROM checkin_events WHERE campus_id = ? AND day = ? AND action = ? AND ${who[0]} = ?`).get(c.id, day, action, who[1]).n;
+    };
     let rows;
     if (path === 'code') {
       rows = db.prepare('SELECT id FROM checkins WHERE campus_id = ? AND day = ? AND security_code = ? AND checked_out_at IS NULL')
         .all(c.id, day, code);
       if (!rows.length) {
-        // A few misses per actor per campus per day are recorded (with a running count); guessing codes can't flood the record.
-        const today = localNow(c.timezone).date;
-        const who = req.user.station ? ['device_id', req.user.station.id] : ['user_id', req.user.id];
-        const misses = db.prepare(`SELECT COUNT(*) n FROM checkin_events WHERE campus_id = ? AND day = ? AND action = 'checkout.code_miss' AND ${who[0]} = ?`).get(c.id, today, who[1]).n;
+        const misses = todayCount('checkout.code_miss');
         if (misses < CODE_MISS_ROWS) recordEvent(db, req, { action: 'checkout.code_miss', campusId: c.id, code, detail: { attempt: misses + 1, last_recorded: misses + 1 === CODE_MISS_ROWS } });
         throw notFound('A checked-in child with that code');
       }
     } else {
-      const given = req.body?.ids || [];
-      if (given.length > 500) throw bad('Too many at once.');
       rows = [...new Set(given.map((id) => str(id, 64)))].map((id) => ({ id }));
     }
-    const upd = db.prepare("UPDATE checkins SET checked_out_at = ?, checked_out_by = ? WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL");
-    const find = db.prepare('SELECT ci.id, ci.person_id, ci.security_code, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ? AND ci.campus_id = ?');
-    const now = new Date().toISOString();
+    const upd = db.prepare(`UPDATE checkins SET checked_out_at = ?, checked_out_by = ?, checked_out_device_id = ?, checked_out_user_id = ?, client_checked_out_at = ?
+      WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL`);
+    const find = db.prepare(`SELECT ci.id, ci.person_id, ci.security_code, ci.checked_in_at, ci.checked_out_at, p.household_id, h.name household_name
+      FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id WHERE ci.id = ? AND ci.campus_id = ?`);
+    const familyOf = (x) => x.household_id ?? `p${x.person_id}`;
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    // When a reported release really happened: the iPad's time, but never in the future and never before the check-in.
+    const releasedAt = (ci) => {
+      if (!reportAt) return { at: now, clamped: false };
+      let t = reportAt.getTime();
+      const low = Date.parse(ci.checked_in_at);
+      if (t > nowDate.getTime()) t = nowDate.getTime();
+      if (!Number.isNaN(low) && t < low) t = low;
+      return { at: new Date(t).toISOString(), clamped: t !== reportAt.getTime() };
+    };
     let count = 0;
+    let refusal = null;
     tx(db, () => {
-      const released = [];
+      const known = [];
       const unknown = [];
-      rows.forEach((row) => {
+      for (const row of rows) {
         const ci = find.get(row.id, c.id);
-        if (!ci) { unknown.push(row.id); return; }
-        if (Number(upd.run(now, by, row.id, c.id).changes) !== 1) {
-          recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, detail: { path } });
+        if (ci) known.push(ci); else unknown.push(row.id);
+      }
+      // The guard. A live request, or a typed code, may release one family only.
+      if (mode === 'request' || path === 'code') {
+        const open = known.filter((x) => x.checked_out_at == null);
+        const families = new Map();
+        for (const x of open) families.set(familyOf(x), [...(families.get(familyOf(x)) || []), x]);
+        const reason = families.size > 1 ? (path === 'code' ? 'code_two_families' : 'two_families')
+          : claimedHousehold != null && open.some((x) => x.household_id !== claimedHousehold) ? 'household_mismatch' : null;
+        if (reason) {
+          refusal = { reason, families: [...families.values()].map((list) => ({ household_id: list[0].household_id, name: list[0].household_name, check_in_ids: list.map((x) => x.id) })) };
+          if (todayCount('checkout.refused') < REFUSED_ROWS) {
+            const households = [...new Set(open.map((x) => x.household_id).filter((h) => h != null))];
+            recordEvent(db, req, { action: 'checkout.refused', campusId: c.id, code, detail: { reason, path, ...modeDetail, count: open.length, family_count: families.size,
+              households: households.slice(0, 20), claimed_household: claimedHousehold, checkin_ids: open.slice(0, 20).map((x) => x.id), truncated: open.length > 20 || households.length > 20 } });
+            audit(db, req, 'checkin.checkout.refused', { campus_id: c.id, reason, device_id: actor.device, device_name: station?.name ?? '', families: families.size, count: open.length });
+          }
           return;
+        }
+      }
+      const released = [];
+      for (const ci of known) {
+        const when = releasedAt(ci);
+        if (Number(upd.run(when.at, by, actor.device, actor.user, reportAt ? reportAt.toISOString() : null, ci.id, c.id).changes) !== 1) {
+          recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, detail: { path, ...modeDetail } });
+          continue;
         }
         count += 1;
         released.push(ci);
-        recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, detail: { path, by_claimed: claimed } });
-      });
+        recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
+          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}) } });
+      }
       // Ids not found at this campus: one summary row per request, not one per id.
-      if (unknown.length) recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: unknown[0], detail: { path, count: unknown.length, ids: unknown.slice(0, 20) } });
-      // Releasing children of more than one family in one go is recorded for now; a later release refuses it.
-      const families = new Set(released.map((x) => x.household_id ?? `p${x.person_id}`));
+      if (unknown.length) recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: unknown[0], detail: { path, ...modeDetail, count: unknown.length, ids: unknown.slice(0, 20) } });
+      // Children of more than one family released together (an offline report, or the older shape from an old iPad)
+      // can't be undone, so it is recorded and flagged for a person to look at.
+      const families = new Set(released.map(familyOf));
       if (families.size > 1) {
         const households = [...new Set(released.map((x) => x.household_id).filter((h) => h != null))];
         recordEvent(db, req, { action: 'checkout.mixed', campusId: c.id, code,
-          detail: { path, count: released.length, household_count: households.length, households: households.slice(0, 20), checkin_ids: released.slice(0, 20).map((x) => x.id), truncated: released.length > 20 || households.length > 20 } });
+          detail: { path, ...modeDetail, count: released.length, household_count: households.length, households: households.slice(0, 20), checkin_ids: released.slice(0, 20).map((x) => x.id), truncated: released.length > 20 || households.length > 20 } });
+        audit(db, req, 'checkin.checkout.mixed', { campus_id: c.id, device_id: actor.device, device_name: station?.name ?? '', families: families.size, count: released.length, mode: mode || 'legacy' });
       }
     });
+    if (refusal) {
+      return res.status(409).json({
+        error: refusal.reason === 'household_mismatch' ? 'Those children aren’t all in the same family. Check out one family at a time.'
+          : 'This code matches children from more than one family. Check ID and choose one family’s children at a time.',
+        reason: refusal.reason, families: refusal.families,
+      });
+    }
     res.json({ checked_out: count });
   });
 

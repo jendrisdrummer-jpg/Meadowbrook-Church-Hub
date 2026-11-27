@@ -123,7 +123,7 @@ test('station upload: one checkin event per new record, identity from the server
   assert.equal(evs.length, 2);
   const e = evs[0];
   assert.deepEqual([e.checkin_id, e.person_id, e.household_id, e.security_code, e.campus_id], ['ci-abe-0001', ids.abe, ids.hhA, 'KK11', 1]);
-  assert.deepEqual([e.device_id, e.device_name, e.user_id, e.user_name, e.app_version], [stationId, 'Lobby', null, '', '1']);
+  assert.deepEqual([e.device_id, e.device_name, e.user_id, e.user_name, e.app_version], [stationId, 'Lobby', null, '', String(CHECKIN_APP_VERSION)]);
   assert.equal(e.client_at, '2027-02-21T15:29:00.000Z');
   assert.equal(e.at, new Date(T0).toISOString());
   assert.equal(e.day, '2027-02-21');
@@ -167,13 +167,14 @@ test('check-out by code: one event per child; by_claimed is only a claim, the ac
     assert.equal(e.household_id, ids.hhA);
   }
   assert.deepEqual(evs.map((e) => e.person_id).sort(), [ids.abe, ids.abby].sort());
-  // The released-by text is still stored exactly as before.
-  assert.equal(db.prepare("SELECT checked_out_by FROM checkins WHERE id = 'ci-abe-0001'").get().checked_out_by, 'Someone Else Entirely');
+  // PR 2 changed this on purpose: the released-by name is the iPad's own name from the server, not the claimed text.
+  assert.equal(db.prepare("SELECT checked_out_by FROM checkins WHERE id = 'ci-abe-0001'").get().checked_out_by, 'Lobby');
   assert.equal(events('checkout.mixed').length, 0);
 });
 
-// PR 2 will refuse this request; when it does, this test is the one that flips (200 becomes 4xx, mixed stays recorded).
-test('characterisation: releasing two families in one request still succeeds today, and is recorded as mixed', async () => {
+// PR 2 refuses a live mixed request (mode: 'request') and a code that matches two families, but the older id-list shape
+// still succeeds and is recorded as mixed: it can't be told from an old iPad catching up on a release that already happened.
+test('characterisation: the older id-list shape across two families still succeeds, and is recorded as mixed', async () => {
   assert.equal((await checkIn(asStation, [rec('ci-abe-0002', ids.abe, 'FA01'), rec('ci-bo-00002', ids.bo, 'FB02')])).status, 201);
   const r = await asStation('POST', '/checkin/checkout', { campus_id: 1, ids: ['ci-abe-0002', 'ci-bo-00002'], by: 'A parent' });
   assert.equal(r.status, 200);
@@ -327,15 +328,15 @@ test('app version: reported by the iPad, shown on the stations list, junk stored
   const device = async () => (await api('staff', 'GET', '/checkin/devices')).data.find((d) => d.id === stationId);
   await asStation('GET', '/checkin/station');
   let d = await device();
-  assert.deepEqual([d.app_version, d.app_version_at], ['1', new Date(T0).toISOString()]);
+  assert.deepEqual([d.app_version, d.app_version_at], [String(CHECKIN_APP_VERSION), new Date(T0).toISOString()]);
   await asStation('GET', '/checkin/station', undefined, 'abc');
   assert.equal((await device()).app_version, '');
   await asStation('GET', '/checkin/station', undefined, '1234567');
   assert.equal((await device()).app_version, '', 'more than six digits is junk');
-  await asStation('GET', '/checkin/station', undefined, '2');
-  assert.equal((await device()).app_version, '2');
+  await asStation('GET', '/checkin/station', undefined, String(CHECKIN_APP_VERSION + 1));
+  assert.equal((await device()).app_version, String(CHECKIN_APP_VERSION + 1));
   await asStation('GET', '/checkin/station');
-  assert.equal((await device()).app_version, '1');
+  assert.equal((await device()).app_version, String(CHECKIN_APP_VERSION));
 });
 
 test('app version, switch off: iPads with no header or 0 work exactly as before', async () => {
