@@ -37,7 +37,7 @@ const freePort = () => new Promise((resolve) => {
 });
 
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
-  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks',
+  '/events', '/templates', '/giving', '/media', '/media/setup', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks',
   '/classes', '/classes/1', '/classes/1/steps', '/classes/1/people', '/classes/1/managers', '/classes/1/details', '/classes/1/attendance/1'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest', '/classes', '/classes/1', '/classes/1/1', '/classes/1/4', '/classes/1/5'];
 // leader and finance are added to the throwaway database below; the others come from the demo seed.

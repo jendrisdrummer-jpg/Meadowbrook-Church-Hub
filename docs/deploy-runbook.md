@@ -210,7 +210,9 @@ Names only, never values. Render → the service → **Environment**.
 | `MB_BACKUP_PASSWORD` | Yes | Long passphrase, kept by two people outside the hub |
 | `MB_ADMIN_EMAILS` | Optional | Comma-separated emails that are always admins |
 | `MB_APP_URL` | Optional | The member app's own address |
-| `MB_DAILY_API_KEY`, `STRIPE_*`, `YOUTUBE_API_KEY`, `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` | Only for video calls, giving, media | From each service |
+| `YOUTUBE_API_KEY` | Recommended for Media (without it the hub sees only the channel’s latest 15 videos and some need a look) | Google Cloud → APIs & Services → enable **YouTube Data API v3** → Credentials → API key, restricted to that API. Then in Media → Setup the key shows **On**. The Sunday messages playlist is set in Media → Setup (no env var): make a public or unlisted playlist on YouTube, paste its link under “Only bring in videos from this playlist” |
+| `MB_DAILY_API_KEY`, `STRIPE_*` | Only for video calls and giving | From each service |
+| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` | **Not used.** Mux is dormant; leave unset | |
 | `MB_DB`, `MB_UPLOADS`, `PORT` | Set by the `Dockerfile` | Leave alone |
 | `MB_DEV_LOGIN`, `MB_OFFLINE` | **Must not be set** | Laptop-only |
 
