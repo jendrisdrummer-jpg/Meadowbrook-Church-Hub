@@ -30,7 +30,7 @@ chromium`. Claude Code's cloud sessions already have it.
 - **Fixed clock (when a test needs a particular date or time):** `mock.timers.enable({ apis: ['Date'], now: Date.parse('2027-02-21T15:30:00Z') })`
   from `node:test`, at the top of `before`, **before any session or pairing is made**; `mock.timers.reset()` in `after`; move it with
   `mock.timers.setTime(...)` (for the next day, or a time-zone edge) and put it back in a `finally`. Only `Date` is mocked, so the
-  HTTP stack and timers keep working. Example: `test/checkin-record.test.js`.
+  HTTP stack and timers keep working. Examples: `test/checkin-record.test.js`, `test/checkin-checkout.test.js` (check-out guard: two-family 409, offline reports at their real time, who released, flood caps, label name rules).
 - **Dates:** never assume today's date (tests run on any day). Build dates relative to now
   (`nextSunday()`, `addDays()`), and make assertions that hold on any date, including month
   boundaries. A test that depends on the calendar is a bug.
@@ -48,7 +48,8 @@ Run the affected ones for every change, and all of them before a significant rel
 | 3 | Add someone to a team and position | Leader | Roster updated; team chat membership follows |
 | 4 | Create a repeating service and an order of service from a template | Staff | Services appear on the calendar; plan filled |
 | 5 | Schedule a volunteer, send requests, accept and decline; remind those who haven’t replied | Leader → volunteer | Push/inbox; decline reaches leader; reminders skip accepted/declined/unsent and repeat only after 12 hours; conflicts and away dates respected |
-| 6 | Roll call and kids' check-in/out (also from a paired station) | Leader / station | Attendance recorded; name tags; check-out by code |
+| 6 | Roll call and kids' check-in/out (also from a paired station) | Leader / station | Attendance recorded; name tags (first name, last initial, no family name); check-out by code, children ticked one at a time |
+| 6b | Check out with a code on two families (use two test families), then switch the iPad offline, check one family out, go online | Station | Two-family stop shown and nothing released together; offline release shows in the iPad's "waiting to sync" count, then reaches the hub with its real time |
 | 6a | Take attendance on a phone: pick a service, mark names and a family, add a guest and a child, enter a headcount; try a person page, People and Schedule by URL | Volunteer with the Attendance switch | Attendance saved and audited when late; every other page refused; kids' check-in still refused (`test/attendance-access.test.js`) |
 | 7 | Create an event with sign-up questions (and a paid one) | Staff → guest | Event in app calendar; sign-up recorded; capacity honoured |
 | 8 | Send an announcement (now and scheduled) | Announcements flag | Inbox + push; guests get push; audience respected |

@@ -25,6 +25,13 @@
 .k-kid .room { font-weight: 700; }
 .k-kid .room.none { color: var(--bad); }
 .k-kid.done { opacity: .55; }
+.k-out .k-count { text-align: center; font-size: 18px; margin: 0 0 12px; }
+.k-out .alert { margin-bottom: 12px; }
+.k-fam { margin-bottom: 14px; }
+.k-fam h2 { margin: 0 0 8px; }
+.k-fam.waiting { opacity: .5; }
+.k-idcheck { display: flex; align-items: center; gap: 12px; min-height: 52px; font-weight: 700; font-size: 18px; }
+.k-idcheck input { width: 28px; height: 28px; accent-color: var(--accent); }
 .k-big { min-height: 60px; font-size: 19px; padding: 12px 28px; border-radius: 14px; }
 .k-code { font-size: 64px; font-weight: 900; letter-spacing: .15em; text-align: center; font-variant-numeric: tabular-nums; margin: 10px 0; }
 .k-pending { background: var(--warn-soft); color: var(--warn); padding: 2px 10px; border-radius: 999px; font-weight: 700; }

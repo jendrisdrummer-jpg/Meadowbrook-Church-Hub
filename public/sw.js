@@ -2,7 +2,7 @@
 // - keeps the check-in screen loading when a tablet loses its internet connection (only the
 //   check-in page, its files and the fonts are cached; everything else goes straight to the network);
 // - shows push notifications, and lets people accept a serving spot right from one.
-const CACHE = 'mb-checkin-v5';
+const CACHE = 'mb-checkin-v6';
 const FILES = ['/checkin', '/css/app.css', '/css/checkin.css', '/js/checkin.js', '/js/checkin-rules.js', '/js/lib.js', '/js/theme.js', '/fonts/inter.woff2', '/fonts/fraunces-roman.woff2', '/fonts/fraunces-italic.woff2'];
 
 self.addEventListener('install', (e) => {
