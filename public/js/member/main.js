@@ -22,6 +22,10 @@ let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
 const preview = new URLSearchParams(location.search).has('preview');
 // In the App Builder, the preview's home screen can be rearranged (?preview=1&edit=1).
 const editing = preview && new URLSearchParams(location.search).has('edit');
+// "Preview as a guest" inside the App Builder: draw the signed-out view without signing anyone out.
+// Only inside the builder's own iframe, and it only ever hides things (user becomes null here, in
+// this page; the server never hears about it), so it can't be used to see or do anything more.
+const previewGuest = new URLSearchParams(location.search).get('preview') === 'guest' && window.parent !== window;
 let selectedWidget = null;
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
@@ -64,6 +68,7 @@ function setTitle(title, actions = '') {
 
 async function boot() {
   app = await get('/app/config');
+  if (previewGuest) app.user = null;
   applyTheme();
   if (!Number.isInteger(history.state?.idx)) history.replaceState({ ...history.state, idx }, '');
   window.addEventListener('hashchange', () => { trackHistory(); route(); });
@@ -91,6 +96,8 @@ async function boot() {
     if (onHome) return homeShown();
     route();
   });
+  // A picture that won't load shows the tidy placeholder (error events don't bubble, so listen while capturing).
+  document.addEventListener('error', (e) => { if (e.target?.matches?.('img.w-probe')) e.target.closest('.w')?.classList.add('w-broken'); }, true);
   if (preview) parent.postMessage({ type: 'app-ready' }, location.origin);
   if ('serviceWorker' in navigator && !preview) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});

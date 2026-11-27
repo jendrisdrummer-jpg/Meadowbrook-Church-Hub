@@ -134,7 +134,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   // The account linked to a person, as shown on their page. For an admin it says whether they may
   // change it (`editable`): a campus-limited admin can't touch their own, an admin's or another campus's.
   function accountFor(req, personId) {
-    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.person_id,
+    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.app_editor, u.person_id,
         u.password_hash IS NOT NULL has_password, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?`).get(personId);
     if (!u) return null;
     const { person_id: _p, person_campus_id: campusId, ...account } = u;
