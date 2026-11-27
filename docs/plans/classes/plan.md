@@ -301,7 +301,46 @@ the scheduling override), `features.md` (Classes rows; kids-safety pilot setup i
 
 Never run two file-editing agents at once. Steps 1–4 only read and may run in parallel.
 
-## Owner decisions needed
+## Owner decisions (answered 27 Nov 2026)
+
+1. **First class: Life Group Training.** An **in-person class over 6 weeks**. Someone who misses a week is given
+   **that week's recording plus a test** for it. This changes the design (see "Changes from the answers" below).
+   Still open, for the Life Group leader: whether someone who can't come to *any* week takes a test after each
+   recording or one at the end. The design supports both, as a setting on the class, so no code waits on it.
+2. **Videos on Mux.** The long-term goal is Mux built in everywhere, with no YouTube player in the hub. Training
+   videos use the existing Mux upload (`mux.js`, `js/mux-upload.js`) and are kept off Watch and the podcast.
+   Cost for this church's size is small (see the session notes): storage is roughly $0.0024 per minute per month
+   at 720p (about $1 a month for six 1-hour recordings), the basic encoding tier is free, and the first 100,000
+   minutes watched each month are free. Confirm against mux.com/pricing before relying on these figures.
+3. **Staff create and manage classes; team leaders see and remind their own team's people.** Confirmed.
+4. **Required classes are optional per team, and only warn.** It probably won't be used for First Steps, but
+   it fits team training such as the livestream team: camera training videos plus a test before hands-on training.
+5. **Who sees completion.** The person, and **whoever assigned them** the class. Each class also gets **class
+   managers** (named accounts, for example the Life Group leader), who see everyone enrolled and their status.
+   Staff see all classes. Scores stay with the person, staff and that class's managers; team leaders see "done /
+   not yet". Pastoral classes can still be staff-only.
+6. **Renewal: owner left it to us.** Each class has an optional "valid for N months", **off by default**. Life
+   Group Training doesn't expire. Kids Safety, when built, would use 12 months.
+
+### Changes from the answers
+
+- **Cohort sessions with make-up.** A `session` step gains a date (from its linked event or set directly) and an
+  optional **make-up**: a Mux video plus a quiz. If a leader marks someone absent, or the session date passes
+  without them being marked present, that person's step shows "Watch the recording and take the test" in My
+  classes. Doing the make-up completes the step with method `makeup`. New column on `class_steps`:
+  `makeup_media_id` → media SET NULL and `makeup_questions` JSON; `class_progress.method` adds `makeup` and
+  `absent`.
+- **Remote-only setting.** A class setting `remote_quiz`: `each` (a test after each recording) or `final` (one test
+  at the end, from a final quiz step that's only required of people who missed every session). Default `each`.
+- **Class managers.** New table `class_managers (class_id → classes CASCADE, user_id → users CASCADE, PK both)`.
+  Managers can see the roster, mark attendance, enrol people and send reminders for that class, at any role.
+  Only staff add or remove managers. Audited.
+- **Assigner visibility.** `class_enrolments.enrolled_by` already records who assigned someone; that account can
+  see that person's progress in that class (pass / not yet and, for managers and staff, scores).
+- **PR order.** PR 1 builds classes with session, video and quiz steps, make-ups and class managers, so Life Group
+  Training can run first. The required-class scheduling warning moves to the last PR.
+
+## Original questions (answered above)
 
 1. Which class should we build first: Kids Safety, or another (membership, life-group leaders)?
 2. Where are training videos kept: uploaded to our own video service (Mux, which may add a little to its usage bill), or unlisted on YouTube (free)?
