@@ -167,3 +167,17 @@ export function level1(p, max = 40) {
 export function level1Text(p) {
   return [hasEpi(p) ? 'EPI: YES' : '', oneLine(p.allergies), oneLine(p.allergy_action)].filter(Boolean).join(' · ');
 }
+
+// The safety strips to print on a name tag, top to bottom (an empty list when the child has none). A roomy tag prints
+// the Level 1 lines as they are: "EPI: YES", the allergens, the action. A small tag (`compact`) has room for one strip,
+// so it joins them ("EPI: YES · Peanuts"); the one-line action doesn't fit there, so a child who has one gets
+// "SEE ROOM LEADER" in its place. Either way "EPI: YES" is always printed when true, and whatever can't fit says
+// "see room leader" instead of being lost. `max` is how many characters fit on one line.
+export function labelSafety(p, { max = 40, compact = false } = {}) {
+  const l1 = level1(p, max);
+  if (!compact) return [l1.epi ? 'EPI: YES' : '', l1.allergy, l1.action].filter(Boolean);
+  const epi = l1.epi ? 'EPI: YES' : '';
+  const words = oneLine(p.allergies);
+  const joined = [epi, words, oneLine(p.allergy_action) ? 'SEE ROOM LEADER' : ''].filter(Boolean).join(' · ');
+  return [joined.length > max ? [epi, 'SEE ROOM LEADER'].filter(Boolean).join(' · ') : joined].filter(Boolean);
+}

@@ -48,11 +48,11 @@
   .print-area { display: block !important; color: #000; background: #fff; }
   .label { page-break-after: always; break-after: page; overflow: hidden; font-family: Arial, Helvetica, sans-serif; color: #000; position: relative; }
   .label:last-child { page-break-after: auto; break-after: auto; }
-  .label .name { font-weight: 900; line-height: 1.05; }
+  .label .name { font-weight: 900; line-height: 1.05; white-space: nowrap; overflow: hidden; }
   .label .last { font-weight: 700; }
-  .label .meta { display: flex; justify-content: space-between; gap: 6px; }
+  .label .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 0 6px; flex-wrap: wrap; }
   .label .code { font-weight: 900; letter-spacing: .08em; }
-  .label .alert-strip { background: #000; color: #fff; font-weight: 900; padding: 1mm 2mm; }
+  .label .alert-strip { background: #000; color: #fff; font-weight: 900; padding: .4mm 1.5mm; margin-top: .6mm; line-height: 1.15; }
 }
 /* Pairing this device as a station */
 .k-pair { max-width: 560px; margin: 8vh auto 0; text-align: center; display: grid; gap: 10px; }

@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
-import { roomFor, pickupCode, normalizeCode, showCode, level1, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
+import { roomFor, pickupCode, normalizeCode, showCode, labelSafety, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -17,11 +17,12 @@ const KEY = {
 
 const LABELS = {
   // `fit` is how many characters of the safety line fit on one line; a longer one prints "SEE ROOM LEADER" instead of being cut short.
-  'brother-62x29': { w: '62mm', h: '29mm', pad: '1.5mm 2.5mm', name: '20pt', small: '8pt', code: '14pt', fit: 34 },
-  'brother-62x100': { w: '62mm', h: '100mm', pad: '4mm', name: '30pt', small: '11pt', code: '22pt', fit: 70 },
-  'dymo-30252': { w: '3.5in', h: '1.125in', pad: '0.06in 0.12in', name: '20pt', small: '8pt', code: '14pt', fit: 40 },
-  'dymo-30256': { w: '4in', h: '2.3125in', pad: '0.12in', name: '30pt', small: '11pt', code: '22pt', fit: 60 },
-  letter: { w: '3.5in', h: '2in', pad: '0.15in', name: '26pt', small: '10pt', code: '18pt', page: 'letter', fit: 50 },
+  // `nameFit` is how many characters of name fit at full size (a longer name is shrunk, never cut); `compact` is a small tag with one joined safety strip.
+  'brother-62x29': { w: '62mm', h: '29mm', pad: '1.5mm 2.5mm', name: '20pt', small: '8pt', code: '14pt', fit: 30, nameFit: 10, compact: true },
+  'brother-62x100': { w: '62mm', h: '100mm', pad: '4mm', name: '30pt', small: '11pt', code: '22pt', fit: 70, nameFit: 8 },
+  'dymo-30252': { w: '3.5in', h: '1.125in', pad: '0.06in 0.12in', name: '20pt', small: '8pt', code: '14pt', fit: 36, nameFit: 14, compact: true },
+  'dymo-30256': { w: '4in', h: '2.3125in', pad: '0.12in', name: '30pt', small: '11pt', code: '22pt', fit: 60, nameFit: 12 },
+  letter: { w: '3.5in', h: '2in', pad: '0.15in', name: '26pt', small: '10pt', code: '18pt', page: 'letter', fit: 50, nameFit: 12 },
 };
 
 const store = {
@@ -642,14 +643,14 @@ function printLabels(chosen, code, at) {
   const eligible = (room) => [...allKids.filter((k) => room && roomFor(k, state.roster.rooms, day())?.id === room.id), ...chosen.filter((c) => (c.room?.id ?? null) === (room?.id ?? null)).map((c) => c.kid)];
   const kidLabel = ({ kid, room }) => {
     const n = labelName(kid, eligible(room), day());
-    const safe = level1(kid, size.fit);
+    const strips = labelSafety(kid, { max: size.fit, compact: size.compact });
+    // The name, room, time and pickup code come first and are never clipped; a long first name is shrunk to fit.
+    const last = [n.last, n.age ? `(${n.age})` : ''].filter(Boolean).join(' ');
+    const namePt = Math.min(parseFloat(size.name), (parseFloat(size.name) * size.nameFit) / Math.max(n.first.length + last.length * 0.6, 1));
     return `<div class="label">
-      ${safe.epi ? '<div class="alert-strip">EPI: YES</div>' : ''}
-      ${safe.allergy ? `<div class="alert-strip">${esc(safe.allergy)}</div>` : ''}
-      ${safe.action ? `<div style="font-size:${size.small};font-weight:700">${esc(safe.action)}</div>` : ''}
-      <div class="name" style="font-size:${size.name}">${esc(n.first)}</div>
-      <div class="last" style="font-size:${size.small}">${esc([n.last, n.age ? `(${n.age})` : ''].filter(Boolean).join(' '))}</div>
+      <div class="name" style="font-size:${namePt}pt">${esc(n.first)} <span class="last" style="font-size:${size.small}">${esc(last)}</span></div>
       <div class="meta" style="font-size:${size.small}"><span>${esc(room?.name || '')}</span><span>${date} ${time}</span><span class="code" style="font-size:${size.code}">${esc(showCode(code))}</span></div>
+      ${strips.map((t) => `<div class="alert-strip" style="font-size:${size.small}">${esc(t)}</div>`).join('')}
     </div>`;
   };
   const parentLabel = `<div class="label">
