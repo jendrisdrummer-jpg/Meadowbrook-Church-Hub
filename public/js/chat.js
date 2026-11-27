@@ -1,6 +1,6 @@
 // Chat, shared by the dashboard and the member app: the list of chats, and one conversation
 // with replies, @mentions, photos and files, and reactions. Open chats update live.
-import { get, post, patch, del, html, raw, mount, icon, avatar, displayName, esc, toast, toastAction, fail, dialog, confirm, pickPeople, shrinkImage, fmtDate, fmtTime } from './lib.js';
+import { get, post, patch, del, html, raw, mount, icon, avatar, displayName, esc, toast, toastAction, fail, dialog, confirm, pickPeople, shrinkImage, fmtDate, fmtTime, scrollBehavior } from './lib.js';
 import { taskRow, groupTasks, dueLabel } from './tasks.js';
 
 const MAX_FILE = 25 * 1024 * 1024;
@@ -486,7 +486,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     await dialog({
       title: `New task for ${S.chat.name}`,
       submit: 'Give task',
-      body: html`<input type="text" name="title" value="${title}" placeholder="What needs doing?" maxlength="200" required class="qt-title">
+      body: html`<input type="text" name="title" value="${title}" aria-label="What needs doing?" placeholder="What needs doing?" maxlength="200" required class="qt-title">
         <div class="qt-label">Who</div>
         <div class="qt-chips" data-who><button type="button" class="chip on" data-who-id="">Anyone</button>${people.map((p) => html`<button type="button" class="chip" data-who-id="${p.person_id}">${avatar(p)} ${p.person_id === me ? 'Me' : displayName(p)}</button>`)}</div>
         <div class="qt-label">When</div>
@@ -693,7 +693,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
       if (b.dataset.unfile) { S.files.splice(Number(b.dataset.unfile), 1); return drawComposer(); }
       if (b.dataset.goto) {
         const target = el.querySelector(`.chat-msg[data-id="${b.dataset.goto}"]`);
-        if (target) { target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.classList.add('flash'); setTimeout(() => target.classList.remove('flash'), 1500); }
+        if (target) { target.scrollIntoView({ block: 'center', behavior: scrollBehavior() }); target.classList.add('flash'); setTimeout(() => target.classList.remove('flash'), 1500); }
         return;
       }
       if (!m) return;

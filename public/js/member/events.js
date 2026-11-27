@@ -1,7 +1,7 @@
 // The app's Events: a month calendar with everything coming up (events, and service times if you
 // like), and each event's page with its sign-up form. Paid sign-ups use Stripe's card form inside
 // the page. ctx: { app, setTitle, signInHref }
-import { get, post, html, mount, icon, fmtDate, fmtTime, toast, fail } from '../lib.js';
+import { get, post, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, scrollBehavior, fieldError, clearFieldErrors, formError } from '../lib.js';
 import { loadStripe } from '../give.js';
 
 const money = (c) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -84,7 +84,7 @@ export async function eventsPage(el, tab, ctx) {
             const day = `${month}-${String(i + 1).padStart(2, '0')}`;
             const list = byDay.get(day);
             const hasEvent = list?.some((x) => x.kind === 'event');
-            return html`<button class="day ${list ? 'has' : ''} ${hasEvent ? 'mine' : ''} ${day === today ? 'today' : ''}" ${list ? '' : 'disabled'} data-day="${day}">${i + 1}</button>`;
+            return html`<button class="day ${list ? 'has' : ''} ${hasEvent ? 'mine' : ''} ${day === today ? 'today' : ''}" ${list ? '' : 'disabled'} data-day="${day}" aria-label="${fmtDate(day, { weekday: 'long', day: 'numeric', month: 'long' })}${list ? `, ${list.length} ${list.length === 1 ? 'item' : 'items'}` : ''}" ${day === today ? raw('aria-current="date"') : ''}>${i + 1}</button>`;
           })}</div>
       </div>
       ${items.length ? [...byDay].map(([day, list]) => html`<div class="m-day" id="d-${day}"><h3>${fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric' })}${day === today ? ' · Today' : ''}</h3>
@@ -115,7 +115,7 @@ export async function eventsPage(el, tab, ctx) {
       remember('mb.app.evMonth', month);
       draw().catch(fail);
     } else if (b.dataset.day) {
-      el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     }
   };
   await draw();
@@ -169,10 +169,11 @@ export async function eventPage(el, id, q, ctx) {
           <label class="field">Email<input type="email" name="email" autocomplete="email" required></label>
           <label class="field">Phone (optional)<input type="tel" name="phone" autocomplete="tel"></label>`}
       ${max > 1 ? html`<div class="field"><span>How many people?</span><div class="ev-count"><button type="button" class="btn" data-step="-1" aria-label="Fewer">−</button><b data-count>1</b><button type="button" class="btn" data-step="1" aria-label="More">+</button></div></div>` : ''}
-      ${e.questions.map((qq) => html`<div class="field"><span>${qq.label}${qq.required ? ' *' : ''}</span>
-        ${qq.type === 'choice' ? html`<select name="q_${qq.id}"><option value="">Choose…</option>${qq.options.map((o) => html`<option>${o}</option>`)}</select>`
-          : qq.type === 'yesno' ? html`<div class="row" style="gap:16px"><label class="check"><input type="radio" name="q_${qq.id}" value="yes"> Yes</label><label class="check"><input type="radio" name="q_${qq.id}" value="no"> No</label></div>`
-          : html`<input type="text" name="q_${qq.id}" maxlength="1000">`}</div>`)}
+      ${e.questions.map((qq) => (qq.type === 'yesno'
+        ? html`<fieldset class="field"><legend>${qq.label}${qq.required ? ' *' : ''}</legend><div class="row" style="gap:8px 16px"><label class="check"><input type="radio" name="q_${qq.id}" value="yes"> Yes</label><label class="check"><input type="radio" name="q_${qq.id}" value="no"> No</label></div></fieldset>`
+        : html`<label class="field"><span>${qq.label}${qq.required ? ' *' : ''}</span>
+          ${qq.type === 'choice' ? html`<select name="q_${qq.id}"><option value="">Choose…</option>${qq.options.map((o) => html`<option>${o}</option>`)}</select>`
+            : html`<input type="text" name="q_${qq.id}" maxlength="1000">`}</label>`))}
       <button class="btn primary ev-go">${e.price_cents ? `Pay ${money(e.price_cents)} and sign up` : 'Sign up'}</button>
       ${e.price_cents ? html`<p class="muted small" style="margin:8px 0 0;text-align:center">${icon('lock', 'ic small-ic')} Secure card payment by Stripe</p>` : ''}
     </form><div data-pay></div>`);
@@ -188,6 +189,25 @@ export async function eventPage(el, id, q, ctx) {
     };
     form.onsubmit = async (ev) => {
       ev.preventDefault();
+      clearFieldErrors(form);
+      // Check what we can before asking the server, and put the message next to the field that needs it.
+      const missing = [];
+      if (!app.user) {
+        if (!form.elements.name.value.trim()) missing.push([form.elements.name, 'Please enter your name.']);
+        const mail = form.elements.email.value.trim();
+        if (!mail) missing.push([form.elements.email, 'Please enter your email so we can send your confirmation.']);
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) missing.push([form.elements.email, 'That email doesn’t look right. It should look like name@example.com.']);
+      }
+      for (const qq of e.questions) {
+        if (!qq.required) continue;
+        const ctl = qq.type === 'yesno' ? form.querySelector(`[name="q_${qq.id}"]`) : form.elements[`q_${qq.id}`];
+        const answered = qq.type === 'yesno' ? form.querySelector(`[name="q_${qq.id}"]:checked`) : form.elements[`q_${qq.id}`].value.trim();
+        if (!answered) missing.push([ctl, qq.type === 'choice' ? 'Please choose an answer.' : 'Please answer this question.']);
+      }
+      if (missing.length) {
+        missing.forEach(([ctl, msg], i) => fieldError(ctl, msg, { focus: i === 0 }));
+        return;
+      }
       const answers = Object.fromEntries(e.questions.map((qq) => [qq.id, qq.type === 'yesno' ? form.querySelector(`[name="q_${qq.id}"]:checked`)?.value || '' : form.elements[`q_${qq.id}`].value]));
       go.disabled = true;
       go.textContent = e.price_cents ? 'Opening secure payment…' : 'Signing you up…';
@@ -208,11 +228,12 @@ export async function eventPage(el, id, q, ctx) {
           onComplete: async () => { checkout.destroy(); window.scrollTo(0, 0); drawSignedUp(await get(`/event-signups/${res.id}?key=${res.key}`)); },
         });
         checkout.mount(pay.querySelector('[data-mount]'));
-        pay.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        pay.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
       } catch (err) {
-        fail(err);
+        form.classList.remove('hidden');
         go.disabled = false;
         go.textContent = label();
+        formError(form, err.message || String(err), go);
       }
     };
   }

@@ -77,7 +77,9 @@ export default async function media(el, tab, opts = {}) {
   };
   const draw = () => {
     const list = shown();
-    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${g === group}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
+    const se = el.querySelector('[data-series]');
+    if (se) { se.hidden = group === 'look'; if (group === 'look' && series) { series = ''; se.value = ''; } }
+    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${String(g === group)}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
     mount(el.querySelector('[data-list]'), list.length ? html`<div class="md-grid">${list.map(card)}</div>`
       : html`<div class="card empty">${lib.items.length === 0
         ? (connected ? 'No videos yet. They come in on their own; Check for new videos looks now.' : html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every video comes in on its own, or use <b>Add a video</b> for a single YouTube link.`)
@@ -366,6 +368,12 @@ async function drawSetup(el) {
     </div></div>`);
 
   const f = el.querySelector('[data-form]');
+  // Church-wide settings: only admins who cover every campus change them; others can read them.
+  if (!(state.me.role === 'admin' && !state.me.campusIds)) {
+    f.querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = true; });
+    el.querySelector('[data-hide-extras]')?.remove();
+    f.prepend(Object.assign(document.createElement('p'), { className: 'alert', textContent: 'Only an admin who covers every campus can change these settings.' }));
+  }
   f.onsubmit = async (e) => {
     e.preventDefault();
     const b = f.querySelector('button.primary');

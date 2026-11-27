@@ -1,6 +1,11 @@
 // Check-in rules shared by the server and the check-in tablets, so a tablet that has
 // lost its internet connection still puts every child in the same room the server would.
 
+// The version of the check-in app on the iPads. It is a whole number, sent with every request in
+// x-checkin-version and compared by the server. Raise it in any change that alters what the iPad
+// sends or how it releases children, so the hub can tell which iPads still need to be reopened.
+export const CHECKIN_APP_VERSION = 1;
+
 // Age in whole months on a given date (both YYYY-MM-DD).
 export function ageMonths(birthdate, onDate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(birthdate || '')) return null;

@@ -3,6 +3,7 @@ import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, e
 import { state, setTitle, go, campusName, applyTheme } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
+import { brandWarnings, suggestShade } from '../contrast.js';
 
 const TABS = [['church', 'Church'], ['campuses', 'Campuses'], ['checkin', 'Check-in & attendance'], ['fields', 'Profile fields'], ['accounts', 'Sign-in & accounts'], ['import', 'Import people'], ['backups', 'Backups'], ['checks', 'Checks']];
 
@@ -39,12 +40,13 @@ async function church(panel) {
     <div class="field"><span>Brand colour</span>
       <div class="color-row"><input type="color" name="brand_color" value="${s.brand_color}"><code data-hex>${s.brand_color}</code>
         <button type="button" class="btn small ghost" data-reset>Reset</button></div>
+      <div data-contrast class="stack" aria-live="polite"></div>
       <span class="muted small">Used for buttons, links and highlights everywhere, including check-in and the sign-in page.</span></div>
     <div class="row end"><button class="btn primary">Save</button></div>
   </form>
   <form class="card stack" style="max-width:640px" data-app>
     <h2 style="margin:0">App</h2>
-    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My Schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
+    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
     <div class="row" style="align-items:center;gap:14px">
       <img src="/app-icon/192.png?v=${s.app_icon_version}" alt="App icon" width="72" height="72" style="border-radius:16px;border:1px solid var(--line)">
       <div class="stack" style="gap:6px"><label class="btn small">${icon('upload')} Upload icon<input type="file" accept="image/*" data-icon hidden></label>
@@ -95,7 +97,20 @@ async function church(panel) {
   const preview = () => {
     panel.querySelector('[data-hex]').textContent = form.brand_color.value;
     applyTheme(state.me.theme, form.brand_color.value);
+    checkContrast();
   };
+  // Low contrast is the owner's choice, so this only warns; saving is never blocked.
+  const checkContrast = () => {
+    const box = panel.querySelector('[data-contrast]'), hex = form.brand_color.value;
+    const warnings = brandWarnings(hex), better = warnings.length ? suggestShade(hex) : null;
+    mount(box, warnings.length ? html`<div class="alert" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span data-swatch style="background:${hex};color:#fff;border-radius:10px;padding:6px 14px;font-weight:650">Button</span>
+      <span style="flex:1;min-width:200px">${warnings.join(' ')} ${better ? 'Try a different shade: ' : 'Try a different colour.'}
+        ${better ? html`<button type="button" class="btn small" data-use="${better}"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;background:${better}"></span>Use ${better}</button>` : ''}</span>
+    </div>` : html``);
+    box.querySelector('[data-use]')?.addEventListener('click', (e) => { form.brand_color.value = e.currentTarget.dataset.use; preview(); });
+  };
+  checkContrast();
   form.brand_color.oninput = preview;
   panel.querySelector('[data-reset]').onclick = () => { form.brand_color.value = '#135fd1'; preview(); };
   form.onsubmit = async (e) => {
@@ -352,7 +367,7 @@ async function accounts(panel, q = '') {
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
     <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
-    <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
+    <form class="row" data-search style="margin-bottom:8px"><input type="search" aria-label="Search all accounts by name or email" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
     <div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>

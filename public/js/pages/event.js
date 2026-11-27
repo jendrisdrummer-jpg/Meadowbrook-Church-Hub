@@ -71,11 +71,11 @@ function editor(el, e) {
               <p class="muted small" style="margin:0">${ev.price_cents ? 'Paid by card through your Stripe account, and refundable from the Sign-ups tab.' : 'Leave the price blank for a free event.'} Without a closing date, sign-ups close when the event starts.</p>
               <div class="field"><span>Questions to ask</span>
                 <div class="q-list">${ev.questions.map((q, i) => html`<div class="q-row" data-q="${i}">
-                  <input type="text" data-qk="label" value="${q.label}" placeholder="Question, e.g. T-shirt size" maxlength="200">
+                  <input type="text" data-qk="label" value="${q.label}" aria-label="Question" placeholder="Question, e.g. T-shirt size" maxlength="200">
                   <select data-qk="type">${options(Object.entries(QTYPES).map(([value, label]) => ({ value, label })), q.type)}</select>
                   <label class="check small"><input type="checkbox" data-qk="required" ${q.required ? 'checked' : ''}> Required</label>
                   <button type="button" class="icon-btn danger" data-qdel="${i}" title="Remove">${icon('x')}</button>
-                  ${q.type === 'choice' ? html`<input type="text" data-qk="options" class="q-opts" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Small, Medium, Large">` : ''}
+                  ${q.type === 'choice' ? html`<input type="text" data-qk="options" class="q-opts" aria-label="Choices" value="${(q.options || []).join(', ')}" placeholder="Choices, separated by commas: Small, Medium, Large">` : ''}
                 </div>`)}</div>
                 ${ev.questions.length < 12 ? html`<button type="button" class="btn small ghost" data-qadd>${icon('plus')} Add a question</button>` : ''}</div>` : ''}
           </div>

@@ -1,10 +1,10 @@
-// My Schedule in the dashboard: the shared schedule view, plus notifications for this device.
+// My schedule in the dashboard: the shared schedule view, plus notifications for this device.
 import { html } from '../lib.js';
 import { setTitle, hashQuery, state } from '../app.js';
 import { drawSchedule } from '../myschedule.js';
 
 export default async function my(el) {
-  setTitle('My Schedule', html``);
+  setTitle('My schedule', html``);
   const decline = hashQuery().get('decline');
   if (decline) history.replaceState(null, '', '#/my');
   await drawSchedule(el, {

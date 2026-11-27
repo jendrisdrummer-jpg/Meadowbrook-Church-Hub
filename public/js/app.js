@@ -10,7 +10,7 @@ const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 const NAV = [
   { group: '', items: [
     { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
-    { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
+    { path: '/my', label: 'My schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
     { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
     { path: '/tasks', label: 'Tasks', icon: 'tasks', min: 'volunteer', badge: 'tasks' },
   ] },
@@ -46,7 +46,7 @@ const NAV = [
 // Beside the user's name in the sidebar, and in the footer of the phone More sheet. Still found by search.
 const HELP_LINKS = [
   { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
-  { path: '/feedback', label: 'Feedback', icon: 'chat', min: 'volunteer' },
+  { path: '/feedback', label: 'Feedback', tip: 'Send feedback', icon: 'bulb', min: 'volunteer' },
 ];
 
 const THEMES = [['light', 'Light'], ['dark', 'Dark'], ['device', 'Match my device']];
@@ -109,8 +109,10 @@ export const campusQuery = (sep = '?') => (state.campusId ? `${sep}campus_id=${s
 // "?decline=12" style options after a page's path in the address.
 export const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
+let focusTitleNext = false; // after the person moves to another page, focus its title so keyboard and screen reader users start there
 export function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
+  if (focusTitleNext) { focusTitleNext = false; $('[data-title]').focus({ preventScroll: true }); }
   $('[data-title]').classList.remove('greeting');
   drawCampusTag();
   document.title = `${title} · ${state.settings.church_name || 'Church Hub'}`;
@@ -141,7 +143,9 @@ async function boot() {
   $('.brand-mark').textContent = (state.settings.church_name || 'C').trim()[0].toUpperCase();
   applyTheme(state.me.theme, state.settings.brand_color);
   drawChrome();
-  window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } route(); });
+  // The skip link must not touch the address (pages are routed by it), so it moves focus by hand.
+  document.querySelector('[data-skip]')?.addEventListener('click', (e) => { e.preventDefault(); const m = $('#main'); m.focus(); m.scrollIntoView({ block: 'start' }); });
+  window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } focusTitleNext = true; route(); });
   route();
   initSearch(searchPages, go);
   drawBell();
@@ -211,7 +215,7 @@ async function drawBell() {
     ${bellOpen ? html`<div class="menu bell-menu" role="menu">
       <div class="menu-head row">Notifications<span class="spacer"></span>${d.unread ? html`<button type="button" class="btn small ghost" data-read-all>Mark all read</button>` : ''}</div>
       ${d.items.length ? d.items.map((n) => html`<a href="${n.url || '#/'}" class="bell-item ${n.read_at ? '' : 'new'}" data-note="${n.id}">
-        <b>${n.title}</b><span class="small">${n.body}</span><span class="muted small">${ago(n.created_at)}</span></a>`)
+        <b>${n.read_at ? '' : html`<span class="sr-only">New: </span>`}${n.title}</b><span class="small">${n.body}</span><span class="muted small">${ago(n.created_at)}</span></a>`)
         : html`<p class="muted small" style="padding:8px 12px">Nothing yet. You’ll see it here when you’re scheduled.</p>`}
       <a href="#/my" class="bell-foot small">Notification settings</a>
     </div>` : ''}`);
@@ -247,7 +251,7 @@ function drawChrome() {
   fillCampusSelect(sel);
   sel.closest('label').classList.toggle('hidden', visibleCampuses().length < 2);
   sel.onchange = () => pickCampus(sel.value);
-  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.label}" aria-label="${n.label}">${icon(n.icon)}</a>`));
+  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.tip || n.label}" aria-label="${n.tip || n.label}">${icon(n.icon)}</a>`));
   drawCampusTag();
   drawMe();
 }
@@ -288,10 +292,10 @@ function openMore() {
     ${camps.length > 1 ? html`<label class="field">Campus<select data-campus></select></label>` : ''}
     ${groups.map((g) => html`<section aria-label="${g.group || 'Everyday'}"><div class="sheet-group">${g.group || 'Everyday'}</div><div class="sheet-tiles">${g.items.map(tile)}</div></section>`)}
     <div class="sheet-group">Appearance</div>
-    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${state.me.theme === v}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
+    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${String(state.me.theme === v)}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
     <div class="sheet-foot">
       <a href="#/help">${icon('info')} Help</a>
-      <a href="#/feedback">${icon('chat')} Feedback</a>
+      <a href="#/feedback">${icon('bulb')} Feedback</a>
       <button type="button" data-logout>${icon('logout')} Sign out</button>
     </div>
   </div>`);

@@ -1,5 +1,5 @@
 // App Builder: choose the member app's tabs and home screen, with a live phone preview.
-import { get, put, api, html, raw, mount, icon, options, toast, fail, chips, confirm, shrinkImage } from '../lib.js';
+import { get, put, api, html, raw, mount, icon, options, toast, fail, chips, confirm, shrinkImage, scrollBehavior } from '../lib.js';
 import { setTitle } from '../app.js';
 import { WIDGETS, SIZES, STYLES, ICONS, MAX_LINKS, DEFAULT_APP, linkableTab } from '../app-widgets.js';
 
@@ -133,7 +133,7 @@ export default async function appBuilder(el) {
     if (e.data?.type === 'app-home') { cfg.home = e.data.home; selected = e.data.select ?? selected; changed(true); }
   };
   window.addEventListener('message', onMessage);
-  const scrollToWidget = () => box.querySelector('.w-row.on')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const scrollToWidget = () => box.querySelector('.w-row.on')?.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' });
 
   // On a phone the preview opens full screen instead of sitting at the bottom of a long page.
   const sheet = (open) => { phone.classList.toggle('b-sheet-open', open); if (open) setTimeout(sendPreview, 50); };

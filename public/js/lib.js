@@ -97,6 +97,7 @@ const PATHS = {
   gift: '<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v8h14v-8M12 8v13M12 8c-1.5-4-6-4-6-1.5S10 8 12 8zM12 8c1.5-4 6-4 6-1.5S14 8 12 8z"/>',
   book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/>',
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  bulb: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
   map: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
@@ -179,14 +180,55 @@ export function toast(msg, kind = '') {
 }
 export const fail = (e) => toast(e.message || String(e), 'bad');
 
+// Smooth scrolling unless the person has asked their device for less motion.
+export const scrollBehavior = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+
+// Inline form errors: the message sits under the field, the field is marked invalid and joined to
+// the message (aria-describedby), and focus moves to it so everyone, including screen readers, lands there.
+export function clearFieldErrors(form) {
+  form.querySelectorAll('.field-error').forEach((n) => n.remove());
+  form.querySelectorAll('[aria-invalid]').forEach((n) => { n.removeAttribute('aria-invalid'); n.removeAttribute('aria-describedby'); });
+}
+export function fieldError(input, message, { focus = true } = {}) {
+  const host = input.closest('.field, fieldset, label') || input.parentElement;
+  const note = document.createElement('p');
+  note.className = 'field-error';
+  note.id = `err-${Math.random().toString(36).slice(2, 8)}`;
+  note.textContent = message;
+  host.append(note);
+  input.setAttribute('aria-invalid', 'true');
+  input.setAttribute('aria-describedby', note.id);
+  if (focus) {
+    input.focus({ preventScroll: true });
+    input.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
+  }
+  return note;
+}
+// A message from the server: under the name/email/phone field if it's about one, otherwise just above `before` (the button).
+export function formError(form, message, before, map = [['name', /name/i], ['email', /email/i], ['phone', /phone/i]]) {
+  const field = map.map(([n, re]) => (re.test(message) ? form.elements[n] : null)).find(Boolean);
+  if (field) return fieldError(field, message);
+  const note = document.createElement('p');
+  note.className = 'field-error';
+  note.setAttribute('role', 'alert');
+  note.tabIndex = -1;
+  note.textContent = message;
+  before.before(note);
+  note.focus({ preventScroll: true });
+  note.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
+  return note;
+}
+
 // ---------------------------------------------------------------- dialogs
 // Opens a dialog. `body` is html``; `onSubmit(form, dialog)` may return false to keep it open.
 export function dialog({ title, body, submit = 'Save', cancel = 'Cancel', danger = false, onSubmit, wide = false, onOpen }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
+    const titleId = `dlg-${Math.random().toString(36).slice(2, 8)}`;
+    d.setAttribute('aria-labelledby', titleId);
     if (wide) d.style.width = 'min(820px, calc(100vw - 24px))';
     mount(d, html`<form method="dialog">
-      <div class="dlg-head"><h2>${title}</h2><button type="button" class="icon-btn" data-close aria-label="Close">${icon('x')}</button></div>
+      <div class="dlg-head"><h2 id="${titleId}">${title}</h2><button type="button" class="icon-btn" data-close aria-label="Close">${icon('x')}</button></div>
       <div class="dlg-body">${body}</div>
       ${submit || cancel ? html`<div class="dlg-foot">
         ${cancel ? html`<button type="button" class="btn" data-close>${cancel}</button>` : ''}
@@ -255,7 +297,7 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
   return dialog({
     title,
     submit: null,
-    body: html`<input type="search" placeholder="Search by name, email or phone" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
+    body: html`<input type="search" aria-label="Search by name, email or phone" placeholder="Search by name, email or phone" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
     onOpen: (d, close) => {
       const list = $('[data-list]', d);
       let rows = [];
@@ -281,7 +323,7 @@ export function pickFamily(title = 'Choose a family', { exclude } = {}) {
   return dialog({
     title,
     submit: null,
-    body: html`<input type="search" placeholder="Search by family name or anyone in it" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
+    body: html`<input type="search" aria-label="Search by family name or anyone in it" placeholder="Search by family name or anyone in it" data-q><div class="picker-list" data-list><div class="muted small">Start typing…</div></div>`,
     onOpen: (d, close) => {
       const list = $('[data-list]', d);
       let rows = [];
@@ -324,7 +366,7 @@ export function chips(el, list, onChange, { placeholder = 'Add…', addLabel = '
   let dragFrom = null;
   const draw = () => {
     mount(el, html`<div class="chips">${items.map((v, i) => html`<span class="chip" draggable="true" data-i="${i}">${v}<button type="button" class="chip-x" data-x="${i}" aria-label="Remove ${v}">${icon('x')}</button></span>`)}
-      <span class="chip-add"><input type="text" placeholder="${placeholder}" data-new><button type="button" class="btn small" data-add>${icon('plus')} ${addLabel}</button></span></div>`);
+      <span class="chip-add"><input type="text" placeholder="${placeholder}" aria-label="${placeholder}" data-new><button type="button" class="btn small" data-add>${icon('plus')} ${addLabel}</button></span></div>`);
     const input = el.querySelector('[data-new]');
     const add = () => {
       const v = input.value.trim();
@@ -364,7 +406,7 @@ export function pickPeople(title = 'Choose people', { exclude = new Set(), submi
   const chosen = new Map();
   return dialog({
     title, wide: true, submit,
-    body: html`<input type="search" placeholder="Search by name, email or phone" data-q>
+    body: html`<input type="search" aria-label="Search by name, email or phone" placeholder="Search by name, email or phone" data-q>
       <div class="row small" style="margin-top:8px"><span class="muted" data-count>No one selected</span></div>
       <div class="picker-list multi" data-list><div class="muted small">Start typing a name…</div></div>${extra}`,
     onOpen: (d) => {

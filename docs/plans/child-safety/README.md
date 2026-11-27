@@ -1,5 +1,7 @@
 # Kids' check-in child-safety plan
 
+**Progress: V1 PR 1, the check-in record and iPad versions, is built (migration 40). Everything else below is still unbuilt.**
+
 **Status: Version 1 strategy proposed (see v1-strategy.md); revision 3.2 kept as the Version 2/3 reference. Awaiting owner approval. Nothing here is implemented.** Approving means
 merging the pull request that adds this folder. Development then starts with Phase 0, one phase per
 pull request, each needing its own review and the owner's merge. Deployment approvals (Group III of

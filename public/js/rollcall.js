@@ -20,9 +20,9 @@ export async function drawRollCall(panel, s, opts = {}) {
   const rollCard = html`<div class="card">
       <div class="card-head"><h2>Take attendance</h2><span class="pill good" data-count></span><span class="muted small" data-saved></span></div>
       <div class="row" style="margin-bottom:10px">
-        <input type="search" placeholder="Find someone" data-q style="max-width:280px">
+        <input type="search" aria-label="Find someone" placeholder="Find someone" data-q style="max-width:280px">
         <div class="seg" data-filter><button data-f="all" class="on">Everyone</button><button data-f="here">Here</button><button data-f="not">Not yet</button></div>
-        <span class="spacer"></span><button class="btn small" data-guest>${icon('plus')} New guest</button>
+        <span class="spacer"></span>${mode === 'both' ? html`<button type="button" class="btn small" data-to-headcount>Headcount</button>` : ''}<button class="btn small" data-guest>${icon('plus')} New guest</button>
       </div>
       <div class="roll" data-list></div>
     </div>`;
@@ -33,8 +33,17 @@ export async function drawRollCall(panel, s, opts = {}) {
         <p class="muted small" style="margin-top:-4px">Room totals, including people not on the roll.</p>${countsCard}</div>
       <details class="card"><summary><b>Names</b> <span class="muted small">Mark who you see, if you want to</span></summary>${rollCard}</details>`
     : mode === 'names' ? rollCard
-    : html`${rollCard}<details class="card"><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>${countsCard}</details>`}
+    : html`${rollCard}<details class="card" data-headcount><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>${countsCard}</details>`}
   </div>`);
+
+  // 'both' mode: the headcount is folded below every family, so a button up top opens it and scrolls there.
+  const toHeadcount = panel.querySelector('[data-to-headcount]');
+  if (toHeadcount) toHeadcount.onclick = () => {
+    const d = panel.querySelector('[data-headcount]');
+    d.open = true;
+    d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    d.querySelector('input')?.focus({ preventScroll: true });
+  };
 
   const list = panel.querySelector('[data-list]');
   const countEl = panel.querySelector('[data-count]');
@@ -64,7 +73,7 @@ export async function drawRollCall(panel, s, opts = {}) {
       ${g.name && (g.members.length > 1 || (simple && g.members.some(isHere))) ? html`<div class="roll-head"><span>${familyName(g.name)}</span><span class="row" style="gap:6px">
         ${simple && g.household_id && g.members.some(isHere) ? html`<button type="button" class="btn small ghost" data-add-child="${g.household_id}">${icon('plus')} Child</button>` : ''}
         ${g.members.length > 1 ? html`<button type="button" class="btn small" data-family="${g.members.map((m) => m.id).join(',')}">${g.members.every(isHere) ? html`${icon('check')} All here` : 'Mark family'}</button>` : ''}</span></div>` : ''}
-      ${g.members.map((p) => html`<button type="button" class="roll-person ${isHere(p) ? 'here' : ''}" data-person="${p.id}" ${kids.has(p.id) ? 'disabled' : ''} aria-pressed="${isHere(p)}">
+      ${g.members.map((p) => html`<button type="button" class="roll-person ${isHere(p) ? 'here' : ''}" data-person="${p.id}" ${kids.has(p.id) ? 'disabled' : ''} aria-pressed="${String(isHere(p))}">
         <span class="roll-check">${icon('check')}</span>${avatar(p)}
         <span class="roll-name">${displayName(p)}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}${p.status === 'guest' ? html` <span class="pill warn">Guest</span>` : ''}</span>
         ${kids.has(p.id) ? html`<span class="muted small">Checked in</span>` : ''}

@@ -23,7 +23,7 @@ export default async function service(el, id) {
       setTitle(title, html`${s.can_lock ? html`<button class="btn" data-lock title="${lockTip}">${icon(s.locked ? 'unlock' : 'lock')} ${lockLabel}</button>` : ''}
         ${canEdit ? html`<button class="btn" data-edit>${icon('edit')} Details</button>` : ''}`);
     } else if (s.can_lock || canEdit) {
-      setTitle(title, html`<span style="position:relative"><button class="icon-btn" data-svc-menu aria-label="More for this service" aria-haspopup="menu" aria-expanded="${menuOpen}">${icon('dots')}</button>
+      setTitle(title, html`<span style="position:relative"><button class="icon-btn" data-svc-menu aria-label="More for this service" aria-haspopup="menu" aria-expanded="${String(menuOpen)}">${icon('dots')}</button>
         ${menuOpen ? html`<div class="menu" role="menu" style="top:calc(100% + 6px);bottom:auto;left:0;right:auto;width:200px">
           ${s.can_lock ? html`<button type="button" role="menuitem" data-lock>${icon(s.locked ? 'unlock' : 'lock')} ${lockLabel}</button>` : ''}
           ${canEdit ? html`<button type="button" role="menuitem" data-edit>${icon('edit')} Details</button>` : ''}</div>` : ''}</span>`);

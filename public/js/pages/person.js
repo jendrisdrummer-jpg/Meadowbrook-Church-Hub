@@ -62,7 +62,7 @@ export default async function person(el, id) {
 
         <div class="card">
           <div class="card-head"><h2>${h ? familyName(h.name) : 'Family'}</h2>
-            ${staff ? html`${h ? html`<button class="btn small" data-edit-household>${icon('edit')}</button>` : ''}
+            ${staff ? html`${h ? html`<button class="btn small" data-edit-household aria-label="Edit family" title="Edit family">${icon('edit')}</button>` : ''}
             <button class="btn small" data-add-member>${icon('plus')} ${h ? 'Add to family' : 'Add to a family'}</button>` : ''}</div>
           ${h ? html`
             ${h.address ? html`<p class="muted small">${h.address}${h.city ? `, ${h.city}` : ''} ${h.state} ${h.zip}</p>` : ''}

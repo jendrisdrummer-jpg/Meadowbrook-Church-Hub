@@ -1,6 +1,6 @@
 // Tasks, shared by the dashboard and the member app: lists grouped by when they're due, and one
 // task with its team, person, due date, service, repeat, checklist and comments.
-import { get, post, patch, del, html, mount, icon, avatar, displayName, toast, toastAction, fail, confirm, fmtDate, fmtTime } from './lib.js';
+import { get, post, patch, del, html, raw, mount, icon, avatar, displayName, toast, toastAction, fail, confirm, fmtDate, fmtTime } from './lib.js';
 
 const REPEATS = [['', 'Doesn’t repeat'], ['daily', 'Every day'], ['weekly', 'Every week'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Every month']];
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -92,7 +92,7 @@ export async function taskList(el, { setTitle, q, base = '#/tasks', onChange = (
       team: teams.length ? 'No open tasks for this team.' : 'You’re not on a team yet.',
     }[view];
     mount(el, html`<div class="task-filters">
-        <div class="seg" role="tablist"><a href="${link({ view: 'mine', place: '' })}" class="${view === 'mine' ? 'on' : ''}">My tasks</a><a href="${link({ view: 'given', place: '' })}" class="${view === 'given' ? 'on' : ''}">I gave out</a>${teams.length ? html`<a href="${link({ view: 'team' })}" class="${view === 'team' ? 'on' : ''}">Teams</a>` : ''}</div>
+        <div class="seg"><a href="${link({ view: 'mine', place: '' })}" class="${view === 'mine' ? 'on' : ''}" ${view === 'mine' ? raw('aria-current="page"') : ''}>My tasks</a><a href="${link({ view: 'given', place: '' })}" class="${view === 'given' ? 'on' : ''}" ${view === 'given' ? raw('aria-current="page"') : ''}>I gave out</a>${teams.length ? html`<a href="${link({ view: 'team' })}" class="${view === 'team' ? 'on' : ''}" ${view === 'team' ? raw('aria-current="page"') : ''}>Teams</a>` : ''}</div>
         ${view === 'team' && teams.length > 1 ? html`<select data-team aria-label="Team or group"><option value="">All my teams and groups</option>${placeOptions(teams, place)}</select>` : ''}
         <a class="chip link ${done ? 'on' : ''}" href="${link({ done: done ? '' : '1' })}">${done ? 'Showing finished' : 'Show finished'}</a>
       </div>
@@ -159,7 +159,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', showBack
           <input type="checkbox" data-step="${i.id ?? n}" ${i.done ? 'checked' : ''} aria-label="Done">
           <input type="text" class="task-step-text" data-step-text="${i.id ?? n}" value="${i.text}" maxlength="300" aria-label="Step">
           <button type="button" class="icon-btn" data-unstep="${i.id ?? n}" aria-label="Remove step">${icon('x')}</button></div>`)}</div>` : ''}
-        <input type="text" data-new-step placeholder="Add a step, then press Enter" maxlength="300" class="task-new-step"></div>
+        <input type="text" data-new-step aria-label="Add a step" placeholder="Add a step, then press Enter" maxlength="300" class="task-new-step"></div>
       ${isNew ? html`<div class="row" style="margin-top:14px"><span class="spacer"></span><a class="btn ghost" href="${base}">Cancel</a><button class="btn primary" data-create>${icon('check')} Create task</button></div>`
         : html`<div class="card"><h2>Comments</h2>
           ${t.thread.length ? html`<div class="task-thread">${t.thread.map((k) => html`<div class="task-comment">${avatar({ first_name: k.name.split(' ')[0], last_name: k.name.split(' ').slice(1).join(' '), photo: k.photo })}

@@ -1,6 +1,6 @@
 // The member app: what's on it comes from the dashboard's App Builder. Anyone can use it;
 // signing in adds the person's serving schedule, service plans and notifications.
-import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options, scrollBehavior } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, inShell, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
@@ -59,8 +59,11 @@ function trackHistory() {
 }
 
 // Every screen's title bar ends with the bell and, to its right, the chat button.
+let focusTitleNext = false; // set when the person moves to another screen, so keyboard and screen reader users land at its title
 function setTitle(title, actions = '') {
-  $('[data-title]').textContent = title;
+  const h = $('[data-title]');
+  h.textContent = title;
+  if (focusTitleNext) { focusTitleNext = false; h.focus({ preventScroll: true }); }
   document.title = `${title} · ${app.church_name}`;
   mount($('[data-back]'), backTo ? html`<a class="m-back" href="${backTo}" data-go-back>${icon('back')}<span>Back</span></a>` : '');
   mount($('[data-actions]'), html`${actions}${headerButtons()}`);
@@ -72,7 +75,7 @@ async function boot() {
   if (previewGuest) app.user = null;
   applyTheme();
   if (!Number.isInteger(history.state?.idx)) history.replaceState({ ...history.state, idx }, '');
-  window.addEventListener('hashchange', () => { trackHistory(); route(); });
+  window.addEventListener('hashchange', () => { trackHistory(); focusTitleNext = true; route(); });
   document.addEventListener('click', (e) => {
     const a = e.target.closest('[data-go-back]');
     if (!a) return;
@@ -108,7 +111,7 @@ async function boot() {
 }
 
 function drawTabs(current) {
-  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}">${icon(t.icon)}<span>${t.label}</span>${['chat', 'tasks'].includes(t.type) ? html`<span class="nav-badge hidden" data-badge="${t.type}"></span>` : ''}</a>`));
+  mount($('[data-tabs]'), tabs().map((t) => html`<a href="${t.type === 'link' ? t.url : `#/${t.id}`}" ${t.type === 'link' ? raw('target="_blank" rel="noopener"') : ''} class="${t.id === current ? 'on' : ''}" ${t.id === current ? raw('aria-current="page"') : ''}>${icon(t.icon)}<span>${t.label}</span>${['chat', 'tasks'].includes(t.type) ? html`<span class="nav-badge hidden" data-badge="${t.type}"></span>` : ''}</a>`));
 }
 
 // Counts: unread chat messages (chat button, Chat tab) and my tasks due today or late.
@@ -184,9 +187,10 @@ async function home(el, tab) {
   const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
-    const ctx = { app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
+    const ctx = { replyBanner: false, app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
     // A request waiting for an answer comes first, before the "You're serving" widget.
     const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
+    ctx.replyBanner = waiting.length > 0; // widgets skip their own "reply" button when this banner is up
     const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
     const replyCard = waiting.length ? html`<a class="m-reply" href="#/${serveTab}"><span class="grow"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</span><span class="tap">Tap to reply ›</span></a>` : '';
     mount(el, html`${installBanner()}${replyCard}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
@@ -246,7 +250,7 @@ async function serve(el, tab, q) {
   }
   // Two views: my own schedule, or every service (any campus) to look up a plan and who's serving.
   const all = q.get('view') === 'all';
-  const switcher = html`<div class="seg m-seg" role="tablist"><a href="#/${tab.id}" class="${all ? '' : 'on'}">My schedule</a><a href="#/${tab.id}?view=all" class="${all ? 'on' : ''}">All services</a></div>`;
+  const switcher = html`<div class="seg m-seg"><a href="#/${tab.id}" class="${all ? '' : 'on'}" ${all ? '' : raw('aria-current="page"')}>My schedule</a><a href="#/${tab.id}?view=all" class="${all ? 'on' : ''}" ${all ? raw('aria-current="page"') : ''}>All services</a></div>`;
   if (all) return allServices(el, tab, switcher);
   if (!app.user.linked) {
     mount(el, html`${switcher}<div class="card"><p>You’re signed in as <b>${app.user.name}</b>. Your account isn’t connected to your record in the church directory yet, so there’s no schedule to show.</p><p>We’ve let the church office know. They’ll connect your account and you’ll see your schedule here; there’s nothing else you need to do.</p><p class="muted small">In the meantime you can look at <a href="#/${tab.id}?view=all">all services</a>.</p></div>`);
@@ -289,7 +293,7 @@ async function allServices(el, tab, switcher) {
             const day = `${month}-${String(i + 1).padStart(2, '0')}`;
             const has = byDay.get(day);
             const mine = has?.some((x) => x.my_status && x.my_status !== 'declined');
-            return html`<button class="day ${has ? 'has' : ''} ${mine ? 'mine' : ''} ${day === today ? 'today' : ''}" ${has ? '' : 'disabled'} data-day="${day}">${i + 1}</button>`;
+            return html`<button class="day ${has ? 'has' : ''} ${mine ? 'mine' : ''} ${day === today ? 'today' : ''}" ${has ? '' : 'disabled'} data-day="${day}" aria-label="${fmtDate(day, { weekday: 'long', day: 'numeric', month: 'long' })}${has ? `, ${has.length} ${has.length === 1 ? 'service' : 'services'}${mine ? ', you’re serving' : ''}` : ''}" ${day === today ? raw('aria-current="date"') : ''}>${i + 1}</button>`;
           })}</div>
       </div>
       ${list.length ? [...byDay].map(([day, rows]) => html`<div class="m-day" id="d-${day}"><h3>${fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
@@ -312,7 +316,7 @@ async function allServices(el, tab, switcher) {
       remember('mb.app.campus', campus ?? '');
       draw().catch(fail);
     } else if (b.dataset.day) {
-      el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.querySelector(`#d-${b.dataset.day}`)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     }
   };
   await draw();
@@ -340,7 +344,7 @@ async function plan(el, id, q) {
         <div class="muted">${fmtTime(s.starts_at)} · ${s.campus.name}${s.title ? ` · ${s.title}` : ''}</div>
         ${s.notes ? html`<p class="small" style="white-space:pre-line">${s.notes}</p>` : ''}
         ${mine.length ? html`<div class="m-banner" style="margin:12px 0 0">${icon('check')}<span class="grow">You’re serving: <b>${mine.map((p) => p.name).join(', ')}</b></span></div>` : ''}</div>
-      <div class="seg m-seg" role="tablist"><a href="#" role="tab" data-view="plan" class="${view === 'plan' ? 'on' : ''}">Order of service</a><a href="#" role="tab" data-view="team" class="${view === 'team' ? 'on' : ''}">Who’s serving</a></div>
+      <div class="seg m-seg"><a href="#" data-view="plan" class="${view === 'plan' ? 'on' : ''}" aria-current="${view === 'plan' ? 'true' : 'false'}">Order of service</a><a href="#" data-view="team" class="${view === 'team' ? 'on' : ''}" aria-current="${view === 'team' ? 'true' : 'false'}">Who’s serving</a></div>
       ${view === 'plan'
         ? html`<div class="card">${s.items.length ? s.items.map((i, n) => (i.kind === 'header'
           ? html`<div class="m-plan-row section">${i.title}</div>`
@@ -576,7 +580,7 @@ function headerButtons() {
 async function inbox(el) {
   setTitle('Notifications');
   const d = await get('/notifications');
-  mount(el, d.items.length ? html`<div class="card m-list">${d.items.map((n) => html`<a href="${n.app_url || '#/'}" data-note="${n.id}" style="${n.read_at ? '' : 'font-weight:600'}"><span class="grow">${n.title}<br><span class="muted small" style="font-weight:400">${n.body}</span></span></a>`)}</div>`
+  mount(el, d.items.length ? html`<div class="card m-list">${d.items.map((n) => html`<a href="${n.app_url || '#/'}" data-note="${n.id}" style="${n.read_at ? '' : 'font-weight:600'}">${n.read_at ? '' : html`<span class="pill info">New</span>`}<span class="grow">${n.title}<br><span class="muted small" style="font-weight:400">${n.body}</span></span></a>`)}</div>`
     : html`<div class="m-empty">${icon('bell')}<p>Nothing yet.</p></div>`);
   if (d.unread) post('/notifications/read', {}).catch(() => {});
 }

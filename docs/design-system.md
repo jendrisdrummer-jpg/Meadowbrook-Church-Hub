@@ -71,6 +71,14 @@ selected row 4.7; accent text on card 5.5, on page 5.0, on selected row 4.6; whi
 status pills 4.9-7.2; input border 3.7 (4.1 dark); dark accent text 5.0-6.5. Status always carries a
 word or icon, never colour alone. Focus: `:focus-visible` draws a 2px `--accent-text` ring.
 
+**Brand colour rule:** the church's colour must give 4.5:1 for white text on it (primary buttons),
+for itself as link text on the light selected-row surface (`#ece4d6`), and, after dark mode's 60%-white
+lightening (`--accent-text`), on the dark selected-row surface (`#332d26`). Settings → Church checks
+this live (`public/js/contrast.js`, tested in `test/contrast.test.js`) and warns under the picker with a
+swatch and a one-click "Use #xxxxxx" shade (same hue, lightness adjusted). Saving a low-contrast colour
+is still allowed: it is the church's choice, but it is warned. Never hard-code text colours over `--accent`;
+use `--accent-ink`.
+
 **Dark mode:** `html[data-theme="dark"]` and `data-theme="device"` (follows the OS). Every new
 colour must come from tokens so both themes work. Check both.
 
@@ -123,7 +131,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
   (not "Not sent"), Can serve at (not "Serves at"). Every NAV item has its own icon; give a new page
   one nothing else uses. `badge: 'connect'`, `badge: 'forms'` and `badge: 'media'` (videos that need a look) are reserved: they stay hidden
   until something calls `setBadge(kind, n)`.
-- **Phone bottom bar and More sheet (hub):** the bar is Home, My Schedule, Chat, People (leaders
+- **Phone bottom bar and More sheet (hub):** the bar is Home, My schedule, Chat, People (leaders
   and up) and **More**. More opens a `dialog.sheet` (native `<dialog>`, so focus is trapped,
   Escape closes it and focus returns to the button) built from `visibleNav()`, so it can never show
   more than the sidebar would: groups as 3-column tiles (`.sheet-tile`), the campus picker when the
@@ -134,7 +142,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - **Account menu:** on phones it opens under the avatar and is nudged back inside the screen if
   anything would clip it. The header (title plus search, bell and avatar) stays on one line.
 - **Banner with folded options:** a one-line state plus its button, with the extra choices in a
-  `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My Schedule.
+  `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My schedule.
 - **Show/hide and reorder list (`.cust-list`, Customise Home):** a dialog list of rows, each a `.switch` with the name and two 44px `.cust-move` up/down icon buttons (no dragging, so it works with a thumb or a keyboard; the end rows disable the button that cannot move). Reset changes the dialog only; Save writes.
 - **Side panel / sheet (`dialog.md-panel`, Media):** to edit one item from a grid without leaving it. A native `<dialog>` (focus trapped, Escape closes) pinned to the right edge, 540px wide on a laptop and the whole screen on a phone (≤700px). Head (title and a 44px close button), a scrolling body, and a foot with the actions (on a phone Cancel and Save come first, full width). Closing with unsaved changes asks first. The address keeps the item (`#/media/12`, set with `history.replaceState`, so a deep link opens the panel over its page). Rarely used fields fold into `.md-more` details.
 - **Filter chips with counts (`.md-fchip`):** big (44px) pill buttons that switch one list between groups, each with a count (`.md-n`); a group that needs action turns amber (`.needs`) until opened. A one-line hint under the chips says what the group means.
@@ -162,6 +170,26 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - Everything works with the keyboard; focus is visible; dialogs trap focus and close on Escape.
 - Don't rely on colour alone: pills carry words.
 - Respect `prefers-reduced-motion` for any new animation.
+- **Text size follows the person.** Font sizes are `rem`, never `px` (line-heights unitless). The member app and
+  login set the root from the phone's own setting (`font: -apple-system-body` inside
+  `@supports (-webkit-touch-callout: none)`, so desktop Safari stays at 16px), so iOS Larger Text and browser text
+  size both work. Give text-bearing boxes `rem`/`min-` sizes, not fixed `px` widths, and check at 150% root size and
+  320px wide: no sideways scroll, no clipped labels. Tap targets stay px (44px minimum).
+- **State attributes must say `false`.** The `html` template drops `false`, so write `aria-pressed="${String(on)}"`
+  (same for `aria-expanded`, `aria-selected`, `aria-checked`).
+- **Form errors go next to the field**, not only in a toast: use `fieldError()`, `formError()` and `clearFieldErrors()`
+  from `lib.js` (message under the field with `.field-error`, `aria-invalid`, `aria-describedby`, focus moves there).
+  Wrap every control in `<label class="field">`; groups of choices (yes/no, tick boxes) are
+  `<fieldset class="field"><legend>`. Search boxes with only a placeholder need an `aria-label`.
+- **Navigation:** after a page change focus moves to the title (`[data-title]` has `tabindex="-1"`); after re-drawing a
+  list in place, return focus to the item or control. Links that switch views are plain links with
+  `aria-current="page"` (no `role="tablist"` unless it is a real tab widget); the active bottom tab has `aria-current`.
+  The hub has a "Skip to content" link. Don't put an `href="#id"` on anything in the hub or app (the hash is the router).
+- Calendar day buttons carry a full `aria-label` ("Sunday 29 November, 2 services"). Unread items say "New" in words,
+  not just bold. Scroll with `behavior: scrollBehavior()` (respects reduced motion). Dialogs are labelled by their title.
+- Secondary button borders use `--line-input` (3:1 against the page in both themes). Heading colours that use the
+  brand colour on dark backgrounds use `--accent-text`, not `--accent`.
+- Not covered by code: the brand colour chosen in Settings can fail contrast; a server-side check is a separate task.
 
 ## Mobile checklist
 
@@ -171,6 +199,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - Long tables collapse or scroll inside their card, never the page.
 - Member app, on touch screens (`@media (pointer: coarse)` in `member.css`): fields are 16px so iPhones
   don't zoom on focus, and buttons, chips, tabs and calendar arrows are at least 44px tall. Login does the same.
+  The staff hub does the same for buttons, icon buttons, the bell and fields on touch screens (end of `app.css`).
 - Member app detail screens (anything deeper than a tab) get one top-left **Back** (`.m-back`, 44px):
   `route()` in `member/main.js` sets `backTo`, `setTitle` draws it. Don't add a Back button of your own to a
   member page. Back uses `history.back()` when the app has history, else goes to the parent tab. In the chat

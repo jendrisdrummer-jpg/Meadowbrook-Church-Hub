@@ -1,7 +1,7 @@
 // The app's Watch tab: live now (when we are), the latest message, and the library with search
 // and speaker, series and topic filters. Each video has its own page with the app's title,
 // picture and trim; the player only loads when someone taps play.
-import { get, html, mount, icon, fmtDate } from '../lib.js';
+import { get, html, mount, icon, fmtDate, scrollBehavior } from '../lib.js';
 import { hms, lengthText, mountPlayer } from '../video.js';
 
 const day = (d) => fmtDate(d, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -70,7 +70,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
         : latest ? html`<div class="wv-feature"><div class="m-video wv-box" data-box="${latest.id}">${poster(latest, { big: true })}</div>
           <a class="wv-head" href="#/${tab.id}/${latest.id}"><span class="wv-kicker">Latest message</span><b>${latest.title}</b><span class="muted small">${meta(latest)}</span></a></div>` : ''}
     </div>
-    <div class="wv-filters"><input type="search" data-f="q" placeholder="Search messages" value="${f.q}">
+    <div class="wv-filters"><input type="search" aria-label="Search messages" data-f="q" placeholder="Search messages" value="${f.q}">
       <div class="wv-selects">${pick('speaker', 'Speaker', speakers)}${pick('series', 'Series', series)}${pick('topic', 'Topic', topics)}
         <button class="chip" data-clear hidden>${icon('x')} Clear</button></div></div>
     ${!f.q && !f.speaker && !f.series && !f.topic && series.length ? html`<div class="wv-series-row">${series.slice(0, 12).map((s) => {
@@ -99,7 +99,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
       return play(p.parentElement, latest, () => { location.hash = `#/${tab.id}/${latest.id}?ended=1`; });
     }
     const s = e.target.closest('[data-series]');
-    if (s) { f.series = s.dataset.series; sync(); el.querySelector('.wv-filters').scrollIntoView({ behavior: 'smooth' }); }
+    if (s) { f.series = s.dataset.series; sync(); el.querySelector('.wv-filters').scrollIntoView({ behavior: scrollBehavior() }); }
     if (e.target.closest('[data-clear]')) { Object.keys(f).forEach((k) => { f[k] = ''; }); sync(); }
   };
   draw();

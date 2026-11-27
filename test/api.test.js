@@ -2067,7 +2067,8 @@ test('media: YouTube sync fills in from the order of service, own titles and tri
   assert.equal((await api('admin', 'POST', '/media/sync', {})).status, 400);
 
   // Without an API key: the @handle is found from its page, the latest videos from the feed.
-  const setup = await api('north', 'PUT', '/media/setup', { channel: 'youtube.com/@mbchurch', notify_live: true });
+  assert.equal((await api('north', 'PUT', '/media/setup', { channel: 'youtube.com/@mbchurch' })).status, 403, 'church-wide setup: admins who cover every campus');
+  const setup = await api('admin', 'PUT', '/media/setup', { channel: 'youtube.com/@mbchurch', notify_live: true });
   assert.equal(setup.status, 200);
   assert.equal(setup.data.settings.channel_id, CH);
   assert.equal(setup.data.settings.channel_title, 'MB Church & Friends');
