@@ -3,6 +3,7 @@ import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dia
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
+import { drawStudiesCard } from '../studies-card.js';
 
 // Households are called families in the interface; the data keeps its name ("Diaz Household" reads "Diaz family").
 
@@ -54,7 +55,7 @@ export default async function person(el, id) {
           ${p.notes ? html`<p class="muted small" style="white-space:pre-wrap">${p.notes}</p>` : ''}
           ${p.account || can('admin') ? html`<div class="row small" style="margin-top:10px">
             <span class="muted">${p.account
-              ? html`Account: <b>${ROLE_LABEL[p.account.role]}</b>${p.account.finance ? ' + Finance' : ''}${p.account.announce ? ' + Announcements' : ''}${p.account.attendance ? ' + Attendance' : ''}${p.account.app_editor ? ' + Edit the app' : ''}${p.account.role_auto ? ' (team leader)' : ''} · ${p.account.email}${p.account.active ? '' : ' · can’t sign in'} · ${p.account.last_login ? `last signed in ${fmtDate(p.account.last_login.slice(0, 10))}` : 'hasn’t signed in yet'}`
+              ? html`Account: <b>${ROLE_LABEL[p.account.role]}</b>${p.account.finance ? ' + Finance' : ''}${p.account.announce ? ' + Announcements' : ''}${p.account.attendance ? ' + Attendance' : ''}${p.account.app_editor ? ' + Edit the app' : ''}${p.account.studies ? ' + Bible studies' : ''}${p.account.role_auto ? ' (team leader)' : ''} · ${p.account.email}${p.account.active ? '' : ' · can’t sign in'} · ${p.account.last_login ? `last signed in ${fmtDate(p.account.last_login.slice(0, 10))}` : 'hasn’t signed in yet'}`
               : p.email ? 'No account yet; they get a volunteer account by signing in.' : 'No account (needs an email to sign in).'}</span>
             ${can('admin') && p.account && p.account.editable === false ? html`<span class="muted small">${p.account.id === state.me?.id ? 'You can’t change your own access. Ask an admin who covers every campus.' : 'Only an admin who covers every campus can change this account.'}</span>` : ''}
             ${can('admin') && (p.account ? p.account.editable !== false : p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
@@ -97,6 +98,7 @@ export default async function person(el, id) {
             : html`<p class="muted">No attendance marked yet.</p>`}
           ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}</div>`)}` : ''}
         </div>
+        <div data-studies></div>
         ${staff && !p.archived ? html`<button class="btn danger" data-archive>${icon('trash')} Archive this person</button>` : ''}
       </div>
     </div>`);
@@ -138,6 +140,8 @@ export default async function person(el, id) {
   });
 
   drawProfile(el.querySelector('[data-profile]'), p.id).catch(fail);
+  // Bible studies are private to coordinators and staff (the server checks too).
+  if (staff || state.me.studies) drawStudiesCard(el.querySelector('[data-studies]'), p).catch(fail);
 
   el.querySelector('[data-photo]')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -363,12 +367,13 @@ async function accessDialog(p) {
       <label class="check"><input type="checkbox" name="finance" ${a.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
       <label class="check"><input type="checkbox" name="announce" ${a.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
       <label class="check"><input type="checkbox" name="attendance" ${a.attendance ? 'checked' : ''}> <span><b>Attendance</b>: can take attendance (roll call, families, new guests, headcounts) at the campuses ticked above, and nothing else. Leaders and above already can. Needs a campus ticked.</span></label>
+      <label class="check"><input type="checkbox" name="studies" ${a.studies ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Bible studies coordinator</b>: sees every Bible study, who is waiting for a teacher and the approved materials, and matches people with teachers. Staff and admins already can.</span></label>
       ${p.account ? html`<label class="check"><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> Can sign in</label>` : ''}
     </div>`,
     onSubmit: (f) => {
       const b = formData(f);
-      const body = { role: b.role, person_id: p.id, finance: b.finance, announce: b.announce, attendance: b.attendance, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
-      if (limited) { delete body.finance; delete body.announce; if (p.account && !camps && !touched) delete body.campus_ids; } // the server refuses those changes for them
+      const body = { role: b.role, person_id: p.id, finance: b.finance, announce: b.announce, attendance: b.attendance, studies: b.studies, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+      if (limited) { delete body.finance; delete body.announce; delete body.studies; if (p.account && !camps && !touched) delete body.campus_ids; } // the server refuses those changes for them
       if (p.account) return patch(`/users/${a.id}`, { ...body, active: b.active });
       return post('/users', { ...body, email: b.email });
     },

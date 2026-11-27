@@ -372,7 +372,7 @@ async function accounts(panel, q = '') {
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
-      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.attendance ? html` <span class="pill info">Attendance</span>` : ''}${u.app_editor ? html` <span class="pill info">Edit the app</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
+      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.attendance ? html` <span class="pill info">Attendance</span>` : ''}${u.studies ? html` <span class="pill info">Bible studies</span>` : ''}${u.app_editor ? html` <span class="pill info">Edit the app</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td></tr>`)}
     </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
@@ -412,6 +412,7 @@ async function accounts(panel, q = '') {
         <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
         <label class="check"><input type="checkbox" name="app_editor" ${u.app_editor ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Edit the app</b>: can open the App Builder and change what the church app shows: its tabs, home screen and pictures. Admins always can.</span></label>
         <label class="check"><input type="checkbox" name="attendance" ${u.attendance ? 'checked' : ''}> <span><b>Attendance</b>: can take attendance (roll call, families, new guests, headcounts) at the campuses ticked above, and nothing else. Leaders and above already can. Needs a campus ticked.</span></label>
+        <label class="check"><input type="checkbox" name="studies" ${u.studies ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Bible studies coordinator</b>: sees every Bible study, who is waiting for a teacher and the approved materials, and matches people with teachers. Gets a notice when someone asks for a study. Staff and admins already can.</span></label>
         <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
         ${u.id ? html`<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Can sign in</label>` : ''}
@@ -434,8 +435,8 @@ async function accounts(panel, q = '') {
       },
       onSubmit: (f) => {
         const b = formData(f);
-        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, app_editor: b.app_editor, attendance: b.attendance, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
-        if (limited) { delete body.finance; delete body.announce; delete body.app_editor; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
+        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, app_editor: b.app_editor, studies: b.studies, attendance: b.attendance, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        if (limited) { delete body.finance; delete body.announce; delete body.app_editor; delete body.studies; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
         if (u.id) body.active = b.active;
         else body.email = b.email;
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);
