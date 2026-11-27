@@ -18,6 +18,8 @@ const NAV = [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
     { path: '/teams', label: 'Teams', icon: 'teams', min: 'leader' },
     { path: '/groups', label: 'Groups', icon: 'groups', min: 'volunteer' },
+    // Staff, and anyone staff named as a manager of at least one class (they see only their own classes).
+    { path: '/classes', label: 'Classes', icon: 'book', min: 'volunteer', classes: true },
   ] },
   { group: 'Services', items: [
     { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer' },
@@ -74,6 +76,7 @@ const ROUTES = [
   [/^\/teams\/(\d+)$/, 'team'],
   [/^\/groups$/, 'groups'],
   [/^\/groups\/(\d+)$/, 'group'],
+  [/^\/classes(?:\/(\d+)(?:\/(\w+)(?:\/(\d+))?)?)?$/, 'classes'],
   [/^\/services$/, 'services'],
   [/^\/services\/(\d+)$/, 'service'],
   [/^\/schedule$/, 'schedule'],
@@ -96,7 +99,7 @@ const ROUTES = [
   [/^\/help$/, 'help'],
 ];
 
-export const state = { me: null, campuses: [], settings: {}, campusId: null, lastPath: '' };
+export const state = { me: null, campuses: [], settings: {}, campusId: null, lastPath: '', managesClasses: false };
 
 export const can = (role) => RANK[state.me?.role] >= RANK[role];
 export const go = (path) => { location.hash = '#' + path; };
@@ -135,6 +138,8 @@ async function boot() {
     return;
   }
   [state.campuses, state.settings] = await Promise.all([get('/campuses'), get('/settings')]);
+  // Below staff, the Classes page is only for people named as a class manager.
+  if (!can('staff')) state.managesClasses = (await get('/classes').catch(() => [])).length > 0;
   const saved = Number(localStorage.getItem('mb.campus')) || null;
   state.campusId = visibleCampuses().some((c) => c.id === saved) ? saved : (visibleCampuses().length === 1 ? visibleCampuses()[0].id : null);
   $('[data-church]').textContent = state.settings.church_name;
@@ -230,7 +235,7 @@ document.addEventListener('click', (e) => {
 // The pages this account can open. Finance pages are for accounts with the Finance permission,
 // whatever their role; Announcements and Edit the app (App Builder) likewise.
 const searchPages = () => [...visibleNav().flatMap((g) => g.items), ...HELP_LINKS.filter((n) => can(n.min))];
-const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.attendanceOnly || (state.me.attendance && !can('leader')))) })).filter((g) => g.items.length);
+const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.attendanceOnly || (state.me.attendance && !can('leader'))) && (!n.classes || can('staff') || state.managesClasses)) })).filter((g) => g.items.length);
 
 function drawChrome() {
   const groups = visibleNav();
@@ -355,7 +360,7 @@ document.addEventListener('click', (e) => {
 
 // Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
 // hold; this just shows the normal refusal instead of a form or an error).
-const PAGE_RULES = { 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
+const PAGE_RULES = { 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin'), classes: () => can('staff') || state.managesClasses };
 
 let renderSeq = 0;
 async function route() {

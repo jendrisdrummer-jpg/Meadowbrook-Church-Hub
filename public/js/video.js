@@ -90,19 +90,20 @@ async function mountHls(box, { playbackId, start = 0, end = null, autoplay = fal
   return {
     seek(sec) { ended = false; v.currentTime = sec; v.play().catch(() => {}); },
     time: () => v.currentTime,
+    duration: () => (Number.isFinite(v.duration) ? v.duration : null),
     pause() { v.pause(); },
     destroy() { hls?.destroy(); v.pause(); v.removeAttribute('src'); v.load(); box.replaceChildren(); },
   };
 }
 
 // A player in `box` that plays just the trimmed part. onEnd runs at the trim's end.
-// Returns { seek(sec), time() → sec|null, pause(), destroy() }.
+// Returns { seek(sec), time() → sec|null, duration() → sec|null, pause(), destroy() }.
 export async function mountPlayer(box, { videoId, playbackId, start = 0, end = null, autoplay = false, onEnd, poster } = {}) {
   if (playbackId) return mountHls(box, { playbackId, start, end, autoplay, onEnd, poster });
   const YT = await loadPlayerApi();
   if (!YT) {
     box.innerHTML = `<iframe src="${embedUrl(videoId, { start, end, autoplay })}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="Video"></iframe>`;
-    return { seek() {}, time: () => null, pause() {}, destroy() { box.innerHTML = ''; } };
+    return { seek() {}, time: () => null, duration: () => null, pause() {}, destroy() { box.innerHTML = ''; } };
   }
   const slot = document.createElement('div');
   box.replaceChildren(slot);
@@ -129,6 +130,7 @@ export async function mountPlayer(box, { videoId, playbackId, start = 0, end = n
   return {
     seek(sec) { ended = false; player.seekTo?.(sec, true); player.playVideo?.(); },
     time: () => (player.getCurrentTime ? player.getCurrentTime() : null),
+    duration: () => (player.getDuration ? player.getDuration() || null : null),
     pause() { player.pauseVideo?.(); },
     destroy() { clearInterval(timer); player.destroy?.(); },
   };

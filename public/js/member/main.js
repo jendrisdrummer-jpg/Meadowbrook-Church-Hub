@@ -15,6 +15,7 @@ import { watchPage, videoPage } from './watch.js';
 import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
 import { myInfoPage } from './myinfo.js';
+import { myClassesList, classPage, stepPage } from './classes.js';
 import { loadThisWeek } from './thisweek.js';
 
 const $ = (s) => document.querySelector(s);
@@ -137,6 +138,14 @@ async function route() {
     if (parts[0] === 'plan' && parts[1]) { backTo = `#/${serveId}${q.get('from') === 'all' ? '?view=all' : ''}`; drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'help') { backTo = '#/more'; drawTabs('more'); return await helpPage(el); }
     if (parts[0] === 'form' && parts[1]) { backTo = '#/more'; drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
+    if (parts[0] === 'classes') {
+      backTo = parts[2] ? `#/classes/${parts[1]}` : parts[1] ? '#/classes' : '#/more';
+      drawTabs('more');
+      setTitle('My classes');
+      if (!app.user) { location.href = signInHref(`/classes${parts[1] ? `/${parts[1]}` : ''}`); return; }
+      if (parts[2]) return await stepPage(el, parts[1], parts[2], { setTitle });
+      return await (parts[1] ? classPage(el, parts[1], { setTitle }) : myClassesList(el, { setTitle }));
+    }
     if (parts[0] === 'my-info') { backTo = '#/more'; drawTabs('more'); return await myInfoPage(el, { app, setTitle, signInHref }); }
     if (parts[0] === 'inbox') { backTo = '#/more'; drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
@@ -460,6 +469,7 @@ async function more(el, tab, q) {
   const share = html`<svg class="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
   const showInstall = !isInstalled() && (isMobile || q.get('install'));
   const forms = app.user && !preview ? await get('/forms').catch(() => []) : []; // forms for signed-in people
+  const classes = app.user && !preview ? await get('/me/classes').catch(() => []) : []; // only shown to people who are in a class
   mount(el, html`<div class="card">${app.user
       ? html`<div class="row"><b>${app.user.name}</b><span class="spacer"></span><button class="btn small ghost" data-logout>Sign out</button></div>`
       : html`<div class="row"><span>Signed out</span><span class="spacer"></span><a class="btn small primary" href="${signInHref('/more')}">Sign in</a></div>`}</div>
@@ -470,6 +480,7 @@ async function more(el, tab, q) {
     ${app.user ? html`<div class="card app-card" data-notify></div>` : html`<div class="card" data-guest-push></div>`}
     <div class="card m-list">
       ${app.user ? html`<a href="#/my-info">${icon('user')}<span class="grow">My info</span></a>` : ''}
+      ${classes.length ? html`<a href="#/classes">${icon('book')}<span class="grow">My classes</span></a>` : ''}
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}

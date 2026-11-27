@@ -1257,3 +1257,19 @@ select.status-pick:not([multiple]):not([size]) { width: auto; min-height: 0; pad
 [data-missing-card] .card-head { flex-wrap: wrap; gap: 8px; }
 [data-missing-card] .seg { max-width: 100%; }
 [data-missing-card] .seg button { white-space: nowrap; }
+
+/* Classes: tabs as links, the steps list, attendance rows, the quiz builder and the roster grid. */
+.tabs a { display: inline-flex; align-items: center; padding: 10px 14px; min-height: 42px; font-weight: 550; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; text-decoration: none; }
+.tabs a:hover { color: var(--text); }
+.tabs a.on { color: var(--text); font-weight: 650; border-bottom-color: var(--accent); }
+.step-row, .att-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.step-row:last-of-type, .att-row:last-child { border-bottom: 0; }
+.step-row .grow, .att-row .grow { flex: 1; min-width: 0; }
+.step-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); flex: none; }
+.att-row { min-height: 52px; }
+.att-row .seg button { min-height: 44px; min-width: 76px; }
+.q-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; background: var(--panel-2); }
+.q-choice { gap: 8px; flex-wrap: nowrap; }
+.q-choice .check { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; }
+table.class-roster th, table.class-roster td { vertical-align: top; }
+table.class-roster td:first-child, table.class-roster th:first-child { position: sticky; left: 0; background: var(--panel); min-width: 110px; }
