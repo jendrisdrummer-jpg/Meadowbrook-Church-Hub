@@ -97,9 +97,9 @@ export function groupFamilies(items) {
 }
 
 // Each release made while offline is one outbox entry, so it keeps its own real time:
-// { id, campus_id, ids, household_id, at, legacy? }. `at` is when the volunteer released the children.
-export function newRelease({ id, campusId, ids, householdId, at }) {
-  return { id, campus_id: campusId, ids: [...new Set(ids)], household_id: householdId ?? null, at };
+// { id, campus_id, ids, household_id, at, collector?, legacy? }. `at` is when the volunteer released the children.
+export function newRelease({ id, campusId, ids, householdId, at, collector }) {
+  return { id, campus_id: campusId, ids: [...new Set(ids)], household_id: householdId ?? null, at, ...(collector ? { collector } : {}) };
 }
 
 // The outbox an older check-in app left behind was a flat list of ids with no times. It becomes

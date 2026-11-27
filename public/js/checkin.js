@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
-import { roomFor, pickupCode, normalizeCode, showCode, level1, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
+import { roomFor, pickupCode, normalizeCode, showCode, level1, hasEpi, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, heldPeople, rosterIsToday, collectorChoice, ID_TYPES, HOLD_MESSAGE, STALE_MESSAGE, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -464,23 +464,42 @@ function pickupList(householdId) {
   return fam ? [...fam.members.filter((m) => m.household_role !== 'child').map(displayName), ...fam.pickups.map((p) => `${p.name}${p.relationship ? ` (${p.relationship})` : ''}`)] : [];
 }
 
+// Who may collect this family's children from an iPad: the adults in the household and the listed pickup people.
+// The value is what the iPad sends (the hub looks the name up), the label is what the volunteer sees.
+function collectors(householdId) {
+  const fam = householdId != null ? state.roster.households.find((h) => h.id === householdId) : null;
+  if (!fam) return [];
+  return [...fam.members.filter((m) => m.household_role !== 'child').map((m) => ({ value: `adult:${m.id}`, label: displayName(m), name: displayName(m) })),
+    ...fam.pickups.map((p) => ({ value: `pickup:${p.id}`, label: `${p.name}${p.relationship ? ` (${p.relationship})` : ''}`, name: p.name, relationship: p.relationship || '' }))];
+}
+
 function showMatch(code) {
   const open = todays().filter((c) => c.security_code === code && !c.checked_out_at);
   const box = $main.querySelector('[data-match]');
   if (!open.length) { mount(box, html`<div class="alert bad">No children are checked in with code ${showCode(code)}.</div>`); return; }
   const families = groupFamilies(open);
   const many = families.length > 1;
+  // A child with a hold is never checked out here, online or off. The iPad only knows that there is one, never why.
+  const held = heldPeople(state.roster, todays());
+  const anyHeld = open.some((k) => held.has(k.person_id));
   mount(box, html`<div class="k-out" style="text-align:left">
     <p class="k-count"><b>${open.length}</b> ${plural(open.length, 'child is', 'children are')} checked in with this code. Read the number to the parent and check it against their tag.</p>
     ${many ? html`<div class="alert bad" role="alert"><b>This code matches ${families.length === 2 ? 'two' : families.length} families.</b> Check ID and choose the children.</div>` : ''}
+    ${anyHeld ? html`<div class="alert bad" role="alert"><b>Hold: see coordinator.</b> ${HOLD_MESSAGE} <button class="btn small" data-recheck>Check again</button></div>` : ''}
     <div data-message></div>
     ${families.map((f) => {
       const allowed = pickupList(f.household_id);
+      const who = collectors(f.household_id);
       const name = f.household_id != null ? familyName(state.roster.households.find((h) => h.id === f.household_id)?.name || f.items[0].household_name || '') : '';
       return html`<section class="card k-fam" data-fam="${f.key}">
         ${many ? html`<h2>${name || displayName(f.items[0])}</h2>` : ''}
-        <div class="k-kids">${f.items.map((k) => html`<label class="k-kid"><input type="checkbox" data-pick="${k.id}">${avatar(k)}
-          <span class="info"><b>${displayName(k)}</b></span><span class="room">${k.room_name || ''}</span></label>`)}</div>
+        <div class="k-kids">${f.items.map((k) => (held.has(k.person_id)
+          ? html`<div class="k-kid held">${avatar(k)}<span class="info"><b>${displayName(k)}</b><br><span class="pill bad">Hold: see coordinator</span></span><span class="room">${k.room_name || ''}</span></div>`
+          : html`<label class="k-kid"><input type="checkbox" data-pick="${k.id}">${avatar(k)}
+          <span class="info"><b>${displayName(k)}</b></span><span class="room">${k.room_name || ''}</span></label>`))}</div>
+        ${who.length ? html`<label class="field k-collector">Who is collecting?<select data-collector><option value="">Choose…</option>${who.map((w) => html`<option value="${w.value}">${w.label}</option>`)}</select></label>
+          <label class="field k-collector">ID shown<select data-idtype>${ID_TYPES.map((t) => html`<option value="${t.value}" ${t.value === 'not_checked' ? 'selected' : ''}>${t.label}</option>`)}</select></label>`
+          : html`<p class="small muted">No one is on file to collect this child. Please ask a coordinator to come to the desk; they check ID and call a parent.</p>`}
         <p class="small muted">${allowed.length ? html`Allowed to pick up: ${allowed.join(', ')}` : 'No one is listed to pick up this child. Check ID and ask a coordinator.'}</p>
         ${many ? html`<label class="check k-idcheck"><input type="checkbox" data-id-checked> ID checked</label>` : ''}
         <button class="btn primary k-big" style="width:100%;margin-top:10px" data-out disabled>Choose the children</button></section>`;
@@ -492,13 +511,14 @@ function showMatch(code) {
     cards.forEach((card) => {
       const picked = card.querySelectorAll('[data-pick]:checked').length;
       const locked = Boolean(active) && active !== card;
-      card.querySelectorAll('[data-pick], [data-id-checked]').forEach((i) => { i.disabled = locked; });
+      card.querySelectorAll('[data-pick], [data-id-checked], [data-collector], [data-idtype]').forEach((i) => { i.disabled = locked; });
       card.classList.toggle('waiting', locked);
       const btn = card.querySelector('[data-out]');
       const needId = many && !card.querySelector('[data-id-checked]').checked;
-      btn.disabled = locked || !picked || needId;
-      btn.textContent = !picked ? 'Choose the children' : needId ? 'Tick “ID checked” first' : `Check out ${picked} ${plural(picked, 'child', 'children')}`;
-      card.querySelectorAll('.k-kid').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked));
+      const needWho = Boolean(card.querySelector('[data-collector]')) && !card.querySelector('[data-collector]').value;
+      btn.disabled = locked || !picked || needId || needWho || !card.querySelector('[data-collector]');
+      btn.textContent = !picked ? 'Choose the children' : needId ? 'Tick “ID checked” first' : needWho ? 'Choose who is collecting' : `Check out ${picked} ${plural(picked, 'child', 'children')}`;
+      card.querySelectorAll('.k-kid').forEach((l) => l.classList.toggle('on', Boolean(l.querySelector('input')?.checked)));
     });
   };
   box.onchange = refresh;
@@ -507,17 +527,33 @@ function showMatch(code) {
     card.querySelector('[data-out]').onclick = () => {
       const f = families.find((x) => x.key === card.dataset.fam);
       const ids = new Set([...card.querySelectorAll('[data-pick]:checked')].map((i) => i.dataset.pick));
-      release(f, f.items.filter((k) => ids.has(k.id)), box);
+      const choice = collectorChoice(card.querySelector('[data-collector]').value, card.querySelector('[data-idtype]').value);
+      const picked = collectors(f.household_id).find((w) => w.value === card.querySelector('[data-collector]').value);
+      release(f, f.items.filter((k) => ids.has(k.id)), box, choice && { ...choice, name: picked?.name || '', relationship: picked?.relationship || '' });
     };
+  });
+  // A hold may have been lifted (or placed) since this iPad last asked: look again.
+  box.querySelector('[data-recheck]')?.addEventListener('click', async () => {
+    if (!navigator.onLine) { toast('This iPad has no connection, so it can’t check. Please ask a staff member.', 'bad'); return; }
+    await refreshRoster();
+    showMatch(code);
   });
 }
 
 // One family's ticked children leave. Online, the hub is asked first and can say no (409); offline, or when the
 // hub can't be reached, the release is kept in the outbox with the time it happened and sent when it can be.
-async function release(fam, kids, box) {
+async function release(fam, kids, box, collector) {
   const at = new Date().toISOString();
   const ids = kids.map((k) => k.id);
   const campusId = state.station.campusId;
+  const say = (text) => {
+    mount(box.querySelector('[data-message]'), html`<div class="alert bad" role="alert">${text}</div>`);
+    box.querySelectorAll('[data-out]').forEach((b) => { b.disabled = false; });
+  };
+  // Never for a child with a hold, even if one slipped through to here.
+  const held = heldPeople(state.roster, todays());
+  if (kids.some((k) => held.has(k.person_id))) { say(`${HOLD_MESSAGE} Nothing was checked out.`); return; }
+  if (!collector) { say('Choose who is collecting. Nothing was checked out.'); return; }
   const buttons = box.querySelectorAll('[data-out]');
   buttons.forEach((b) => { b.disabled = true; });
   let waiting = !navigator.onLine;
@@ -526,11 +562,12 @@ async function release(fam, kids, box) {
       await sync();
       // Their check-in hasn't reached the hub yet, so the release has to wait behind it.
       if (store.get(KEY.queue, []).length) waiting = true;
-      else await call('POST', '/checkin/checkout', { campus_id: campusId, mode: 'request', household_id: fam.household_id, ids });
+      else await call('POST', '/checkin/checkout', { campus_id: campusId, mode: 'request', household_id: fam.household_id, ids, collector });
     } catch (e) {
       if (e.status === 409) {
-        mount(box.querySelector('[data-message]'), html`<div class="alert bad" role="alert">${e.message} Nothing was checked out.</div>`);
-        box.querySelectorAll('[data-out]').forEach((b) => { b.disabled = false; });
+        // The hub knows of a hold this iPad didn't: fetch it, so the child shows as held from now on.
+        refreshRoster();
+        say(`${e.message} Nothing was checked out.`);
         return;
       }
       // Can't reach the hub, or it can't take it right now: the children are leaving, so keep the release.
@@ -539,7 +576,10 @@ async function release(fam, kids, box) {
     }
   }
   if (waiting) {
-    const saved = saveOutbox([...loadOutbox(), newRelease({ id: crypto.randomUUID(), campusId, ids, householdId: fam.household_id, at })]);
+    // Without a connection the iPad can't know about a hold placed since its list was made, so it only releases when the
+    // list is from today. Otherwise it's the paper sign-out sheet and a coordinator.
+    if (!rosterIsToday(state.roster)) { say(STALE_MESSAGE); return; }
+    const saved = saveOutbox([...loadOutbox(), newRelease({ id: crypto.randomUUID(), campusId, ids, householdId: fam.household_id, at, collector })]);
     if (!saved) {
       mount(box.querySelector('[data-message]'), html`<div class="alert bad" role="alert">This iPad couldn’t save the check-out, so nothing was checked out. Use the paper sign-out sheet and tell a coordinator.</div>`);
       box.querySelectorAll('[data-out]').forEach((b) => { b.disabled = false; });
@@ -576,7 +616,7 @@ async function flushCheckouts() {
   try {
     for (const entry of loadOutbox()) {
       try {
-        await call('POST', '/checkin/checkout', { campus_id: entry.campus_id ?? state.station.campusId, mode: 'report', ids: entry.ids, ...(entry.at ? { at: entry.at } : {}) });
+        await call('POST', '/checkin/checkout', { campus_id: entry.campus_id ?? state.station.campusId, mode: 'report', ids: entry.ids, ...(entry.at ? { at: entry.at } : {}), ...(entry.collector ? { collector: entry.collector } : {}) });
         saveOutbox(loadOutbox().filter((e) => e.id !== entry.id));
       } catch (e) {
         if (!e.status || e.status === 401 || e.status === 426 || e.status >= 500) break; // try again later

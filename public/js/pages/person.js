@@ -1,7 +1,7 @@
 // One person's profile: details, household, teams, schedule and check-in history.
 import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate, familyName } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
-import { gradeLabel, ageLabel } from '../checkin-rules.js';
+import { gradeLabel, ageLabel, ID_TYPES, PHOTO_ID_TYPES } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
 
 // Households are called families in the interface; the data keeps its name ("Diaz Household" reads "Diaz family").
@@ -20,6 +20,57 @@ const GRADES = [{ value: -1, label: 'Pre-K' }, { value: 0, label: 'Kindergarten'
 function servesText(p) {
   if (p.serving_campuses.length) return p.serving_campuses.map(campusName).join(', ');
   return p.campus_id != null ? `Home campus only (${campusName(p.campus_id)})` : 'Any campus (campus not set)';
+}
+
+// A hold ("Hold: see coordinator") stops this child being checked out at any iPad. Staff with check-in access place, change and lift it;
+// the note is private and only for the Hub. The safeguarding lead is told each time, and any release of a held child is in the Hub.
+async function drawHold(body, p, reload) {
+  let data;
+  try { data = await get(`/checkin/holds?person_id=${p.id}`); } catch (err) { mount(body, html`<p class="muted small" style="margin:0">Holds are managed by staff with check-in access.</p>`); return; }
+  const on = data.holds.find((h) => h.active);
+  const past = data.holds.filter((h) => !h.active).slice(0, 3);
+  const campusId = p.household?.campus_id ?? p.campus_id ?? state.campusId ?? visibleCampuses()[0]?.id;
+  const open = p.checkins.find((c) => !c.checked_out_at && c.checked_in_at.slice(0, 10) >= new Date(Date.now() - 36 * 3600e3).toISOString().slice(0, 10));
+  const safeguarding = await get('/checkin/safeguarding').catch(() => null);
+  mount(body, html`${on ? html`<div class="alert bad"><b>On hold.</b> No iPad will check this child out. Placed ${fmtUtcDate(on.placed_at)} by ${on.placed_by_name}.
+      ${on.note ? html`<div style="white-space:pre-wrap;margin-top:6px">${on.note}</div>` : ''}</div>
+    <div class="row" style="margin-top:10px">${on.active ? html`<button class="btn small" data-hold-note>Change note</button><button class="btn small" data-hold-lift>Lift the hold</button>` : ''}
+      ${open ? html`<button class="btn small danger" data-hold-release>Release to a collector…</button>` : ''}</div>`
+      : html`<p class="muted small" style="margin:0 0 8px">No hold. Put one on when someone must not collect this child without a staff member (custody or a court order). Keep the details on the confidential list.</p>
+        <button class="btn small danger" data-hold-set>Put a hold on</button>`}
+    ${safeguarding?.fallback ? html`<p class="small" style="margin:10px 0 0"><span class="pill warn">No safeguarding lead named</span> Until an admin names one under Check-in iPads, every admin is told about holds.</p>` : ''}
+    ${past.length ? html`<h3 style="margin-top:12px">Earlier holds</h3>${past.map((h) => html`<div class="small muted">${fmtUtcDate(h.placed_at)} to ${fmtUtcDate(h.lifted_at)}, lifted by ${h.lifted_by_name}</div>`)}` : ''}`);
+  const note = (title, value, submit, danger = false) => dialog({ title, submit, danger,
+    body: html`<label class="field">Private note (optional)<textarea name="note" maxlength="300" rows="3">${value}</textarea></label>
+      <p class="muted small">Staff only. Say where the details are kept, not the details. It is never shown on an iPad. The safeguarding lead is told when you save.</p>`,
+    onSubmit: (f) => (on ? api('PATCH', `/checkin/holds/${on.id}`, { note: f.note.value }) : post('/checkin/holds', { person_id: p.id, campus_id: campusId, note: f.note.value })) });
+  body.querySelector('[data-hold-set]')?.addEventListener('click', async () => { if (await note('Put a hold on', '', 'Put the hold on', true)) { toast('The hold is on. The safeguarding lead has been told.'); reload(); } });
+  body.querySelector('[data-hold-note]')?.addEventListener('click', async () => { if (await note('Change the note', on.note, 'Save')) { toast('Saved. The safeguarding lead has been told.'); reload(); } });
+  body.querySelector('[data-hold-lift]')?.addEventListener('click', async () => {
+    const ok = await dialog({ title: 'Lift the hold?', submit: 'Lift the hold', body: html`<p>iPads will check this child out again as usual. The safeguarding lead is told.</p>
+      <label class="field">Why?<textarea name="reason" maxlength="300" required></textarea></label>`, onSubmit: (f) => api('DELETE', `/checkin/holds/${on.id}`, { reason: f.reason.value }) });
+    if (ok) { toast('The hold is lifted. The safeguarding lead has been told.'); reload(); }
+  });
+  body.querySelector('[data-hold-release]')?.addEventListener('click', async () => {
+    const adults = (p.household?.members || []).filter((m) => m.household_role !== 'child');
+    const pickups = p.household?.pickups || [];
+    const ok = await dialog({ title: `Release ${displayName(p)}`, submit: 'Release', danger: true,
+      body: html`<p class="small">Check ID and phone a parent first. The hold stays on afterwards. The safeguarding lead is told.</p>
+        <label class="field">Who is collecting?<select name="who" required><option value="">Choose…</option>
+          ${adults.map((m) => html`<option value="adult:${m.id}">${displayName(m)}</option>`)}${pickups.map((u) => html`<option value="pickup:${u.id}">${u.name}${u.relationship ? ` (${u.relationship})` : ''}</option>`)}
+          <option value="other">Someone else…</option></select></label>
+        <label class="field">If someone else: their name<input type="text" name="name" maxlength="100"></label>
+        <label class="field">How they’re connected<input type="text" name="relationship" maxlength="60"></label>
+        <label class="field">ID shown<select name="id_type">${ID_TYPES.map((t) => html`<option value="${t.value}" ${t.value === 'drivers_license' ? 'selected' : ''}>${t.label}</option>`)}</select><span class="muted small">Someone not on the list needs photo ID (${PHOTO_ID_TYPES.length} kinds). Never write down the number.</span></label>
+        <label class="field">What did you check?<textarea name="reason" maxlength="300" required placeholder="For example: called a parent, who agreed"></textarea></label>`,
+      onSubmit: (f) => {
+        const [kind, id] = f.who.value.split(':');
+        const collector = f.who.value === 'other' ? { kind: 'other', name: f.name.value, relationship: f.relationship.value, id_type: f.id_type.value }
+          : { kind: kind === 'adult' ? 'household_adult' : 'pickup_contact', ...(kind === 'adult' ? { person_id: Number(id) } : { pickup_id: Number(id) }), id_type: f.id_type.value };
+        return post(`/checkin/checkins/${open.id}/release-held`, { collector, reason: f.reason.value });
+      } });
+    if (ok) { toast('Released. The safeguarding lead has been told.'); reload(); }
+  });
 }
 
 export default async function person(el, id) {
@@ -64,6 +115,7 @@ export default async function person(el, id) {
             ${can('admin') && (p.account ? p.account.editable !== false : p.email) ? html`<button class="btn small ghost" data-access>${p.account ? 'Change access' : 'Give more access'}</button>` : ''}</div>` : ''}
         </div>
 
+        ${staff && p.household_role === 'child' ? html`<div class="card" data-hold-card><div class="card-head"><h2>Pickup hold</h2></div><div data-hold-body><p class="muted small" style="margin:0">Checking…</p></div></div>` : ''}
         ${staff && p.household_role === 'child' ? html`<div class="card" data-care-card><div class="card-head"><h2>Private care notes</h2><button class="btn small" data-care-show>Show</button></div>
           <p class="muted small" style="margin:0">For private matters that aren’t needed to look after this child in a room. Office only: never sent to an iPad or printed. Opening them is recorded.</p>
           <div data-care-body></div></div>` : ''}
@@ -102,7 +154,7 @@ export default async function person(el, id) {
             <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>
             ${att.recent.length > 3 ? html`<button class="btn small ghost" data-att-all style="margin-top:6px">Show all</button>` : ''}`
             : html`<p class="muted">No attendance marked yet.</p>`}
-          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}</div>`)}` : ''}
+          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}${c.checked_out_to_kind ? html` <span class="muted">· collected by ${c.checked_out_to_name || 'someone (name not recorded)'}${c.checked_out_to_relationship ? ` (${c.checked_out_to_relationship})` : ''}${c.checked_out_held ? ' while a hold was on' : ''}</span>` : ''}</div>`)}` : ''}
         </div>
         ${staff && !p.archived ? html`<button class="btn danger" data-archive>${icon('trash')} Archive this person</button>` : ''}
       </div>
@@ -139,6 +191,8 @@ export default async function person(el, id) {
       try { await api('PUT', `/people/${p.id}/care-notes`, { note: body.querySelector('[name=note]').value }); toast('Saved.'); } catch (err) { fail(err); }
     };
   });
+
+  if (staff && p.household_role === 'child') drawHold(el.querySelector('[data-hold-body]'), p, reload).catch(fail);
 
   el.querySelector('[data-serves]')?.addEventListener('click', async () => {
     const camps = visibleCampuses();

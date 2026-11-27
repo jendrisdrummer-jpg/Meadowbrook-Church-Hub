@@ -294,6 +294,16 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   **Check-in safety settings** (`/checkin/safety`) are for admins; reading is open to campus-limited admins, changing
   needs an admin with **all campuses** (`requireAllCampuses`), because the switch affects every campus's iPads. The setting
   is kept apart from `/settings` on purpose, so the general settings endpoint can't change it.
+- **Holds** ("Hold: see coordinator", migration 45; `routes/checkin-holds.js`). **Placing, changing the note, lifting a hold and releasing a held child** are for
+  **staff and admins who have check-in access at that campus** (`manages` = staff rank, not a station, `canCheckin`, then `canCheckinCampus` for the
+  hold's campus, and `canCampus` for the child). A leader or volunteer with the Kids' check-in switch can't, and a paired iPad never can (403). **Reading** holds
+  (`GET /checkin/holds`) is for those staff and for the **named safeguarding lead** (read only, any role, within their campuses); everyone else, and every iPad, gets 403.
+  An iPad is told only that a child has a hold (`on_hold` on the roster and the active list), never the note. A held child can't be checked out by an iPad, a
+  leader, staff or an admin at the check-out screen: **only staff in the Hub** release them (`POST /checkin/checkins/:id/release-held`, with a reason and who collected, audited).
+  The **safeguarding lead** is a per-church setting (`checkin_safeguarding`, `PUT /checkin/safeguarding`: an admin who covers every campus; staff may read who is named).
+  The lead is told in the Hub (and by email when email is set up) each time a hold is placed, changed or lifted, when a held child is released or an iPad's release
+  was over a hold, and when an iPad tries to check out a held child (once per child per day). With nobody named, every active admin is told instead.
+  Merging a duplicate who has a hold is refused (409) until the hold is lifted. **Who collected** (`checked_out_to_*`) is shown to staff and above on the person page, not to leaders.
 - **The check-in roster** for a campus holds that campus's families **plus families with no campus
   set**, and never a family assigned to another campus. The rule uses the **family's** (household's)
   campus. Checking in and the list of who's checked in follow the same rule, so a check-in can't pull

@@ -24,6 +24,8 @@
 .k-kid .room { font-weight: 700; }
 .k-kid .room.none { color: var(--bad); }
 .k-kid.done { opacity: .55; }
+.k-kid.held { cursor: default; border-color: var(--bad); background: var(--bad-soft, var(--panel)); }
+.k-collector { display: block; text-align: left; margin-top: 10px; }
 .k-out .k-count { text-align: center; font-size: 18px; margin: 0 0 12px; }
 .k-out .alert { margin-bottom: 12px; }
 .k-fam { margin-bottom: 14px; }
