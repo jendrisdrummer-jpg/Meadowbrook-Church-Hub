@@ -44,6 +44,19 @@ direction"](../../master-product-roadmap.md#12-stage-2-and-stage-3), decision 20
   the paid Apple account is approved, before the multi-church switch-over, and hold the whole-church launch until
   it's in the App Store. This brings the Apple account (~$99/year), the product name and TestFlight forward.
 
+## Phase 0 as built (27 November 2026)
+
+The iPhone shell is in `mobile/` (see [mobile/README.md](../../../mobile/README.md)): Capacitor 8.6.3, hosted URL,
+bundled offline page, icon and splash redrawn from `public/icons`, and the generated iOS project (Swift Package
+Manager) committed. Android is not added yet. The member's login page hides the Google button when
+`window.Capacitor` reports a native shell (a front-end check only; server sign-in is unchanged).
+
+**Follow-up (its own PR and security review, not in Phase 0): Google sign-in in the app.** Open Google in the system
+browser (`@capacitor/browser` / `ASWebAuthenticationSession`), and have the server finish by redirecting to the app
+with a short-lived, single-use, hashed ticket (custom URL scheme or Universal Link). The app exchanges the ticket
+for the session cookie inside the web view. This changes sign-in, so: owner approval, security specialist review,
+tests for expiry, reuse, wrong-device and open-redirect cases, and Apple's rule 4.8 (Sign in with Apple) to weigh.
+
 ---
 
 ## 1. Phase 0: the Meadowbrook demo app

@@ -1,0 +1,6 @@
+{
+  "name": "Meadowbrook Church",
+  "bundleId": "church.meadowbrook.hub.demo",
+  "hostedUrl": "https://meadowbrook-church-hub.onrender.com/app/",
+  "colors": { "brand": "#135fd1", "background": "#ffffff" }
+}

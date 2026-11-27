@@ -56,6 +56,14 @@ How changes are made, tested and shipped. Applies to people and to every agent.
   check, the owner turns on branch protection for `main` in GitHub (Settings → Branches).
 - Merging to `main` deploys to Render.
 
+## Phone app shell (`mobile/`)
+
+`mobile/` is a separate Capacitor project (its own `package.json`, `node_modules` and lockfile) that wraps the hosted
+member app for an iPhone demo. The server's root `package.json` keeps Express as its only dependency; `npm test` and
+the server never read `mobile/`, and `.dockerignore` keeps it out of the image. Per-church values are in
+`mobile/church.config.json`; the owner's build steps are in [mobile/README.md](../mobile/README.md) and the design in
+[plans/mobile-and-multichurch/plan.md](plans/mobile-and-multichurch/plan.md).
+
 ## Keeping the docs current
 
 The docs are part of the code. **A PR that changes one of these must update the matching doc in

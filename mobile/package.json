@@ -1,0 +1,17 @@
+{
+  "name": "church-hub-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phone app shell (Capacitor) that opens the hosted Church Hub member app. Separate from the server: the server's package.json keeps Express as its only dependency.",
+  "scripts": {
+    "sync": "node scripts/prepare.mjs && cap sync ios",
+    "open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.3",
+    "@capacitor/ios": "8.6.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.3"
+  }
+}
