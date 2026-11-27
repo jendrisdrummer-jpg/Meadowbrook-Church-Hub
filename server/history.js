@@ -9,13 +9,28 @@ import { getSetting, setSetting } from './db.js';
 // the triggers in migration 42 word for word; change one and you must change the other.
 export const PAST_CUTOFF = "strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours')";
 
-// SQL for "this service is past and has serving, roll-call, headcount or check-in records". `s` is the
-// alias of the services table.
-export const serviceKeptSql = (s = 's') => `(${s}.starts_at <= ${PAST_CUTOFF} AND (
+// Two windows, on purpose. DELETES use "now + 14 hours" (a service that starts within a day is already protected, whatever
+// the time zone). UPDATES (retime, change a status) use "now - 14 hours": a service that started at least 14 hours ago is past in
+// every US time zone, so leaders can still correct tomorrow's service or a Saturday-night decline without a workaround.
+export const PAST_CUTOFF_BACK = "strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours')";
+
+// SQL for "this service has serving, roll-call, headcount or check-in records". `s` is the alias of the services table.
+const recordsSql = (s) => `(
     EXISTS (SELECT 1 FROM assignments ka WHERE ka.service_id = ${s}.id AND (ka.status = 'accepted' OR ka.sent_at IS NOT NULL))
     OR EXISTS (SELECT 1 FROM attendance kt WHERE kt.service_id = ${s}.id)
     OR EXISTS (SELECT 1 FROM headcounts kh WHERE kh.service_id = ${s}.id)
-    OR EXISTS (SELECT 1 FROM checkins kc WHERE kc.service_id = ${s}.id)))`;
+    OR EXISTS (SELECT 1 FROM checkins kc WHERE kc.service_id = ${s}.id))`;
+
+// SQL for "this service is past and has records" (can't be deleted). `s` is the alias of the services table.
+export const serviceKeptSql = (s = 's') => `(${s}.starts_at <= ${PAST_CUTOFF} AND ${recordsSql(s)})`;
+
+// A service that began 14+ hours ago, with records, can't be moved to a later time (it would stop being past, and could then be deleted).
+export const serviceRetimeKept = (db, serviceId, newStartsAt) => Boolean(db.prepare(
+  `SELECT 1 FROM services s WHERE s.id = ? AND s.starts_at <= ${PAST_CUTOFF_BACK} AND ? > ${PAST_CUTOFF_BACK} AND ${recordsSql('s')}`).get(serviceId, newStartsAt));
+
+// An accepted assignment on a service that began 14+ hours ago: its status is part of the record.
+export const assignmentFrozen = (db, assignmentId) => Boolean(db.prepare(
+  `SELECT 1 FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.id = ? AND a.status = 'accepted' AND s.starts_at <= ${PAST_CUTOFF_BACK}`).get(assignmentId));
 
 // SQL for "this accepted assignment is for a past service". `a` is the assignments alias, `s` the services alias.
 export const assignmentKeptSql = (a = 'a', s = 's') => `(${a}.status = 'accepted' AND ${s}.starts_at <= ${PAST_CUTOFF})`;
@@ -38,6 +53,8 @@ export const MSG = {
   service: 'This service has already happened (or has serving or check-in records), so it’s kept in the record.',
   position: 'People have served in this position, so it’s kept in the record.',
   person: 'This person has check-in or serving records, so they’re kept in the record. Archive them instead.',
+  restatus: 'This person already served at that service, so their answer can’t be changed. It’s kept in the record.',
+  retime: 'This service has already happened and has records, so it can’t be moved to a later time. It’s kept in the record.',
 };
 export const isHistoryError = (err) => err?.code === 'ERR_SQLITE_ERROR' && Object.values(MSG).includes(err.message);
 

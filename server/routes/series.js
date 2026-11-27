@@ -6,7 +6,7 @@ import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, isDate, audit } from '../http.js';
 import { applyTemplate } from './templates.js';
-import { serviceKeptSql } from '../history.js';
+import { serviceKeptSql, serviceRetimeKept } from '../history.js';
 
 const AHEAD_DAYS = 120;
 const MAX_AHEAD_DAYS = 400;
@@ -179,7 +179,8 @@ export default function seriesRoutes(db) {
   r.patch('/series/:id', requireRole('staff'), (req, res) => {
     const t = series(req, req.params.id);
     const b = req.body || {};
-    const from = isDate(b.from_date) ? b.from_date : today();
+    // Never from a past date: services before today are history and a series edit doesn't touch them.
+    const from = isDate(b.from_date) && b.from_date > today() ? b.from_date : today();
     const startTime = time(b.start_time, t.start_time);
     const duration = int(b.duration_min) ?? t.duration_min;
     const needs = cleanNeeds(b.needs);
@@ -192,7 +193,9 @@ export default function seriesRoutes(db) {
           b.template_id !== undefined ? templateId(b.template_id) : t.template_id, t.id);
       const future = db.prepare('SELECT * FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').all(t.id, from);
       for (const s of future) {
-        db.prepare('UPDATE services SET starts_at = ?, duration_min = ? WHERE id = ?').run(`${s.starts_at.slice(0, 10)}T${startTime}`, duration, s.id);
+        const moved = `${s.starts_at.slice(0, 10)}T${startTime}`;
+        if (serviceRetimeKept(db, s.id, moved)) continue; // a service that has happened, with records, keeps its time
+        db.prepare('UPDATE services SET starts_at = ?, duration_min = ? WHERE id = ?').run(moved, duration, s.id);
         if (b.title !== undefined && s.title === t.default_title) db.prepare('UPDATE services SET title = ? WHERE id = ?').run(str(b.title, 200), s.id);
       }
       if (needs) {

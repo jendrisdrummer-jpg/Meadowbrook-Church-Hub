@@ -112,3 +112,37 @@ test('a voided check-in leaves every list, and can’t be checked out', async ()
   assert.equal(person.data.checkins.length, 0);
   assert.equal((await call('staff', 'GET', `/people/${P.abby}`)).data.checkins.length, 1);
 });
+
+test('who may void what: staff any check-in at their campuses; leaders only an open one from today; never an iPad', async () => {
+  app.make('lead', 'leader', '[1]', 'Lee Lead');
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('checkin_user_ids', JSON.stringify([ids.lead]));
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+  const add = (id, day, out = null) => {
+    app.add.checkin(id, P.abby, { day });
+    if (out) db.prepare('UPDATE checkins SET checked_out_at = ? WHERE id = ?').run(out, id);
+  };
+  add('ci-lead-yday', '2020-03-01'); // an earlier day
+  add('ci-lead-out', today, new Date().toISOString()); // today, but already released
+  add('ci-lead-open', today);
+  for (const id of ['ci-lead-yday', 'ci-lead-out']) {
+    const r = await call('lead', 'POST', `/checkin/checkins/${id}/void`, { reason: 'x' });
+    assert.equal(r.status, 403, id);
+    assert.match(r.data.error, /staff member/);
+    assert.equal(row(id).voided_at, null);
+  }
+  assert.equal((await call('lead', 'POST', '/checkin/checkins/ci-lead-open/void', { reason: 'Wrong child' })).status, 200);
+  assert.equal(row('ci-lead-open').voided_by_name, 'Lee Lead');
+  assert.equal((await call('lead', 'POST', '/checkin/checkins/ci-south-01/void', { reason: 'x' })).status, 403, 'another campus');
+  assert.equal((await call('north', 'POST', '/checkin/checkins/ci-lead-yday/void', { reason: 'Staff may void an older one' })).status, 200);
+  assert.equal((await call('staff', 'POST', '/checkin/checkins/ci-lead-out/void', { reason: 'Staff may void a released one' })).status, 200);
+});
+
+test('a re-sent check-in id never reads another campus’s row or a voided one', async () => {
+  const body = (id) => ({ campus_id: 1, records: [{ id, person_id: P.abby, kind: 'kid', security_code: 'RS11', station: 'Lobby', checked_in_at: new Date().toISOString() }] });
+  const other = await call({ station: token }, 'POST', '/checkin/checkins', body('ci-south-01'));
+  assert.equal(other.status, 201);
+  assert.deepEqual(other.data, [], 'nothing about the other campus’s check-in comes back');
+  const voided = await call({ station: token }, 'POST', '/checkin/checkins', body('ci-abe-0001'));
+  assert.deepEqual(voided.data, []);
+  assert.equal(row('ci-south-01').person_id, P.sam, 'unchanged');
+});

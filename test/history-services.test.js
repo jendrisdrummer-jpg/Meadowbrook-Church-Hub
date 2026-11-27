@@ -46,8 +46,10 @@ test('the database: past accepted serving can’t be deleted; future, pending an
   for (const id of [f, pend, dec]) assert.equal(db.prepare('DELETE FROM assignments WHERE id = ?').run(id).changes, 1);
   db.prepare('DELETE FROM services WHERE id = ?').run(future);
   assert.equal(refused('DELETE FROM services WHERE id = ?', past)?.message, MSG.service);
-  db.prepare("UPDATE assignments SET status = 'pending', sent_at = NULL WHERE id = ?").run(a); // (status changes aren't guarded in V1)
-  assert.equal(db.prepare('DELETE FROM services WHERE id = ?').run(past).changes, 1, 'a past service with nothing recorded can go');
+  // Declining or un-accepting it first doesn't open a way round (it would be the same as deleting it).
+  assert.equal(refused("UPDATE assignments SET status = 'declined' WHERE id = ?", a)?.message, MSG.restatus);
+  assert.equal(count('assignments', `id = ${a} AND status = 'accepted'`), 1);
+
 });
 
 test('the database: a past service with records is kept, whatever the record is', () => {
@@ -235,4 +237,76 @@ test('merge: past serving stays on the archived duplicate; the rest moves or goe
   assert.equal(db.prepare("SELECT person_id FROM checkins WHERE id = 'ci-dup-0001'").get().person_id, keep, 'check-ins move to the kept person');
   assert.equal(db.prepare('SELECT archived FROM people WHERE id = ?').get(dup).archived, 1);
   assert.equal(count('attendance', `service_id = ${past} AND person_id = ${keep}`), 1);
+});
+
+test('a past accepted answer can’t be changed, so it can’t be declined and then deleted (route, own answer and database)', async () => {
+  const past = app.add.service(PAST);
+  const a = app.add.assignment(past, P.guitar, P.cat, 'accepted');
+  const mine = app.make('cat', 'volunteer');
+  db.prepare('UPDATE users SET person_id = ? WHERE id = ?').run(P.cat, mine);
+  for (const who of ['cat', 'staff', 'admin']) {
+    const r = await call(who, 'PATCH', `/assignments/${a}`, { status: 'declined', reason: 'sorry' });
+    assert.equal(r.status, 409, who);
+    assert.equal(r.data.error, MSG.restatus);
+  }
+  assert.equal((await call('staff', 'PATCH', `/assignments/${a}`, { status: 'pending' })).status, 409);
+  assert.equal(db.prepare('SELECT status FROM assignments WHERE id = ?').get(a).status, 'accepted');
+  assert.equal((await call('staff', 'DELETE', `/assignments/${a}`)).status, 409);
+  assert.equal(count('assignments', `id = ${a}`), 1);
+  // Answering something upcoming still works, and repeating the same status on a past one isn't a change.
+  const future = app.add.service(FUTURE);
+  const f = app.add.assignment(future, P.guitar, P.cat, 'pending');
+  assert.equal((await call('cat', 'PATCH', `/assignments/${f}`, { status: 'declined', reason: 'away' })).status, 200);
+  assert.equal((await call('staff', 'PATCH', `/assignments/${a}`, { status: 'accepted' })).status, 200);
+  // The update window is 14 hours back: a correction a couple of hours after the start is allowed, one a day later is not.
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600e3).toISOString().slice(0, 16);
+  const recent = app.add.service(hoursAgo(2));
+  const r2 = app.add.assignment(recent, P.drums, P.cat, 'accepted');
+  assert.equal((await call('staff', 'PATCH', `/assignments/${r2}`, { status: 'declined' })).status, 200);
+  const old = app.add.service(hoursAgo(20));
+  const r3 = app.add.assignment(old, P.drums, P.cat, 'accepted');
+  assert.equal((await call('staff', 'PATCH', `/assignments/${r3}`, { status: 'declined' })).status, 409);
+});
+
+test('a past service with records can’t be moved to the future to get round the delete guard', async () => {
+  const past = app.add.service(PAST);
+  app.add.assignment(past, P.guitar, P.ann, 'accepted');
+  const r = await call('staff', 'PATCH', `/services/${past}`, { starts_at: '2099-05-05T09:00' });
+  assert.equal(r.status, 409);
+  assert.equal(r.data.error, MSG.retime);
+  assert.equal(db.prepare('SELECT starts_at FROM services WHERE id = ?').get(past).starts_at, PAST);
+  assert.equal(refused("UPDATE services SET starts_at = '2099-05-05T09:00' WHERE id = ?", past)?.message, MSG.retime, 'the database too');
+  assert.equal((await call('staff', 'DELETE', `/services/${past}`)).status, 409);
+  // Corrections that keep it in the past are fine; so is retiming a service with no records, or an upcoming one.
+  assert.equal((await call('staff', 'PATCH', `/services/${past}`, { starts_at: '2020-03-01T09:30', title: 'Corrected' })).status, 200);
+  const empty = app.add.service(PAST2);
+  assert.equal((await call('staff', 'PATCH', `/services/${empty}`, { starts_at: '2099-05-06T09:00' })).status, 200);
+  const upcoming = app.add.service(FUTURE);
+  app.add.assignment(upcoming, P.guitar, P.ann, 'accepted');
+  assert.equal((await call('staff', 'PATCH', `/services/${upcoming}`, { starts_at: '2099-03-02T10:00' })).status, 200);
+  // Tomorrow's service (inside the delete window, outside the update window) can still be moved.
+  const tomorrow = app.add.service(new Date(Date.now() + 20 * 3600e3).toISOString().slice(0, 16));
+  app.add.assignment(tomorrow, P.guitar, P.bob, 'accepted');
+  assert.equal((await call('staff', 'PATCH', `/services/${tomorrow}`, { starts_at: new Date(Date.now() + 22 * 3600e3).toISOString().slice(0, 16) })).status, 200);
+});
+
+test('series: a from_date in the past is clamped to today, and a service with records keeps its time', async () => {
+  const t = makeSeries('Retime');
+  const past = inSeries(t, '2020-10-04T09:00');
+  app.add.assignment(past, P.drums, P.ann, 'accepted');
+  const future = inSeries(t, '2099-10-04T09:00');
+  const r = await call('staff', 'PATCH', `/series/${t}`, { from_date: '2020-01-01', start_time: '10:30' });
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT starts_at FROM services WHERE id = ?').get(past).starts_at, '2020-10-04T09:00', 'past services aren’t retimed');
+  assert.equal(db.prepare('SELECT starts_at FROM services WHERE id = ?').get(future).starts_at, '2099-10-04T10:30');
+});
+
+test('merge writes the moved check-ins to the record (first 20 and the count)', async () => {
+  const keep = app.add.person('Mo', 'Moves');
+  const dup = app.add.person('Mo', 'Movess');
+  for (let i = 0; i < 25; i++) app.add.checkin(`ci-mv-${String(i).padStart(3, '0')}`, dup, { day: '2020-04-01' });
+  assert.equal((await call('admin', 'POST', `/people/${keep}/merge`, { duplicate_id: dup })).status, 200);
+  const ev = db.prepare("SELECT * FROM checkin_events WHERE action = 'checkin.merge' AND person_id = ?").all(keep).map((e) => ({ ...e, d: JSON.parse(e.detail) }));
+  assert.equal(ev.length, 1);
+  assert.deepEqual([ev[0].person_id, ev[0].user_id, ev[0].d.count, ev[0].d.checkin_ids.length, ev[0].d.truncated, ev[0].d.from_person_id, ev[0].d.to_person_id], [keep, ids.admin, 25, 20, true, dup, keep]);
 });

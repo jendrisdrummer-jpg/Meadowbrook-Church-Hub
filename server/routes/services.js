@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
 import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow, HttpError } from '../http.js';
-import { serviceKept, assignmentKept, MSG } from '../history.js';
+import { serviceKept, assignmentKept, serviceRetimeKept, PAST_CUTOFF_BACK, MSG } from '../history.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
@@ -175,6 +175,8 @@ export default function serviceRoutes(db) {
       audit(db, req, b.locked ? 'service.lock' : 'service.unlock', String(s.id));
     }
     if (b.starts_at !== undefined && !isDateTime(b.starts_at)) throw bad('Pick a date and time.');
+    // A service that has happened, with records, can't be moved later (it would stop being past and could then be deleted).
+    if (b.starts_at !== undefined && serviceRetimeKept(db, s.id, b.starts_at)) throw new HttpError(409, MSG.retime);
     for (const k of ['title', 'series', 'notes']) if (b[k] !== undefined) b[k] = str(b[k]);
     tx(db, () => {
       // Moving one service of a series to another day: skip its old day so it isn't recreated.
@@ -601,6 +603,9 @@ export default function serviceRoutes(db) {
     if (a.person_id !== req.user.personId) requireSchedule(req, s, a.position_id);
     const status = oneOf(req.body?.status, ['pending', 'accepted', 'declined'], null);
     if (!status) throw bad('Status must be accepted, declined or pending.');
+    // Once a service is past (it began 14+ hours ago, so past in every US time zone) nobody's answer can change, not even their own:
+    // a declined-and-deleted serving record would be the same as deleting it.
+    if (status !== a.status && db.prepare(`SELECT 1 FROM services WHERE id = ? AND starts_at <= ${PAST_CUTOFF_BACK}`).get(a.service_id)) throw new HttpError(409, MSG.restatus);
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
     // The person's own reply goes to their team's leaders and whoever sent the request.

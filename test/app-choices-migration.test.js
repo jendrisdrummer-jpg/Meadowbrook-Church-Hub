@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { openDb, SCHEMA_VERSION, getSetting } from '../server/db.js';
 
 // Takes a fully migrated database back to what migration 36 left (the triggers of migration 42 go first: they name the columns).
-const UNDO_AFTER_36 = `DROP TRIGGER checkins_no_delete; DROP TRIGGER checkins_void_is_final; DROP TRIGGER assignments_keep_history; DROP TRIGGER services_keep_history;
+const UNDO_AFTER_36 = `DROP TRIGGER checkins_no_delete; DROP TRIGGER checkins_void_is_final; DROP TRIGGER assignments_keep_history; DROP TRIGGER assignments_no_restatus; DROP TRIGGER services_no_retime; DROP TRIGGER services_keep_history;
   DROP TRIGGER positions_keep_history; DROP TRIGGER people_keep_history;
   ALTER TABLE checkins DROP COLUMN voided_at; ALTER TABLE checkins DROP COLUMN voided_by; ALTER TABLE checkins DROP COLUMN voided_by_name; ALTER TABLE checkins DROP COLUMN void_reason;
   ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at;

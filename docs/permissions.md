@@ -271,8 +271,7 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
   **children's** allergies and medical notes, never an adult's. Every route checks the campus. A live check-out (`mode: 'request'`) is refused (409) for children of more than one family, for everyone including admins; an offline report is never refused but is recorded and flagged. The released-by identity comes from the paired station or session, not the request.
-- **Voiding a check-in** (`POST /checkin/checkins/:id/void`) is for accounts with check-in access at that campus (staff, admins and
-  authorised leaders) **signed in to the Hub, never a paired iPad**, so the record always names a person; a reason is required. Nobody can
+- **Voiding a check-in** (`POST /checkin/checkins/:id/void`) is for accounts signed in to the Hub, **never a paired iPad**, so the record always names a person; a reason is required. **Staff and admins** may void any check-in at their campuses; **a leader with check-in access** only one that is still open (not checked out) from today at that campus (403 otherwise). Nobody can
   delete a check-in (`DELETE` answers 405 and the database refuses). **The legal hold** (`POST /checkin/legal-hold` and `/release`) is for
   **admins who cover every campus** (`requireAllCampuses`), each time with a reason; campus-limited admins can see it but not change it. While
   it is on, voiding, merging people and disconnecting Google Drive are refused for everyone, and no backup copy is deleted.
