@@ -2,51 +2,22 @@
 // what guests can do without signing in (see service times, fill in a connect card).
 import { Router } from 'express';
 import { createLimiter, ipAllowed } from '../ratelimit.js';
-import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
+import { requireRole, requireAppEditor, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting } from '../db.js';
-import { HttpError, bad, notFound, forbidden, int, str, required, audit } from '../http.js';
+import { HttpError, bad, notFound, forbidden, int, str, required, audit, localNow } from '../http.js';
 import { notify, notifyResponse, assignmentSig } from '../notify.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { stripeConfigured } from '../stripe.js';
-import { WIDGETS, STYLES, ICONS, isHex, isAppImage, upgradeHome } from '../../public/js/app-widgets.js';
+import { WIDGETS, STYLES, ICONS, MAX_LINKS, DEFAULT_APP, isHex, isAppImage, isDay, linkableTab, upgradeHome } from '../../public/js/app-widgets.js';
 
 // Ready-made tab types. "more" (account, notifications, settings) is always last.
 export const TAB_TYPES = ['home', 'serve', 'events', 'watch', 'give', 'connect', 'chat', 'tasks', 'page', 'link', 'more'];
 export const BLOCK_TYPES = Object.keys(WIDGETS);
 
-export const DEFAULT_APP = {
-  tabs: [
-    { id: 'home', type: 'home', label: 'Home', icon: 'home', on: true },
-    { id: 'serve', type: 'serve', label: 'Serve', icon: 'calendar', on: true },
-    { id: 'events', type: 'events', label: 'Events', icon: 'calendar', on: false },
-    { id: 'watch', type: 'watch', label: 'Watch', icon: 'play', on: true },
-    { id: 'give', type: 'give', label: 'Give', icon: 'heart', on: true },
-    { id: 'connect', type: 'connect', label: 'Connect', icon: 'hand', on: false },
-    { id: 'chat', type: 'chat', label: 'Chat', icon: 'chat', on: false },
-    { id: 'tasks', type: 'tasks', label: 'Tasks', icon: 'check', on: false },
-    { id: 'more', type: 'more', label: 'More', icon: 'menu', on: true },
-  ],
-  home: [
-    { id: 'thisweek', type: 'thisweek', size: 'F', style: 'card' },
-    { id: 'welcome', type: 'welcome', size: 'F', style: 'accent', title: 'Welcome home', text: 'We’re so glad you’re here.' },
-    { id: 'new', type: 'button', size: 'M', style: 'accent', label: 'I’m new here', icon: 'hand', tab: 'connect' },
-    { id: 'live', type: 'button', size: 'M', style: 'soft', label: 'Watch live', icon: 'play', tab: 'watch' },
-    { id: 'serving', type: 'serving', size: 'T', style: 'card' },
-    { id: 'give', type: 'button', size: 'T', style: 'soft', label: 'Give', icon: 'heart', tab: 'give' },
-    { id: 'tasks', type: 'tasks', size: 'F', style: 'card' },
-    { id: 'times', type: 'times', size: 'F', style: 'card', title: 'Service times' },
-  ],
-  watch_url: '',
-  give_url: '',
-  connect: {
-    title: 'We’d love to meet you',
-    intro: 'Let us know you were here, and how we can help.',
-    interests: ['Learning more about the church', 'Baptism', 'Joining a small group', 'Serving on a team', 'Talking with a pastor'],
-  },
-};
+export { DEFAULT_APP };
 
 const id = (v, i) => (str(v, 40).replace(/[^\w-]/g, '') || `x${i}`);
 const url = (v) => {
@@ -56,13 +27,26 @@ const url = (v) => {
   return s;
 };
 
+// The church's own date (its first campus's clock), so an announcement ends on the right day.
+// `at` is for tests.
+export const appToday = (db, at = new Date()) => localNow(db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC', at).date;
+
+// Where a button, picture, announcement or list link goes: a website, or a tab that exists.
+// A tab link that matches no tab (deleted, a link tab, a switched-off page) is dropped, so the
+// app never draws a dead link.
+const cleanTarget = (k, tabs) => {
+  if (k.url) return { url: url(k.url) };
+  if (k.tab) { const t = id(k.tab, 0); if (linkableTab(tabs, t)) return { tab: t }; }
+  return {};
+};
+
 // Validates an App Builder save; unknown fields are dropped.
 function cleanConfig(b) {
   if (!b || !Array.isArray(b.tabs) || !Array.isArray(b.home)) throw bad('Missing tabs or home screen.');
   const tabs = b.tabs.slice(0, 12).map((t, i) => {
     const type = TAB_TYPES.includes(t.type) ? t.type : null;
     if (!type) throw bad('Unknown tab type.');
-    const tab = { id: id(t.id, i), type, label: required(t.label, 'Tab name').slice(0, 20), icon: ICONS.includes(t.icon) ? t.icon : 'info', on: t.on !== false };
+    const tab = { id: id(t.id, i), type, label: required(t.label, 'Tab name').slice(0, 20), icon: ICONS.includes(t.icon) ? t.icon : 'info', on: t.on !== false || type === 'home' }; // Home is always on
     if (type === 'link') tab.url = url(t.url);
     if (type === 'page') { tab.title = str(t.title, 120); tab.body = str(t.body, 8000); }
     return tab;
@@ -84,9 +68,15 @@ function cleanConfig(b) {
     if (def.fields.includes('text')) w.text = str(k.text, 4000);
     if (def.fields.includes('label')) w.label = required(k.label, 'Button text').slice(0, 30);
     if (def.fields.includes('icon')) w.icon = ICONS.includes(k.icon) ? k.icon : 'link';
-    if (def.fields.includes('link')) {
-      if (k.url) w.url = url(k.url);
-      else if (k.tab) w.tab = id(k.tab, 0);
+    if (def.fields.includes('link')) Object.assign(w, cleanTarget(k, tabs));
+    if (k.type === 'announcement') {
+      w.title = required(k.title, 'Announcement title').slice(0, 80);
+      w.text = str(k.text, 300);
+      if (k.ends) { if (!isDay(k.ends)) throw bad('The last day to show an announcement should look like 2026-12-31.'); w.ends = k.ends; }
+    }
+    if (def.fields.includes('links')) {
+      w.links = (Array.isArray(k.links) ? k.links : []).slice(0, MAX_LINKS)
+        .map((x) => ({ label: str(x?.label, 40), ...cleanTarget(x || {}, tabs) })).filter((x) => x.label && (x.url || x.tab));
     }
     if (k.type === 'image' && !w.image) throw bad('Add a picture to the Picture widget, or remove it.');
     return w;
@@ -124,7 +114,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
   const imageDir = path.join(uploadDir || 'data/uploads', 'app');
 
   // Pictures for home screen widgets. Everyone sees the app, so these are public (/uploads/app/).
-  r.post('/app/images', requireRole('staff'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }), (req, res) => {
+  r.post('/app/images', requireAppEditor, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }), (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad('Send a JPEG, PNG or WebP image.');
     const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.get('content-type')];
     const name = `${crypto.randomBytes(9).toString('hex')}.${ext}`;
@@ -152,13 +142,14 @@ export default function appRoutes(db, { uploadDir } = {}) {
       campuses: db.prepare('SELECT id, name, short_name, address FROM campuses WHERE active = 1 ORDER BY sort, name').all(),
       times,
       config: appConfig(db),
+      today: appToday(db),
       hub_url: (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
       giving: stripeConfigured(),
       user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), person_id: req.user.personId ?? null, campus_id: personCampus(req), photo: req.user.photo, theme: req.user.theme } : null,
     });
   });
 
-  r.put('/app/config', requireRole('staff'), (req, res) => {
+  r.put('/app/config', requireAppEditor, (req, res) => {
     const config = cleanConfig(req.body);
     setSetting(db, 'app_config', config);
     audit(db, req, 'app.config');

@@ -976,6 +976,12 @@ const MIGRATIONS = [
     WHERE key = 'app_config' AND json_type(value, '$.home') = 'array'
       AND NOT EXISTS (SELECT 1 FROM json_each(settings.value, '$.home') WHERE json_extract(value, '$.type') = 'thisweek');
   `,
+  // 38: "Edit the app" access. users.app_editor is a per-account flag like finance, announce and
+  // attendance: an account with it (whatever its role) may open the App Builder and save the member
+  // app's layout and pictures. Admins always can; staff no longer can without it.
+  `
+  ALTER TABLE users ADD COLUMN app_editor INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

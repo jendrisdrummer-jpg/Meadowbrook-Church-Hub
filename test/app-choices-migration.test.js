@@ -16,7 +16,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     db.prepare("INSERT INTO users (email, role, theme) VALUES ('a@t.test', 'staff', 'light'), ('b@t.test', 'staff', 'dark'), ('c@t.test', 'volunteer', 'light')").run();
     const saved = { tabs: [{ id: 'home', type: 'home' }], home: [{ id: 'welcome', type: 'welcome', size: 'F' }, { id: 'times', type: 'times', size: 'F' }] };
     db.prepare("INSERT INTO settings (key, value) VALUES ('app_config', ?)").run(JSON.stringify(saved));
-    db.exec('PRAGMA user_version = 36');
+    db.exec('ALTER TABLE users DROP COLUMN app_editor; PRAGMA user_version = 36'); // also undo migration 38, which runs again with 37
     db.close();
 
     db = openDb(file); // runs 37
@@ -28,7 +28,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     assert.deepEqual(cfg.tabs, saved.tabs);
 
     // Running it again (e.g. a layout that already has the card) adds nothing.
-    db.exec('PRAGMA user_version = 36');
+    db.exec('ALTER TABLE users DROP COLUMN app_editor; PRAGMA user_version = 36'); // also undo migration 38, which runs again with 37
     db.close();
     db = openDb(file);
     assert.deepEqual(getSetting(db, 'app_config').home.map((w) => w.type), ['thisweek', 'welcome', 'times']);

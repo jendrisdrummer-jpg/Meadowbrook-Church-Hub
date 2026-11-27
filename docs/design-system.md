@@ -98,7 +98,7 @@ Use these before writing new CSS.
 | Page frame | `setTitle(title, actions)` in the hub puts the title and the page's buttons in the top bar |
 
 Member app home screen widgets have their own system (`js/app-widgets.js`): sizes S/M/T/W/L/F on a
-four-column grid, styles card/soft/accent/color.
+four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size in everyday words for the App Builder.
 
 ## Patterns
 

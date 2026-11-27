@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (37 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (38 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -36,7 +36,7 @@ Arrows show the main references.
 | `households` → campuses | Families: address, phone, notes. |
 | `people` → households, campuses | Everyone in the directory (names up to 100 characters; birthdate a real past date; email shaped like `x@y.z`): contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. Only `people.household_id` (set null) and this table (cascade) point at `households`; the empty-families tool (Settings → Checks) reads the foreign keys from the schema, so it never removes a household anything still uses. |
-| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `attendance` (migration 36: may take attendance at its campuses), `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme` (`light`, `dark` or `device`; new accounts start as `device`, and migration 37 moved accounts still on the old `light` default to `device`), `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
+| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `attendance` (migration 36: may take attendance at its campuses), `app_editor` (migration 38: may open the App Builder and save the app; admins always can; off for everyone at first), `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme` (`light`, `dark` or `device`; new accounts start as `device`, and migration 37 moved accounts still on the old `light` default to `device`), `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
 | `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. |
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
