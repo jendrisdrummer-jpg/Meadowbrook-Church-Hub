@@ -1,258 +1,283 @@
-# Plan: Bible studies (study tracking)
+# Plan: Bible studies
 
-Chief Architect · 27 November 2026 · **Status: draft for the owner's approval. Nothing is built.**
+Chief Architect · 27 November 2026 · **Status: revision 2, draft for the owner's approval. Nothing is built.**
+Revision 2 follows the owner's answers (below). Revision 1 made a study a kind of small group; that is dropped.
+
 Owner's ask: "an area for Bible studies … see how many we have going on, who's teaching and who's in them, and
 what Bible studies people have completed, maybe on their profiles, but a Bible studies page would be great."
-Related: small groups (#57, migration 33), Classes (plan PR #118, build PR #122, held until January),
-roadmap C5 (small-group meetings with roll call) and L2 (classes).
+
+What the owner told us, in short:
+- Studies are personal: mostly one-on-one, sometimes a few people, occasionally larger. They are very different
+  from life groups.
+- Anyone can teach. A Bible study team leader keeps track and approves the material teachers use.
+- Studies meet whenever and wherever suits them. Missing a week is normal. There's no "attendance".
+- "Completed" means the person finished a particular study material.
+- In the app, people **express interest** and the coordinator connects them with a teacher. They don't browse
+  or join running studies.
+- Classes is a separate "courses" area. Life groups are another future area, organised by semester.
+- Past history comes in from a spreadsheet, or is added straight onto someone's profile.
 
 ## In plain words (for the owner)
 
-1. A Bible study is a **small group with a little more information**: what it's studying (a book of the Bible or
-   a topic), a term (for example "Spring 2027"), start and end dates, and its teachers.
-2. It keeps everything small groups already have: a roster, a private group chat, "My groups" in the app.
-3. A new **Bible studies** page shows how many studies are running, who's teaching, who's in each one, with
-   campus and term filters, and an archive of past studies.
-4. When a study ends, the teacher (or staff) ticks who **completed** it. That record stays on the person for good,
-   even if they leave the roster or the study is archived.
-5. A person's page gets a **Bible studies** card: studying now, studies completed, studies taught.
-6. Weekly attendance is **optional** and comes in a later step, only if you want it.
-7. Past history can be typed in by staff, or loaded from a spreadsheet (CSV).
-8. No new services, no costs, no new software libraries. About five small releases.
+1. The **Bible study coordinator** keeps a list of **approved materials**. Teachers only teach from that list.
+2. A **study** is one or more teachers, one or more students and one material. It can be **active, paused or
+   finished**. You can add when and where it meets ("Tuesdays, coffee shop") and how far along it is ("lesson 3 of 8").
+3. In the app, anyone can tap **"I'd like to do a Bible study"** and say what they'd prefer. The coordinator sees
+   the request, finds a teacher and starts the study.
+4. When a student finishes a material, it is recorded. Their profile shows **Studies completed** for good, and
+   the teacher's profile shows **Studies taught**.
+5. Teachers with an account see and update only their own studies. A teacher with no account is fine; the
+   coordinator updates their study for them.
+6. The **Bible studies page** (coordinator and staff only) shows what's active, who's teaching, who's waiting for
+   a match, and completions by material.
+7. Nobody else sees who is studying with whom. There are no reminders for missed weeks.
+8. Past studies can be added on a profile, or loaded from a spreadsheet.
+9. No new services, no costs, no new software libraries. About five small releases.
 
 ---
 
 ## 1. Goal and scope
 
-**V1:** studies as a kind of small group; Bible studies page (counts, teachers, rosters, campus and term filters,
-past archive); per-person completions that outlive the roster; profile card; member app "Studies completed";
-simple reports and CSV export; manual entry of past studies; CSV import of history.
+**V1:** approved-materials catalogue; studies (teachers, students, material, status, rhythm and place, progress);
+per-student completions that outlive the study; profile cards (completed, taught); interest requests from the
+member app and a coordinator queue; "My Bible studies" for teachers and students; the coordinator's Bible studies
+page with counts and filters; adding history on a profile; CSV import with a preview.
 
-**Optional V1.5 (owner's answer decides):** weekly meetings with attendance, built for all small groups (it is
-roadmap C5's "meetings with roll call"), not just studies.
+**Out of scope:** attendance or meeting logs; reminders or nags; members browsing or joining studies; study
+chats (people use their own messages, or an ordinary chat group if they want one); lesson content, files or
+videos (that is Classes territory); teacher training or certification (owner question 2 may add a simple
+"approved teacher" mark); pastoral notes; **life groups** (below).
 
-**Out of scope:** member sign-up and join requests (an owner question; groups deliberately have none today),
-a group finder, curriculum or lesson content, videos and quizzes (that is Classes), certificates, reading plans or
-a Bible reader, children's or teen studies with minors (groups are adults only in Stage 1), automatic completion.
+**Life groups (roadmap item, not this plan).** A future semester-based section, built on **small groups** (rosters,
+leaders, chat already exist), with a semester or term on each group and the roster changing each semester. It
+fits roadmap C5. Hand it to the Product Manager to file; it shares nothing with this plan.
 
-## 2. Overlap check and recommendation
+## 2. Why its own small module
 
-| Need | Small groups (milestone-1) | Classes (#122, unmerged) |
-|---|---|---|
-| Roster, leaders, campus scoping | Yes (`group_members.is_leader`, `staffOf`, `canCampus`) | Enrolments; managers are *accounts* (`class_managers`), not people |
-| Private group chat, "My groups" in the app | Yes | No |
-| Topic, book, term, dates | No (name, description only) | Session steps have dates |
-| Per-session attendance | No (C5, not built) | Yes, per session step |
-| Completion history | No | Yes (`class_completions`, soft revoke) |
-| Videos, quizzes, expiry, team requirements | No | Yes (training and compliance) |
-| Shipped? | Yes (#57) | No; held until January; its migration is numbered 40, which milestone-1 already uses (`checkin_events`), so it must renumber |
+| Option | Fit now |
+|---|---|
+| A kind of small group (revision 1) | **No.** Groups have a visible roster, a group chat everyone on the roster sees, leaders who add people, and "My groups". Studies are private, mostly one-on-one, matched by a coordinator, and tied to an approved material. Each of those would have to be switched off or worked around |
+| Built on Classes | **No.** The owner says Classes is a courses section. It is step, video and quiz based, its managers are accounts, and it isn't merged |
+| **Own module** | **Yes.** Five small tables and one router. People are the only shared root |
 
-**Recommendation: (a), a kind of small group.** A Bible study is people who meet together over weeks with a
-teacher and a chat; migration 33's own comment names "Bible study" as a small group. The missing pieces (topic,
-term, dates, completions, optional attendance) are small and additive. Classes (b) is a step-and-quiz engine for
-training and compliance: it would bring in machinery studies don't need, has no chat, models teachers as accounts
-rather than people, and would leave this blocked until January behind an unmerged branch. New (c) would duplicate
-rosters, chat and scoping.
+**Shared:** links to `people` (teachers and students are people, accounts optional), `campuses` for scoping,
+the person picker, `audit()`, `csv.js`, the injected-clock and `localNow` pattern, and `notify()` for the coordinator's
+new-request notice. **Not shared:** no group rows, no chats and no class tables. `study_completions` keeps a shape
+close to `class_completions` (date, by whom, soft revoke) so one "Completed" list on the profile stays possible
+later, but nothing depends on it.
 
-**Seam for later:** completions are kept in their own table shaped like `class_completions`, so a future
-"Classes & studies" view (one "Completed" card on the profile) is a read-side union, not a data migration.
+**Why not Forms for the interest request:** a form response is staff-only, has only new/done status, and links to
+nobody unless the person is signed in. The queue needs a link to the person, a matched/declined state, a
+link to the study it became, and coordinator (not staff-only) access. A small dedicated table is simpler than
+bending Forms.
 
-## 3. Reuse (don't rebuild)
+## 3. Design
 
-| Need | Reuse | Where |
-|---|---|---|
-| Roster, teachers, add/remove, candidates (adults at the campus), 30 adds a day | Small groups | `server/routes/groups.js`, `public/js/pages/group.js` |
-| Group chat that follows the roster | `chats.kind = 'smallgroup'` | `server/routes/chat.js` |
-| Staff-of-group rule (church-wide = staff with no campus limit) | `staffOf`, `open()` | `groups.js` lines 32–43; extract to a shared helper (below) |
-| Member app list | "My groups" | `public/js/member/main.js` `myGroups` |
-| Merge duplicates | group_members move already | `server/routes/people.js` ~301 (add completions and attendance) |
-| Today in the church's time zone, injectable clock | `localNow(tz, at)`; the `now` option pattern from the Classes plan §3.2 | `server/http.js` |
-| CSV read and write (formula-safe) | `parseCsv`, `toCsv` | `server/csv.js`; preview-then-commit like `POST /import/preview` |
-| Roll-call style marking (unmark always allowed) | Take attendance | `public/js/rollcall.js` patterns |
-| Audit | `audit()` | `server/http.js` |
+### 3.1 Data model (PR 1: one additive migration)
 
-## 4. Design
-
-### 4.1 Data model (PR 1: one additive migration)
-
-**`groups` gains** (ALTER TABLE ADD COLUMN, constant defaults; existing groups become `kind = 'group'`, nothing
-rewritten):
+**`study_materials`**: the approved catalogue
 | Column | Notes |
 |---|---|
-| `kind` TEXT NOT NULL DEFAULT 'group' CHECK (kind IN ('group','study')) | A study is a group with `kind = 'study'`. Changing kind later is staff-only and audited |
-| `topic` TEXT NOT NULL DEFAULT '' | Book of the Bible or topic, free text ("Romans", "Prayer"). No hard-coded book list |
-| `term` TEXT NOT NULL DEFAULT '' | Free label ("Spring 2027"); the form suggests terms already used, so spelling stays consistent |
-| `starts_on`, `ends_on` TEXT NULL | Church dates `YYYY-MM-DD`; `ends_on` NULL = ongoing |
-| `meets` TEXT NOT NULL DEFAULT '' | "Wednesdays 7 pm, Room 2" (display only) |
+| `id` PK, `title` TEXT NOT NULL | |
+| `author` TEXT DEFAULT '' | Author or publisher |
+| `lessons` INTEGER NULL | Number of lessons, optional |
+| `teacher_notes` TEXT DEFAULT '' | Shown to teachers (how to use it, where to get it) |
+| `active` INTEGER DEFAULT 1 | Retired materials stay on history but can't start new studies |
+| `created_by` → users SET NULL, `created_at`, `updated_at` | Never deleted once used (RESTRICT from studies and completions) |
 
-Teachers are `group_members.is_leader = 1` (shown as "Teacher" on a study). No new role and no account access:
-a group still never touches `users.role`.
+Materials are church-wide (one coordinator approves for every campus). There are no built-in titles; each
+church enters its own.
 
-**`study_completions`** (new; the record that outlives the roster)
+**`studies`**
 | Column | Notes |
 |---|---|
-| `id` INTEGER PK | |
-| `person_id` → people ON DELETE CASCADE | Like `profile_values` and `class_completions`; archiving a person (the norm) keeps it |
-| `group_id` → groups ON DELETE SET NULL | NULL for imported history with no study row |
-| `role` TEXT NOT NULL DEFAULT 'participant' CHECK (role IN ('participant','teacher')) | Records "taught" history too |
-| `title`, `topic`, `term` TEXT | **Snapshots** at completion, so the record reads correctly after renames or for imports |
-| `campus_id` → campuses ON DELETE SET NULL | For campus scoping of history |
-| `completed_on` TEXT NOT NULL | Church date |
-| `source` TEXT NOT NULL CHECK (source IN ('teacher','staff','import')) | |
-| `by_user` → users ON DELETE SET NULL, `note` TEXT DEFAULT '', `created_at` | |
-| `revoked_at`, `revoked_by` → users SET NULL | Soft undo, audited; never a hard delete from the app |
-| Indexes | `(person_id, completed_on)`; UNIQUE `(group_id, person_id, role)` WHERE `group_id IS NOT NULL AND revoked_at IS NULL` |
+| `id` PK, `material_id` → study_materials RESTRICT | |
+| `campus_id` → campuses SET NULL | Defaults to the first student's campus; NULL = church-wide |
+| `status` TEXT CHECK IN ('active','paused','finished') DEFAULT 'active' | |
+| `started_on` TEXT NOT NULL, `finished_on` TEXT NULL | Church dates |
+| `rhythm` TEXT DEFAULT '' | Free text, ≤ 120: "Tuesdays, coffee shop" |
+| `lesson` INTEGER NULL | Progress "lesson 3 of {material.lessons}" |
+| `coordinator_note` TEXT DEFAULT '' | ≤ 280, **coordinator and staff only**, practical only (see §3.6) |
+| `request_id` → study_requests SET NULL | The request this study came from |
+| `created_by` → users SET NULL, `created_at`, `updated_at` | |
 
-**Settings** (key `studies`, per church, its own defaults in one place in a small `server/studies.js`):
-`{ label: 'Bible studies' }`; a church may call them "Life Groups" or "Courses". If V1.5 ships, add
-`suggest_complete_pct` (null = off). No church values in code.
-
-**V1.5 (separate, later migration, only if approved):** `group_meetings (id, group_id → groups CASCADE, met_on,
-note, created_by → users SET NULL, UNIQUE(group_id, met_on))` and `group_attendance (meeting_id → group_meetings
-CASCADE, person_id → people CASCADE, PK both)`. For every small group, not only studies (C5). Attendance only
-*suggests* completion (pre-ticks), never decides it.
-
-Status is computed, never stored: `upcoming` (starts_on > today), `running`, `finished` (ends_on < today),
-`archived`. A pure helper `studyStatus(group, today)` with unit tests on fixed dates; `today` from the campus
-time zone and an injected clock, never from the client.
-
-### 4.2 Routes and guards
-
-Studies are groups, so roster, chat, add/remove and archive stay in `routes/groups.js` unchanged in behaviour.
-The new reading and completion endpoints go in **one new router, `server/routes/studies.js`**. The access rule
-moves to **`server/group-access.js`** (`staffOf`, `openGroup`), used by both routers so they can't drift.
-
-| Route | Guard and scoping |
+**`study_people`**
+| Column | Notes |
 |---|---|
-| `POST /groups`, `PATCH /groups/:id` | Unchanged guard (staff, `staffOf`). Accept `kind`, `topic`, `term`, `starts_on`, `ends_on`, `meets` (validated `isDate`, `ends_on ≥ starts_on`, lengths capped). Audited `group.create`/`group.update` with kind |
-| `GET /groups?kind=` | Unchanged visibility; `kind` filter so the Groups page can leave studies out (or show them, owner choice) |
-| `GET /studies?campus=&term=&status=` | **Staff+**, `campusFilter` on `groups.campus_id` plus the church-wide rule. Lists studies with teacher names, member count, status. Volunteers and leaders: only studies they're in (same as `/groups`) |
-| `GET /studies/summary?campus=&term=` | Staff+, same scoping. Counts below (§4.5) |
-| `GET /studies/terms` | Staff+; distinct terms (for the filter and suggestions) |
-| `POST /studies/:id/completions` `{person_ids, role?, completed_on?}` | Staff of the study, or a **teacher of that study**. Every person must be on the roster (teachers) or pass `canCampus` (staff). Default date = study `ends_on`, else today. Audited `study.complete` (ids and count) |
-| `POST /study-completions/:id/revoke` | Staff of the study's campus, or the teacher who recorded it within 30 days. Audited `study.revoke` |
-| `GET /people/:id/studies` | Current (roster rows of running/upcoming studies), completed, taught. Staff who can see the person (`canCampus`). A teacher sees only rows for studies they teach. The person themself via `/me/studies`. See owner question 6 for leaders |
-| `GET /me/studies` | Signed in with a linked person; own current and completed |
-| `POST /studies/past` | Staff; records a finished study typed in by hand: creates an archived `kind='study'` group **without a chat** and its completions in one `tx`. Campus rules as `POST /groups` |
-| `POST /studies/import/preview`, `POST /studies/import` | **Admin, all campuses** (`requireAllCampuses`), like people import. Audited `study.import` (counts only) |
-| `GET /studies/export.csv` | Staff+, campus-scoped; audited `study.export` (row count) |
+| `study_id` → studies CASCADE, `person_id` → people CASCADE | PK both |
+| `role` TEXT CHECK IN ('teacher','student') | A study needs at least one of each (checked in code) |
+| `added_at`, `removed_at` NULL | Leaving is soft, so "taught" history stays |
 
-All writes need `x-mb: 1`; parameterised SQL only; plain-English errors.
+A hard-deleted study would cascade its people, so **studies are never hard-deleted in the app** (finish, or
+admin-only delete for a study created by mistake with no completions).
 
-### 4.3 Pages (UI/UX Specialist first; phone first, design system)
+**`study_completions`**: what profiles read; outlives the study
+| Column | Notes |
+|---|---|
+| `id` PK, `person_id` → people CASCADE | Like `profile_values`; archiving a person keeps it |
+| `material_id` → study_materials RESTRICT | |
+| `study_id` → studies SET NULL | NULL for history added by hand or imported |
+| `material_title` TEXT, `teacher_names` TEXT | **Snapshots**, so it reads right after renames, or when the teacher isn't in People (imports) |
+| `teacher_ids` TEXT JSON DEFAULT '[]' | People ids at completion, for "Studies taught" |
+| `completed_on` TEXT NOT NULL | |
+| `source` CHECK IN ('teacher','coordinator','profile','import') | |
+| `by_user` → users SET NULL, `created_at`, `revoked_at`, `revoked_by` | Soft undo, audited |
+| Indexes | `(person_id, completed_on)`, `(material_id)`; UNIQUE `(study_id, person_id)` WHERE `study_id IS NOT NULL AND revoked_at IS NULL` |
 
-- **Hub → Bible studies** (`#/studies`, `public/js/pages/studies.js`; nav label from the `studies.label` setting;
-  staff and up see the overview, others see "Your studies"):
-  - Top tiles: Running now · People in a study (this term) · Teachers · Completed this term.
-  - Filters: campus (sidebar campus, as elsewhere), term, status (Running, Upcoming, Finished).
-  - Rows: title, topic, term, dates, campus, teachers, member count, Open. Tapping opens the existing group
-    page, which shows study details, the roster with "Teacher" labels, and a **Finish study** action.
-  - **Past studies** tab: finished and archived studies, including hand-entered ones, searchable by title or topic.
-  - "Add a past study" and "Import from a spreadsheet" (admin) under a "…" menu. Download CSV.
-- **Finish study** (teacher or staff): a checklist of the roster, all ticked, untick anyone who didn't finish;
-  teachers recorded as "taught". Then optionally archive. Plain wording: "Who finished Romans?".
-- **Person page:** a **Bible studies** card: Studying now, Studies completed (title, term, date), Taught. Empty
-  state folds into the Profile card as the page already does.
-- **Groups page:** studies shown with a "Study" pill, or left out (owner choice; default: shown, with a filter).
+"Studies taught" is read from `study_people` (role teacher), plus completions whose `teacher_ids` contain the
+person (hand-added history).
 
-### 4.4 Member app
+**`study_requests`**: the interest queue
+| Column | Notes |
+|---|---|
+| `id` PK, `person_id` → people CASCADE | Always the signed-in person's linked record; never from typed details |
+| `campus_id` → campuses SET NULL | From the person |
+| `format` CHECK IN ('one_on_one','small_group','either') DEFAULT 'either' | |
+| `material_id` → study_materials SET NULL, `topic` TEXT ≤ 200 | Optional preference |
+| `times` TEXT ≤ 200 | "Weekday evenings" |
+| `status` CHECK IN ('waiting','matched','closed') DEFAULT 'waiting' | |
+| `study_id` → studies SET NULL, `handled_by` → users SET NULL, `handled_at`, `created_at` | |
 
-- "My groups" already lists studies (they are groups); add the topic and term under the name.
-- More → My info (or a "My studies" row): **Studies completed**, read-only.
-- **Sign-up in the app: not in V1** (recommended). Groups deliberately have no finder or join requests yet. If the
-  owner wants it, V2 adds `groups.open_signup` and a request a teacher approves (never instant joining: rosters
-  open the private chat).
+**Users:** `users.studies` INTEGER DEFAULT 0, the coordinator flag (§3.4, owner decision).
 
-### 4.5 Reports
+**Settings** (key `studies`): `{ label: 'Bible studies' }` and `{ notify_user_ids: [] }`, defaulting to every
+coordinator at the campus. No church values in code.
 
-From `GET /studies/summary` (campus and term filters):
-- studies running now, upcoming, finished this term;
-- distinct people on a running study's roster this term (adults, not archived), and per campus;
-- distinct teachers;
-- completions this term and this year (not revoked), per study;
-- CSV: one row per person per study (name, campus, study, topic, term, role, completed on).
-Deeper reports ("who has never been in a study") are later.
-
-### 4.6 Importing past history
-
-1. **By hand** (staff): "Add a past study" with title, topic, term, dates, campus, teachers and who completed it
-   (person picker). Good for a handful.
-2. **CSV** (admin, all campuses): columns `person_id` (from the People export) or `email`, `first_name`,
-   `last_name`, `study`, `topic`, `term`, `completed_on`, `role`. Preview shows matched, unmatched and duplicate rows;
-   matches are by People id or **exact, unique email only**; anything else is listed for the admin to pick or skip.
-   **Never creates people, never links accounts.** Rows sharing study and term become one archived past study.
-   Re-running skips rows already recorded.
-3. The existing "Classes completed" profile field is left alone (no automatic copying). Owner question 9.
-
-### 4.7 Permissions (follows `docs/permissions.md`; needs Security review and owner approval)
+### 3.2 Who can do what (needs Security review and owner approval)
 
 | Action | Who |
 |---|---|
-| Create, edit, archive studies; set teachers | Staff and admins at the study's campus; church-wide studies only staff with no campus limit (the groups rule) |
-| Manage roster, Finish study, record completions for their own study | Teachers (`is_leader`) of that study, plus staff as above |
-| Bible studies overview, reports, all rosters, CSV export | Staff and admins, campus-scoped |
-| Import CSV | Admins with all campuses |
-| See their own studies and completions | Every signed-in person with a linked account |
-| Leaders (role leader) | As today for groups: only studies they're in or teach. Not the overview, unless the owner says so (question 6) |
-| Contact details on rosters | Staff only (unchanged from groups) |
+| Manage materials (add, edit, retire) | Coordinators; staff and up can read |
+| See the Bible studies page, queue, every study, reports | Coordinators and staff, at their campuses (`campusFilter` on `studies.campus_id` / `study_requests.campus_id`); church-wide studies only for accounts with no campus limit, as for groups and forms |
+| Create a study, match a request, add people to an existing study, change teachers or students | Coordinators and staff at the campus |
+| Update progress, status, rhythm; mark a student complete | Coordinators, staff, and **the study's own teachers** (account linked to a teacher person on it) |
+| Add or revoke completion on a profile; CSV import | Coordinators and staff (profile); import: coordinators with no campus limit, or admins with all campuses |
+| See their own studies (as teacher or student) and completions | Any signed-in account with a linked person |
+| Request a study | Any signed-in account with a linked person; unlinked accounts get the "ask the office to link" message |
+| Leaders (role leader), volunteers | **Nothing beyond their own.** People pages show the Bible studies card only to coordinators, staff, and the person |
 
-Nothing here changes `users.role` or adds a permission flag.
+Students see their teacher's name and their own progress, never other students' contact details. Teachers see
+their students' names and photos, plus phone and email only if owner question 7 says yes (default: name only,
+because the coordinator makes the introduction).
 
-### 4.8 Multi-church
+### 3.3 Routes (`server/routes/studies.js`, one router)
 
-All new data hangs off `groups`, `people`, `campuses`, `users`; the label lives in `settings`; terms and topics are
-data, not code; no book list or term names in code; the router takes `db` and `now`. Keeps the database-per-church
-path open.
+| Route | Guard |
+|---|---|
+| `GET/POST /studies/materials`, `PATCH /studies/materials/:id` | read: coordinator or staff; write: coordinator. Audited `study.material_*` |
+| `GET /studies?campus=&status=&teacher=&material=` | `requireStudies` (coordinator or staff) + campus scope |
+| `GET /studies/summary?campus=` | same; counts in §3.5 |
+| `POST /studies`, `PATCH /studies/:id`, `PUT /studies/:id/people` | coordinator/staff at the campus; every person passes `canCampus` (people with no campus open, as elsewhere); `study.create/update/people` |
+| `POST /studies/:id/progress` `{lesson, status, rhythm}` | coordinator/staff, or a teacher on that study |
+| `POST /studies/:id/complete` `{person_ids, completed_on?}` | same; each id must be a current student; `study.complete` (ids, count) |
+| `POST /study-completions` (on a profile), `POST /study-completions/:id/revoke` | coordinator/staff, campus of the person; `study.completion_add/revoke` |
+| `GET /studies/requests`, `POST /studies/requests/:id/match` `{study_id}` or create-and-match, `.../close` | coordinator/staff, campus |
+| `POST /me/study-requests`, `GET /me/studies` | signed in, linked person; 1 open request per person, rate-limited; notifies coordinators ("Someone would like a Bible study"; no name in push text) |
+| `PATCH /me/studies/:id` (teacher's progress), `POST /me/studies/:id/complete` | teacher on that study |
+| `GET /people/:id/studies` | coordinator/staff (campus), or the person themself |
+| `POST /studies/import/preview`, `POST /studies/import` | as §3.2; `study.import` (counts only) |
+| `GET /studies/export.csv` | coordinator/staff, campus; `study.export` (count) |
 
-## 5. Migration numbering
+`requireStudies` and `canStudies(user)` live in `server/auth.js` next to `requireAttendance`, so the rule is in
+one place. All writes need `x-mb: 1`; parameterised SQL; `today` from the campus time zone and an injected clock.
 
-The migration number is **its position in `MIGRATIONS`**, so there can be no gaps and no reserved numbers.
-Today milestone-1 ends at **40** (`checkin_events`). Child-safety PRs #130/#131/#136/#137/#138 hold **41–45** on a
-stack. Classes (#122) is also written as 40 and must renumber anyway.
+### 3.4 Granting coordinator access (recommendation; owner decision)
 
-Rule for the Senior Developer:
-1. Write the migration last in `MIGRATIONS` with a placeholder comment number, and build against milestone-1.
-2. **Just before merge**, rebase on milestone-1 and number it `MIGRATIONS.length` after appending. Also update
-   the comment, the count in `docs/database.md` and any test that counts migrations (for example
-   `test/app-choices-migration.test.js`).
-3. **Default order: merge Bible studies after the child-safety stack (41–45).** Then studies is 46, V1.5
-   attendance is the next number, and Classes takes whatever is next in January. Renumbering stacked
-   child-safety PRs is the costliest option; avoid it.
-4. If the owner wants studies before child-safety merges, studies takes 41 and the five child-safety PRs each shift
-   by one. The owner chooses this knowingly; DevOps re-rehearses.
-5. Before merge, list open PRs that touch `server/db.js` (`gh pr list` then check each diff) and name in the PR which
-   ones will need renumbering. Never renumber a shipped migration.
+| Option | For | Against |
+|---|---|---|
+| Lead a "Bible study team" named in settings | No extra step | Team leadership can be changed by leaders and campus staff, and it already grants leader access automatically. Access to private study data would then change as a side effect of roster edits. Ties a non-serving role to serving teams |
+| **Per-account flag `users.studies`, like Attendance** | Explicit, audited, follows the existing `attendance` and `app_editor` pattern, works for any role, campus list from the account | An admin must switch it on |
 
-## 6. Risks
+**Recommend the flag.** It is labelled "Bible studies coordinator" in Settings → Accounts and the person's access
+dialog. Only an admin grants it. A campus-limited admin may grant it only inside their own campuses, the same as
+Attendance. Every change is audited. On a multi-campus church, an account with the flag needs a campus list or
+"All campuses"; one coordinator covering both campuses simply gets "All". Staff and admins have the same access
+by role, scoped to their campuses. This is a permission change, so the owner decides.
+
+### 3.5 Bible studies page (`#/studies`, coordinator and staff)
+
+- **Tiles:** Active · Paused · Finished this year · **Waiting for a match** (opens the queue).
+- **Waiting** tab: requests oldest first with preferences; "Start a study" (prefilled) or "Add to an existing
+  study"; "Close" with a reason picked from a short list (not free text).
+- **Studies** tab: filter by campus and status; group by **teacher** (default) or material. Rows: students,
+  material, lesson x of y, rhythm, started.
+- **Teachers** tab: who's teaching, number of active studies each, studies taught all time.
+- **Materials** tab: the catalogue (coordinator edits) with **completions per material**, filterable by year.
+- Download CSV. Phone first; the UI/UX Specialist designs the layout.
+
+### 3.6 Profiles, member app and privacy
+
+- **Person page:** a Bible studies card (coordinator, staff, the person): Studying now, Studies completed
+  (material, date, teacher), Studies taught. "Add a completed study" for past history.
+- **Member app:** More → **My Bible studies**. Students see their studies (material, teacher, lesson x of y, per
+  owner question 4) and Studies completed. Teachers also get each study they teach with lesson, status and Mark
+  finished. **"I'd like to do a Bible study"** form: one-on-one, small group or either; a material from the
+  active list or a topic; good times. Confirmation: "Thanks. Someone will be in touch." No list of running studies.
+- **Privacy:** no pastoral notes. The only free text is `coordinator_note` (≤ 280, coordinator and staff only),
+  with the hint "Practical notes only, like 'prefers mornings'. Keep personal matters out of the hub." Recommendation:
+  keep it, because the coordinator needs somewhere for scheduling notes and a hard limit stops it becoming a
+  pastoral file. Leaving it out is also fine. Add `studies`, `study_requests` and `study_completions` to the
+  **pastoral/spiritual** row of the sensitive-data table. No reminders, no "missed" states.
+
+### 3.7 Past history
+
+1. **On a profile:** "Add a completed study": material (or add a retired material), date, teacher (person
+   picker, or a typed name for someone not in People).
+2. **CSV** (preview, then import): `person_id` or `email`, `first_name`, `last_name`, `material`, `completed_on`,
+   `teacher`. Matching uses People id or an **exact, unique email only**. The preview lists matched, unmatched and
+   duplicate rows, and unknown materials (which can be created as retired). It **never creates people and never
+   links accounts**. Re-running skips rows already there. Audited.
+
+### 3.8 Multi-church
+
+Every table hangs off `people`, `campuses` or `users`. Materials are data, the label is in `settings`, and the
+router takes `db` and `now`. Nothing church-specific is in code. The database-per-church path stays open.
+
+## 4. Migration numbering
+
+A migration's number is **its position in `MIGRATIONS`**, so there are no gaps and no reserved numbers.
+milestone-1 ends at **40** (`checkin_events`). Child-safety PRs #130/#131/#136/#137/#138 hold **41–45** on a stack.
+Classes (#122) is also written as 40 and must renumber when it merges.
+
+1. Build PR 1 with the migration last in `MIGRATIONS` and a placeholder number in its comment.
+2. **Just before merge**, rebase on milestone-1 and take the next number. Update the comment, the count in
+   `docs/database.md`, and any test that counts migrations (`test/app-choices-migration.test.js`).
+3. **Default: merge after the child-safety stack**, which makes studies 46; Classes takes the next free number in
+   January. If the owner wants studies first, it takes 41 and all five child-safety PRs shift by one (DevOps
+   re-rehearses).
+4. Before merging, list the open PRs touching `server/db.js` and name in the PR any that will need renumbering.
+   Never renumber a shipped migration.
+
+## 5. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Losing completion history | Separate table with snapshots; group delete → SET NULL; soft revoke; merge moves rows; tests for roster removal and archive |
-| Teachers marking people they don't teach | Completion route checks the roster for teachers; campus check for staff; tests |
-| Leaders seeing other studies' rosters | Reuse the groups rule via one shared helper; tests for leader, volunteer, campus-limited staff |
-| CSV import attaching history to the wrong person | Id or exact unique email only; preview; admin; audited; never creates people |
-| Groups page and chat changing for existing groups | `kind` defaults to `group`; no behaviour change for existing groups; regression tests on groups |
-| Past studies created without a chat | `chat_id` is already nullable in `summary`; test archived-without-chat paths |
-| Date bugs | Pure `studyStatus` with fixed dates; injected clock; no "today" assertions |
-| Migration clash | §5 |
-| Rollback | Additive only; old code ignores the new columns and table |
-| Overlap with Classes later | Completions shaped alike; "Classes & studies" view is read-side only |
+| Private study data leaking to leaders or other students | One `canStudies` helper; profile card guarded; tests per role; no names in push text |
+| The coordinator flag widening access unexpectedly | Admin-granted, campus-limited like Attendance, audited; Security review |
+| Teachers editing studies they don't teach | Teacher check is by `study_people` and the account's linked person; tests |
+| Losing completion history | Separate table, snapshots, RESTRICT on materials, soft revoke, studies never hard-deleted with completions; merge-duplicates moves `study_people`, `study_completions`, `study_requests` |
+| Spam requests | One open request per person, signed in only, rate limit |
+| CSV attaching history to the wrong person | Id or exact unique email only; preview; audited; never creates people |
+| Date bugs | Injected clock; fixed dates in tests |
+| Migration clash | §4 |
+| Rollback | Additive; old code ignores the new tables and column |
 
-## 7. Tests (API, `node:test`)
+## 6. Tests (API, `node:test`)
 
-Create/edit study with fields (staff 201, leader and volunteer 403, campus-limited staff on another campus and on
-church-wide 403); `/studies` scoping by role and campus; summary counts on fixed data; Finish study by teacher
-(own roster only; outsider 403); completion survives removal from the roster and archive; revoke rules; profile
-card visibility (staff, teacher, other leader, the person); `/me/studies`; past study without a chat; CSV preview
-and import (matching, unmatched, duplicates, rerun idempotent, non-admin 403, campus-limited admin 403); merge
-moves completions; existing groups unchanged. QA adds browser and phone checks (`npm run test:ui`).
+Materials: coordinator writes, staff reads, others 403; retired materials can't start studies. Studies: create and
+match (coordinator and staff 201; leader, volunteer and campus-limited staff on another campus 403); church-wide
+rule. Teacher updates their own study (200) and another study (403). Completion: current students only; it
+survives the study finishing and a student leaving; revoke. Profile card visibility (coordinator, staff, the person
+200; leader 403 or no card). `/me/studies` for a student and a teacher; students never see other students' contact
+details. Requests: one open per person, unlinked 403, notification without a name, match links the study. Flag
+grant: admin only, campus-limited admin inside own campuses, audited. CSV preview and import (matching, unmatched,
+rerun, no people created). Merge moves rows. QA adds browser and phone checks.
 
-## 8. Docs to update (same PRs)
+## 7. Docs to update (same PRs)
 
-`features.md` (new row; small groups row), `database.md` (columns, `study_completions`, count, sensitive-data
-table: completions as pastoral/spiritual), `api.md` (routes), `permissions.md` (§4.7 table),
-`design-system.md` if a new pattern appears, `help-content.js` and `docs/guides/` (Training Writer),
-`merge-log.md` on merge. The **release checklist applies** (new area, migration, permissions).
+`features.md`, `database.md` (tables, `users.studies`, count, sensitive data), `api.md`, `permissions.md` (the
+flag and §3.2), `design-system.md` if a new pattern appears, `help-content.js` and `docs/guides/` (Training
+Writer), `merge-log.md`. Life groups go to `roadmap.md` (Product Manager). The **release checklist applies**.
 
 ---
 
@@ -260,47 +285,49 @@ table: completions as pastoral/spiritual), `api.md` (routes), `permissions.md` (
 
 | # | Step | Agent | Read-only? | Depends on |
 |---|---|---|---|---|
-| 0 | Owner answers the questions below and approves this plan | owner | — | — |
-| 1 | Product check: worth doing now, against the beta order; confirm V1 vs V1.5 | `product-manager` | Yes (may edit roadmap docs) | 0 |
-| 2 | Sunday reality: how studies run (terms, teachers, who records completion) | `church-operations` | Yes | 0 (parallel with 1, 3, 4) |
-| 3 | Screens and wording: studies page, Finish study, profile card, app | `ui-ux-specialist` | Yes (proposal) | 0 (parallel) |
-| 4 | Threats and controls: teacher scope, leader visibility, CSV import | `security-specialist` | Yes | 0 (parallel) |
-| 5 | **PR 1 Data + API:** migration, `group-access.js` helper, `groups.js` fields, `studies.js` (list, summary, terms, completions, revoke, `/people/:id/studies`, `/me/studies`), merge, tests, docs | `senior-developer` | No | 1–4 |
-| 6 | **PR 2 Hub UI:** Bible studies page, filters, past archive, Finish study, study fields on the group page, person card, CSV export | `senior-developer` (with `ui-ux-specialist` for polish) | No | 5 |
-| 7 | **PR 3 Member app:** topic and term in My groups, Studies completed | `senior-developer` | No | 5 |
-| 8 | **PR 4 History:** Add a past study; CSV import (admin) | `senior-developer` | No | 5 |
-| 9 | Security re-review of PRs 1 and 4 | `security-specialist` | Yes | 5, 8 |
-| 10 | QA: workflows, `npm test`, `npm run test:ui`, phone checks | `qa-engineer` | No (tests) | 6–8 |
-| 11 | Accessibility pass on the new screens | `accessibility-specialist` | Yes | 6, 7 |
-| 12 | Help and guide text | `training-writer` | No (guides) | 6–8 |
-| 13 | Final review against this plan and the release checklist | `chief-architect` | Yes (docs) | 9–12 |
-| 14 | Migration rehearsal and deploy plan | `devops-engineer` | No (ops docs) | 13 |
-| 15 | **PR 5 (V1.5, only if approved):** meetings and attendance for all small groups; suggests completion | `senior-developer` → `qa-engineer` → `chief-architect` | No | 13 and owner |
+| 0 | Owner answers the questions below and approves this plan, including the coordinator flag | owner | — | — |
+| 1 | File "Life groups (by semester)" on the roadmap; confirm scope and timing against the beta order | `product-manager` | Yes (roadmap docs only) | 0 |
+| 2 | How matching and teaching really run; edge cases (teachers without accounts, both campuses) | `church-operations` | Yes | 0 (parallel with 1, 3, 4) |
+| 3 | Screens and wording: studies page, request form, My Bible studies, profile card | `ui-ux-specialist` | Yes (proposal) | 0 (parallel) |
+| 4 | Threats and controls: the flag, teacher scope, request spam, CSV | `security-specialist` | Yes | 0 (parallel) |
+| 5 | **PR 1 Data + access + API:** migration, `users.studies` flag in Settings and the access dialog, `canStudies`, materials, studies, completions, `/people/:id/studies`, merge, tests, docs | `senior-developer` | No | 1–4 |
+| 6 | **PR 2 Hub page:** Bible studies page (tiles, studies by teacher and material, teachers, materials), profile card with Add a completed study, CSV export | `senior-developer` (`ui-ux-specialist` for polish) | No | 5 |
+| 7 | **PR 3 Requests:** app request form, queue, match and close, coordinator notice | `senior-developer` | No | 5 |
+| 8 | **PR 4 Member app:** My Bible studies for students and teachers | `senior-developer` | No | 5 |
+| 9 | **PR 5 History import:** CSV preview and import | `senior-developer` | No | 5 |
+| 10 | Security re-review of PRs 1, 3 and 5 | `security-specialist` | Yes | 5, 7, 9 |
+| 11 | QA: workflows, `npm test`, `npm run test:ui`, phone checks | `qa-engineer` | No (tests) | 6–9 |
+| 12 | Accessibility pass on the new screens | `accessibility-specialist` | Yes | 6–8 |
+| 13 | Help text and a short coordinator guide | `training-writer` | No (guides) | 6–9 |
+| 14 | Final review against this plan and the release checklist | `chief-architect` | Yes (docs) | 10–13 |
+| 15 | Migration rehearsal and deploy plan | `devops-engineer` | No (ops docs) | 14 |
 
-Never run two editing agents at once. PRs 2–4 can be built one after another in any order once PR 1 is merged.
+Never run two editing agents at once. PRs 2–5 follow PR 1 one at a time, in any order.
 
 ## Owner approvals needed
 
-1. **Architecture:** Bible studies as a kind of small group (option a), not on Classes and not a separate area.
-2. **Permissions:** the §4.7 table (teachers record completions for their own study; overview is staff-only).
-3. **Merge order** for migrations (§5): default after the child-safety stack.
-4. **CSV import** of history by admins (personal data coming in from a spreadsheet).
+1. **Architecture:** Bible studies as their own small module (five tables and one router), separate from small
+   groups and Classes.
+2. **Permissions:** a new **Bible studies coordinator** flag (`users.studies`), granted by admins like Attendance,
+   and the §3.2 table. This is a sign-in and permissions change.
+3. **Privacy:** the optional short coordinator-only note (keep it, or leave it out).
+4. **Merge order** for the migration (§4; default after child-safety 41–45).
+5. **CSV import** of history.
 No new dependencies, services or costs.
 
 ## Questions for the owner (plain language)
 
-1. Is a Bible study a **course with an end date** (say 8 weeks), an **ongoing group**, or both?
-2. **Who teaches?** Always people on staff, or volunteers too? Can a study have more than one teacher? Is the
-   teacher always part of the group?
-3. Do you want **attendance each week**, or just "who's in it" and "who finished"?
-4. What counts as **"completed"**? The teacher says so, attending most weeks (how many?), or simply being in it
-   when it ended?
-5. Should people **sign up in the app**, or does the office or teacher add them?
-6. Should **leaders** (not staff) see the Bible studies page and other studies' rosters, or only their own?
-7. Should **Classes and Bible studies** become one "Classes & studies" area later? (Recommendation: separate
-   screens now, one "Completed" list on the profile later.)
-8. Do you run **terms** (Fall, Spring), and what do you call them? Is "Bible studies" the right name in the menu?
-9. Where is past history today (Faith Teams' "Classes completed" field, a spreadsheet, memory)? Should we copy
-   anything from the existing profile field?
-10. Should Bible studies also appear on the **Groups** page, or only on their own page?
-11. Any **youth or teen** studies? Groups are adults-only today; teens would need the child-safety rules first.
+1. **Who is the coordinator?** Shall an admin switch on "Bible studies coordinator" for that person (recommended),
+   or should it follow whoever leads the Bible study team? Can there be more than one?
+2. **Do teachers need approving** before they can teach, or can the coordinator pick anyone?
+3. When someone asks for a study, **do they pick the material**, or does the coordinator choose it with them?
+4. Should **students see their progress** ("lesson 3 of 8") in the app, or just that they're in a study?
+5. Is it OK for **teachers to have no Hub account**, with the coordinator updating their studies for them?
+6. **Campuses:** will one coordinator cover both campuses? Should studies belong to a campus at all, or be
+   church-wide?
+7. Should teachers see their students' **phone and email** in the app, or does the coordinator make the
+   introduction?
+8. Who should **hear about a new request**: every coordinator, or one named person?
+9. Do you want the short **coordinator-only note** on a study ("prefers mornings"), or no notes at all?
+10. Can a teacher **mark a student finished** themselves, or should the coordinator confirm it?
+11. Is **"Bible studies"** the right name in the menu and the app?
