@@ -45,7 +45,7 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 | `notify.js` / `push.js` / `mail.js` | Inbox notifications, Web Push (own VAPID keys, no paid service), SMTP email. |
 | `stripe.js` | Stripe calls (giving, event payments) and webhook verification. |
 | `daily.js` / `live.js` | Video calls in chats (Daily), live chat updates (server-sent events). |
-| `media.js` / `mux.js` / `podcast.js` | YouTube sync and live detection, Mux streaming/uploads/trims, podcast audio and feed. |
+| `media.js` / `mux.js` / `podcast.js` | YouTube sync (channel or messages playlist; each new video placed In the app / Not in the app / Needs a look) and live detection. `mux.js` and `podcast.js` are dormant (the church doesn’t use Mux; no staff screen). |
 | `backup.js` | Encrypted nightly backups to the disk and Google Drive. |
 | `csv.js` | CSV parsing/writing for imports and exports. |
 
