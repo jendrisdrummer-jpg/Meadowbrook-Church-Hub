@@ -244,6 +244,16 @@ until 13 April. The kids' check-in pilot keeps priority throughout.
 7. **A separate app for early testing.** It has its own bundle id, through TestFlight and then possibly its own listing. When the app launches to the whole church, it may replace the Subsplash app instead. That needs Subsplash to transfer the app to the church's Apple account, and a build under that app's bundle id.
 8. **The church finder starts on Meadowbrook's own server** and moves to the product's central service later.
 
+**Second round, answered by the owner on 27 Nov 2026** (these come from `threat-model.md` and `spike-bridge.md`):
+- **Reviewer demo account:** build the walled-off demo account (§3.7 of the threat model): a `demo_until` flag, a list of allowed routes, a made-up campus, and no announcements.
+- **Confirming a deletion:** an email code or the account's password. Deleting removes sign-in access only; the person's People record, household and history stay (as planned).
+- **Deleted accounts:** the account row is removed, so the person can sign up again later if they are still in People.
+- **Admins deleting themselves:** allowed, except the last active admin.
+- **Multi-church:** a password opens only its own church; an emailed code can list all of a person's churches.
+- **Membership leaks F2, F3 and F7:** fix them now, in a small separate PR.
+- **Beta app:** called "MBC Beta", bundle id `church.meadowbrook.beta`, iOS 16 minimum. Google sign-in uses an ephemeral browser session, not shared with Safari.
+- **Still open:** whether staff Hub pages open in Safari, and whether the app shows video thumbnails until the bridge gate is proven on a device. I explained both to the owner, who hasn't confirmed either yet.
+
 The original questions follow, for the record.
 
 
