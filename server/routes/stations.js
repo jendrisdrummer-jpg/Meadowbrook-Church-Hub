@@ -121,7 +121,10 @@ export default function stationRoutes(db) {
     tx(db, () => {
       db.prepare('UPDATE checkin_devices SET name = ?, campus_id = ?, print = ? WHERE id = ?').run(name, campusId, print, d.id);
       const fields = [name !== d.name && 'name', campusId !== d.campus_id && 'campus', print !== d.print && 'print'].filter(Boolean);
-      recordEvent(db, req, { action: 'device.update', campusId, deviceId: d.id, deviceName: name, detail: { fields, from_campus: d.campus_id, to_campus: campusId } });
+      const detail = { fields, from_campus: d.campus_id, to_campus: campusId };
+      recordEvent(db, req, { action: 'device.update', campusId, deviceId: d.id, deviceName: name, detail });
+      // A move is also written under the campus it left, so that campus's record shows it went.
+      if (campusId !== d.campus_id) recordEvent(db, req, { action: 'device.update', campusId: d.campus_id, deviceId: d.id, deviceName: name, detail });
     });
     res.json({ ok: true });
   });

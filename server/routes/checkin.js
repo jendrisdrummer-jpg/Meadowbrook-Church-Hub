@@ -14,6 +14,7 @@ import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-even
 // appear in GET /settings and can't be changed through PATCH /settings. Later releases add keys here.
 const SAFETY_DEFAULTS = { require_current_app: false };
 const SAFETY_TYPES = { require_current_app: 'boolean' };
+const CODE_MISS_ROWS = 5;
 export const safetySettings = (db) => ({ ...SAFETY_DEFAULTS, ...getSetting(db, 'checkin_safety', {}) });
 
 // Who may use kids' check-in (the family roster with children's allergies and medical notes,
@@ -118,22 +119,18 @@ export default function checkinRoutes(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     // Children deleted on the server since the tablet's roster was downloaded are skipped, not fatal,
     // so one stale record can't block a tablet's whole offline queue.
-    const out = tx(db, () => records.map((rec) => {
+    const skips = { other_campus: [], not_found: [] };
+    const out = tx(db, () => {
+    const done = records.map((rec) => {
       const id = str(rec.id, 64);
       if (!/^[\w-]{8,64}$/.test(id)) throw bad('Each check-in needs an id.');
       const personId = int(rec.person_id, 'Person');
       const person = db.prepare(`SELECT p.id, p.household_id, p.birthdate, p.grade, h.campus_id household_campus
         FROM people p LEFT JOIN households h ON h.id = p.household_id WHERE p.id = ?`).get(personId);
-      if (!person) {
-        recordEvent(db, req, { action: 'checkin.skipped', campusId: c.id, checkinId: id, personId, detail: { reason: 'not_found' } });
-        return null;
-      }
+      if (!person) { skips.not_found.push(personId); return null; }
       // Same rule as the roster: never a family assigned to another campus, so check-in can't be used
       // to pull another campus's child into this campus's lists. (Visiting families: later item.)
-      if (person.household_campus != null && person.household_campus !== c.id) {
-        recordEvent(db, req, { action: 'checkin.skipped', campusId: c.id, checkinId: id, personId: person.id, householdId: person.household_id, detail: { reason: 'other_campus' } });
-        return null;
-      }
+      if (person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
       const at = Number.isNaN(Date.parse(rec.checked_in_at)) ? new Date() : new Date(rec.checked_in_at);
       const day = localNow(c.timezone, at).date;
       const kind = oneOf(rec.kind, ['kid', 'adult', 'volunteer'], 'kid');
@@ -150,7 +147,13 @@ export default function checkinRoutes(db) {
           clientAt: rec.checked_in_at, detail: { kind, room_id: saved.room_id, service_id: saved.service_id, station_label: str(rec.station, 60) } });
       }
       return saved;
-    })).filter(Boolean);
+    }).filter(Boolean);
+    // One summary row per reason per request, so a stale queue can't flood the record.
+    for (const [reason, list] of Object.entries(skips)) {
+      if (list.length) recordEvent(db, req, { action: 'checkin.skipped', campusId: c.id, personId: list[0], detail: { reason, count: list.length, person_ids: list.slice(0, 20) } });
+    }
+    return done;
+    });
     res.status(201).json(out);
   });
 
@@ -186,11 +189,17 @@ export default function checkinRoutes(db) {
       rows = db.prepare('SELECT id FROM checkins WHERE campus_id = ? AND day = ? AND security_code = ? AND checked_out_at IS NULL')
         .all(c.id, day, code);
       if (!rows.length) {
-        recordEvent(db, req, { action: 'checkout.code_miss', campusId: c.id, code });
+        // A few misses per actor per campus per day are recorded (with a running count); guessing codes can't flood the record.
+        const today = localNow(c.timezone).date;
+        const who = req.user.station ? ['device_id', req.user.station.id] : ['user_id', req.user.id];
+        const misses = db.prepare(`SELECT COUNT(*) n FROM checkin_events WHERE campus_id = ? AND day = ? AND action = 'checkout.code_miss' AND ${who[0]} = ?`).get(c.id, today, who[1]).n;
+        if (misses < CODE_MISS_ROWS) recordEvent(db, req, { action: 'checkout.code_miss', campusId: c.id, code, detail: { attempt: misses + 1, last_recorded: misses + 1 === CODE_MISS_ROWS } });
         throw notFound('A checked-in child with that code');
       }
     } else {
-      rows = (req.body?.ids || []).map((id) => ({ id: str(id, 64) }));
+      const given = req.body?.ids || [];
+      if (given.length > 500) throw bad('Too many at once.');
+      rows = [...new Set(given.map((id) => str(id, 64)))].map((id) => ({ id }));
     }
     const upd = db.prepare("UPDATE checkins SET checked_out_at = ?, checked_out_by = ? WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL");
     const find = db.prepare('SELECT ci.id, ci.person_id, ci.security_code, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ? AND ci.campus_id = ?');
@@ -198,9 +207,10 @@ export default function checkinRoutes(db) {
     let count = 0;
     tx(db, () => {
       const released = [];
+      const unknown = [];
       rows.forEach((row) => {
         const ci = find.get(row.id, c.id);
-        if (!ci) { recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: row.id.slice(0, 64), detail: { path } }); return; }
+        if (!ci) { unknown.push(row.id); return; }
         if (Number(upd.run(now, by, row.id, c.id).changes) !== 1) {
           recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, detail: { path } });
           return;
@@ -209,11 +219,14 @@ export default function checkinRoutes(db) {
         released.push(ci);
         recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, detail: { path, by_claimed: claimed } });
       });
+      // Ids not found at this campus: one summary row per request, not one per id.
+      if (unknown.length) recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: unknown[0], detail: { path, count: unknown.length, ids: unknown.slice(0, 20) } });
       // Releasing children of more than one family in one go is recorded for now; a later release refuses it.
       const families = new Set(released.map((x) => x.household_id ?? `p${x.person_id}`));
       if (families.size > 1) {
+        const households = [...new Set(released.map((x) => x.household_id).filter((h) => h != null))];
         recordEvent(db, req, { action: 'checkout.mixed', campusId: c.id, code,
-          detail: { path, households: [...new Set(released.map((x) => x.household_id).filter((h) => h != null))], checkin_ids: released.map((x) => x.id) } });
+          detail: { path, count: released.length, household_count: households.length, households: households.slice(0, 20), checkin_ids: released.slice(0, 20).map((x) => x.id), truncated: released.length > 20 || households.length > 20 } });
       }
     });
     res.json({ checked_out: count });
@@ -248,7 +261,9 @@ export default function checkinRoutes(db) {
     const rows = db.prepare(`SELECT e.*, p.first_name, p.last_name FROM checkin_events e LEFT JOIN people p ON p.id = e.person_id
       WHERE e.campus_id = ? AND e.day = ?${extra} ORDER BY e.id LIMIT 5001`).all(...args);
     audit(db, req, 'checkin.events.view', { campus_id: c.id, day: req.query.day });
-    res.json({ events: rows.slice(0, 5000).map((e) => ({ ...e, detail: JSON.parse(e.detail) })), truncated: rows.length > 5000 });
+    // Pickup codes are only live on the day; staff already see today's, so earlier days show them masked.
+    const past = req.query.day < localNow(c.timezone).date;
+    res.json({ events: rows.slice(0, 5000).map((e) => ({ ...e, security_code: past && e.security_code ? '••••' : e.security_code, detail: JSON.parse(e.detail) })), truncated: rows.length > 5000 });
   });
 
   r.get('/checkin/safety', requireRole('admin'), (_req, res) => {
@@ -261,7 +276,7 @@ export default function checkinRoutes(db) {
     const keys = Object.keys(b);
     if (!keys.length) throw bad('Nothing to change.');
     for (const k of keys) {
-      if (!(k in SAFETY_TYPES)) throw bad(`“${k.slice(0, 40)}” isn’t a check-in safety setting.`);
+      if (!Object.hasOwn(SAFETY_TYPES, k)) throw bad(`“${k.slice(0, 40)}” isn’t a check-in safety setting.`);
       if (typeof b[k] !== SAFETY_TYPES[k]) throw bad(`Invalid value for ${k}.`);
     }
     const from = safetySettings(db);

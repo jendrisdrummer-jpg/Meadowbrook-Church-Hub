@@ -98,14 +98,19 @@ test('schema: the table, indexes and triggers exist, and the log refuses UPDATE 
   assert.throws(() => db.prepare('DELETE FROM checkin_events').run(), /append-only/);
 });
 
-test('recorder: refuses an unknown action, caps free text, and refuses an oversized detail', () => {
+test('recorder: refuses an unknown action, caps free text, and cuts an oversized detail down instead of failing', () => {
   const req = { user: { id: 1, name: 'T' }, get: () => undefined };
   assert.throws(() => recordEvent(db, req, { action: 'checkin.nonsense' }), /Unknown/);
   const id = recordEvent(db, req, { action: 'roster.download', campusId: 1, detail: { by_claimed: 'x'.repeat(500), station_label: 'y'.repeat(500) } });
   const row = db.prepare('SELECT detail FROM checkin_events WHERE id = ?').get(id);
   assert.equal(JSON.parse(row.detail).by_claimed.length, 100);
   assert.equal(JSON.parse(row.detail).station_label.length, 60);
-  assert.throws(() => recordEvent(db, req, { action: 'roster.download', detail: { junk: 'z'.repeat(2100) } }), (e) => e.status === 400);
+  const big = recordEvent(db, req, { action: 'roster.download', detail: { path: 'ids', list: Array.from({ length: 300 }, (_, i) => `id-${i}-xxxxxxxxxxxxxxxx`), junk: 'z'.repeat(2100) } });
+  const cut = JSON.parse(db.prepare('SELECT detail FROM checkin_events WHERE id = ?').get(big).detail);
+  assert.equal(cut.truncated, true);
+  assert.equal(cut.path, 'ids');
+  assert.equal(cut.list.length, 20);
+  assert.ok(!('junk' in cut));
   assert.ok(ACTIONS.includes('checkin') && ACTIONS.includes('version.refused'));
   // That probe row is in the log for good (it is append-only); the test below counts by action and id, not totals.
 });
@@ -131,7 +136,8 @@ test('station upload: one checkin event per new record, identity from the server
   assert.equal(r2.status, 201);
   assert.equal(r2.data.length, 1);
   const skipped = events('checkin.skipped');
-  assert.deepEqual(skipped.map((s) => [s.d.reason, s.person_id, s.checkin_id]), [['other_campus', ids.cy, 'ci-cy-00001'], ['not_found', 987654, 'ci-ghost-001']]);
+  // One summary row per reason per request, not one per record.
+  assert.deepEqual(skipped.map((s) => [s.d.reason, s.person_id, s.d.count, s.d.person_ids]), [['other_campus', ids.cy, 1, [ids.cy]], ['not_found', 987654, 1, [987654]]]);
   assert.equal(events('checkin').length, 3);
 });
 
@@ -186,7 +192,7 @@ test('repeats and misses: repeat, unknown id, wrong code', async () => {
   assert.deepEqual(events('checkout.repeat').map((e) => [e.checkin_id, e.person_id, e.d.path]), [['ci-abe-0002', ids.abe, 'ids']]);
   const unknown = await asStation('POST', '/checkin/checkout', { campus_id: 1, ids: ['ci-cy-00001', 'not-a-real-id'] });
   assert.equal(unknown.data.checked_out, 0);
-  assert.deepEqual(events('checkout.unknown').map((e) => e.checkin_id), ['ci-cy-00001', 'not-a-real-id']);
+  assert.deepEqual(events('checkout.unknown').map((e) => [e.checkin_id, e.d]), [['ci-cy-00001', { path: 'ids', count: 2, ids: ['ci-cy-00001', 'not-a-real-id'] }]]);
   const miss = await asStation('POST', '/checkin/checkout', { campus_id: 1, security_code: 'nope' });
   assert.equal(miss.status, 404);
   const m = events('checkout.code_miss');
@@ -385,6 +391,58 @@ test('app version, switch on: old iPads get 426 on the five routes and lose noth
   } finally {
     assert.equal((await api('admin', 'PATCH', '/checkin/safety', { require_current_app: false })).status, 200);
   }
+});
+
+test('a large offline check-out across two families still succeeds, with one capped mixed row', async () => {
+  const ins = db.prepare(`INSERT INTO checkins (id, campus_id, person_id, kind, security_code, station, day, checked_in_at) VALUES (?, 1, ?, 'kid', ?, 'Lobby', '2027-02-21', ?)`);
+  const many = Array.from({ length: 60 }, (_, i) => `ci-bulk-${String(i).padStart(4, '0')}-${'x'.repeat(30)}`);
+  many.forEach((id, i) => ins.run(id, i % 2 ? ids.bo : ids.abe, 'BK01', '2027-02-21T15:00:00.000Z'));
+  const mixedBefore = events('checkout.mixed').length;
+  const r = await asStation('POST', '/checkin/checkout', { campus_id: 1, ids: [...many, ...many], by: 'Lobby' }); // duplicates are collapsed
+  assert.equal(r.status, 200);
+  assert.equal(r.data.checked_out, 60);
+  const mixed = events('checkout.mixed');
+  assert.equal(mixed.length - mixedBefore, 1);
+  const d = mixed.at(-1).d;
+  assert.deepEqual([d.count, d.household_count, d.checkin_ids.length, d.truncated], [60, 2, 20, true]);
+  assert.equal(events('checkout.repeat').length, 1, 'duplicates sent in one request are not counted as repeats');
+});
+
+test('the record cannot be flooded: ids are capped, unknown ids make one row, code guesses stop after a few rows', async () => {
+  assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, ids: Array.from({ length: 10000 }, (_, i) => `nope-${i}-padding`) })).status, 400);
+  const before = db.prepare('SELECT COUNT(*) n FROM checkin_events').get().n;
+  const r = await asStation('POST', '/checkin/checkout', { campus_id: 1, ids: Array.from({ length: 500 }, (_, i) => `ghost-${i}-padding`) });
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM checkin_events').get().n, before + 1);
+  const u = events('checkout.unknown').at(-1);
+  assert.deepEqual([u.d.count, u.d.ids.length], [500, 20]);
+  for (let i = 0; i < 8; i++) assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, security_code: `ZX${i}` })).status, 404);
+  const misses = events('checkout.code_miss', 'AND device_id = ' + stationId);
+  assert.equal(misses.length, 5);
+  assert.equal(misses.at(-1).d.attempt, 5);
+});
+
+test('past days show pickup codes masked; today shows them', async () => {
+  const past = await api('staff', 'GET', '/checkin/events?campus_id=1&day=2027-02-20&action=checkin');
+  assert.ok(past.data.events.length > 0);
+  assert.ok(past.data.events.every((e) => e.security_code === '••••'));
+  const today = await api('staff', 'GET', '/checkin/events?campus_id=1&day=2027-02-21&action=checkin');
+  assert.ok(today.data.events.some((e) => e.security_code === 'KK11'));
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM checkin_events WHERE security_code = 'LT01'").get().n > 0, 'stored unmasked');
+});
+
+test('moving a station to another campus is recorded under both campuses', async () => {
+  const { token: t2 } = await pair('Mover', 1);
+  const id = db.prepare("SELECT id FROM checkin_devices WHERE name = 'Mover'").get().id;
+  assert.equal((await api('admin', 'PATCH', `/checkin/devices/${id}`, { campus_id: 2 })).status, 200);
+  const moved = events('device.update').filter((e) => e.device_id === id && e.device_name === 'Mover');
+  assert.deepEqual(moved.map((e) => e.campus_id).sort(), [1, 2]);
+  assert.ok(moved.every((e) => e.d.from_campus === 1 && e.d.to_campus === 2));
+  assert.ok(t2);
+});
+
+test('safety settings: only own keys count (no inherited names)', async () => {
+  for (const k of ['constructor', 'toString', 'hasOwnProperty']) assert.equal((await api('admin', 'PATCH', '/checkin/safety', { [k]: true })).status, 400, k);
 });
 
 test('no check-in or event row ever holds medical text or a phone number', () => {
