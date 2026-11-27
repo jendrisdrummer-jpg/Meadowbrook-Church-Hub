@@ -142,6 +142,32 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   assert.equal((await api('staff', 'PATCH', `/media/${kids.id}`, { status: 'published' })).status, 200);
   assert.equal((await api(null, 'GET', '/watch')).data.items.length, 2);
 
+  // "Bring in older videos" reads only the playlist too.
+  yt.requests.length = 0;
+  assert.equal((await api('admin', 'POST', '/media/sync', { deep: true })).status, 200);
+  const deepLists = yt.requests.filter((r) => r.startsWith('/api/playlistItems'));
+  assert.ok(deepLists.length && deepLists.every((r) => r.includes(`playlistId=${PL}`)));
+
+  // One-time clean-up: videos in the app that aren't in the playlist can be hidden (never deleted).
+  const stray = insertMedia(db, { video_id: 'strayLivestr', title: 'Join us for Sunday Service Online', thumbnail: '', recorded_at: `${SUN} 16:00:00`, day: SUN, service_id: null, campus_id: null, speaker: '', series: '', was_live: 1, duration: 7000 });
+  insertMedia(db, { source: 'mux', video_id: 'mux:keep', mux_asset_id: 'keep', playback_id: 'keep-pb', title: 'Old Mux', thumbnail: '', recorded_at: `${SUN} 16:00:00`, day: SUN, service_id: null, campus_id: null, speaker: '', series: '', was_live: 0 });
+  assert.equal((await api('vol', 'GET', '/media/playlist-extras')).status, 403);
+  assert.equal((await api('vol', 'POST', '/media/playlist-extras/hide', {})).status, 403);
+  assert.equal((await api('staff', 'GET', '/media/playlist-extras')).data.count, 1);
+  const noHeader = await fetch(`${base}/api/media/playlist-extras/hide`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookies.staff }, body: '{}' });
+  assert.equal(noHeader.status, 403);
+  assert.deepEqual((await api('staff', 'POST', '/media/playlist-extras/hide', {})).data, { hidden: 1 });
+  const hidden = (await api('staff', 'GET', '/media')).data.items.find((m) => m.id === stray);
+  assert.deepEqual([hidden.status, hidden.reason], ['hidden', 'Not in the messages playlist']);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'media.hide_not_in_playlist'").get());
+  assert.equal(rowOf('msgAAAAAAAA').status, 'published'); // in the playlist: untouched
+  assert.equal(db.prepare("SELECT status FROM media WHERE video_id = 'mux:keep'").get().status, 'published');
+  assert.equal((await api('staff', 'GET', '/media/playlist-extras')).data.count, 0);
+  // Reversible.
+  assert.equal((await api('staff', 'PATCH', `/media/${stray}`, { status: 'published' })).status, 200);
+  assert.equal((await api('staff', 'GET', '/media')).data.items.find((m) => m.id === stray).reason, '');
+  db.prepare('DELETE FROM media WHERE id = ?').run(stray);
+
   // Back to the whole channel: its uploads are read, and the video outside the playlist comes in.
   assert.equal((await api('admin', 'PUT', '/media/setup', { playlist: '' })).data.settings.playlist_id, '');
   yt.requests.length = 0;

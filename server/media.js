@@ -207,6 +207,14 @@ async function latestVideos(db, cfg, { deep = false, knownIds = new Set() } = {}
   return out;
 }
 
+// Every video in the messages playlist: { ids: Set, complete }. Through the Data API that is the
+// whole playlist; the public feed shows only 15, so a full feed may be missing some (complete: false).
+export async function playlistMembers(cfg) {
+  if (hasApiKey()) return { ids: new Set(await playlistVideoIds(cfg.playlist_id, 40)), complete: true };
+  const { entries } = await readFeed({ playlist: cfg.playlist_id });
+  return { ids: new Set(entries.map((e) => e.video_id)), complete: entries.length < 15 };
+}
+
 // One video by its address, for "Add a video".
 export async function fetchVideo(urlOrId) {
   const s = String(urlOrId || '').trim();

@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { bad, notFound, int, str, audit } from '../http.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import {
-  mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, resolvePlaylist, fetchVideo, describeVideo, insertMedia, fromService, sameSeries, hasApiKey, TITLE_FORMATS,
+  mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, resolvePlaylist, playlistMembers, fetchVideo, describeVideo, insertMedia, fromService, sameSeries, hasApiKey, TITLE_FORMATS,
 } from '../media.js';
 import { podcastSettings, savePodcast, audioSource } from '../podcast.js';
 import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
@@ -79,7 +79,7 @@ export default function mediaRoutes(db) {
   // ---------------------------------------------------------------- the hub (staff)
   const STATUSES = ['published', 'hidden', 'skipped', 'review'];
   // Why a video isn't in the app, in words.
-  const why = (m) => (m.status === 'hidden' ? 'Hidden by staff' : m.status === 'published' ? '' : m.skip_reason);
+  const why = (m) => (m.status === 'published' ? '' : m.skip_reason || (m.status === 'hidden' ? 'Hidden by staff' : ''));
 
   // The whole library at once (the screen filters it: In the app, Not in the app, Needs a look).
   r.get('/media', requireRole('staff'), (req, res) => {
@@ -164,6 +164,31 @@ export default function mediaRoutes(db) {
     setSetting(db, 'media', cfg);
     audit(db, req, 'media.setup', { channel: cfg.channel_id, playlist: cfg.playlist_id });
     res.json({ settings: uiSettings(), status: mediaStatus(db) });
+  });
+
+  // Videos in the app that aren't in the messages playlist (for the one-time "Hide N videos" action
+  // after a playlist is chosen). Only YouTube videos; never anything already hidden or skipped.
+  const notInPlaylist = async () => {
+    const cfg = mediaSettings(db);
+    if (!cfg.playlist_id) throw bad('Choose a messages playlist first (Media → Setup).');
+    let members;
+    try { members = await playlistMembers(cfg); } catch (e) { throw bad(`Couldn’t read the playlist: ${e.message}`); }
+    // Without the API key a long playlist is only partly visible, and hiding by a partial list would hide real messages.
+    if (!members.complete) throw bad('This playlist has more videos than the hub can see without the YouTube key, so it can’t tell which ones are missing. Add the key (see Setup) first.');
+    const rows = db.prepare("SELECT id, video_id FROM media WHERE status = 'published' AND source = 'youtube'").all();
+    return { cfg, ids: rows.filter((m) => !members.ids.has(m.video_id)).map((m) => m.id) };
+  };
+  r.get('/media/playlist-extras', requireRole('staff'), async (_req, res) => {
+    const { cfg, ids } = await notInPlaylist();
+    res.json({ count: ids.length, playlist_title: cfg.playlist_title });
+  });
+  // Moves them to Not in the app ("Not in the messages playlist"). Nothing is deleted; Show in app puts one back.
+  r.post('/media/playlist-extras/hide', requireRole('staff'), async (req, res) => {
+    const { ids } = await notInPlaylist();
+    const hide = db.prepare("UPDATE media SET status = 'hidden', skip_reason = 'Not in the messages playlist', edited_by = ?, edited_at = datetime('now') WHERE id = ? AND status = 'published'");
+    for (const id of ids) hide.run(req.user.id, id);
+    audit(db, req, 'media.hide_not_in_playlist', { count: ids.length });
+    res.json({ hidden: ids.length });
   });
 
   // Look now. deep: go back through the whole channel (with the API key).

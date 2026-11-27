@@ -298,8 +298,20 @@ async function openPanel(id, ctx) {
 }
 
 // ---------------------------------------------------------------- Setup
+// After a messages playlist is chosen: videos already in the app that aren't in it. Hiding moves
+// them to Not in the app (nothing is deleted; Show in app brings one back).
+async function offerHide(count) {
+  const n = `${count} ${count === 1 ? 'video' : 'videos'}`;
+  if (!(await confirm(`Hide ${n} that aren’t in this playlist?`, `${n} in the app ${count === 1 ? 'isn’t' : 'aren’t'} in your messages playlist. Hiding moves ${count === 1 ? 'it' : 'them'} to Not in the app, with the reason “Not in the messages playlist”. Nothing is deleted, and you can show any of them again.`, `Hide ${n}`, { danger: false }))) return false;
+  const r = await post('/media/playlist-extras/hide', {});
+  toast(`${r.hidden} ${r.hidden === 1 ? 'video' : 'videos'} moved to Not in the app.`);
+  refreshAttentionBadges(true);
+  return true;
+}
+
 async function drawSetup(el) {
   const setup = await get('/media/setup');
+  const extras = setup.settings.playlist_id ? await get('/media/playlist-extras').catch((e) => ({ count: 0, error: e.message })) : { count: 0 };
   const { settings: s, status, formats, api_key: hasKey } = setup;
   setTitle('Media setup', html`<a class="btn ghost" href="#/media">${icon('back')} Library</a>`);
   mount(el, html`<div class="md-setup-col stack">
@@ -313,6 +325,9 @@ async function drawSetup(el) {
       <h2 style="margin:10px 0 0">Sunday messages playlist ${s.playlist_id ? html`<span class="pill good">${icon('check')} In use</span>` : html`<span class="pill">Not set</span>`}</h2>
       <label class="field">Only bring in videos from this playlist<input type="text" name="playlist" value="${s.playlist_input}" placeholder="youtube.com/playlist?list=PL…">
         <span class="muted small">${s.playlist_id ? `Reading “${s.playlist_title || 'your playlist'}”. Only videos you add to it come into the app.` : 'Make a playlist on YouTube for your Sunday messages, then paste its address here. Leave this empty to bring in every video on the channel.'}</span></label>
+
+      ${extras.count ? html`<div class="alert"><span class="grow">${extras.count} ${extras.count === 1 ? 'video' : 'videos'} in the app ${extras.count === 1 ? 'isn’t' : 'aren’t'} in this playlist.</span>
+        <button type="button" class="btn small" data-hide-extras>Hide ${extras.count} ${extras.count === 1 ? 'video' : 'videos'} that aren’t in this playlist</button></div>` : extras.error ? html`<p class="muted small" style="margin:0">${extras.error}</p>` : ''}
 
       <h2 style="margin:10px 0 0">Which videos stay out</h2>
       <label class="field">Videos are at least<span class="row" style="gap:8px"><input type="number" name="min_minutes" min="1" max="180" value="${s.min_minutes}" style="width:90px"> minutes long</span>
@@ -361,12 +376,18 @@ async function drawSetup(el) {
         toast(first ? `Connected to ${r.settings.channel_title || 'your channel'}. Looking for videos…` : 'Saved. Looking for videos…');
         await post('/media/sync', {}).catch(fail);
         refreshAttentionBadges(true);
+        if (r.settings.playlist_id && r.settings.playlist_id !== s.playlist_id) {
+          const more = await get('/media/playlist-extras').catch(() => ({ count: 0 }));
+          if (more.count) await offerHide(more.count).catch(fail);
+        }
         return go('/media');
       }
       toast('Saved.');
       drawSetup(el);
     } catch (err) { fail(err); b.disabled = false; }
   };
+  const hideBtn = el.querySelector('[data-hide-extras]');
+  if (hideBtn) hideBtn.onclick = async () => { try { if (await offerHide(extras.count)) drawSetup(el); } catch (err) { fail(err); } };
   const deep = el.querySelector('[data-deep]');
   if (deep) {
     deep.onclick = async () => {
