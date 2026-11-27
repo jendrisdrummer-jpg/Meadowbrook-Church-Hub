@@ -11,6 +11,8 @@ import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
 import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
+import { legalHold, assignmentKeptSql, HOLD_MSG } from '../history.js';
+import { recordEvent } from '../checkin-events.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
@@ -175,7 +177,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id)
         .map((b) => (showReasons ? b : withoutKeys(b, ['reason']))),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
-        WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
+        WHERE ci.person_id = ? AND ci.voided_at IS NULL ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
       account: accountFor(req, p.id),
     });
   });
@@ -269,6 +271,8 @@ export default function peopleRoutes(db, { uploadDir }) {
   // Merge a duplicate into the person we keep: their history moves over, then they're archived.
   r.post('/people/:id/merge', requireRole('admin'), (req, res) => {
     const keep = visiblePerson(req, req.params.id);
+    // A merge moves check-in and serving records between people, so it waits while a legal hold is on.
+    if (legalHold(db).on) throw new HttpError(409, HOLD_MSG);
     const dupId = int(req.body?.duplicate_id, 'Duplicate');
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
@@ -290,6 +294,12 @@ export default function peopleRoutes(db, { uploadDir }) {
     }
     const movedUsers = []; // accounts whose linked person changes: their live chat reconnects
     tx(db, () => {
+      // Check-ins that move to the kept person are written to the record (ids, first 20 and the count), so a merge can't move them unseen.
+      const movingCheckins = db.prepare('SELECT id, campus_id FROM checkins WHERE person_id = ? ORDER BY checked_in_at').all(dup.id);
+      if (movingCheckins.length) {
+        recordEvent(db, req, { action: 'checkin.merge', campusId: movingCheckins[0].campus_id, personId: keep.id,
+          detail: { from_person_id: dup.id, to_person_id: keep.id, count: movingCheckins.length, checkin_ids: movingCheckins.slice(0, 20).map((c) => c.id), truncated: movingCheckins.length > 20 } });
+      }
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
         db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
       }
@@ -305,7 +315,10 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('DELETE FROM group_members WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE OR IGNORE serving_campuses SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(dup.id);
-      db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
+      // Whatever couldn't move because the kept person already has it is a duplicate, so it goes, except serving
+      // at a service that has already happened: that stays on the archived duplicate as part of the record.
+      db.prepare(`DELETE FROM assignments WHERE person_id = ? AND NOT EXISTS (
+        SELECT 1 FROM services s WHERE s.id = assignments.service_id AND ${assignmentKeptSql('assignments', 's')})`).run(dup.id);
       movedUsers.push(...db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id).map((u) => u.id));
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       // Fill blanks on the kept record from the duplicate.

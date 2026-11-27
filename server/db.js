@@ -1029,6 +1029,56 @@ const MIGRATIONS = [
   ALTER TABLE checkins ADD COLUMN checked_out_user_id INTEGER;
   ALTER TABLE checkins ADD COLUMN client_checked_out_at TEXT;
   `,
+  // 42: protected history (child-safety V1, PR 3). A check-in is voided, never deleted: voided_at,
+  // voided_by (the account's id, a plain integer so it outlives the account), voided_by_name and
+  // void_reason say who and why, and every list leaves voided rows out. The database now refuses to
+  // delete a check-in, a past accepted assignment, a past service that has serving, roll-call,
+  // headcount or check-in records, a position someone served in at a past service, and a person with
+  // check-in or serving records. The triggers fire through cascades (deleting a campus, team or person
+  // is stopped too) and no migration may rebuild these tables without re-creating them. "Past" means
+  // started up to 14 hours from now in UTC, which is past in every time zone; server/history.js holds
+  // the same rule for the routes, and the error texts here are listed there (MSG).
+  `
+  ALTER TABLE checkins ADD COLUMN voided_at TEXT;
+  ALTER TABLE checkins ADD COLUMN voided_by INTEGER;
+  ALTER TABLE checkins ADD COLUMN voided_by_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE checkins ADD COLUMN void_reason TEXT NOT NULL DEFAULT '';
+
+  CREATE TRIGGER checkins_no_delete BEFORE DELETE ON checkins
+    BEGIN SELECT RAISE(ABORT, 'Check-ins are kept for the record, so they can’t be deleted. Void it instead and say why.'); END;
+  CREATE TRIGGER checkins_void_is_final BEFORE UPDATE OF voided_at, voided_by, voided_by_name, void_reason ON checkins
+    WHEN OLD.voided_at IS NOT NULL
+    BEGIN SELECT RAISE(ABORT, 'A voided check-in stays voided.'); END;
+  CREATE TRIGGER assignments_keep_history BEFORE DELETE ON assignments
+    WHEN OLD.status = 'accepted' AND EXISTS (SELECT 1 FROM services s WHERE s.id = OLD.service_id AND s.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours'))
+    BEGIN SELECT RAISE(ABORT, 'This person already served at that service, so it’s kept in the record.'); END;
+  -- Updates use "now - 14 hours" (past in every US time zone), so correcting tomorrow's service is never blocked.
+  CREATE TRIGGER assignments_no_restatus BEFORE UPDATE OF status ON assignments
+    WHEN OLD.status = 'accepted' AND NEW.status IS NOT OLD.status
+      AND EXISTS (SELECT 1 FROM services s WHERE s.id = OLD.service_id AND s.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours'))
+    BEGIN SELECT RAISE(ABORT, 'This person already served at that service, so their answer can’t be changed. It’s kept in the record.'); END;
+  CREATE TRIGGER services_no_retime BEFORE UPDATE OF starts_at ON services
+    WHEN OLD.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours') AND NEW.starts_at > strftime('%Y-%m-%dT%H:%M', 'now', '-14 hours') AND (
+      EXISTS (SELECT 1 FROM assignments a WHERE a.service_id = OLD.id AND (a.status = 'accepted' OR a.sent_at IS NOT NULL))
+      OR EXISTS (SELECT 1 FROM attendance t WHERE t.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM headcounts h WHERE h.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM checkins c WHERE c.service_id = OLD.id))
+    BEGIN SELECT RAISE(ABORT, 'This service has already happened and has records, so it can’t be moved to a later time. It’s kept in the record.'); END;
+  CREATE TRIGGER services_keep_history BEFORE DELETE ON services
+    WHEN OLD.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours') AND (
+      EXISTS (SELECT 1 FROM assignments a WHERE a.service_id = OLD.id AND (a.status = 'accepted' OR a.sent_at IS NOT NULL))
+      OR EXISTS (SELECT 1 FROM attendance t WHERE t.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM headcounts h WHERE h.service_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM checkins c WHERE c.service_id = OLD.id))
+    BEGIN SELECT RAISE(ABORT, 'This service has already happened (or has serving or check-in records), so it’s kept in the record.'); END;
+  CREATE TRIGGER positions_keep_history BEFORE DELETE ON positions
+    WHEN EXISTS (SELECT 1 FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.position_id = OLD.id AND s.starts_at <= strftime('%Y-%m-%dT%H:%M', 'now', '+14 hours'))
+    BEGIN SELECT RAISE(ABORT, 'People have served in this position, so it’s kept in the record.'); END;
+  CREATE TRIGGER people_keep_history BEFORE DELETE ON people
+    WHEN EXISTS (SELECT 1 FROM checkins WHERE person_id = OLD.id) OR EXISTS (SELECT 1 FROM attendance WHERE person_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM assignments WHERE person_id = OLD.id)
+    BEGIN SELECT RAISE(ABORT, 'This person has check-in or serving records, so they’re kept in the record. Archive them instead.'); END;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

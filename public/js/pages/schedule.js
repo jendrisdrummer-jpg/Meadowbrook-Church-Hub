@@ -1,6 +1,6 @@
 // Schedule a team for a whole month: positions down the side, that month's services across the
 // top. Pick someone from the team list, then click open spots (or drag them onto a spot).
-import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today } from '../lib.js';
+import { get, post, del, html, raw, mount, icon, avatar, displayName, dialog, toast, fail, fmtDate, fmtTime, today, servedAlready } from '../lib.js';
 import { state, setTitle, campusName, can } from '../app.js';
 import { assignDialog, scheduleOne, sendRequests, reachPill, reachShort } from '../scheduling.js';
 
@@ -194,16 +194,18 @@ export default async function schedule(el) {
     const s = grid.services.find((x) => x.id === serviceId);
     const a = Object.values(grid.cells).flatMap((c) => c.assignments).find((x) => x.id === id);
     const pos = grid.positions.find((p) => p.id === a.position_id);
-    const can = s.can_schedule[pos.team_id];
+    const kept = servedAlready(a, s.starts_at); // served at a service that has happened: part of the record
+    const can = s.can_schedule[pos.team_id] && !kept;
     const r = await dialog({
       title: displayName(a), submit: can ? 'Remove from this service' : null, danger: true, cancel: 'Close',
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
         ${a.status === 'declined' && a.decline_reason ? html`<p class="muted small">“${a.decline_reason}”</p>` : ''}
+        ${kept ? html`<p class="muted small">${icon('info', 'ic small-ic')} They served at this service, so it’s kept in the record.</p>` : ''}
         <p><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : statusOf(a) === 'draft' ? 'draft' : ''}">${STATUS[statusOf(a)]}</span></p>
         ${can && a.sent_at && a.status !== 'declined' ? html`<p class="small">${icon('info', 'ic small-ic')} If you remove them, they'll get a “No longer needed” notice.</p>` : ''}
         <p class="small"><a href="#/people/${a.person_id}">Open their profile</a> · <a href="#/services/${s.id}">Open the service</a></p>`,
     });
-    if (r) { await del(`/assignments/${id}`); await load(); }
+    if (r) { try { await del(`/assignments/${id}`); } catch (err) { fail(err); } await load(); }
   }
 
   el.onclick = async (e) => {

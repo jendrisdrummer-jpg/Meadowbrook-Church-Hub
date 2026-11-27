@@ -1,5 +1,5 @@
 // Dialogs for creating and editing services, repeating services and the positions they need.
-import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fmtDate, fmtTime, DAYS } from './lib.js';
+import { get, post, patch, put, del, html, mount, icon, dialog, formData, options, confirm, toast, fail, fmtDate, fmtTime, DAYS } from './lib.js';
 import { state, visibleCampuses } from './app.js';
 import { impactNote } from './guards.js';
 import { findClash } from './service-clash.js';
@@ -161,23 +161,28 @@ export async function editServiceDialog(s) {
       ${s.type && templates.length ? html`<label class="field wide">Template for new services in this series<select name="series_template">${options(templates.map((t) => ({ value: t.id, label: t.name })), s.type.template_id, { blank: 'None' })}</select>
         <span class="muted small">Upcoming services that don’t have a plan yet get it too.</span></label>` : ''}
     </div>
-    <div class="row" style="margin-top:12px"><button type="button" class="btn danger small" data-delete>${icon('trash')} Delete service</button>
+    <div class="row" style="margin-top:12px">${s.kept
+        ? html`<span class="muted small">${icon('info', 'ic small-ic')} This service has happened and has records, so it’s kept.</span>`
+        : html`<button type="button" class="btn danger small" data-delete>${icon('trash')} Delete service</button>`}
       ${s.type ? html`<button type="button" class="btn danger small ghost" data-stop>Stop repeating</button>` : ''}</div>`,
     onOpen: (d, close) => {
-      d.querySelector('[data-delete]').onclick = async () => {
-        const scope = await askScope(s, 'Delete');
-        if (!scope) return;
-        if (scope === 'future') {
-          const note = await impactFor(`/series/${s.type.id}/impact?from=${s.starts_at.slice(0, 10)}`);
-          if (!(await confirm('Delete this and all following?', withImpact('Their orders of service and schedules will be removed too.', note, 'They’ll lose these assignments.')))) return;
-          await del(`/series/${s.type.id}?from=${s.starts_at.slice(0, 10)}`);
-        } else {
-          const note = await impactFor(`/services/${s.id}/impact`, true);
-          if (!(await confirm('Delete this service?', withImpact('Its order of service and schedule will be removed.', note, 'They’ll lose these assignments.')))) return;
-          await del(`/services/${s.id}`);
-        }
-        outcome = 'deleted';
-        close();
+      const delBtn = d.querySelector('[data-delete]');
+      if (delBtn) delBtn.onclick = async () => {
+        try {
+          const scope = await askScope(s, 'Delete');
+          if (!scope) return;
+          if (scope === 'future') {
+            const note = await impactFor(`/series/${s.type.id}/impact?from=${s.starts_at.slice(0, 10)}`);
+            if (!(await confirm('Delete this and all following?', withImpact('Their orders of service and schedules will be removed too. Services that have already happened stay.', note, 'They’ll lose these assignments.')))) return;
+            await del(`/series/${s.type.id}?from=${s.starts_at.slice(0, 10)}`);
+          } else {
+            const note = await impactFor(`/services/${s.id}/impact`, true);
+            if (!(await confirm('Delete this service?', withImpact('Its order of service and schedule will be removed.', note, 'They’ll lose these assignments.')))) return;
+            await del(`/services/${s.id}`);
+          }
+          outcome = 'deleted';
+          close();
+        } catch (err) { fail(err); } // e.g. “This service has already happened…”
       };
       d.querySelector('[data-stop]')?.addEventListener('click', async () => {
         const note = await impactFor(`/series/${s.type.id}/impact?from=${nextDay(s.starts_at.slice(0, 10))}`);
@@ -306,7 +311,7 @@ export async function deleteSeries(t) {
     },
     onSubmit: async (f) => {
       const r = await del(`/series/${t.id}?from=${f.from.value}`);
-      toast(`Deleted ${r.removed} upcoming ${r.removed === 1 ? 'service' : 'services'}.`);
+      toast(`Deleted ${r.removed} upcoming ${r.removed === 1 ? 'service' : 'services'}.${r.kept ? ` ${r.kept} ${r.kept === 1 ? 'was' : 'were'} kept because of serving or check-in records.` : ''}`);
       ok = true;
     },
   });

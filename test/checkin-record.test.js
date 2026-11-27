@@ -201,16 +201,14 @@ test('repeats and misses: repeat, unknown id, wrong code', async () => {
   assert.equal(m[0].security_code, 'NOPE');
 });
 
-test('a deleted check-in leaves its snapshot in the record', async () => {
+test('a check-in can’t be deleted: DELETE says so (405), keeps the row and writes no event (voiding is in history-protection.test.js)', async () => {
   const r = await asStation('DELETE', '/checkin/checkins/ci-bo-00001');
-  assert.equal(r.status, 200);
-  assert.equal(db.prepare("SELECT COUNT(*) n FROM checkins WHERE id = 'ci-bo-00001'").get().n, 0);
-  const e = events('checkin.delete');
-  assert.equal(e.length, 1);
-  assert.deepEqual([e[0].checkin_id, e[0].person_id, e[0].household_id, e[0].security_code, e[0].device_id], ['ci-bo-00001', ids.bo, ids.hhB, 'BB22', stationId]);
-  assert.deepEqual(e[0].d, { kind: 'kid', room_id: null, service_id: null, day: '2027-02-21', checked_in_at: '2027-02-21T15:29:00.000Z', checked_out_at: null });
-  assert.equal((await asStation('DELETE', '/checkin/checkins/ci-bo-00001')).status, 404);
-  assert.equal(events('checkin.delete').length, 1);
+  assert.equal(r.status, 405);
+  assert.match(r.data.error, /Void/);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM checkins WHERE id = 'ci-bo-00001'").get().n, 1);
+  assert.equal(events('checkin.delete').length, 0);
+  assert.equal((await asStation('DELETE', '/checkin/checkins/not-there')).status, 404);
+  assert.throws(() => db.prepare("DELETE FROM checkins WHERE id = 'ci-bo-00001'").run(), /kept for the record/);
 });
 
 test('roster downloads: one per station per campus per day', async () => {
@@ -290,7 +288,8 @@ test('time zone: just after midnight UTC is still the day before in Chicago', as
 
 test('safety settings: admins read, only all-campus admins change, strict body, audited, never in /settings', async () => {
   const g = await api('admin', 'GET', '/checkin/safety');
-  assert.deepEqual(g.data, { require_current_app: false, current_app_version: CHECKIN_APP_VERSION });
+  assert.deepEqual(g.data, { require_current_app: false, current_app_version: CHECKIN_APP_VERSION,
+    legal_hold: { on: false, reason: '', set_by_name: '', set_at: null, released_at: null, released_by_name: '', cooling_off_days: 7 } });
   assert.equal((await api('northadmin', 'GET', '/checkin/safety')).status, 200);
   assert.equal((await api('staff', 'GET', '/checkin/safety')).status, 403);
   assert.equal((await asStation('GET', '/checkin/safety')).status, 403);
@@ -312,7 +311,7 @@ test('safety settings: admins read, only all-campus admins change, strict body, 
   assert.deepEqual(JSON.parse(a.detail), { from: { require_current_app: false }, to: { require_current_app: true } });
   const ev = events('safety.settings');
   assert.equal(ev.length, 1);
-  assert.deepEqual([ev[0].campus_id, ev[0].day, ev[0].user_id, ev[0].d], [null, null, ids.admin, { from: { require_current_app: false }, to: { require_current_app: true } }]);
+  assert.deepEqual([ev[0].campus_id, ev[0].day, ev[0].user_id, ev[0].d], [null, null, ids.admin, { changed: ['require_current_app'], require_current_app: true }]);
   assert.equal((await api('admin', 'PATCH', '/checkin/safety', { require_current_app: false })).status, 200);
 
   for (const who of ['admin', 'volunteer']) {

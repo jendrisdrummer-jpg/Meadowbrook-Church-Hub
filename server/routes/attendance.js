@@ -9,7 +9,7 @@ import { missingPeople } from '../attendance-missing.js';
 
 // "Was here" = marked on the roll, or a child checked in to that service.
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
-  UNION SELECT service_id, person_id FROM checkins WHERE service_id IS NOT NULL`;
+  UNION SELECT service_id, person_id FROM checkins WHERE service_id IS NOT NULL AND voided_at IS NULL`;
 
 export default function attendanceRoutes(db) {
   const r = Router();
@@ -64,7 +64,7 @@ export default function attendanceRoutes(db) {
       WHERE p.archived = 0 AND p.status != 'inactive' AND (p.campus_id IS NULL OR p.campus_id = ? OR p.id IN (SELECT person_id FROM attendance WHERE service_id = ?))
       ORDER BY recent DESC, p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(since, s.starts_at, s.campus_id, s.id);
     const present = db.prepare('SELECT person_id FROM attendance WHERE service_id = ?').all(s.id).map((x) => x.person_id);
-    const kids = db.prepare('SELECT DISTINCT person_id FROM checkins WHERE service_id = ?').all(s.id).map((x) => x.person_id);
+    const kids = db.prepare('SELECT DISTINCT person_id FROM checkins WHERE service_id = ? AND voided_at IS NULL').all(s.id).map((x) => x.person_id);
     res.json({ people, present, checked_in: kids });
   });
 
@@ -106,7 +106,7 @@ export default function attendanceRoutes(db) {
       if (req.body?.role !== 'child') throw new HttpError(403, 'Adding an adult to an existing family is for staff, because every adult in a family can pick up their children. Ask a staff member, or add a child instead.');
       const hh = db.prepare('SELECT campus_id FROM households WHERE id = ?').get(householdId);
       const onRoll = db.prepare(`SELECT 1 FROM people p WHERE p.household_id = ? AND p.id IN (SELECT person_id FROM attendance WHERE service_id = ?
-        UNION SELECT person_id FROM checkins WHERE service_id = ?) LIMIT 1`).get(householdId, s.id, s.id);
+        UNION SELECT person_id FROM checkins WHERE service_id = ? AND voided_at IS NULL) LIMIT 1`).get(householdId, s.id, s.id);
       if (!hh || !onRoll || !canCampus(req.user, hh.campus_id)) throw forbidden();
     }
     const used = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'attendance.guest' AND user_id = ? AND at >= datetime('now', '-1 day')").get(req.user.id).n;

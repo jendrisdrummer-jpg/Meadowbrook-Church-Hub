@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { requireRole, requireAllCampuses } from '../auth.js';
 import { HttpError, notFound, int, audit } from '../http.js';
+import { legalHold } from '../history.js';
 import { runBackup, backupStatus, backupDir, downloadFromDrive, disconnectDrive } from '../backup.js';
 
 export default function backupRoutes(db, { uploadDir }) {
@@ -39,6 +40,8 @@ export default function backupRoutes(db, { uploadDir }) {
   });
 
   r.delete('/backups/drive', requireRole('admin'), requireAllCampuses, (req, res) => {
+    // The copies in Drive are what a legal hold is keeping, so Drive stays connected until it's released.
+    if (legalHold(db).on) throw new HttpError(409, 'A legal hold is on, so Google Drive stays connected. Release the hold first.');
     disconnectDrive(db);
     audit(db, req, 'backup.drive.disconnect');
     res.json({ ok: true });

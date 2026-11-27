@@ -218,10 +218,37 @@ Names only, never values. Render → the service → **Environment**.
 
 `RENDER` is set by Render itself; Settings → Checks uses it to apply the production rules.
 
+## Rehearsal: migration 42 (history protection)
+
+Migration 42 (child-safety V1, PR 3) adds four columns to `checkins` and eight triggers that make the database refuse to delete check-ins and
+past serving records. It changes no existing row, but it changes what the live app may do, so it is **rehearsed on a copy of real data first**
+(the owner's condition, 27 Nov 2026). The developer does this, on a laptop, never on Render:
+
+1. **Backup:** Settings → Backups → **Back up now**, then download it (the file ends in `.db.gz.enc`). Confirm the top row is from today and says OK.
+2. **Restore it to a copy** as in [restore-drill.md](restore-drill.md): `npm run restore -- <file> /path/outside/the/repo/copy.db --check`. Note the counts it prints.
+3. **Open the copy with the new code in offline mode:** `MB_OFFLINE=1 MB_DB=/path/outside/the/repo/copy.db npm start` (no outgoing calls, no background jobs). Stop it after
+   `/healthz` answers.
+4. **Check the result** against the same copy (a read-only `sqlite3` or `node:sqlite` session):
+   - `PRAGMA user_version` is **42** (it was 41), `PRAGMA integrity_check` is `ok`, `PRAGMA foreign_key_check` returns no rows.
+   - Row counts of `checkins`, `assignments`, `services`, `people`, `households` and `audit_log` equal the step 2 counts (the migration changes no rows).
+   - `SELECT name FROM sqlite_master WHERE type = 'trigger'` lists `checkins_no_delete`, `checkins_void_is_final`, `assignments_keep_history`,
+     `assignments_no_restatus`, `services_no_retime`, `services_keep_history`, `positions_keep_history` and `people_keep_history` (as well as the two `checkin_events_*` ones).
+   - `SELECT COUNT(*) FROM checkins WHERE voided_at IS NOT NULL` is 0.
+5. **Try the refusals on the copy** (each must fail with a plain sentence, and change nothing): delete one check-in; delete a past service that has
+   accepted volunteers; delete one past accepted assignment; delete a person who has been checked in. Delete one upcoming service: that must still work.
+6. **Walk every delete screen on the copy** (`MB_OFFLINE=1 MB_DEV_LOGIN=1`, sign in as an admin): a service's **Details** (an old service shows "kept" instead of Delete,
+   an upcoming one still deletes), **Who's serving** (the remove button is gone for old accepted people), **Teams** → a position people served in (a kind message), **Services** → delete a
+   repeating service (only upcoming ones go), **People** → merge two test people, **Check-in iPads** → put the legal hold on and release it.
+7. **Record the result** in the table below. Only then merge. Deploy midweek, not on a Sunday and not between 19 Dec and 3 Jan.
+
+**Rollback:** the triggers stay if the code is rolled back (older code that tries to delete protected history gets a generic error, which is the safe direction). Only
+a later migration (`DROP TRIGGER`) removes them, and that needs the owner's approval.
+
 ## Rehearsal record
 
 | Date | Release | What was rehearsed | Result |
 |---|---|---|---|
+| 2026-11-27 | History protection (migration 42) over the check-out guard branch (schema 41) | **Made-up demo data only; not yet run on a copy of real data (owner/devops step).** The previous release's demo seed built a database at schema 41 (145 check-ins, 402 assignments, 39 services, 72 people); the new code opened a copy | Schema 42; `integrity_check` ok; `foreign_key_check` no rows; every original table has the same rows and the same original-column contents; four columns and six triggers added (two more update guards were added afterwards, after a security review; re-run this rehearsal); deleting a check-in, all check-ins, a past service with records, a past accepted assignment, a person who was checked in and a campus were each refused with a plain sentence and changed nothing; an upcoming service still deleted; a second open did nothing; `npm test` 368 passing, `npm run test:ui` 396/396 |
 | 2026-11-25 | `milestone-1` at `bbc6b4d` over `main` at `03b094f` | Made-up data only. `main`'s demo seed built a database at schema 29; three sign-ins on `main` created old-style sessions. `milestone-1` started on copies in offline mode. Then `main` started on the upgraded copy (rollback) | Migrations 30–35 applied (schema 35, all six new tables and three columns, integrity ok); `/healthz` answered; three sessions hashed and capped to 24 hours, old cookie still signed in; index created on the clean copy, skipped with the warning on a copy with one duplicate; `npm test` 146/146, `npm run test:ui` 224/224. Rollback: `main` started on schema 35, `/healthz` ok, old cookies refused, a stored hash accepted as a cookie (why sessions are cleared); the cleanup one-liner ran |
 
 The real-data rehearsal is the restore drill run with the `milestone-1` code

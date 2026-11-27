@@ -182,7 +182,7 @@ export default async function team(el, id, opts = {}) {
       const delPos = e.target.closest('[data-del-pos]');
       if (delPos) {
         const p = t.positions.find((x) => x.id === Number(delPos.dataset.delPos));
-        if (await confirm(`Delete “${p.name}”?`, 'People will no longer be listed for it.')) { await del(`/positions/${p.id}`); reload(); }
+        if (await confirm(`Delete “${p.name}”?`, 'People will no longer be listed for it. A position people have already served in is kept in the record, so it can’t be deleted.')) { await del(`/positions/${p.id}`); reload(); }
         return;
       }
       const chip = e.target.closest('.chip.link[data-pos]');

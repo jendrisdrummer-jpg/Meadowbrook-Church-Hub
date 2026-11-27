@@ -2,7 +2,8 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow, HttpError } from '../http.js';
+import { serviceKept, assignmentKept, serviceRetimeKept, PAST_CUTOFF_BACK, MSG } from '../history.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
@@ -151,6 +152,7 @@ export default function serviceRoutes(db) {
       type,
       can_edit_plan: canEditPlan(req, s),
       can_lock: isStaff(req) && canCampus(req.user, s.campus_id),
+      kept: serviceKept(db, s.id), // already happened, with serving or check-in records: can't be deleted
       items: planItems(s.id),
       positions: positions.map((p) => ({
         ...p,
@@ -173,6 +175,8 @@ export default function serviceRoutes(db) {
       audit(db, req, b.locked ? 'service.lock' : 'service.unlock', String(s.id));
     }
     if (b.starts_at !== undefined && !isDateTime(b.starts_at)) throw bad('Pick a date and time.');
+    // A service that has happened, with records, can't be moved later (it would stop being past and could then be deleted).
+    if (b.starts_at !== undefined && serviceRetimeKept(db, s.id, b.starts_at)) throw new HttpError(409, MSG.retime);
     for (const k of ['title', 'series', 'notes']) if (b[k] !== undefined) b[k] = str(b[k]);
     tx(db, () => {
       // Moving one service of a series to another day: skip its old day so it isn't recreated.
@@ -186,6 +190,8 @@ export default function serviceRoutes(db) {
 
   r.delete('/services/:id', requireRole('staff'), (req, res) => {
     const s = service(req, req.params.id);
+    // A service that has happened (with serving, roll-call, headcount or check-in records) is part of the record.
+    if (serviceKept(db, s.id)) throw new HttpError(409, MSG.service);
     tx(db, () => {
       // Remember the skipped date so the series doesn't create this service again.
       if (s.service_type_id) db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
@@ -597,6 +603,9 @@ export default function serviceRoutes(db) {
     if (a.person_id !== req.user.personId) requireSchedule(req, s, a.position_id);
     const status = oneOf(req.body?.status, ['pending', 'accepted', 'declined'], null);
     if (!status) throw bad('Status must be accepted, declined or pending.');
+    // Once a service is past (it began 14+ hours ago, so past in every US time zone) nobody's answer can change, not even their own:
+    // a declined-and-deleted serving record would be the same as deleting it.
+    if (status !== a.status && db.prepare(`SELECT 1 FROM services WHERE id = ? AND starts_at <= ${PAST_CUTOFF_BACK}`).get(a.service_id)) throw new HttpError(409, MSG.restatus);
     db.prepare("UPDATE assignments SET status = ?, decline_reason = ?, responded_at = datetime('now') WHERE id = ?")
       .run(status, status === 'declined' ? str(req.body?.reason, 300) : '', a.id);
     // The person's own reply goes to their team's leaders and whoever sent the request.
@@ -608,6 +617,8 @@ export default function serviceRoutes(db) {
     const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(req.params.id);
     if (!a) throw notFound('Assignment');
     requireSchedule(req, service(req, a.service_id), a.position_id);
+    // Someone who served (accepted) at a service that has happened stays in the record.
+    if (assignmentKept(db, a.id)) throw new HttpError(409, MSG.assignment);
     const told = assignmentRow(db, a.id);
     db.prepare('DELETE FROM assignments WHERE id = ?').run(a.id);
     // Someone who was already asked hears they're no longer needed.

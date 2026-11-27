@@ -31,6 +31,9 @@ export const post = (url, body) => api('POST', url, body ?? {});
 export const patch = (url, body) => api('PATCH', url, body);
 export const put = (url, body) => api('PUT', url, body);
 export const del = (url, body) => api('DELETE', url, body);
+// Someone who accepted and whose service has already happened: that serving is part of the record, so it can't be removed.
+// The same rule as the database's (a service that started up to 14 hours from now counts as past, in every time zone).
+export const servedAlready = (assignment, startsAt) => assignment.status === 'accepted' && startsAt <= new Date(Date.now() + 14 * 3600e3).toISOString().slice(0, 16);
 
 // ---------------------------------------------------------------- safe HTML
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };

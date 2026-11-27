@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (41 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (42 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -64,7 +64,7 @@ Arrows show the main references.
 | `attendance` → services, people | Roll call (marked by the attendance team). |
 | `headcounts` → services | Counts per area. |
 | `rooms` → campuses | Kids' rooms by age/grade. |
-| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Migration 41 (child-safety V1, PR 2) adds `checked_out_device_id` and `checked_out_user_id` (plain ids, no foreign keys, so they outlive the iPad or account; exactly one is set by a release, from what the server knows) and `client_checked_out_at` (the time an offline iPad said it released the child, as sent; `checked_out_at` holds that time kept between the check-in and the sync). `checked_out_by` is now the iPad's or account's name from the server, never the text the iPad sends. The child-safety plan numbers this migration 42; the number is the place in `MIGRATIONS`, so it is 41 here. |
+| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Migration 41 (child-safety V1, PR 2) adds `checked_out_device_id` and `checked_out_user_id` (plain ids, no foreign keys, so they outlive the iPad or account; exactly one is set by a release, from what the server knows) and `client_checked_out_at` (the time an offline iPad said it released the child, as sent; `checked_out_at` holds that time kept between the check-in and the sync). `checked_out_by` is now the iPad's or account's name from the server, never the text the iPad sends. The child-safety plan numbers this migration 42; the number is the place in `MIGRATIONS`, so it is 41 here. Migration 42 (PR 3) adds `voided_at`, `voided_by` (the account's id, a plain integer), `voided_by_name` and `void_reason`: a check-in is **voided, never deleted**, every list leaves voided rows out, and the database refuses to delete a check-in (see [Protected history](#protected-history)). |
 | `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
 | `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
 
@@ -105,6 +105,68 @@ Arrows show the main references.
 | Table | Purpose |
 |---|---|
 | `backups`, `backup_files` | Nightly encrypted backup runs and which uploaded files are in Drive. |
+
+## Protected history
+
+Check-ins and past serving records are part of the church's safeguarding record, so migration 42 (child-safety V1, PR 3)
+makes the **database itself** refuse to delete them. Mistakes are marked, not removed: a check-in is **voided** (`voided_at`,
+`voided_by`, `voided_by_name`, `void_reason`; Staff and admins may void any check-in at their campuses; a leader with check-in access only one that is still open (not checked out) from today at that campus; an iPad never; a reason is required; audited), and a past service is simply kept.
+
+**What the triggers refuse** (`BEFORE DELETE`, `RAISE(ABORT, <plain sentence>)`; the sentences are listed in `MSG` in
+`server/history.js`, and `errorHandler` turns any that reach it into a plain 409):
+
+| Trigger | Refuses to delete | Unless |
+|---|---|---|
+| `checkins_no_delete` | any check-in | never (void it) |
+| `checkins_void_is_final` (`BEFORE UPDATE OF` the four void columns) | un-voiding or editing a voided check-in | never |
+| `assignments_keep_history` | an **accepted** assignment on a service that is past | the assignment is pending or declined, or the service is upcoming |
+| `assignments_no_restatus` (`BEFORE UPDATE OF status`) | changing an accepted assignment's status once its service began 14+ hours ago (so it can't be declined and then deleted) | the service began less than 14 hours ago, or the status isn't changing |
+| `services_no_retime` (`BEFORE UPDATE OF starts_at`) | moving a service that began 14+ hours ago, and has the records below, to a later time (so it can't become "upcoming" and then be deleted) | the new time is still 14+ hours ago (a correction), or the service has no records |
+| `services_keep_history` | a service that is past **and** has an accepted or sent assignment, a roll-call mark, a headcount or a check-in | the service is upcoming, or has none of those |
+| `positions_keep_history` | a position with an assignment on a past service | nobody served in it at a past service |
+| `people_keep_history` | a person with a check-in, a roll-call mark or any assignment | none of those (no route deletes people; they are archived) |
+
+- **Two windows, on purpose.** Deletes use **now + 14 hours** (a service starting within a day is already protected). Updates (retime, status) use **now - 14 hours**, which is past in every US time zone, so leaders can still move tomorrow's service or change a Saturday-night answer without a workaround. Routes: `PATCH /assignments/:id` is refused (409) for any status change once the service began 14+ hours ago; `PATCH /services/:id` for a blocked retime; `PATCH /series/:id` clamps `from_date` to today and leaves a kept service's time alone.
+- **Past (for deletes)** means `starts_at <= strftime('%Y-%m-%dT%H:%M','now','+14 hours')`. `starts_at` is campus-local time and no time
+  zone is more than 14 hours from UTC, so this is past everywhere. `server/history.js` (`PAST_CUTOFF`, `serviceKeptSql`,
+  `assignmentKeptSql`) holds the same rule for the routes, so a route says no politely first; change one and change the other.
+- **The triggers fire through cascades** (spike, below): deleting a team stops at its positions, a campus at its services and
+  check-ins, a person at their records. The whole statement is aborted, so nothing is half-deleted, and `tx()` rolls back.
+- **Not a rebuild:** triggers were chosen over rebuilding `checkins` and `assignments` with `RESTRICT` foreign keys (a 12-step
+  copy of every row, and the migration runner can't change `foreign_keys` inside a transaction). **Rule: any migration that
+  rebuilds one of these tables must re-create its triggers in the same migration**, because a rebuild drops them silently.
+  `test/history-services.test.js` fails if one is missing.
+- **Rolling the code back** leaves the triggers; older code that tries to delete a protected row gets a generic error (the safe
+  direction). Only a later migration (`DROP TRIGGER`) removes them, which needs the owner's approval.
+- **Not guarded in V1** (see [tech-debt.md](tech-debt.md)): roll-call un-marking and headcount edits (**owner decision:** guard them, and should a legal hold freeze them?), and a `SET NULL` on `checkins.service_id` when an upcoming service is deleted.
+- **Legal hold:** `checkin_safety.legal_hold` in `settings` (`{on, reason, set_by, set_by_name, set_at, released_at, released_by,
+  released_by_name, release_reason}`), changed only through `POST /checkin/legal-hold` and `/release`. While it is on, a
+  check-in can't be voided, people can't be merged, Google Drive can't be disconnected and `server/backup.js` deletes no copy
+  in Drive (and none on disk that isn't also in Drive); for 7 days after a release backup copies are still kept.
+
+### The spike: every path that deletes protected history
+
+Checked on 2026-11-27 (line numbers are in the code before this change). Triggers verified under `node:sqlite` first: each fires
+on a direct delete **and** through `ON DELETE CASCADE` (service, person, position, team, campus), the statement is aborted whole,
+and `ON DELETE SET NULL` (an update, not a delete) does not fire them.
+
+| Path (before this change) | Hits a trigger? | What it does now |
+|---|---|---|
+| `DELETE /checkin/checkins/:id` (`routes/checkin.js:322`) | Yes: `checkins_no_delete` | Returns 405 "can't be deleted, use Void"; `POST /checkin/checkins/:id/void` (staff, not iPads, reason required, audited, blocked by a legal hold) marks it instead; every list ignores voided rows |
+| `DELETE /services/:id` (`routes/services.js:192`) | Yes, when past with records (and its cascade into `assignments`) | 409 with the plain sentence; the service page says "kept" instead of showing Delete (`kept` in `GET /services/:id`); upcoming or empty services delete as before |
+| `DELETE /series/:id?from=` (`routes/series.js:209`) | Yes: it deleted past dates too | Never deletes before today, and skips (and counts as `kept`) any service the triggers would keep |
+| `PATCH /series/:id` with an earlier `ends_on` (`routes/series.js:197`) | Yes: same | Same: only upcoming services after the new end date, skipping kept ones |
+| `PATCH /assignments/:id` (`routes/services.js:597`; also the signed link in `routes/app.js`) | Not a delete, but a past accepted answer could be declined and then deleted | 409 once the service began 14+ hours ago; `assignments_no_restatus` backs it |
+| `PATCH /services/:id` and `PATCH /series/:id` `from_date` (`routes/services.js:168`, `routes/series.js:182`) | Not a delete, but a past service could be moved to the future and then deleted | 409 for a service with records; `from_date` is clamped to today; `services_no_retime` backs it |
+| `DELETE /assignments/:id` (`routes/services.js:612`) | Yes: past accepted | 409 "already served, kept in the record"; the remove buttons are hidden for them; drafts, declines and upcoming still delete |
+| `DELETE /positions/:id`, including `force` (`routes/teams.js:160`) | Yes: cascades past assignments | 409 "people have served in this position... rename it instead"; unused or upcoming-only positions delete as before |
+| `POST /people/:id/merge` (`routes/people.js:308`) | Yes: it deleted the duplicate's leftover assignments | Leftovers that are past and accepted **stay on the archived duplicate**; other leftovers (duplicates of what the kept person has, upcoming) go as before; check-ins and everything else move as before; blocked by a legal hold |
+| Empty-family cleanup `DELETE FROM households` (`routes/people.js:391`) | No: members are `SET NULL`, and only empty families qualify | Unchanged |
+| `DELETE /users/:id` (`routes/setup.js:242`) | No: sessions cascade; `assignments.sent_by` is `SET NULL`; the record tables keep plain ids | Unchanged (tested) |
+| `DELETE FROM attendance` (`routes/attendance.js:88`, merge duplicates) and headcounts (`routes/checkin.js:380`) | No: not guarded in V1 | Unchanged |
+| Deleting a person, team or campus | Yes (cascade) | No route does it; the triggers are the backstop |
+| Demo seed and sample reset (`scripts/seed-demo.js`, `server/sample.js`) | No: they delete the whole file, never rows | Unchanged |
+| Tests: `api.test.js` fixtures that deleted check-ins | Yes | They void the fixture rows instead (lists ignore voided rows); `app-choices-migration.test.js` also drops the new triggers and columns when it rewinds the schema |
 
 ## Append-only tables
 

@@ -30,7 +30,7 @@ chromium`. Claude Code's cloud sessions already have it.
 - **Fixed clock (when a test needs a particular date or time):** `mock.timers.enable({ apis: ['Date'], now: Date.parse('2027-02-21T15:30:00Z') })`
   from `node:test`, at the top of `before`, **before any session or pairing is made**; `mock.timers.reset()` in `after`; move it with
   `mock.timers.setTime(...)` (for the next day, or a time-zone edge) and put it back in a `finally`. Only `Date` is mocked, so the
-  HTTP stack and timers keep working. Examples: `test/checkin-record.test.js`, `test/checkin-checkout.test.js` (check-out guard: two-family 409, offline reports at their real time, who released, flood caps, label name rules).
+  HTTP stack and timers keep working. Examples: `test/checkin-record.test.js`, `test/checkin-checkout.test.js` (check-out guard: two-family 409, offline reports at their real time, who released, flood caps, label name rules), `test/history-checkins.test.js`, `test/history-services.test.js` and `test/history-hold.test.js` (protected history: triggers, void, past services, positions, series, merge, legal hold and backups; they use 2020 for "past" and 2099 for "future", because the triggers read the database's own clock, and one relative "within 14 hours" case).
 - **Dates:** never assume today's date (tests run on any day). Build dates relative to now
   (`nextSunday()`, `addDays()`), and make assertions that hold on any date, including month
   boundaries. A test that depends on the calendar is a bug.

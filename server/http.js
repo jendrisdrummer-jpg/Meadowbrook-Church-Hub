@@ -1,4 +1,5 @@
 // Small helpers shared by the route files.
+import { isHistoryError } from './history.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -16,6 +17,9 @@ export function errorHandler(err, _req, res, _next) {
   if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON.' });
   if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'That’s too big to upload.' });
+  // Safety net: if any route still tries to delete protected history, the database says no (migration 42)
+  // and the person gets its plain wording, not "something went wrong".
+  if (isHistoryError(err)) return res.status(409).json({ error: err.message });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on the server.' });
 }

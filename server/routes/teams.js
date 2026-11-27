@@ -3,7 +3,8 @@ import { unreachableReasons } from '../notify.js';
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, audit, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, audit, localNow, HttpError } from '../http.js';
+import { positionKept, MSG } from '../history.js';
 import { seesTeamDetail } from '../team-scope.js';
 import { revokeCheckin } from './checkin.js';
 import { closeStreams } from '../live.js';
@@ -156,6 +157,8 @@ export default function teamRoutes(db) {
     if (!pos) throw notFound('Position');
     if (!canManage(req, team(req, pos.team_id))) throw forbidden();
     const upcoming = db.prepare("SELECT COUNT(*) n FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.position_id = ? AND s.starts_at >= date('now')").get(pos.id).n;
+    // People who served in this position at a service that has happened stay in the record, so it can't be deleted.
+    if (positionKept(db, pos.id)) throw new HttpError(409, MSG.position + ' You can rename it instead.');
     if (upcoming && !req.body?.force) throw bad(`${upcoming} upcoming assignment(s) use this position. Remove them first.`);
     db.prepare('DELETE FROM positions WHERE id = ?').run(pos.id);
     res.json({ ok: true });
