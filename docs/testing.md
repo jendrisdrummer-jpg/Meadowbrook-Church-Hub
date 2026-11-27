@@ -27,6 +27,10 @@ chromium`. Claude Code's cloud sessions already have it.
   other campus.
 - Outside services: a local `http.createServer` stand-in plus the `MB_*_API` override; restore
   env vars in `t.after`.
+- **Fixed clock (when a test needs a particular date or time):** `mock.timers.enable({ apis: ['Date'], now: Date.parse('2027-02-21T15:30:00Z') })`
+  from `node:test`, at the top of `before`, **before any session or pairing is made**; `mock.timers.reset()` in `after`; move it with
+  `mock.timers.setTime(...)` (for the next day, or a time-zone edge) and put it back in a `finally`. Only `Date` is mocked, so the
+  HTTP stack and timers keep working. Example: `test/checkin-record.test.js`.
 - **Dates:** never assume today's date (tests run on any day). Build dates relative to now
   (`nextSunday()`, `addDays()`), and make assertions that hold on any date, including month
   boundaries. A test that depends on the calendar is a bug.

@@ -271,6 +271,11 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   authorised** (Settings → Sign-in & accounts → the account → "Kids' check-in"; stored in the
   `checkin_user_ids` setting; `canCheckin` in `routes/checkin.js`). Other leaders get 403. It sends
   **children's** allergies and medical notes, never an adult's. Every route checks the campus.
+- **The check-in record** (`GET /checkin/events`) is for **staff and admins at that campus** (`requireRole('staff')` plus
+  `canCampus`). Never a station, and not a leader even with check-in access: the log names who released which child.
+  **Check-in safety settings** (`/checkin/safety`) are for admins; reading is open to campus-limited admins, changing
+  needs an admin with **all campuses** (`requireAllCampuses`), because the switch affects every campus's iPads. The setting
+  is kept apart from `/settings` on purpose, so the general settings endpoint can't change it.
 - **The check-in roster** for a campus holds that campus's families **plus families with no campus
   set**, and never a family assigned to another campus. The rule uses the **family's** (household's)
   campus. Checking in and the list of who's checked in follow the same rule, so a check-in can't pull

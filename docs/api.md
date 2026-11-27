@@ -32,7 +32,8 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `series.js`, `templates.js` | repeating services, templates; read-only counts of scheduled volunteers before an edit or delete: `GET /series/:id/impact?from=` (this and following) and `GET /services/:id/impact` return `{services, volunteers, assignments, accepted}` | leader+/staff (impact: staff, campus-scoped) |
 | `songfiles.js` | `/songs/:id/files`, `/song-files/:id` | volunteer+ read |
 | `attendance.js`, `checkin.js` | roll call, check-in, headcounts, weekly attendance; `GET /checkin/campuses` lists the campuses the account may set a station up for | leader+ (or station); roll, headcounts, `POST /services/:id/roll/guest` and `GET /attendance/services` also accept an account with the Attendance switch (`requireAttendance`, campus-scoped). `GET /attendance/services?from=&to=` lists services at the account's campuses (default: last 14 days and tomorrow; up to 62 days per request) with `attendance_mode`, headcounts and roll count. `POST /services/:id/roll/guest {first_name, last_name, household_id?, role?: 'child', force?}` adds a guest in a new family, or a child to a family already on the roll, and marks them present: 201 `{id, first_name, last_name}`, 409 name-only duplicate, 403 for an adult in an existing family, 429 after 30 a day. `GET /attendance/summary?year=YYYY|weeks=N&campus_id=&service_time=HH:MM` (leader+, campus-scoped, 403 for a campus the account lacks) returns `{from, to, weeks[{week, total, prev_week, prev_total}], stats{average, previous_average, change_pct, month, month_average, highest, weeks_with_numbers}, services[{id, date, time, campus, title, attendance, source, headcount, marked, kids}], service_times, years}`. Attendance per service is the headcount total if any headcount was entered, otherwise the distinct people marked present in roll call (not counting anyone also checked in as a kid there), plus kids checked in; `source` is `headcount`, `roll` or `kids`. Weeks start Sunday; `prev_*` is the same week 52 weeks earlier; `years` lists years with any data. `GET /attendance/weekly` also returns `source` (`headcount`, `names` or `mixed` per campus and week); `adults` is the counted total (headcount, else names on the roll minus kids also checked in). | `GET /attendance/missing?weeks=2|3|4&campus_id=` (leader+, campus-scoped): regulars (here 3+ times in the last 12 weeks, not inactive) who missed that many Sundays when attendance was taken at their campus, with `missed` and `last_at`; every leader sees everyone at their campuses. Home's `attention.missing` counts the 2+ list.
-| `stations.js` | `/checkin/pair`, `/checkin/station`, `/checkin/devices` | public pairing; staff devices |
+| `stations.js` | `/checkin/pair`, `/checkin/station`, `/checkin/devices` | public pairing; staff devices. `GET /checkin/devices` also returns each iPad's `app_version` and `app_version_at`. |
+| `checkin.js` (record) | `GET /checkin/events?campus_id=&day=YYYY-MM-DD[&action=]`, `GET`/`PATCH /checkin/safety` | Events: `requireRole('staff')` and the campus must pass `canCampus`; never a station (403), signed out 401; missing or bad `day` or unknown `action` 400. Returns `{events, truncated}` (up to 5,000 in `id` order; `detail` parsed; `first_name`/`last_name` joined from `people` at read time) and audits `checkin.events.view`. Safety: `GET` admin (campus-limited admins may read) returns `{require_current_app, current_app_version}`; `PATCH {require_current_app: boolean}` needs an admin with all campuses (`requireAllCampuses`), refuses unknown keys and wrong types with 400, audits `checkin.safety {from, to}` and records `safety.settings`. The key is stored as the setting `checkin_safety`, which is not in `GET`/`PATCH /settings`. |
 | `groups.js` | `/groups`, `/groups/:id`, `/groups/:id/candidates`, `/groups/:id/members/:personId` | volunteer+; staff manage, a group's leaders run its roster (campus-bound finder, 30 adds/day, no contact details) |
 | `chat.js`, `calls.js`, `tasks.js` | chats, messages, files, SSE stream, calls, tasks | volunteer+ and membership |
 | `notifications.js` | inbox, preferences, push subscriptions | volunteer+ |
@@ -66,6 +67,18 @@ Question types and answer checking are shared with event sign-ups in `server/que
 Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signature),
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`
 (volunteer+, since photos include children), page routes.
+
+### Check-in app version (`x-checkin-version`)
+
+The check-in iPad page sends `x-checkin-version: <CHECKIN_APP_VERSION>` (a whole number from
+`public/js/checkin-rules.js`, raised by any change to what the iPad sends or how it releases children) on every request.
+`stationAuth` keeps the last value on `checkin_devices` (anything that isn't 1–6 digits is stored as `''`), and the record
+stores it on each event. When an admin turns on `require_current_app`, a **paired iPad** that sends no version or a lower
+one gets **426** `{ error: 'This iPad is running an older check-in. Close the app and open it again, then try once more.', reload: true }`
+from `GET /checkin/roster`, `GET /checkin/active`, `POST /checkin/checkins`, `POST /checkin/checkout` and
+`DELETE /checkin/checkins/:id` (recorded as `version.refused`, at most once per iPad per day). Signed-in users,
+`/checkin/station`, `/checkin/pair*`, `/checkin/campuses`, `/campuses` and `POST /people` are never refused. The iPad keeps its
+queue and outbox on any non-2xx answer, so a refused upload is sent again after the app is reopened.
 
 ## Integrations
 

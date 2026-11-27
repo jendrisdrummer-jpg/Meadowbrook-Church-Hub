@@ -48,6 +48,17 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 | `media.js` / `mux.js` / `podcast.js` | YouTube sync (channel or messages playlist; each new video placed In the app / Not in the app / Needs a look) and live detection. `mux.js` and `podcast.js` are dormant (the church doesn’t use Mux; no staff screen). |
 | `backup.js` | Encrypted nightly backups to the disk and Google Drive. |
 | `csv.js` | CSV parsing/writing for imports and exports. |
+| `checkin-events.js` | The kids' check-in record: `recordEvent` (closed `ACTIONS` list, actor taken from the request, detail capped), called inside the same `tx()` as the change it records. |
+
+## Patterns worth reusing
+
+- **Area settings behind their own endpoint.** When a setting must not appear in `GET /settings` or be changeable through
+  `PATCH /settings` (a safety switch, say), keep it in one `settings` key that is **not** listed in `SETTINGS` in
+  `routes/setup.js`, with its own guarded endpoint that validates every key and type strictly and audits the change
+  (`checkin_safety` in `routes/checkin.js`).
+- **Append-only record.** A table whose rows must outlive what they mention uses triggers that refuse `UPDATE`/`DELETE`, plain
+  ids and name snapshots instead of foreign keys, and a single writer module (`checkin-events.js`). See
+  [database.md](database.md#append-only-tables).
 
 ## A request, end to end
 
