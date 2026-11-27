@@ -1,6 +1,6 @@
 // Check-in stations: iPads (or any tablet) paired with a code, so kids check in without anyone
 // signed in on them. Each station belongs to one campus and can only do check-in.
-import { get, post, patch, del, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate } from '../lib.js';
+import { get, post, patch, del, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
 import { state, setTitle, visibleCampuses } from '../app.js';
 import { CHECKIN_APP_VERSION } from '../checkin-rules.js';
 
@@ -18,6 +18,12 @@ const versionPill = (d) => {
   if (!d.app_version) return html`<span class="pill">Not reported yet</span>`;
   if (Number(d.app_version) >= CHECKIN_APP_VERSION) return html`<span class="pill good">Up to date</span>`;
   return html`<span class="pill warn">Older check-in, reload this iPad</span>`;
+};
+const holdBlock = (h) => {
+  if (h.on) return html`<div class="alert warn small">${icon('info', 'ic small-ic')} A legal hold has been on since ${fmtUtcDate(h.set_at)}${h.set_by_name ? ` (put on by ${h.set_by_name})` : ''}: ${h.reason}.
+    Check-ins can’t be voided, people can’t be merged and no backup copy is deleted.</div>`;
+  const cooling = h.released_at && Date.now() - Date.parse(h.released_at) < h.cooling_off_days * 864e5;
+  return html`<p class="muted small" style="margin:0 0 8px">${cooling ? `The last hold was released on ${fmtUtcDate(h.released_at)}. Backup copies are still kept for ${h.cooling_off_days} days after that. ` : ''}If an allegation, claim or subpoena arrives, put a hold on first, before anything else.</p>`;
 };
 const ALL_CAMPUSES_MESSAGE = 'That’s for admins who cover every campus. Ask one of them to make this change.';
 
@@ -42,7 +48,10 @@ export default async function stations(el) {
     ${safety ? html`<div class="card st-safety"><h2>Check-in safety</h2>
       <label class="check st-switch"><input type="checkbox" data-safety ${safety.require_current_app ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> Only let iPads with the latest check-in sync</label>
       <p class="muted small" style="margin:6px 0 0">Turn this on once every iPad above says Up to date. Older iPads keep what they’ve recorded and sync after they’re reopened.</p>
-      ${allCampuses ? '' : html`<p class="muted small" style="margin:6px 0 0">${ALL_CAMPUSES_MESSAGE}</p>`}</div>` : ''}`);
+      ${allCampuses ? '' : html`<p class="muted small" style="margin:6px 0 0">${ALL_CAMPUSES_MESSAGE}</p>`}
+      <h3 style="margin:16px 0 6px">Legal hold</h3>
+      ${holdBlock(safety.legal_hold)}
+      <button class="btn ${safety.legal_hold.on ? '' : 'danger'} small" data-hold="${safety.legal_hold.on ? 'release' : 'set'}" ${allCampuses ? '' : 'disabled'}>${safety.legal_hold.on ? 'Release the hold' : 'Put a legal hold on'}</button></div>` : ''}`);
 
   const sw = el.querySelector('[data-safety]');
   if (sw) sw.onchange = async () => {
@@ -50,6 +59,21 @@ export default async function stations(el) {
       const r = await patch('/checkin/safety', { require_current_app: sw.checked });
       toast(r.require_current_app ? 'Older iPads will be asked to reload.' : 'Older iPads can sync again.');
     } catch (err) { sw.checked = !sw.checked; fail(err); }
+  };
+
+  // A legal hold keeps everything as it is: nothing is voided or merged and no backup copy is deleted. Say why, both ways.
+  const hold = el.querySelector('[data-hold]');
+  if (hold) hold.onclick = async () => {
+    const setting = hold.dataset.hold === 'set';
+    const ok = await dialog({
+      title: setting ? 'Put a legal hold on?' : 'Release the legal hold?', submit: setting ? 'Put the hold on' : 'Release the hold', danger: setting,
+      body: html`<p>${setting
+        ? 'While it’s on, check-ins can’t be voided, people can’t be merged and no backup copy is deleted. Do this first when an allegation, claim or subpoena arrives. If Google Drive isn’t connected, backup copies pile up on this server until it’s released.'
+        : 'Check-ins and merges work again. Backup copies made during the hold are still kept for 7 more days.'}</p>
+        <label class="field">Why?<textarea name="reason" maxlength="300" required></textarea></label>`,
+      onSubmit: (f) => post(setting ? '/checkin/legal-hold' : '/checkin/legal-hold/release', { reason: f.reason.value }),
+    });
+    if (ok) { toast(setting ? 'The legal hold is on. Every admin has been told.' : 'The legal hold is released.'); stations(el); }
   };
 
   const campusSelect = (selected) => html`<select name="campus_id">${options(visibleCampuses().map((c) => ({ value: c.id, label: c.name })), selected ?? state.campusId ?? visibleCampuses()[0]?.id)}</select>`;

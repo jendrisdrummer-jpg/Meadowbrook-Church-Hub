@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { getSetting, setSetting } from './db.js';
 import { localNow } from './http.js';
 import { notify } from './notify.js';
+import { backupPruningPaused } from './history.js';
 
 const MAGIC = Buffer.from('MBBK1\n');
 const KEEP_RECENT = 14;
@@ -162,7 +163,8 @@ async function doBackup(db, { uploadDir, reason }) {
           const was = known.get(rel);
           if (was && was.size === st.size && was.mtime === Math.floor(st.mtimeMs)) continue;
           const fid = await upload(token, `${rel.split(path.sep).join('__')}.enc`, encrypt(fs.readFileSync(path.join(uploadDir, rel))), filesFolder);
-          if (was?.drive_id) await api(token, 'DELETE', `/drive/v3/files/${was.drive_id}`).catch(() => {});
+          // The old copy of a changed file stays while a legal hold is on (it may be what the hold is for).
+          if (was?.drive_id && !backupPruningPaused(db)) await api(token, 'DELETE', `/drive/v3/files/${was.drive_id}`).catch(() => {});
           save.run(rel, st.size, Math.floor(st.mtimeMs), fid);
           sent += 1;
         }
@@ -193,6 +195,8 @@ function keepers(rows) {
 
 // current: the copy this run just made (not marked finished yet, but it counts as the newest).
 async function prune(db, token, current) {
+  // A legal hold (and 7 days after it's released) keeps every copy in Google Drive.
+  if (backupPruningPaused(db)) return pruneLocal(db);
   const rows = db.prepare("SELECT * FROM backups WHERE (status = 'ok' OR id = ?) AND drive_id IS NOT NULL ORDER BY created_at DESC, id DESC").all(current);
   const keep = keepers(rows);
   for (const r of rows.filter((x) => !keep.has(x.id))) {
@@ -202,7 +206,10 @@ async function prune(db, token, current) {
 }
 
 function pruneLocal(db) {
-  const rows = db.prepare('SELECT * FROM backups WHERE local = 1 ORDER BY created_at DESC, id DESC').all();
+  // During a legal hold a copy on this server's disk is deleted only if it also exists in Google Drive (so the disk
+  // can't fill up, and nothing is lost). With no Drive connected nothing is deleted until the hold is released.
+  const held = backupPruningPaused(db);
+  const rows = db.prepare(`SELECT * FROM backups WHERE local = 1${held ? ' AND drive_id IS NOT NULL' : ''} ORDER BY created_at DESC, id DESC`).all();
   for (const r of rows.slice(KEEP_LOCAL)) {
     fs.rmSync(path.join(backupDir(), r.name), { force: true });
     db.prepare('UPDATE backups SET local = 0 WHERE id = ?').run(r.id);
