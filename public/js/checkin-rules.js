@@ -88,6 +88,17 @@ export function upgradeOutbox(stored, campusId, newId) {
   return entries;
 }
 
+// A release the hub refuses every time (for example the iPad moved campus) is parked, with only its ids, times and
+// the answer's status, so it stops blocking the clean-up of old family lists. A coordinator sees it counted.
+export function parkEntry(outbox, stuck, id, status) {
+  const entry = outbox.find((e) => e.id === id);
+  if (!entry) return { outbox, stuck };
+  return { outbox: outbox.filter((e) => e.id !== id), stuck: [...stuck, { id: entry.id, campus_id: entry.campus_id, ids: entry.ids, at: entry.at, status }] };
+}
+
+// Old lists and rosters may be cleared only when nothing is still waiting to be sent (parked entries don't wait).
+export const canTidy = (queue, outbox) => queue.length === 0 && outbox.length === 0;
+
 // ---------------------------------------------------------------- labels and tags
 // What is printed where other families can see it: a first name and a last-name initial, never the
 // family name. If two children who could be in the same room share a first name and last initial, the

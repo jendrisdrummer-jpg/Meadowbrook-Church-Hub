@@ -11,7 +11,7 @@ import { openDb, SCHEMA_VERSION } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
 import { ACTIONS } from '../server/checkin-events.js';
-import { CHECKIN_APP_VERSION, groupFamilies, upgradeOutbox, newRelease, labelName, labelText, tagInitials } from '../public/js/checkin-rules.js';
+import { CHECKIN_APP_VERSION, groupFamilies, upgradeOutbox, parkEntry, canTidy, newRelease, labelName, labelText, tagInitials } from '../public/js/checkin-rules.js';
 
 const T0 = '2027-02-21T15:30:00Z'; // a Sunday, 9:30 in Chicago
 const CANARY = 'CANARY-9Z';
@@ -191,16 +191,18 @@ test('report: an offline release is never refused, keeps its real time, and a mi
   }
   const evs = events('checkout').filter((e) => e.checkin_id === 'co-abe-0004' || e.checkin_id === 'co-bo-00004');
   assert.equal(evs.length, 2);
-  for (const e of evs) { assert.equal(e.client_at, at); assert.equal(e.at, new Date(T0).toISOString()); assert.equal(e.d.mode, 'report'); }
+  for (const e of evs) { assert.equal(e.client_at, at); assert.equal(e.at, new Date(T0).toISOString()); assert.equal(e.d.mode, 'report'); assert.equal(e.d.lag_s, 600, 'ten minutes between the release and the report'); }
   const m = events('checkout.mixed').at(-1);
-  assert.deepEqual([m.d.mode, m.d.count, m.d.household_count], ['report', 2, 2]);
+  assert.deepEqual([m.d.mode, m.d.count, m.d.household_count, m.d.lag_s], ['report', 2, 2, 600]);
   assert.equal(JSON.parse(db.prepare("SELECT detail FROM audit_log WHERE action = 'checkin.checkout.mixed' ORDER BY id DESC").get().detail).mode, 'report');
   // The same report sent again (a lost answer): recorded as repeats, nothing refused, no second alert.
   const mixedBefore = events('checkout.mixed').length;
   const again = await out({ mode: 'report', ids: ['co-abe-0004', 'co-bo-00004'], at });
   assert.equal(again.status, 200);
   assert.equal(again.data.checked_out, 0);
-  assert.equal(events('checkout.repeat').filter((e) => e.d.mode === 'report').length, 2);
+  const rep = events('checkout.repeat').filter((e) => e.d.mode === 'report');
+  assert.equal(rep.length, 1, 'one summary row per request');
+  assert.deepEqual([rep[0].d.count, rep[0].d.ids.sort()], [2, ['co-abe-0004', 'co-bo-00004']]);
   assert.equal(events('checkout.mixed').length, mixedBefore);
   assert.equal(row('co-abe-0004').checked_out_at, at, 'the first time stands');
 });
@@ -321,4 +323,61 @@ test('rules: labels show a first name and last initial, two letters on a clash, 
   assert.ok(!label.includes('Aldrin'), 'never the full last name');
   assert.equal(tagInitials(abe), 'A.A.');
   assert.equal(tagInitials(kid(8, 'Zed', '')), 'Z.');
+});
+
+test('report timing: lag_s tells a report sent "now" from a backdated one, and no_time marks a report with no usable time', async () => {
+  assert.equal((await checkIn([rec('co-abe-0008', ids.abe, 'LG11'), rec('co-bo-00008', ids.bo, 'LG12'), rec('co-abby-008', ids.abby, 'LG11')])).status, 201);
+  await out({ mode: 'report', ids: ['co-abe-0008'], at: new Date().toISOString() });
+  await out({ mode: 'report', ids: ['co-bo-00008'], at: '2027-02-21T15:10:00.000Z' });
+  await out({ mode: 'report', ids: ['co-abby-008'] });
+  const d = (id) => events('checkout').find((e) => e.checkin_id === id).d;
+  assert.equal(d('co-abe-0008').lag_s, 0);
+  assert.equal(d('co-bo-00008').lag_s, 1200);
+  assert.deepEqual([d('co-abby-008').no_time, 'lag_s' in d('co-abby-008')], [true, false]);
+  const live = events('checkout').find((e) => e.checkin_id === 'co-abe-0001').d;
+  assert.ok(!('lag_s' in live) && !('no_time' in live), 'a live request has neither');
+});
+
+test('already-released children make one summary row per request, not one each', async () => {
+  const before = events('checkout.repeat').length;
+  const ids50 = ['co-abe-0008', 'co-bo-00008', 'co-abby-008'];
+  assert.equal((await out({ mode: 'report', ids: ids50 })).data.checked_out, 0);
+  const rows = events('checkout.repeat');
+  assert.equal(rows.length - before, 1);
+  assert.deepEqual([rows.at(-1).d.count, rows.at(-1).d.ids.length, rows.at(-1).checkin_id], [3, 3, 'co-abe-0008']);
+});
+
+test('the 409 does not name a family that has moved to another campus, and the release still works', async () => {
+  assert.equal((await checkIn([rec('co-abe-0009', ids.abe, 'MV11'), rec('co-bo-00009', ids.bo, 'MV12')])).status, 201);
+  db.prepare('UPDATE households SET campus_id = 2 WHERE id = ?').run(ids.hhB);
+  try {
+    const r = await out({ mode: 'request', ids: ['co-abe-0009', 'co-bo-00009'] });
+    assert.equal(r.status, 409, 'the children are still held back');
+    assert.deepEqual(r.data.families.map((f) => [f.household_id, f.name, f.check_in_ids]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      [[ids.hhA, 'Aldrin', ['co-abe-0009']], [null, null, ['co-bo-00009']]].sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+    assert.ok(!JSON.stringify(r.data).includes('Bell'));
+    // The child this iPad checked in can still be released on their own.
+    assert.equal((await out({ mode: 'request', ids: ['co-bo-00009'] })).status, 200);
+  } finally { db.prepare('UPDATE households SET campus_id = 1 WHERE id = ?').run(ids.hhB); }
+  assert.equal((await out({ mode: 'request', ids: ['co-abe-0009'] })).status, 200);
+});
+
+test('refusal cap: the last row says it is the last, and the one before does not', () => {
+  const rows = events('checkout.refused', `AND device_id = ${stationIds.Hall} AND day = '2027-02-21'`);
+  assert.equal(rows.length, 20);
+  assert.deepEqual(rows.map((e) => e.d.attempt), Array.from({ length: 20 }, (_, i) => i + 1));
+  assert.deepEqual([rows[18].d.last_recorded, rows[19].d.last_recorded], [false, true]);
+});
+
+test('rules: a release the hub always refuses is parked (ids and times only) and stops blocking the clean-up', () => {
+  const a = { id: 'e1', campus_id: 2, ids: ['x1', 'x2'], household_id: 7, at: T0 };
+  const b = { id: 'e2', campus_id: 1, ids: ['y1'], household_id: 8, at: null };
+  assert.equal(canTidy([], [a, b]), false);
+  assert.equal(canTidy([{}], []), false);
+  const parked = parkEntry([a, b], [], 'e1', 403);
+  assert.deepEqual(parked.outbox, [b]);
+  assert.deepEqual(parked.stuck, [{ id: 'e1', campus_id: 2, ids: ['x1', 'x2'], at: T0, status: 403 }]);
+  assert.ok(!('household_id' in parked.stuck[0]));
+  assert.equal(canTidy([], parkEntry(parked.outbox, parked.stuck, 'e2', 400).outbox), true);
+  assert.deepEqual(parkEntry([a], [], 'missing', 403), { outbox: [a], stuck: [] });
 });

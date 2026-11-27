@@ -205,7 +205,10 @@ export default function checkinRoutes(db) {
     if (given.length > 500) throw bad('Too many at once.');
     if (mode === 'request' && !given.length) throw bad('Choose the children to check out.');
     const reportAt = mode === 'report' && typeof b.at === 'string' && !Number.isNaN(Date.parse(b.at)) ? new Date(b.at) : null;
-    const modeDetail = mode ? { mode } : {};
+    // How long a reported release waited before it reached the hub (seconds), so a report sent "now" by an online
+    // iPad, or one with a made-up time, stands out in the record. No usable time at all is marked no_time.
+    const timing = mode !== 'report' ? {} : reportAt ? { lag_s: Math.round((Date.now() - reportAt.getTime()) / 1000) } : { no_time: true };
+    const modeDetail = mode ? { mode, ...timing } : {};
     // A few rows per actor per campus per day for the same kind of event, so a loop can't flood the record.
     const todayCount = (action) => {
       const who = station ? ['device_id', station.id] : ['user_id', req.user.id];
@@ -225,7 +228,7 @@ export default function checkinRoutes(db) {
     }
     const upd = db.prepare(`UPDATE checkins SET checked_out_at = ?, checked_out_by = ?, checked_out_device_id = ?, checked_out_user_id = ?, client_checked_out_at = ?
       WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL`);
-    const find = db.prepare(`SELECT ci.id, ci.person_id, ci.security_code, ci.checked_in_at, ci.checked_out_at, p.household_id, h.name household_name
+    const find = db.prepare(`SELECT ci.id, ci.person_id, ci.security_code, ci.checked_in_at, ci.checked_out_at, p.household_id, h.name household_name, h.campus_id household_campus
       FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id WHERE ci.id = ? AND ci.campus_id = ?`);
     const familyOf = (x) => x.household_id ?? `p${x.person_id}`;
     const nowDate = new Date();
@@ -256,10 +259,14 @@ export default function checkinRoutes(db) {
         const reason = families.size > 1 ? (path === 'code' ? 'code_two_families' : 'two_families')
           : claimedHousehold != null && open.some((x) => x.household_id !== claimedHousehold) ? 'household_mismatch' : null;
         if (reason) {
-          refusal = { reason, families: [...families.values()].map((list) => ({ household_id: list[0].household_id, name: list[0].household_name, check_in_ids: list.map((x) => x.id) })) };
-          if (todayCount('checkout.refused') < REFUSED_ROWS) {
+          // A family that has since moved to another campus is not named here (the same rule as GET /checkin/active);
+          // the children are still held back and listed by check-in id.
+          const shown = (x) => x.household_campus == null || x.household_campus === c.id;
+          refusal = { reason, families: [...families.values()].map((list) => ({ household_id: shown(list[0]) ? list[0].household_id : null, name: shown(list[0]) ? list[0].household_name : null, check_in_ids: list.map((x) => x.id) })) };
+          const rows = todayCount('checkout.refused');
+          if (rows < REFUSED_ROWS) {
             const households = [...new Set(open.map((x) => x.household_id).filter((h) => h != null))];
-            recordEvent(db, req, { action: 'checkout.refused', campusId: c.id, code, detail: { reason, path, ...modeDetail, count: open.length, family_count: families.size,
+            recordEvent(db, req, { action: 'checkout.refused', campusId: c.id, code, detail: { reason, path, ...modeDetail, attempt: rows + 1, last_recorded: rows + 1 === REFUSED_ROWS, count: open.length, family_count: families.size,
               households: households.slice(0, 20), claimed_household: claimedHousehold, checkin_ids: open.slice(0, 20).map((x) => x.id), truncated: open.length > 20 || households.length > 20 } });
             audit(db, req, 'checkin.checkout.refused', { campus_id: c.id, reason, device_id: actor.device, device_name: station?.name ?? '', families: families.size, count: open.length });
           }
@@ -267,10 +274,11 @@ export default function checkinRoutes(db) {
         }
       }
       const released = [];
+      const repeats = [];
       for (const ci of known) {
         const when = releasedAt(ci);
         if (Number(upd.run(when.at, by, actor.device, actor.user, reportAt ? reportAt.toISOString() : null, ci.id, c.id).changes) !== 1) {
-          recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, detail: { path, ...modeDetail } });
+          repeats.push(ci);
           continue;
         }
         count += 1;
@@ -278,6 +286,9 @@ export default function checkinRoutes(db) {
         recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
           detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}) } });
       }
+      // Children already released: one summary row per request (count and the first 20 ids), like unknown ids.
+      if (repeats.length) recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: repeats[0].id, personId: repeats[0].person_id, householdId: repeats[0].household_id,
+        detail: { path, ...modeDetail, count: repeats.length, ids: repeats.slice(0, 20).map((x) => x.id) } });
       // Ids not found at this campus: one summary row per request, not one per id.
       if (unknown.length) recordEvent(db, req, { action: 'checkout.unknown', campusId: c.id, checkinId: unknown[0], detail: { path, ...modeDetail, count: unknown.length, ids: unknown.slice(0, 20) } });
       // Children of more than one family released together (an offline report, or the older shape from an old iPad)

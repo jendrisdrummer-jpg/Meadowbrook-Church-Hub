@@ -2,7 +2,7 @@
 // check-ins until the connection is back. Check-in ids and pickup codes are made here, so
 // a queued check-in syncs exactly once however many times it is re-sent.
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
-import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
+import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly, groupFamilies, newRelease, upgradeOutbox, parkEntry, canTidy, labelName, tagInitials, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
 const KEY = {
   station: 'mb.checkin.station',
@@ -10,6 +10,7 @@ const KEY = {
   roster: (campusId) => `mb.checkin.roster.${campusId}`,
   queue: 'mb.checkin.queue',
   outbox: 'mb.checkin.outbox.v2', // one entry per release made while offline
+  stuck: 'mb.checkin.outbox.stuck', // releases the hub refuses every time: ids and times only, for a coordinator
   outboxOld: 'mb.checkin.outbox', // the flat list of ids an older check-in kept
   today: (campusId, day) => `mb.checkin.today.${campusId}.${day}`,
 };
@@ -106,6 +107,8 @@ async function refreshRoster() {
   }
 }
 
+const stuckCount = () => store.get(KEY.stuck, []).reduce((n, e) => n + e.ids.length, 0);
+
 // The iPad's copy of the church's data: family lists and each day's list of who is checked in.
 const COPIES = ['mb.checkin.roster.', 'mb.checkin.today.'];
 function forgetCopies(keep = new Set()) {
@@ -126,7 +129,7 @@ function forgetPairing() {
 
 // Once everything has been sent, lists from earlier days and rosters from other campuses are no longer needed.
 function tidyOldData() {
-  if (!state.station || !state.roster || store.get(KEY.queue, []).length || loadOutbox().length) return;
+  if (!state.station || !state.roster || !canTidy(store.get(KEY.queue, []), loadOutbox())) return;
   forgetCopies(new Set([KEY.roster(state.station.campusId), KEY.today(state.station.campusId, day())]));
 }
 
@@ -227,6 +230,7 @@ function drawStatus() {
   mount(document.querySelector('[data-status]'), html`
     ${state.online ? html`<span class="k-online">● Online</span>` : html`<span class="k-offline">● Offline: still checking in</span>`}
     ${q ? html`<span class="k-pending">${q} waiting to sync</span>` : ''}
+    ${stuckCount() ? html`<span class="k-pending" role="alert">${stuckCount()} ${stuckCount() === 1 ? 'child’s check-out' : 'children’s check-outs'} couldn’t be sent. Ask a coordinator.</span>` : ''}
     ${state.needsReload ? html`<span class="k-pending" role="alert">${RELOAD_MESSAGE}</span>` : ''}
     ${!state.authed ? html`<a class="btn small" href="/login?next=%2Fcheckin">Sign in to sync</a>` : ''}`);
 }
@@ -562,7 +566,10 @@ async function flushCheckouts() {
         saveOutbox(loadOutbox().filter((e) => e.id !== entry.id));
       } catch (e) {
         if (!e.status || e.status === 401 || e.status === 426 || e.status >= 500) break; // try again later
-        // Anything else would be refused every time; it stays here (and in the count) for a coordinator, and the rest go on.
+        // Anything else would be refused every time: park it for a coordinator (ids and times only) so it can't block
+        // the clean-up, and the rest go on.
+        const moved = parkEntry(loadOutbox(), store.get(KEY.stuck, []), entry.id, e.status);
+        if (store.set(KEY.stuck, moved.stuck)) saveOutbox(moved.outbox);
       }
     }
   } finally { flushing = false; drawStatus(); }
