@@ -273,10 +273,10 @@ song's name in a plan (or open it on the Songs page) to listen.
   hub; a removed iPad shows a new code. Leaders can still sign in on a tablet instead.
 - Find a family by the last 4 digits of a parent's phone or by last name, tick the kids, and
   check in. Each child goes to the right room by grade or age, and you can override it.
-- Prints a **name tag** for each child (name, room, allergy warning, pickup code) and a
+- Prints a **name tag** for each child (name, room, allergy and EpiPen warning, pickup code: a station letter plus four characters) and a
   **parent pickup tag** with the same code.
 - **Check out** by typing the code from the parent's tag. It shows who is allowed to pick up.
-- **Rooms**: a live list of who's in each room, with allergies.
+- **Rooms**: a live list of who's in each room, with allergies and EpiPen; tap Care note for the longer medical note (needs a connection, and is recorded).
 - **Works offline.** The tablet keeps a copy of the family list. If the internet drops, it keeps
   checking kids in and printing tags, then uploads everything when the connection returns,
   never counting anyone twice.
