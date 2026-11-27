@@ -5,7 +5,7 @@ import { songFilesEditor } from '../songfiles.js';
 
 export default async function songs(el) {
   setTitle('Songs', html`<button class="btn primary" data-add>${icon('plus')} Add song</button>`);
-  mount(el, html`<div class="card"><input type="search" data-q placeholder="Search title or author" value="${hashQuery().get('q') || ''}" style="max-width:340px;margin-bottom:12px"><div class="table-wrap" data-list></div></div>`);
+  mount(el, html`<div class="card"><input type="search" aria-label="Search title or author" data-q placeholder="Search title or author" value="${hashQuery().get('q') || ''}" style="max-width:340px;margin-bottom:12px"><div class="table-wrap" data-list></div></div>`);
   let rows = [];
   const load = async () => {
     rows = await get(`/songs?q=${encodeURIComponent(el.querySelector('[data-q]').value)}`);

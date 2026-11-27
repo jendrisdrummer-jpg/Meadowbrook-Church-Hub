@@ -135,7 +135,7 @@ async function gifts(panel, q, filter = {}) {
   const list = await get(`/finance/gifts?${params}`);
   const total = list.filter((g) => g.status === 'succeeded').reduce((s, g) => s + g.amount_cents, 0);
   mount(panel, html`<div class="giving-filters">
-      <input type="search" data-q value="${filter.q || ''}" placeholder="Search giver name or email">
+      <input type="search" aria-label="Search giver name or email" data-q value="${filter.q || ''}" placeholder="Search giver name or email">
       <select data-fund><option value="">All funds</option>${fundsList.map((f) => html`<option value="${f.id}" ${String(f.id) === String(filter.fund_id || '') ? 'selected' : ''}>${f.name}</option>`)}</select>
       <a class="btn" href="/api/finance/gifts.csv?${params}">${icon('download')} Export CSV</a></div>
     <div class="card"><div class="card-head"><h2>${list.length} gifts</h2><b>${money(total)}</b></div>
@@ -263,11 +263,11 @@ async function batchEditor(panel, batch = null) {
       <table class="list batch-rows"><thead><tr><th>Giver</th><th>Fund</th><th>How</th><th>Check #</th><th style="text-align:right">Amount</th><th></th></tr></thead><tbody>
       ${rows.map((r, i) => html`<tr data-i="${i}">
         <td>${r.person ? html`<span class="row nowrap" style="gap:4px"><b>${displayName(r.person)}</b><button type="button" class="icon-btn" data-unperson="${i}" title="Remove">${icon('x')}</button></span>`
-          : html`<span class="row nowrap" style="gap:4px"><input type="text" data-f="name" value="${r.name}" placeholder="Loose cash / no name"><button type="button" class="btn small ghost" data-person="${i}">${icon('search')} Person</button></span>`}</td>
+          : html`<span class="row nowrap" style="gap:4px"><input type="text" data-f="name" value="${r.name}" aria-label="Name" placeholder="Loose cash / no name"><button type="button" class="btn small ghost" data-person="${i}">${icon('search')} Person</button></span>`}</td>
         <td><select data-f="fund_id">${funds.map((f) => html`<option value="${f.id}" ${f.id === r.fund_id ? 'selected' : ''}>${f.name}</option>`)}</select></td>
         <td><select data-f="method"><option value="check" ${r.method === 'check' ? 'selected' : ''}>Check</option><option value="cash" ${r.method === 'cash' ? 'selected' : ''}>Cash</option><option value="other" ${r.method === 'other' ? 'selected' : ''}>Other</option></select></td>
         <td><input type="text" data-f="check_number" value="${r.check_number}" ${r.method === 'check' ? '' : 'disabled'} style="width:90px"></td>
-        <td><input type="text" inputmode="decimal" data-f="amount" value="${r.amount}" placeholder="0.00" style="width:110px;text-align:right"></td>
+        <td><input type="text" inputmode="decimal" data-f="amount" value="${r.amount}" aria-label="Amount" placeholder="0.00" style="width:110px;text-align:right"></td>
         <td><button type="button" class="icon-btn" data-remove="${i}" title="Remove line">${icon('trash')}</button></td></tr>`)}</tbody></table>
       <div class="row"><button type="button" class="btn small" data-add-row>${icon('plus')} Add line</button><span class="muted small">Tip: press Enter in an amount to add the next line.</span>
         <span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon('check')} Save batch</button></div></form>`);

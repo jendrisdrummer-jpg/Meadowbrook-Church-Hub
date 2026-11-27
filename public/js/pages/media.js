@@ -77,7 +77,7 @@ export default async function media(el, tab, opts = {}) {
   };
   const draw = () => {
     const list = shown();
-    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${g === group}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
+    mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${String(g === group)}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
     mount(el.querySelector('[data-list]'), list.length ? html`<div class="md-grid">${list.map(card)}</div>`
       : html`<div class="card empty">${lib.items.length === 0
         ? (connected ? 'No videos yet. They come in on their own; Check for new videos looks now.' : html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every video comes in on its own, or use <b>Add a video</b> for a single YouTube link.`)

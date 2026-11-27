@@ -352,7 +352,7 @@ async function accounts(panel, q = '') {
   <div class="card" style="margin-top:14px">
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
     <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
-    <form class="row" data-search style="margin-bottom:8px"><input type="search" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
+    <form class="row" data-search style="margin-bottom:8px"><input type="search" aria-label="Search all accounts by name or email" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
     <div class="table-wrap"><table class="list"><thead><tr><th>Email</th><th>Person</th><th>Access</th><th>Campuses</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>

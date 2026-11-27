@@ -201,7 +201,7 @@ function drawStatus() {
 
 function setMode(mode) {
   state.mode = mode;
-  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  document.querySelectorAll('[data-mode]').forEach((b) => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); });
   ({ in: drawSearch, out: drawCheckout, rooms: drawRooms })[mode]();
 }
 
@@ -212,7 +212,7 @@ const saveToday = (list) => store.set(KEY.today(state.station.campusId, day()), 
 
 // ---------------------------------------------------------------- check in
 function drawSearch() {
-  mount($main, html`<input class="k-search" type="search" data-q placeholder="Last 4 of phone, or last name" autocomplete="off" inputmode="search">
+  mount($main, html`<input class="k-search" type="search" aria-label="Last 4 of phone, or last name" data-q placeholder="Last 4 of phone, or last name" autocomplete="off" inputmode="search">
     <p class="k-hint">Type the last four digits of a parent’s phone number, or the family’s last name.</p>
     <div class="k-results" data-results></div>
     <p class="k-hint" style="margin-top:28px">First time here? <button class="btn small" data-new-family>Add a new family</button></p>`);
@@ -393,7 +393,7 @@ async function addChild(h) {
 function drawCheckout() {
   mount($main, html`<div style="max-width:420px;margin:0 auto;text-align:center">
     <h1>Check out</h1><p class="k-hint">Enter the code from the parent’s pickup tag.</p>
-    <input class="k-search" data-code maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+    <input class="k-search" data-code aria-label="Pickup code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
     <div data-match style="margin-top:16px"></div></div>`);
   const input = $main.querySelector('[data-code]');
   input.focus();

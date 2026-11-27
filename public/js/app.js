@@ -109,8 +109,10 @@ export const campusQuery = (sep = '?') => (state.campusId ? `${sep}campus_id=${s
 // "?decline=12" style options after a page's path in the address.
 export const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
+let focusTitleNext = false; // after the person moves to another page, focus its title so keyboard and screen reader users start there
 export function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
+  if (focusTitleNext) { focusTitleNext = false; $('[data-title]').focus({ preventScroll: true }); }
   $('[data-title]').classList.remove('greeting');
   drawCampusTag();
   document.title = `${title} · ${state.settings.church_name || 'Church Hub'}`;
@@ -141,7 +143,9 @@ async function boot() {
   $('.brand-mark').textContent = (state.settings.church_name || 'C').trim()[0].toUpperCase();
   applyTheme(state.me.theme, state.settings.brand_color);
   drawChrome();
-  window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } route(); });
+  // The skip link must not touch the address (pages are routed by it), so it moves focus by hand.
+  document.querySelector('[data-skip]')?.addEventListener('click', (e) => { e.preventDefault(); const m = $('#main'); m.focus(); m.scrollIntoView({ block: 'start' }); });
+  window.addEventListener('hashchange', () => { if (bellOpen) { bellOpen = false; drawBell(); } focusTitleNext = true; route(); });
   route();
   initSearch(searchPages, go);
   drawBell();
@@ -211,7 +215,7 @@ async function drawBell() {
     ${bellOpen ? html`<div class="menu bell-menu" role="menu">
       <div class="menu-head row">Notifications<span class="spacer"></span>${d.unread ? html`<button type="button" class="btn small ghost" data-read-all>Mark all read</button>` : ''}</div>
       ${d.items.length ? d.items.map((n) => html`<a href="${n.url || '#/'}" class="bell-item ${n.read_at ? '' : 'new'}" data-note="${n.id}">
-        <b>${n.title}</b><span class="small">${n.body}</span><span class="muted small">${ago(n.created_at)}</span></a>`)
+        <b>${n.read_at ? '' : html`<span class="sr-only">New: </span>`}${n.title}</b><span class="small">${n.body}</span><span class="muted small">${ago(n.created_at)}</span></a>`)
         : html`<p class="muted small" style="padding:8px 12px">Nothing yet. You’ll see it here when you’re scheduled.</p>`}
       <a href="#/my" class="bell-foot small">Notification settings</a>
     </div>` : ''}`);
@@ -288,7 +292,7 @@ function openMore() {
     ${camps.length > 1 ? html`<label class="field">Campus<select data-campus></select></label>` : ''}
     ${groups.map((g) => html`<section aria-label="${g.group || 'Everyday'}"><div class="sheet-group">${g.group || 'Everyday'}</div><div class="sheet-tiles">${g.items.map(tile)}</div></section>`)}
     <div class="sheet-group">Appearance</div>
-    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${state.me.theme === v}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
+    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${String(state.me.theme === v)}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
     <div class="sheet-foot">
       <a href="#/help">${icon('info')} Help</a>
       <a href="#/feedback">${icon('chat')} Feedback</a>

@@ -1,7 +1,7 @@
 // Giving, shared by the church app's Give tab and the public /give page: amount, fund, how often,
 // cover the fee, then Stripe's secure payment form inside the page (card, bank account, Apple Pay
 // or Google Pay). Card numbers go straight to Stripe, never through this site.
-import { get, post, patch, html, mount, icon, toast, fail, confirm, dialog, fmtDate } from './lib.js';
+import { get, post, patch, html, mount, icon, toast, fail, confirm, dialog, fmtDate, scrollBehavior } from './lib.js';
 
 const money = (c) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[$,\s]/g, '')) * 100);
@@ -132,7 +132,7 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
       });
       checkout.mount(box.querySelector('[data-mount]'));
       box.querySelector('[data-back]').onclick = () => { checkout.destroy(); box.replaceChildren(); f.classList.remove('hidden'); refresh(); };
-      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      box.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     } catch (err) {
       fail(err);
       go.disabled = false;
