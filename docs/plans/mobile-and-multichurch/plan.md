@@ -56,6 +56,8 @@ bundled offline page, icon and splash redrawn from `public/icons`, and the gener
 Manager) committed. Android is not added yet. The member's login page hides the Google button when
 `window.Capacitor` reports a native shell (a front-end check only; server sign-in is unchanged).
 
+**Next: [app-store-readiness.md](app-store-readiness.md)** (app-like features, native push, sign-in required in the app, store checklist).
+
 **Follow-up (its own PR and security review, not in Phase 0): Google sign-in in the app.** Open Google in the system
 browser (`@capacitor/browser` / `ASWebAuthenticationSession`), and have the server finish by redirecting to the app
 with a short-lived, single-use, hashed ticket (custom URL scheme or Universal Link). The app exchanges the ticket
