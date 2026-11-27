@@ -29,6 +29,32 @@ export function digits(s) {
   return String(s || '').replace(/\D/g, '');
 }
 
+// Cleans an incoming person body; `partial` allows leaving required fields out.
+export function personFields(b, partial) {
+  const out = {};
+  if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
+  for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
+  for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
+    if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
+  }
+  if (b.email !== undefined) {
+    out.email = str(b.email, 200).toLowerCase();
+    if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
+  }
+  if (b.phone !== undefined) out.phone = str(b.phone, 40);
+  if (b.birthdate !== undefined) {
+    if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
+    if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
+    out.birthdate = b.birthdate || null;
+  }
+  if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
+  if (b.campus_id !== undefined) out.campus_id = int(b.campus_id, 'Campus');
+  if (b.household_id !== undefined) out.household_id = int(b.household_id, 'Household');
+  if (b.status !== undefined) out.status = oneOf(b.status, STATUSES, 'guest');
+  if (b.household_role !== undefined) out.household_role = oneOf(b.household_role, ['adult', 'child'], 'adult');
+  return out;
+}
+
 export default function peopleRoutes(db, { uploadDir }) {
   const r = Router();
   const getPerson = (id) => db.prepare('SELECT * FROM people WHERE id = ?').get(id);
@@ -48,32 +74,6 @@ export default function peopleRoutes(db, { uploadDir }) {
     if (!h) throw notFound('Household');
     if (!canCampus(req.user, h.campus_id)) throw forbidden();
     return h;
-  }
-
-  // Cleans an incoming person body; `partial` allows leaving required fields out.
-  function personFields(b, partial) {
-    const out = {};
-    if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
-    for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
-    for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
-      if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
-    }
-    if (b.email !== undefined) {
-      out.email = str(b.email, 200).toLowerCase();
-      if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
-    }
-    if (b.phone !== undefined) out.phone = str(b.phone, 40);
-    if (b.birthdate !== undefined) {
-      if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
-      if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
-      out.birthdate = b.birthdate || null;
-    }
-    if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
-    if (b.campus_id !== undefined) out.campus_id = int(b.campus_id, 'Campus');
-    if (b.household_id !== undefined) out.household_id = int(b.household_id, 'Household');
-    if (b.status !== undefined) out.status = oneOf(b.status, STATUSES, 'guest');
-    if (b.household_role !== undefined) out.household_role = oneOf(b.household_role, ['adult', 'child'], 'adult');
-    return out;
   }
 
   // ---------------------------------------------------------------- list / search

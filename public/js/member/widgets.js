@@ -5,6 +5,7 @@ import { taskRow } from '../tasks.js';
 import { WIDGETS, SIZES, isHex } from '../app-widgets.js';
 import { whenText, badge } from './events.js';
 import { livePicture } from './watch.js';
+import { thisWeekInner } from './thisweek.js';
 
 const clock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -98,6 +99,8 @@ export function widget(w, ctx) {
         ${next.slice(0, 3).map((a) => html`<div class="m-serving-row"><div class="what"><b>${fmtDate(a.starts_at)}</b> · ${fmtTime(a.starts_at)}<div class="w-sub">${a.position} · ${a.campus}</div></div>
           ${a.status === 'pending' ? html`<button class="btn small primary" data-accept="${a.id}">Accept</button>` : html`<a class="btn small ghost" href="#/plan/${a.service_id}">Plan</a>`}</div>`)}`, { link: '' });
     }
+    case 'thisweek':
+      return box(w, thisWeekInner(w, ctx, { nextService, clock, tabFor, signInHref: ctx.signInHref }), { link: '' });
     case 'times': {
       if (!app.times.length) return ctx.edit ? placeholder(w, 'Add repeating services to fill this in') : null;
       if (!tall) {

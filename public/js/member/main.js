@@ -14,6 +14,8 @@ import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
 import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
+import { myInfoPage } from './myinfo.js';
+import { loadThisWeek } from './thisweek.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
@@ -94,6 +96,7 @@ async function route() {
     if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
     if (parts[0] === 'help') { drawTabs('more'); return await helpPage(el); }
     if (parts[0] === 'form' && parts[1]) { drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
+    if (parts[0] === 'my-info') { drawTabs('more'); return await myInfoPage(el, { app, setTitle, signInHref }); }
     if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
       drawTabs('more');
@@ -132,12 +135,13 @@ async function home(el, tab) {
   setTitle(tab.label === 'Home' ? app.church_name : tab.label);
   const widgets = app.config.home;
   const has = (type) => widgets.some((w) => w.type === type);
-  const mine = has('serving') && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
+  const mine = (has('serving') || has('thisweek')) && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
   const myTasks = has('tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
+  const week = has('thisweek') ? await loadThisWeek(app, { preview }) : null;
   const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
-    const ctx = { app, mine, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
+    const ctx = { app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
     // A request waiting for an answer comes first, before the "You're serving" widget.
     const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
     const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
@@ -421,6 +425,7 @@ async function more(el, tab, q) {
         : html`<p class="small" style="margin:0">Open your browser’s menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>`}</div>` : ''}
     ${app.user ? html`<div class="card app-card" data-notify></div>` : html`<div class="card" data-guest-push></div>`}
     <div class="card m-list">
+      ${app.user ? html`<a href="#/my-info">${icon('user')}<span class="grow">My info</span></a>` : ''}
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}

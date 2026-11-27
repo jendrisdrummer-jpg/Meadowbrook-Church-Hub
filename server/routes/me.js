@@ -1,0 +1,75 @@
+// "My info": a signed-in member edits their own contact details from the app. Only the person
+// linked to their account, only phone and birthday; email, family, status, campus and notes are
+// the office's to change. Anything else goes through "Tell the office", which notifies staff.
+import { Router } from 'express';
+import { requireRole } from '../auth.js';
+import { HttpError, bad, str, required, audit } from '../http.js';
+import { notify } from '../notify.js';
+import { personFields } from './people.js';
+
+const EDITABLE = ['phone', 'birthdate'];
+const TOPICS = { email: 'Change my email', family: 'Update my family', other: 'Something else' };
+const HOURLY_CAP = 5;
+
+export default function meRoutes(db) {
+  const r = Router();
+
+  // The caller's own person record, never one named in the request.
+  function mine(req) {
+    if (!req.user.personId) throw new HttpError(409, 'Your account isn’t connected to your record in the church directory yet. Please ask the office to link it.');
+    const p = db.prepare('SELECT * FROM people WHERE id = ? AND archived = 0').get(req.user.personId);
+    if (!p) throw new HttpError(409, 'We couldn’t find your record in the church directory. Please ask the office to take a look.');
+    return p;
+  }
+
+  const view = (p) => {
+    const hh = p.household_id ? db.prepare('SELECT address, city, state, zip FROM households WHERE id = ?').get(p.household_id) : null;
+    const campus = p.campus_id ? db.prepare('SELECT name FROM campuses WHERE id = ?').get(p.campus_id) : null;
+    return {
+      first_name: p.first_name, last_name: p.last_name, email: p.email, phone: p.phone, birthdate: p.birthdate,
+      campus: campus?.name || '',
+      // The home address belongs to the whole household, so it's shown here but changed by the office.
+      address: hh ? [hh.address, [hh.city, hh.state].filter(Boolean).join(', '), hh.zip].filter(Boolean).join(' · ') : '',
+    };
+  };
+
+  r.get('/me/person', requireRole('volunteer'), (req, res) => res.json(view(mine(req))));
+
+  // Body: { phone?, birthdate? }. Any other field is refused rather than quietly dropped.
+  r.patch('/me/person', requireRole('volunteer'), (req, res) => {
+    const p = mine(req);
+    const b = req.body || {};
+    const extra = Object.keys(b).filter((k) => !EDITABLE.includes(k));
+    if (extra.length) throw bad('You can change your phone and birthday here. For anything else, use “Tell the office”.');
+    const f = personFields(b, true);
+    const changed = EDITABLE.filter((k) => f[k] !== undefined && (f[k] ?? '') !== (p[k] ?? ''));
+    if (changed.length) {
+      db.prepare(`UPDATE people SET ${changed.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...changed.map((k) => f[k]), p.id);
+      // Field names only: phone numbers and birthdays aren't copied into the log.
+      audit(db, req, 'me.person.update', { id: p.id, fields: changed });
+    }
+    res.json(view(mine(req)));
+  });
+
+  // Body: { topic: 'email' | 'family' | 'other', message }. Staff and admins who reach the person's campus hear about it.
+  r.post('/me/office-request', requireRole('volunteer'), (req, res) => {
+    const p = mine(req);
+    const topic = Object.hasOwn(TOPICS, req.body?.topic) ? req.body.topic : 'other';
+    const message = required(req.body?.message, 'Your message').slice(0, 1000);
+    const recent = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE user_id = ? AND action = 'me.office_request' AND at > datetime('now', '-1 hour')").get(req.user.id).n;
+    if (recent >= HOURLY_CAP) throw new HttpError(429, 'You’ve sent a few notes already. Please give the office a little time to reply.');
+    const staff = db.prepare("SELECT id, campus_ids FROM users WHERE active = 1 AND role IN ('staff', 'admin') AND id != ?").all(req.user.id)
+      .filter((u) => !u.campus_ids || !p.campus_id || JSON.parse(u.campus_ids).includes(p.campus_id)).map((u) => u.id);
+    const name = `${p.first_name} ${p.last_name}`.trim();
+    const made = notify(db, staff, {
+      kind: 'account',
+      title: `${name}: ${TOPICS[topic]}`,
+      body: message,
+      url: `/#/people/${p.id}`,
+    });
+    audit(db, req, 'me.office_request', { id: p.id, topic, notified: made.length });
+    res.status(201).json({ ok: true, notified: made.length });
+  });
+
+  return r;
+}
