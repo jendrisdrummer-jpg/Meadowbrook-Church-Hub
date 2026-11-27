@@ -252,7 +252,8 @@ until 13 April. The kids' check-in pilot keeps priority throughout.
 - **Multi-church:** a password opens only its own church; an emailed code can list all of a person's churches.
 - **Membership leaks F2, F3 and F7:** fix them now, in a small separate PR.
 - **Beta app:** called "MBC Beta", bundle id `church.meadowbrook.beta`, iOS 16 minimum. Google sign-in uses an ephemeral browser session, not shared with Safari.
-- **Still open:** whether staff Hub pages open in Safari, and whether the app shows video thumbnails until the bridge gate is proven on a device. I explained both to the owner, who hasn't confirmed either yet.
+- **Staff Hub pages open in Safari, not inside the app.** The owner said: "we dont want anyone who doesnt have high acess to be able to get addresses or phone numbers". `allowNavigation` lists only the member app host.
+- **Videos should play inside the app.** The owner said: "we would want it to play inside the app ideally". So the native message gate (threat model §3.11, item 1) is a required part of Phase A and must pass its device test before TestFlight. Thumbnails are a fallback only, used if the gate can't be proven on a device.
 
 The original questions follow, for the record.
 
