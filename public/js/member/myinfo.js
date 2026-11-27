@@ -9,7 +9,8 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
   if (!app.user) return mount(el, html`<div class="card m-big-action">${icon('lock')}<h2 style="margin:0">Sign in to see your info</h2><a class="btn primary" href="${signInHref('/my-info')}">Sign in</a></div>`);
   let me;
   try { me = await get('/me/person'); } catch (e) {
-    if (e.status !== 409 && !/connected|link/i.test(e.message)) return mount(el, html`<div class="alert bad">${e.message}</div>`);
+    // Only an account that isn't linked yet asks the office to link it; anything else shows the server's message.
+    if (app.user.linked !== false || (e.status !== 409 && !/connected|link/i.test(e.message))) return mount(el, html`<div class="alert bad">${e.message}</div>`);
     post('/me/link-request', {}).catch(() => {});
     return mount(el, html`<div class="card"><p>You’re signed in as <b>${app.user.name}</b>. Your account isn’t connected to your record in the church directory yet.</p>
       <p>We’ve let the church office know. They’ll connect it, and then you can update your info here. There’s nothing else you need to do.</p></div>`);
@@ -19,7 +20,7 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
       <p class="muted small" style="margin-top:0">Changes here save straight to your record at ${app.church_name}.</p>
       <div class="form">
         <label class="field">Phone<input type="tel" name="phone" autocomplete="tel" maxlength="40" value="${me.phone}"></label>
-        <label class="field">Birthday<input type="date" name="birthdate" max="${new Date().toLocaleDateString('en-CA')}" value="${me.birthdate || ''}"></label>
+        ${me.can_edit_birthdate ? html`<label class="field">Birthday<input type="date" name="birthdate" max="${new Date().toLocaleDateString('en-CA')}" value="${me.birthdate || ''}"></label>` : ''}
       </div>
       <button class="btn primary" style="width:100%;min-height:48px;justify-content:center">Save</button>
     </form>
@@ -46,7 +47,7 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
     go.disabled = true;
     try {
       if (form.matches('[data-info]')) {
-        me = await patch('/me/person', { phone: form.elements.phone.value, birthdate: form.elements.birthdate.value });
+        me = await patch('/me/person', { phone: form.elements.phone.value, ...(form.elements.birthdate ? { birthdate: form.elements.birthdate.value } : {}) });
         toast('Saved. Thank you!');
         draw();
       } else {

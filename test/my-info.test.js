@@ -194,3 +194,22 @@ test('This week lists only non-declined serving in the next seven days, requests
   ], now);
   assert.deepEqual(list.map((x) => x.id), [3, 1, 2, 6]);
 });
+
+test('a teen linked to a child record can change their phone but not their birthday (age decides check-in)', async () => {
+  const teen = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_role, birthdate) VALUES ('Teen', 'Test', 1, 'child', '2011-04-02')").run().lastInsertRowid);
+  user('teen', 'volunteer', { personId: teen });
+  const got = await api('teen', 'GET', '/me/person');
+  assert.equal(got.data.can_edit_birthdate, false);
+  assert.equal((await write('teen', 'PATCH', '/me/person', { birthdate: '2000-01-01' })).status, 400);
+  assert.equal((await write('teen', 'PATCH', '/me/person', { phone: '555-0100' })).status, 200);
+  assert.equal(db.prepare('SELECT birthdate FROM people WHERE id = ?').get(teen).birthdate, '2011-04-02');
+});
+
+test('staff can turn off notes from members to the office in their notification settings', async () => {
+  user('quiet', 'staff', { campuses: [1] });
+  const prefs = await api('quiet', 'GET', '/me/notify');
+  assert.equal(prefs.status, 200);
+  assert.equal(prefs.data.prefs.account, true, 'on by default');
+  assert.equal((await write('quiet', 'PATCH', '/me/notify', { account: false })).status, 200);
+  assert.equal((await api('quiet', 'GET', '/me/notify')).data.prefs.account, false);
+});

@@ -8,6 +8,8 @@ import { notify } from '../notify.js';
 import { personFields } from './people.js';
 
 const EDITABLE = ['phone', 'birthdate'];
+// A teen's account can't change its own birthday: age decides kids' check-in rooms.
+const editable = (p) => (p.household_role === 'child' ? ['phone'] : EDITABLE);
 const TOPICS = { email: 'Change my email', family: 'Update my family', other: 'Something else' };
 const HOURLY_CAP = 5;
 
@@ -26,7 +28,7 @@ export default function meRoutes(db) {
     const hh = p.household_id ? db.prepare('SELECT address, city, state, zip FROM households WHERE id = ?').get(p.household_id) : null;
     const campus = p.campus_id ? db.prepare('SELECT name FROM campuses WHERE id = ?').get(p.campus_id) : null;
     return {
-      first_name: p.first_name, last_name: p.last_name, email: p.email, phone: p.phone, birthdate: p.birthdate,
+      first_name: p.first_name, last_name: p.last_name, email: p.email, phone: p.phone, birthdate: p.birthdate, can_edit_birthdate: editable(p).includes('birthdate'),
       campus: campus?.name || '',
       // The home address belongs to the whole household, so it's shown here but changed by the office.
       address: hh ? [hh.address, [hh.city, hh.state].filter(Boolean).join(', '), hh.zip].filter(Boolean).join(' · ') : '',
@@ -39,10 +41,11 @@ export default function meRoutes(db) {
   r.patch('/me/person', requireRole('volunteer'), (req, res) => {
     const p = mine(req);
     const b = req.body || {};
-    const extra = Object.keys(b).filter((k) => !EDITABLE.includes(k));
+    const allowed = editable(p);
+    const extra = Object.keys(b).filter((k) => !allowed.includes(k));
     if (extra.length) throw bad('You can change your phone and birthday here. For anything else, use “Tell the office”.');
     const f = personFields(b, true);
-    const changed = EDITABLE.filter((k) => f[k] !== undefined && (f[k] ?? '') !== (p[k] ?? ''));
+    const changed = allowed.filter((k) => f[k] !== undefined && (f[k] ?? '') !== (p[k] ?? ''));
     if (changed.length) {
       db.prepare(`UPDATE people SET ${changed.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...changed.map((k) => f[k]), p.id);
       // Field names only: phone numbers and birthdays aren't copied into the log.
