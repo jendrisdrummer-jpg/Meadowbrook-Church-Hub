@@ -46,7 +46,7 @@ export function thisWeekInner(w, ctx, h) {
   }) : html`<div class="tw-row">${icon('clock')}<span class="grow w-sub">Service times will show here once they’re set up.</span></div>`;
 
   if (!app.user) {
-    return html`<h2>${title}</h2><div class="tw-sec"><span class="w-sub">Next service</span>${serviceRows}</div>
+    return html`<h2>${title}</h2><div class="tw-sec"><span class="w-sub tw-label">Next service</span>${serviceRows}</div>
       <a class="btn small primary" href="${h.signInHref('/')}">Sign in to see your week</a>`;
   }
 
@@ -69,8 +69,8 @@ export function thisWeekInner(w, ctx, h) {
     : html`<p class="w-sub" style="margin:0">No events you’re going to this week.</p>`;
 
   return html`<h2>${title}</h2>
-    <div class="tw-sec"><span class="w-sub">Next service</span>${serviceRows}</div>
-    <div class="tw-sec"><span class="w-sub">You’re serving</span>${servingBlock}</div>
-    <div class="tw-sec"><span class="w-sub">Events you’re going to</span>${eventsBlock}</div>
+    <div class="tw-sec"><span class="w-sub tw-label">Next service</span>${serviceRows}</div>
+    <div class="tw-sec"><span class="w-sub tw-label">You’re serving</span>${servingBlock}</div>
+    <div class="tw-sec"><span class="w-sub tw-label">Events you’re going to</span>${eventsBlock}</div>
     ${cta}`;
 }

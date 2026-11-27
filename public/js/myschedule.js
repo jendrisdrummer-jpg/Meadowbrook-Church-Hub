@@ -32,7 +32,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
   // Requests still waiting for a reply come first; accepted (and declined) ones follow by date.
   const waiting = d.assignments.filter((a) => a.status === 'pending');
   const rest = d.assignments.filter((a) => a.status !== 'pending');
-  const card = (a) => html`<div class="card" data-assignment="${a.id}">
+  const card = (a) => html`<div class="card" data-assignment="${a.id}" tabindex="-1">
         <div class="row"><span class="dot" style="background:${a.team_color}"></span><b>${fmtDate(a.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })}</b><span class="spacer"></span>${status(a)}</div>
         <div style="margin-top:6px"><b>${a.position}</b> <span class="muted">· ${a.team}</span></div>
         <div class="muted small">${fmtTime(a.starts_at)} at ${a.campus}${a.title ? ` · ${a.title}` : ''}</div>
@@ -56,7 +56,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
       <div class="card"><div class="card-head"><h2>Dates I’m away</h2><button class="btn small" data-away>${icon('plus')} I’ll be away…</button></div>
         ${d.blockouts.length ? html`<table class="list"><tbody>${d.blockouts.map((b) => html`<tr>
           <td>${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td><td class="muted">${b.reason}</td>
-          <td style="text-align:right"><button class="icon-btn" data-remove-away="${b.id}" title="Remove">${icon('trash')}</button></td></tr>`)}</tbody></table>`
+          <td style="text-align:right"><button class="icon-btn" data-remove-away="${b.id}" title="Remove" aria-label="Remove ${fmtDate(b.start_date)}">${icon('trash')}</button></td></tr>`)}</tbody></table>`
           : html`<p class="muted">Let your team leaders know when you’re out of town, and you won’t be scheduled.</p>`}
       </div>
       ${notifyCard ? html`<div class="card app-card notify-banner" data-app-card></div>` : ''}
@@ -69,17 +69,21 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
 
   if (notifyCard) drawNotifyCard(el.querySelector('[data-app-card]'), { ...notifyCard, compact: true }).catch(fail);
 
-  const reload = () => drawSchedule(el, { planHref, notifyCard });
+  // After a change the list is drawn again; keep keyboard and screen reader users where they were.
+  const reload = async (focusSel) => {
+    await drawSchedule(el, { planHref, notifyCard });
+    el.querySelector(focusSel || '')?.focus({ preventScroll: true });
+  };
   const decline = async (id) => {
-    if (await declineAssignment(id)) reload();
+    if (await declineAssignment(id)) reload(`[data-assignment="${id}"]`);
   };
   el.onclick = async (e) => {
     const t = e.target.closest('button');
     if (!t) return;
     try {
-      if (t.dataset.accept) { await patch(`/assignments/${t.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); reload(); }
+      if (t.dataset.accept) { await patch(`/assignments/${t.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); reload(`[data-assignment="${t.dataset.accept}"]`); }
       if (t.dataset.decline) await decline(t.dataset.decline);
-      if (t.dataset.removeAway) { await del(`/blockouts/${t.dataset.removeAway}`); reload(); }
+      if (t.dataset.removeAway) { await del(`/blockouts/${t.dataset.removeAway}`); reload('[data-away]'); }
       if (t.matches('[data-away]')) await away();
     } catch (err) { fail(err); }
   };
@@ -91,7 +95,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
         <label class="field wide">Reason (optional)<input type="text" name="reason" placeholder="Vacation"></label></div>`,
       onSubmit: (f) => post('/blockouts', formData(f)),
     });
-    if (ok) reload();
+    if (ok) reload('[data-away]');
   };
 
   if (askDecline && d.assignments.some((a) => a.id === Number(askDecline) && a.status !== 'declined')) decline(askDecline).catch(fail);
