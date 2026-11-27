@@ -124,12 +124,11 @@ export async function eventsPage(el, tab, ctx) {
 // ---------------------------------------------------------------- one event
 export async function eventPage(el, id, q, ctx) {
   const { app } = ctx;
-  const back = app.config.tabs.find((t) => t.type === 'events');
-  ctx.setTitle('Event', html`<a class="btn small ghost" href="#/${back?.id || 'events'}">Back</a>`);
+  ctx.setTitle('Event');
   const e = await get(`/events/${id}`);
   // A sign-up to show: from the link in the email, this phone, or the signed-in account.
   let ref = q.get('signup') && q.get('key') ? { id: q.get('signup'), key: q.get('key') } : mySignups()[e.id] || (e.mine ? { id: e.mine.id, key: e.mine.key } : null);
-  if (q.get('signup')) { keepSignup(e.id, ref); history.replaceState(null, '', `#/events/${e.id}`); }
+  if (q.get('signup')) { keepSignup(e.id, ref); history.replaceState(history.state, '', `#/events/${e.id}`); }
   let signup = ref ? await get(`/event-signups/${ref.id}?key=${ref.key}`).catch(() => null) : null;
   if (signup && ['canceled', 'refunded'].includes(signup.status)) { forgetSignup(e.id); signup = null; }
 

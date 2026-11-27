@@ -251,3 +251,28 @@ a.w:hover { text-decoration: none; }
 .m-fold > summary::after { content: '›'; font-size: 22px; color: var(--muted); transition: transform .15s; }
 .m-fold[open] > summary::after { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .m-fold > summary::after { transition: none; } }
+
+/* ---------- Phone polish: back button, tap targets, touch behaviour ---------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body.member { overscroll-behavior-x: none; }
+/* One "Back" at the top left of every screen deeper than a tab. */
+.m-top [data-back] { display: contents; }
+.m-back { display: inline-flex; align-items: center; gap: 2px; flex: none; min-height: 44px; min-width: 44px; margin: -6px 0 -6px -8px; padding: 0 10px 0 4px; border-radius: 12px; color: var(--accent-text); font-weight: 600; font-size: 16px; text-decoration: none; }
+.m-back:hover { text-decoration: none; background: var(--hover); }
+.m-back .ic { width: 24px; height: 24px; }
+.m-back-text { display: none; }
+body.member .m-back-text { display: inline; font-weight: 600; }
+body.member .chat-back { text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding-right: 10px; color: var(--accent-text); font-size: 16px; }
+.m-top .icon-btn { width: 44px; height: 44px; border-radius: 12px; }
+.m-top .icon-btn .ic { width: 22px; height: 22px; }
+.m-tabs a, .m-top .icon-btn, .m-back, body.member .btn, body.member button { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+@media (pointer: coarse) {
+  /* iPhones zoom the page when a field under 16px is focused. */
+  body.member input, body.member select, body.member textarea { font-size: 16px; }
+  body.member .btn.small, body.member .icon-btn { min-height: 44px; }
+  body.member .btn.small { min-width: 44px; }
+  .m-cal-card .row .btn.small { font-size: 22px; line-height: 1; }
+  .m-seg a, .task-filters .seg a { display: flex; align-items: center; justify-content: center; min-height: 44px; }
+  .task-filters .chip.link, .m-chips .chip { min-height: 44px; display: inline-flex; align-items: center; }
+  .wv-selects select { min-height: 44px; }
+}

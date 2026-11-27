@@ -1,7 +1,7 @@
 // The signed-in person's own schedule (accept/decline, dates away) and their notification
 // settings. Shared by the dashboard's My Schedule page and the member app's Serve tab.
 import { get, post, patch, del, html, raw, mount, icon, fmtDate, fmtTime, dialog, formData, toast, fail, today } from './lib.js';
-import { isIOS, isMobile, isInstalled, pushSupported, canPromptInstall, promptInstall, currentSubscription, enablePush, disablePush } from './push.js';
+import { isIOS, isMobile, isInstalled, inShell, pushSupported, canPromptInstall, promptInstall, currentSubscription, enablePush, disablePush } from './push.js';
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 
@@ -129,7 +129,9 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
   }
 
   let push;
-  if (!pushSupported()) {
+  if (inShell) {
+    push = html`<p class="small" style="margin:0">Notifications aren’t in the phone app yet. You’ll still get emails.</p>`;
+  } else if (!pushSupported()) {
     push = html`<p class="muted small">${isIOS && !installed ? 'Notifications work once the app is on your home screen.' : 'This browser can’t show notifications. Your notices still appear under the bell.'}</p>`;
   } else if (perm === 'denied') {
     push = html`<p class="small">Notifications are blocked for this app. Allow them in your ${isMobile ? 'phone’s settings' : 'browser’s site settings'}, then come back here.</p>`;

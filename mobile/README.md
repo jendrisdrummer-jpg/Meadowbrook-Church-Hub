@@ -32,6 +32,10 @@ Xcode again (steps 7 and 12; your data is on the server, nothing is lost).
 - **Sign in with an email code or a password.** Google sign-in is hidden inside the app because Google refuses to
   work in an app's built-in browser. It still works on the website.
 - Sign-in lasts like the website (30 days). Rarely, if the app is force-closed seconds after signing in, sign in again.
+- **Swipe from the left edge to go back.** The web view allows back/forward gestures
+  (`MainViewController` in `ios/App/App/AppDelegate.swift`, used by `SceneDelegate.swift`; the storyboard names the same class).
+  The member app's screens are `#/` addresses, so each one you open is a step to swipe back to. If you rename the
+  Xcode target, keep `customModule="App"` in `Main.storyboard` in step with it.
 - **No notifications in this demo app.** Notifications still come from the home-screen version of the member app.
 - Links to other websites (maps, etc.) open in Safari. If the phone has no connection, the app shows
   "Can't reach Meadowbrook right now" with a **Try again** button.
