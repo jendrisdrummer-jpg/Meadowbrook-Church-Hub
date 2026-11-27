@@ -75,7 +75,7 @@ Question types and answer checking are shared with event sign-ups in `server/que
 | `GET /studies/summary` | coordinator, staff | `active`, `paused`, `finished_this_year`, `waiting`, `teachers`, `students`, `completions_this_year`. `?campus=<id> or none` |
 | `GET /studies` | coordinator, staff | `?status=&campus=<id> or none&material=&teacher=`. Names only, no contact details. Up to 500 |
 | `GET /studies/teachers`, `GET /studies/export.csv` | coordinator, staff | Export is names only, formula-safe (`toCsv`), audited `study.export` (count) |
-| `GET /studies/people?q=` | coordinator, staff | Name search (2 letters or more, 20 results, campus-scoped, children left out, 120 a 10 minutes per account then 429) for choosing teachers and students; `id, name, campus, has_account` only |
+| `GET /studies/people?q=` | coordinator, staff | Name search (2 letters or more, 20 results, campus-scoped, 120 a 10 minutes per account then 429) for choosing teachers and students; `id, name, campus, has_account` only |
 | `POST /studies` | coordinator, staff | `{material_id?, teacher_ids[], students:[{person_id, share_contact}] or student_ids[], campus_id?, started_on?, rhythm (up to 120), planned_lessons?, lesson?, sessions?, coordinator_note (up to 280, else 400)}`. At least one teacher and one student; retired materials refused; campus defaults to the first student's (blank = none). Returns `teachers_without_account` for the invite prompt. `study.create` |
 | `GET /studies/:id` | coordinator, staff; or a teacher on it | Teachers get no coordinator note and only consenting students' phone and email |
 | `PATCH /studies/:id` | coordinator, staff | Everything on the study including campus, start date and the note. `study.update` (field names) |

@@ -62,10 +62,12 @@ test('migration 41: the tables, the coordinator flag and the version', () => {
   assert.ok(SCHEMA_VERSION >= 41);
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'stud%'").all().map((t) => t.name);
-  for (const t of ['study_materials', 'studies', 'study_people', 'study_completions', 'study_requests']) assert.ok(tables.includes(t), t);
+  for (const t of ['study_materials', 'studies', 'study_people', 'study_completions', 'study_requests', 'study_pending_people']) assert.ok(tables.includes(t), t);
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'studies'));
   // Campus is optional on a study, and lesson fields are optional.
   const cols = Object.fromEntries(db.prepare('PRAGMA table_info(studies)').all().map((c) => [c.name, c.notnull]));
+  assert.ok('source' in cols && 'reviewed_at' in cols && 'material_text' in cols, 'groundwork for teacher-reported studies');
+  assert.equal(db.prepare("SELECT source FROM studies LIMIT 1").get()?.source ?? 'coordinator', 'coordinator');
   assert.equal(cols.campus_id, 0);
   assert.equal(cols.lesson, 0);
   assert.equal(cols.planned_lessons, 0);
@@ -656,18 +658,16 @@ const quiet = () => {
   db.prepare("DELETE FROM audit_log WHERE action = 'study.request'").run(); // the hourly cap is tested on its own
 };
 
-test('the name search: no photos, wildcards are literal, children are left out, and it is rate limited', async () => {
+test('the name search: no photos, wildcards are literal, and it is rate limited; children can be added like anyone', async () => {
   const kid = newPerson('Kiddo', 1, { role: 'child' });
   const res = await api('coord', 'GET', '/studies/people?q=extra');
-  assert.equal(res.data.some((p) => p.id === kid), false, 'children are not offered');
+  assert.equal(res.data.some((p) => p.id === kid), true, 'anyone who can add people can add a child');
   assert.equal(res.data.some((p) => 'photo' in p), false);
   assert.deepEqual((await api('coord', 'GET', '/studies/people?q=%25%25')).data, [], 'a typed % matches nothing, not everyone');
   assert.deepEqual((await api('coord', 'GET', '/studies/people?q=_e')).data, [], 'a typed _ is not a wildcard');
-  // A child is added by staff only.
   const adult = newPerson('Adult', 1);
   const body = { teacher_ids: [adult], student_ids: [kid] };
-  assert.equal((await api('coord', 'POST', '/studies', body)).status, 403, 'a coordinator below staff cannot add a child');
-  const made = await api('staff', 'POST', '/studies', body);
+  const made = await api('coord', 'POST', '/studies', body);
   assert.equal(made.status, 201);
   await api('admin', 'DELETE', `/studies/${made.data.id}`);
   let last;

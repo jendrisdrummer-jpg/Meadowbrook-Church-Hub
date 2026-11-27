@@ -55,8 +55,6 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     const p = db.prepare('SELECT * FROM people WHERE id = ? AND archived = 0').get(int(id, what));
     if (!p) throw notFound(what);
     if (!canCampus(req.user, p.campus_id)) throw forbidden();
-    // Children are added by staff and admins only; a coordinator below staff asks the office.
-    if (p.household_role === 'child' && !isStaff(req.user)) throw new HttpError(403, 'A child can only be added to a study by a staff member. Please ask the office.');
     return p;
   }
   const material = (id, { mustBeActive = true } = {}) => {
@@ -221,7 +219,7 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, c.short_name campus_short,
         EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
       FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
-      WHERE p.archived = 0 AND p.household_role != 'child' AND ${cf.sql} AND (lower(p.first_name || ' ' || p.last_name) LIKE ? ESCAPE '\\' OR lower(p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\')
+      WHERE p.archived = 0 AND ${cf.sql} AND (lower(p.first_name || ' ' || p.last_name) LIKE ? ESCAPE '\\' OR lower(p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\')
       ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 20`).all(...cf.args, like, like);
     res.json(rows.map((p) => ({ id: p.id, name: nameOf(p), campus: p.campus_short || '', has_account: Boolean(p.has_account) })));
   });

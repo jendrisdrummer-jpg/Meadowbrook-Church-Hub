@@ -1068,6 +1068,10 @@ const MIGRATIONS = [
     sessions INTEGER,                               -- optional: how many times they have met
     coordinator_note TEXT NOT NULL DEFAULT '',      -- 280 max; coordinators and staff only
     request_id INTEGER REFERENCES study_requests(id) ON DELETE SET NULL,
+    -- Groundwork for studies a teacher starts and reports without approval (member-app PR; nothing uses these yet):
+    source TEXT NOT NULL DEFAULT 'coordinator' CHECK (source IN ('coordinator', 'self')),
+    reviewed_at TEXT,                               -- when a coordinator looked at a 'self' study
+    material_text TEXT NOT NULL DEFAULT '',         -- a material typed in by a teacher, until a coordinator approves it into the list
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1084,6 +1088,16 @@ const MIGRATIONS = [
     PRIMARY KEY (study_id, person_id)
   );
   CREATE INDEX study_people_person ON study_people(person_id);
+  CREATE TABLE study_pending_people (
+    id INTEGER PRIMARY KEY,
+    study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,                     -- a student listed by name only, not yet linked to a person in People
+    role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('teacher', 'student')),
+    share_contact INTEGER NOT NULL DEFAULT 0,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,   -- set when a coordinator links them
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX study_pending_study ON study_pending_people(study_id);
   CREATE TABLE study_completions (
     id INTEGER PRIMARY KEY,
     person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
