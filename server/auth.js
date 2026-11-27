@@ -233,7 +233,7 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, personId);
+  const info = db.prepare("INSERT INTO users (email, role, person_id, theme) VALUES (?, ?, ?, 'device')").run(email, role, personId);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 

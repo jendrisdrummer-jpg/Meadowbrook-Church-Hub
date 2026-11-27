@@ -1,5 +1,5 @@
-// More → My info: a member updates their own phone and birthday, which save straight to their
-// record in People. Email and family changes go to the office through "Tell the office".
+// More → My info: a member updates their own phone and birthday (and, for adults, the household's
+// home address), which save straight to People. Email and family changes go to the office through "Tell the office".
 import { get, patch, post, html, mount, icon, toast, fail } from '../lib.js';
 
 const TOPICS = { email: 'Change my email', family: 'Update family details', other: 'Something else' };
@@ -24,11 +24,24 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
       </div>
       <button class="btn primary" style="width:100%;min-height:48px;justify-content:center">Save</button>
     </form>
+    ${me.can_edit_address ? html`<form class="card m-form" data-address novalidate>
+      <h2 style="margin-top:0">Home address</h2>
+      <p class="muted small" style="margin-top:0">This is your household’s address, so changing it updates it for everyone in your family.</p>
+      <div class="form">
+        <label class="field">Street<input name="address" autocomplete="street-address" maxlength="200" value="${me.home.address}"></label>
+        <label class="field">City<input name="city" autocomplete="address-level2" maxlength="100" value="${me.home.city}"></label>
+        <div class="row" style="gap:10px">
+          <label class="field grow">State<input name="state" autocomplete="address-level1" maxlength="50" value="${me.home.state}"></label>
+          <label class="field grow">Zip<input name="zip" autocomplete="postal-code" inputmode="numeric" maxlength="20" value="${me.home.zip}"></label>
+        </div>
+      </div>
+      <button class="btn primary" style="width:100%;min-height:48px;justify-content:center">Save address</button>
+    </form>` : ''}
     <div class="card">
       <h2 style="margin-top:0">Handled by the office</h2>
       <div class="row small"><span class="muted">Email</span><span class="spacer"></span><span>${me.email || 'None on file'}</span></div>
-      <div class="row small"><span class="muted">Address</span><span class="spacer"></span><span style="text-align:right">${me.address || 'None on file'}</span></div>
-      <p class="muted small" style="margin-bottom:0">Your email is how you sign in, and your address is shared with your household, so the office makes those changes. For family details, ask the office to update them.</p>
+      ${me.can_edit_address ? '' : html`<div class="row small"><span class="muted">Address</span><span class="spacer"></span><span style="text-align:right">${me.address || 'None on file'}</span></div>`}
+      <p class="muted small" style="margin-bottom:0">Your email is how you sign in, so the office changes it. ${me.can_edit_address ? 'For family details, ask the office to update them.' : 'Your address is shared with your household, so an adult in it or the office changes it. For family details, ask the office.'}</p>
     </div>
     <form class="card m-form" data-office novalidate>
       <h2 style="margin-top:0">Tell the office</h2>
@@ -49,6 +62,11 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
       if (form.matches('[data-info]')) {
         me = await patch('/me/person', { phone: form.elements.phone.value, ...(form.elements.birthdate ? { birthdate: form.elements.birthdate.value } : {}) });
         toast('Saved. Thank you!');
+        draw();
+      } else if (form.matches('[data-address]')) {
+        const f = form.elements;
+        me = await patch('/me/address', { address: f.address.value, city: f.city.value, state: f.state.value, zip: f.zip.value });
+        toast('Address saved for your household.');
         draw();
       } else {
         const message = form.elements.message.value.trim();

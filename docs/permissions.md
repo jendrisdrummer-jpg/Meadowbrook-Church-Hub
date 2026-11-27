@@ -111,7 +111,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | | Volunteer | Leader | Staff | Admin |
 |---|:-:|:-:|:-:|:-:|
 | Own schedule, accept/decline, away dates | ✓ | ✓ | ✓ | ✓ |
-| Edit **their own** phone and birthday (More → My info; saved straight to their People record), and send a “Tell the office” note. A teen whose record is a child can change their phone only, not their birthday (age decides check-in rooms). Never email, family, role, status, campus or notes: see `routes/me.js` | ✓ | ✓ | ✓ | ✓ |
+| Edit **their own** phone and birthday (More → My info; saved straight to their People record), and, for an adult in a household, that household's home address (it changes for the whole family), and send a “Tell the office” note. A teen whose record is a child can change their phone only, not their birthday (age decides check-in rooms). Never email, family, role, status, campus or notes: see `routes/me.js` | ✓ | ✓ | ✓ | ✓ |
 | Order of service for services they serve at; all services in the app | ✓ | ✓ | ✓ | ✓ |
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
 | See their own small groups: names and photos of the roster, and the group chat (members only) | ✓ | ✓ | ✓ | ✓ |

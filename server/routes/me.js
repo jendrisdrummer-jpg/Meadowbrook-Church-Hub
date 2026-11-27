@@ -1,6 +1,6 @@
 // "My info": a signed-in member edits their own contact details from the app. Only the person
-// linked to their account, only phone and birthday; email, family, status, campus and notes are
-// the office's to change. Anything else goes through "Tell the office", which notifies staff.
+// linked to their account: phone and birthday, and (adults only) their household's home address.
+// Email, family, status, campus and notes are the office's to change. Anything else goes through "Tell the office", which notifies staff.
 import { Router } from 'express';
 import { requireRole } from '../auth.js';
 import { HttpError, bad, str, required, audit } from '../http.js';
@@ -12,6 +12,9 @@ const EDITABLE = ['phone', 'birthdate'];
 const editable = (p) => (p.household_role === 'child' ? ['phone'] : EDITABLE);
 const TOPICS = { email: 'Change my email', family: 'Update my family', other: 'Something else' };
 const HOURLY_CAP = 5;
+const ADDRESS = { address: 200, city: 100, state: 50, zip: 20 };
+// The home address belongs to the whole household; an adult in it may change it for everyone.
+const canEditAddress = (p) => Boolean(p.household_id) && p.household_role !== 'child';
 
 export default function meRoutes(db) {
   const r = Router();
@@ -30,8 +33,9 @@ export default function meRoutes(db) {
     return {
       first_name: p.first_name, last_name: p.last_name, email: p.email, phone: p.phone, birthdate: p.birthdate, can_edit_birthdate: editable(p).includes('birthdate'),
       campus: campus?.name || '',
-      // The home address belongs to the whole household, so it's shown here but changed by the office.
       address: hh ? [hh.address, [hh.city, hh.state].filter(Boolean).join(', '), hh.zip].filter(Boolean).join(' · ') : '',
+      home: hh ? { address: hh.address || '', city: hh.city || '', state: hh.state || '', zip: hh.zip || '' } : null,
+      can_edit_address: canEditAddress(p),
     };
   };
 
@@ -50,6 +54,25 @@ export default function meRoutes(db) {
       db.prepare(`UPDATE people SET ${changed.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...changed.map((k) => f[k]), p.id);
       // Field names only: phone numbers and birthdays aren't copied into the log.
       audit(db, req, 'me.person.update', { id: p.id, fields: changed });
+    }
+    res.json(view(mine(req)));
+  });
+
+  // Body: { address, city, state, zip }: the household's home address, changed for everyone in it.
+  // Adults only; a person with no household asks the office.
+  r.patch('/me/address', requireRole('volunteer'), (req, res) => {
+    const p = mine(req);
+    if (!canEditAddress(p)) throw new HttpError(403, p.household_id ? 'Please ask an adult in your household, or the office, to change the home address.' : 'You’re not in a household yet. Please use “Tell the office” to send your address.');
+    const b = req.body || {};
+    const extra = Object.keys(b).filter((k) => !Object.hasOwn(ADDRESS, k));
+    if (extra.length) throw bad('Only the street, city, state and zip can be changed here.');
+    const hh = db.prepare('SELECT address, city, state, zip FROM households WHERE id = ?').get(p.household_id);
+    const next = Object.fromEntries(Object.entries(ADDRESS).map(([k, max]) => [k, b[k] === undefined ? (hh[k] || '') : str(b[k], max)]));
+    const changed = Object.keys(ADDRESS).filter((k) => next[k] !== (hh[k] || ''));
+    if (changed.length) {
+      db.prepare("UPDATE households SET address = ?, city = ?, state = ?, zip = ?, updated_at = datetime('now') WHERE id = ?").run(next.address, next.city, next.state, next.zip, p.household_id);
+      // Field names only: the address itself isn't copied into the log.
+      audit(db, req, 'me.household.address', { person_id: p.id, household_id: p.household_id, fields: changed });
     }
     res.json(view(mine(req)));
   });

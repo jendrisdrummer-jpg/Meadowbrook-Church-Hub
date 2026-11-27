@@ -213,3 +213,29 @@ test('staff can turn off notes from members to the office in their notification 
   assert.equal((await write('quiet', 'PATCH', '/me/notify', { account: false })).status, 200);
   assert.equal((await api('quiet', 'GET', '/me/notify')).data.prefs.account, false);
 });
+
+test('an adult changes the household address for everyone in it; audited with field names only', async () => {
+  const got = await api('maya', 'GET', '/me/person');
+  assert.equal(got.data.can_edit_address, true);
+  assert.deepEqual(got.data.home, { address: '12 Oak St', city: 'Springfield', state: 'IL', zip: '62701' });
+  const res = await write('maya', 'PATCH', '/me/address', { address: '9 Pine Rd', city: 'Greenville', state: 'WI', zip: '54942' });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.home.address, '9 Pine Rd');
+  const hh = db.prepare('SELECT address, city, state, zip, name, campus_id FROM households WHERE id = ?').get(ids.hh);
+  assert.deepEqual({ ...hh }, { address: '9 Pine Rd', city: 'Greenville', state: 'WI', zip: '54942', name: 'Test family', campus_id: 1 });
+  const log = db.prepare("SELECT detail FROM audit_log WHERE action = 'me.household.address' ORDER BY id DESC").get();
+  assert.ok(log && !log.detail.includes('Pine'), 'no address text in the log');
+});
+
+test('the address endpoint refuses other household fields, children, and people with no household', async () => {
+  assert.equal((await write('maya', 'PATCH', '/me/address', { name: 'Renamed', campus_id: 2 })).status, 400);
+  assert.equal(db.prepare('SELECT name FROM households WHERE id = ?').get(ids.hh).name, 'Test family');
+  const kid = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role) VALUES ('Kid', 'Test', 1, ?, 'child')").run(ids.hh).lastInsertRowid);
+  user('kid', 'volunteer', { personId: kid });
+  assert.equal((await api('kid', 'GET', '/me/person')).data.can_edit_address, false);
+  assert.equal((await write('kid', 'PATCH', '/me/address', { address: 'x' })).status, 403);
+  const loner = person('Loner');
+  user('loner', 'volunteer', { personId: loner });
+  assert.equal((await write('loner', 'PATCH', '/me/address', { address: 'x' })).status, 403);
+  assert.equal((await api('maya', 'PATCH', '/me/address', { address: 'x' })).status, 403, 'needs x-mb');
+});

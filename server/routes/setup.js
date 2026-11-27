@@ -297,7 +297,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     if (b.attendance) checkAttendanceCampuses(req, campusList(campusIds));
-    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    const info = db.prepare("INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance, theme) VALUES (?, ?, ?, ?, ?, ?, ?, 'device')")
       .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0);
     audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}`);
     if (person) {

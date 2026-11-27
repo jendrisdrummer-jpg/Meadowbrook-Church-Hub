@@ -83,7 +83,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Paid event sign-ups | Needs outside setup (Stripe) | `routes/events.js`, `stripe.js` | `member/events.js` |
 | Next-service countdown, Latest message widgets | Verified | | `member/widgets.js` |
 | **This week** Home widget: next service at my campus, what I'm serving (reply link when a request is waiting), events I'm going to, one call to action; guests see service times. First on the default Home; churches with a saved layout add it in the App Builder | Needs more testing (phone screenshots only) | `routes/app.js`; reuses `/my/schedule`, `/events` | `member/thisweek.js`, `member/widgets.js` |
-| **My info** (More → My info): edit own phone and birthday; email, address and family changes go through “Tell the office” (notifies staff at the campus). Address is shown read-only because it belongs to the household | Needs more testing | `routes/me.js` | `member/myinfo.js` |
+| **My info** (More → My info): edit own phone and birthday (not a teen's birthday); an adult can change their household's home address for the whole family; email and family changes go through “Tell the office” (notifies staff at the campus) | Needs more testing | `routes/me.js` | `member/myinfo.js` |
 
 ## Giving (SS, FT)
 Not part of the staff beta. Giving data is only ever shown to accounts with the **Finance** flag,

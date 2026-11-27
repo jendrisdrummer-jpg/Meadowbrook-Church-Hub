@@ -962,6 +962,20 @@ const MIGRATIONS = [
   ALTER TABLE users ADD COLUMN attendance INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE campuses ADD COLUMN attendance_mode TEXT NOT NULL DEFAULT 'both';
   `,
+  // 37: the owner's choices for the phone app. Accounts still on the original 'light' default now
+  // match their device (anyone can pick light again in Appearance; new accounts are created as
+  // 'device'). A member app Home layout the church already saved gets the "This week" card at the
+  // top, once, unless it already has one.
+  `
+  UPDATE users SET theme = 'device' WHERE theme = 'light';
+  UPDATE settings SET value = json_set(value, '$.home', json((
+      SELECT json_group_array(json(v) ORDER BY k) FROM (
+        SELECT '{"id":"thisweek","type":"thisweek","size":"F","style":"card"}' v, -1 k
+        UNION ALL SELECT value, key FROM json_each(settings.value, '$.home')
+      ))))
+    WHERE key = 'app_config' AND json_type(value, '$.home') = 'array'
+      AND NOT EXISTS (SELECT 1 FROM json_each(settings.value, '$.home') WHERE json_extract(value, '$.type') = 'thisweek');
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
