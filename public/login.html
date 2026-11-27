@@ -11,39 +11,41 @@
   </script>
   <link rel="stylesheet" href="/css/app.css">
   <style>
-    body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+    /* Text follows the person's own size setting (iPhone Larger Text, browser text size). */
+    @supports (font: -apple-system-body) and (-webkit-touch-callout: none) { html { font: -apple-system-body; } }
+    body { display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; min-height: 100vh; padding: 16px; font-size: 1rem; overflow-wrap: break-word; }
     .login { width: min(400px, 100%); }
     .login .head { text-align: center; }
-    .login .brand-mark { width: 56px; height: 56px; font-size: 28px; margin: 0 auto 14px; border-radius: 16px; }
+    .login .brand-mark { width: 56px; height: 56px; font-size: 1.75rem; margin: 0 auto 14px; border-radius: 16px; }
     .login { padding: 28px; border-radius: 20px; }
-    .login h1 { margin-bottom: 4px; font-size: 32px; }
-    .login form, .login .view { display: grid; gap: 12px; margin-top: 18px; }
-    .login .btn.wide { width: 100%; min-height: 46px; justify-content: center; }
-    .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 6px 0 -4px; }
+    .login h1 { margin-bottom: 4px; font-size: 2rem; }
+    .login form, .login .view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 18px; }
+    .login .btn.wide { width: 100%; min-height: 48px; justify-content: center; }
+    .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8125rem; margin: 6px 0 -4px; }
     .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
-    .links { display: grid; gap: 8px; text-align: center; font-size: 14px; margin-top: 4px; }
+    .links { display: grid; gap: 8px; text-align: center; font-size: 0.9375rem; margin-top: 4px; }
     .links button { background: none; border: 0; color: var(--accent-text); font: inherit; cursor: pointer; padding: 2px; }
-    .code-input { font-size: 26px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums; }
-    .names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .code-input { font-size: 1.625rem; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; }
+    .names { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; }
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     .login .btn, .links button { -webkit-tap-highlight-color: transparent; }
     @media (pointer: coarse) {
       /* iPhones zoom the page when a field under 16px is focused; keep the footer links easy to hit. */
-      .login input, .login select, .login textarea { font-size: 16px; }
+      .login input, .login select, .login textarea { font-size: 1rem; }
       .links button, .login .foot a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; }
-      .login .code-input { font-size: 26px; }
+      .login .code-input { font-size: 1.625rem; }
     }
   </style>
 </head>
 <body>
-  <div class="card login">
+  <main class="card login">
     <div class="head">
       <div class="brand-mark">M</div>
       <h1 id="name">Sign in</h1>
       <p class="muted" id="sub">Church Hub</p>
     </div>
-    <div id="error" class="alert bad hidden"></div>
-    <div id="info" class="alert info hidden"></div>
+    <div id="error" class="alert bad hidden" role="alert"></div>
+    <div id="info" class="alert info hidden" role="status"></div>
 
     <!-- Sign in: Google, or email + password -->
     <div class="view" data-view="signin">
@@ -92,7 +94,7 @@
     </form>
     <p id="none" class="muted small hidden">Sign-in isn’t set up yet. See “Google sign-in” in the README.</p>
     <p class="muted small foot" style="text-align:center;margin-top:16px"><a href="/privacy">Privacy</a></p>
-  </div>
+  </main>
   <script type="module">
     const $ = (s) => document.querySelector(s);
     const q = new URLSearchParams(location.search);
