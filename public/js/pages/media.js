@@ -77,6 +77,8 @@ export default async function media(el, tab, opts = {}) {
   };
   const draw = () => {
     const list = shown();
+    const se = el.querySelector('[data-series]');
+    if (se) { se.hidden = group === 'look'; if (group === 'look' && series) { series = ''; se.value = ''; } }
     mount(el.querySelector('[data-chips]'), html`${GROUPS.map(([g, label]) => html`<button type="button" class="md-fchip ${g === group ? 'on' : ''} ${g === 'look' && count('look') && g !== group ? 'needs' : ''}" data-group="${g}" aria-pressed="${String(g === group)}">${label} <span class="md-n">${count(g)}</span></button>`)}`);
     mount(el.querySelector('[data-list]'), list.length ? html`<div class="md-grid">${list.map(card)}</div>`
       : html`<div class="card empty">${lib.items.length === 0

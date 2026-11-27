@@ -131,7 +131,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
   (not "Not sent"), Can serve at (not "Serves at"). Every NAV item has its own icon; give a new page
   one nothing else uses. `badge: 'connect'`, `badge: 'forms'` and `badge: 'media'` (videos that need a look) are reserved: they stay hidden
   until something calls `setBadge(kind, n)`.
-- **Phone bottom bar and More sheet (hub):** the bar is Home, My Schedule, Chat, People (leaders
+- **Phone bottom bar and More sheet (hub):** the bar is Home, My schedule, Chat, People (leaders
   and up) and **More**. More opens a `dialog.sheet` (native `<dialog>`, so focus is trapped,
   Escape closes it and focus returns to the button) built from `visibleNav()`, so it can never show
   more than the sidebar would: groups as 3-column tiles (`.sheet-tile`), the campus picker when the
@@ -142,7 +142,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - **Account menu:** on phones it opens under the avatar and is nudged back inside the screen if
   anything would clip it. The header (title plus search, bell and avatar) stays on one line.
 - **Banner with folded options:** a one-line state plus its button, with the extra choices in a
-  `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My Schedule.
+  `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My schedule.
 - **Show/hide and reorder list (`.cust-list`, Customise Home):** a dialog list of rows, each a `.switch` with the name and two 44px `.cust-move` up/down icon buttons (no dragging, so it works with a thumb or a keyboard; the end rows disable the button that cannot move). Reset changes the dialog only; Save writes.
 - **Side panel / sheet (`dialog.md-panel`, Media):** to edit one item from a grid without leaving it. A native `<dialog>` (focus trapped, Escape closes) pinned to the right edge, 540px wide on a laptop and the whole screen on a phone (≤700px). Head (title and a 44px close button), a scrolling body, and a foot with the actions (on a phone Cancel and Save come first, full width). Closing with unsaved changes asks first. The address keeps the item (`#/media/12`, set with `history.replaceState`, so a deep link opens the panel over its page). Rarely used fields fold into `.md-more` details.
 - **Filter chips with counts (`.md-fchip`):** big (44px) pill buttons that switch one list between groups, each with a count (`.md-n`); a group that needs action turns amber (`.needs`) until opened. A one-line hint under the chips says what the group means.

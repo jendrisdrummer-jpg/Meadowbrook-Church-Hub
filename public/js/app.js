@@ -10,7 +10,7 @@ const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 const NAV = [
   { group: '', items: [
     { path: '/', label: 'Home', icon: 'home', min: 'volunteer', mobile: true },
-    { path: '/my', label: 'My Schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
+    { path: '/my', label: 'My schedule', short: 'Schedule', icon: 'user', min: 'volunteer', mobile: true },
     { path: '/chat', label: 'Chat', icon: 'chat', min: 'volunteer', mobile: true, badge: 'chat' },
     { path: '/tasks', label: 'Tasks', icon: 'tasks', min: 'volunteer', badge: 'tasks' },
   ] },
@@ -46,7 +46,7 @@ const NAV = [
 // Beside the user's name in the sidebar, and in the footer of the phone More sheet. Still found by search.
 const HELP_LINKS = [
   { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
-  { path: '/feedback', label: 'Feedback', icon: 'chat', min: 'volunteer' },
+  { path: '/feedback', label: 'Feedback', tip: 'Send feedback', icon: 'bulb', min: 'volunteer' },
 ];
 
 const THEMES = [['light', 'Light'], ['dark', 'Dark'], ['device', 'Match my device']];
@@ -251,7 +251,7 @@ function drawChrome() {
   fillCampusSelect(sel);
   sel.closest('label').classList.toggle('hidden', visibleCampuses().length < 2);
   sel.onchange = () => pickCampus(sel.value);
-  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.label}" aria-label="${n.label}">${icon(n.icon)}</a>`));
+  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.tip || n.label}" aria-label="${n.tip || n.label}">${icon(n.icon)}</a>`));
   drawCampusTag();
   drawMe();
 }
@@ -295,7 +295,7 @@ function openMore() {
     <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${String(state.me.theme === v)}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
     <div class="sheet-foot">
       <a href="#/help">${icon('info')} Help</a>
-      <a href="#/feedback">${icon('chat')} Feedback</a>
+      <a href="#/feedback">${icon('bulb')} Feedback</a>
       <button type="button" data-logout>${icon('logout')} Sign out</button>
     </div>
   </div>`);

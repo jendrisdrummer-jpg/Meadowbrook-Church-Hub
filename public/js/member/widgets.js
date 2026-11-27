@@ -112,7 +112,7 @@ export function widget(w, ctx) {
         const a = next[0];
         return box(w, html`<span class="w-ic">${icon('calendar')}</span><span class="w-sub">${a ? 'You’re serving' : 'Serving'}</span>
           <b class="w-label">${a ? fmtDate(a.starts_at, { weekday: 'short', month: 'short', day: 'numeric' }) : 'Nothing scheduled'}</b>
-          ${a ? html`<span class="w-sub">${a.status === 'pending' ? 'Tap to reply' : a.position}</span>` : ''}`, { link: `#/${serve}` });
+          ${a ? html`<span class="w-sub">${a.status === 'pending' && !ctx.replyBanner ? 'Tap to reply' : a.position}</span>` : ''}`, { link: `#/${serve}` });
       }
       if (!next.length) return ctx.edit ? placeholder(w, 'Hidden until someone is scheduled') : null;
       return box(w, html`<div class="card-head"><h2>You’re serving</h2><a class="btn small ghost" href="#/${serve}">All</a></div>

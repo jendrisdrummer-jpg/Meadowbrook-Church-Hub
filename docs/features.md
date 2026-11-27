@@ -75,7 +75,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 ## Member app (SS)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Sign-in, profile, Serve tab (My Schedule, plans, all services), Tasks, Chat, More | Verified at phone size in both themes | (shared) | `member/main.js` |
+| Sign-in, profile, Serve tab (My schedule, plans, all services), Tasks, Chat, More | Verified at phone size in both themes | (shared) | `member/main.js` |
 | iPhone app shell (Capacitor, `mobile/`): inside it the member app counts as installed (no “add to home screen” banner or card), shows “Notifications aren’t in the phone app yet. You’ll still get emails.” instead of push controls, and hides the Serve “Get a notification” banner. Swipe from the left edge goes back. | Built; needs testing on a real iPhone (Xcode build not run by QA) | | `push.js` (`inShell`), `member/main.js`, `mobile/ios/App/App/AppDelegate.swift` |
 | Member app polish: one consistent top-left Back on every detail screen; the screen refreshes when you return after a minute away; 44px tap targets and 16px fields on phones; guests follow the device’s light or dark setting | Built; checked with Playwright on an iPhone profile (not on a real phone) | | `member/main.js`, `member.css`, `login.html` |
 | Installable app (home screen), own address | Needs more testing (install on real iPhones and Android phones by hand) | `routes/app.js` | `member/*` |

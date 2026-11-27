@@ -46,7 +46,7 @@ async function church(panel) {
   </form>
   <form class="card stack" style="max-width:640px" data-app>
     <h2 style="margin:0">App</h2>
-    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My Schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
+    <p class="muted small" style="margin:0">People can install this site on their phone’s home screen (My schedule shows them how). These set how it looks there and when it reminds volunteers.</p>
     <div class="row" style="align-items:center;gap:14px">
       <img src="/app-icon/192.png?v=${s.app_icon_version}" alt="App icon" width="72" height="72" style="border-radius:16px;border:1px solid var(--line)">
       <div class="stack" style="gap:6px"><label class="btn small">${icon('upload')} Upload icon<input type="file" accept="image/*" data-icon hidden></label>

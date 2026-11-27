@@ -57,13 +57,13 @@ They get an email and (if they've turned them on) a notification.
 
 - **From the email:** they tap the link, then **Yes, I'll be there** or **I can't make it**. They
   don't need to sign in.
-- **In the hub or app:** **My Schedule** (the **Serve** tab in the app) lists requests under
+- **In the hub or app:** **My schedule** (the **Serve** tab in the app) lists requests under
   **Please reply**. They tap **Accept**, or **Can't make it**, add a reason if they like, and tap
   **Let my leader know**.
 - **Away dates:** on the same page, **I'll be away…** stops them being scheduled on those days.
 
 Try it on yourself: schedule yourself on a test service, send the request, and answer it from your
-email and from **My Schedule**.
+email and from **My schedule**.
 
 ## If something goes wrong
 

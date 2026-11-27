@@ -22,7 +22,7 @@ export async function drawRollCall(panel, s, opts = {}) {
       <div class="row" style="margin-bottom:10px">
         <input type="search" aria-label="Find someone" placeholder="Find someone" data-q style="max-width:280px">
         <div class="seg" data-filter><button data-f="all" class="on">Everyone</button><button data-f="here">Here</button><button data-f="not">Not yet</button></div>
-        <span class="spacer"></span><button class="btn small" data-guest>${icon('plus')} New guest</button>
+        <span class="spacer"></span>${mode === 'both' ? html`<button type="button" class="btn small" data-to-headcount>Headcount</button>` : ''}<button class="btn small" data-guest>${icon('plus')} New guest</button>
       </div>
       <div class="roll" data-list></div>
     </div>`;
@@ -33,8 +33,17 @@ export async function drawRollCall(panel, s, opts = {}) {
         <p class="muted small" style="margin-top:-4px">Room totals, including people not on the roll.</p>${countsCard}</div>
       <details class="card"><summary><b>Names</b> <span class="muted small">Mark who you see, if you want to</span></summary>${rollCard}</details>`
     : mode === 'names' ? rollCard
-    : html`${rollCard}<details class="card"><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>${countsCard}</details>`}
+    : html`${rollCard}<details class="card" data-headcount><summary><b>Headcount</b> <span class="muted small">Room totals, including people not on the roll</span></summary>${countsCard}</details>`}
   </div>`);
+
+  // 'both' mode: the headcount is folded below every family, so a button up top opens it and scrolls there.
+  const toHeadcount = panel.querySelector('[data-to-headcount]');
+  if (toHeadcount) toHeadcount.onclick = () => {
+    const d = panel.querySelector('[data-headcount]');
+    d.open = true;
+    d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    d.querySelector('input')?.focus({ preventScroll: true });
+  };
 
   const list = panel.querySelector('[data-list]');
   const countEl = panel.querySelector('[data-count]');

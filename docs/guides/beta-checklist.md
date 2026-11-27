@@ -14,7 +14,7 @@ Practise scheduling on yourself or a test service, not on volunteers.
 | ☐ | 1. Sign in on your phone with an email code, and on a computer (with Google if you use it). | [Getting started](getting-started.md) |
 | ☐ | 2. Tap **Customise** on Home, hide a card, move one up, **Save**. Then **Reset to default** if you like. | [Getting started](getting-started.md) |
 | ☐ | 3. Find three pages using **Search** instead of the menu. | [Getting started](getting-started.md) |
-| ☐ | 4. Turn on notifications in **My Schedule**, then tap the bell. | [Getting started](getting-started.md) |
+| ☐ | 4. Turn on notifications in **My schedule**, then tap the bell. | [Getting started](getting-started.md) |
 | ☐ | 5. Add a date you're away with **I'll be away…**. | [Schedule your team](schedule-your-team.md) |
 | ☐ | 6. Open **Volunteer schedule**, pick a team, and look at next month. Does it make sense at a glance? | [Schedule your team](schedule-your-team.md) |
 | ☐ | 7. Schedule **yourself** on a test service, tap **Send 1 request**, and answer it from the email. | [Schedule your team](schedule-your-team.md) |

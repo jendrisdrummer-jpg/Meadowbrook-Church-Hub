@@ -77,7 +77,7 @@ data and no separate environment on the live site. Instead, clean up what you ma
 | Test connect card | **Connect cards** → bin icon (**Delete**) |
 | Test people | **Archive this person** at the bottom of their page (people are archived, not deleted) |
 | Test accounts | Untick **Can sign in**, then **Delete account** |
-| Away dates you added | **My Schedule → Dates I'm away** → bin icon |
+| Away dates you added | **My schedule → Dates I'm away** → bin icon |
 
 ---
 
@@ -97,7 +97,7 @@ People, Services and Check-in; other pages are under the search button at the to
 | Sign in as campus-limited staff | Only their campus's people and services; the campus picker doesn't offer other campuses; no Settings in the menu | They see another campus's people | Needs another role |
 | Sign in as a campus-limited admin | As above; Settings shows only Campuses, Check-in & attendance, Sign-in & accounts and Checks; they can't make anyone an admin or give Finance or Announcements | Church-wide Settings tabs, or other campuses' accounts | Needs another role |
 | Sign in as a leader | People, Teams, Schedule for their own teams; on a person's page no medical notes, private notes or pickups | Health data or another campus visible | Needs another role |
-| Sign in as a volunteer | Home, My Schedule, Chat, Tasks, Help, Groups, Services, Feedback; no People or Settings | They can open People or Settings | Needs another role |
+| Sign in as a volunteer | Home, My schedule, Chat, Tasks, Help, Groups, Services, Feedback; no People or Settings | They can open People or Settings | Needs another role |
 
 ### 2. People and households
 | Do | Expect | Problem if | Account |
@@ -228,7 +228,7 @@ Don't check real children in or out on the live site.
 | On your phone, open the hub's address followed by `/app/` | The church app opens | Blank page or an error | Phone |
 | **More → Sign in**: **Sign in with Google**, or **First time, or forgot your password? Email me a code** | The code arrives within a minute; you're signed in | No code, or it lands in spam | You, phone |
 | Add it to your home screen: iPhone in Safari, Share → **Add to Home Screen**; Android, **Add to home screen** | It opens full screen with the church's icon | Opens in a browser tab | Phone |
-| **My Schedule** in the hub (or the app's notifications card): turn notifications on, **Send a test** | A test notification arrives | Nothing (iPhone needs the home-screen app, iOS 16.4+) | You, phone |
+| **My schedule** in the hub (or the app's notifications card): turn notifications on, **Send a test** | A test notification arrives | Nothing (iPhone needs the home-screen app, iOS 16.4+) | You, phone |
 | Try each tab, and **More → Help** and **Send feedback** | Readable, nothing cut off | Text cut off or overlapping | You, phone |
 
 ### 17. Settings → Checks
