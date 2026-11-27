@@ -517,13 +517,44 @@ function drawMapping(box, csv, pv) {
 // Is this server set up safely for real use? Yes/no checks from the server; no secrets shown.
 async function checks(panel) {
   const c = await get('/admin/production-checks');
+  const empty = await get('/households/empty').catch(() => ({ count: 0, households: [] }));
+  let reviewing = false;
   const pill = { ok: ['good', 'Yes'], warn: ['warn', 'Check'], bad: ['bad', 'No'], info: ['info', 'Info'] };
-  mount(panel, html`<div class="card stack" style="max-width:820px">
+  const draw = () => {
+    mount(panel, html`<div class="card stack" style="max-width:820px">
     <h2 style="margin:0">Checks</h2>
     <p class="muted small" style="margin:0">${c.hosted ? 'This server is hosted, so these are the settings for real use.' : 'This isn’t the hosted server, so some checks are for information only.'} Settings marked “No” must be fixed before staff use the hub.</p>
     ${c.ready ? html`<div class="alert good small">Nothing here blocks real use.</div>` : html`<div class="alert bad small">Some checks say “No”. Fix those first.</div>`}
     <table class="list"><tbody>${c.checks.map((x) => html`<tr>
       <td style="width:5.5em"><span class="pill ${pill[x.status][0]}">${pill[x.status][1]}</span></td>
-      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}</tbody></table>
+      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}
+      <tr>
+      <td style="width:5.5em"><span class="pill ${empty.count ? 'info' : 'good'}">${empty.count ? 'Tidy up' : 'Yes'}</span></td>
+      <td><b>Empty families: ${empty.count}</b>
+        <div class="muted small">${empty.count ? 'Families with no one in them, left over from moving people between families. Nothing is removed until you review the list and confirm.' : 'No empty families to tidy up.'}</div>
+        ${empty.count ? html`<button class="btn small" type="button" data-review>${reviewing ? 'Hide list' : 'Review'}</button>` : ''}</td></tr></tbody></table>
+    ${reviewing && empty.count ? html`<div class="stack" data-empty>
+      <h3 style="margin:0">Empty families</h3>
+      <p class="muted small" style="margin:0">None of these has anyone in it (not even archived people), nor pickup people or notes.${empty.count > empty.households.length ? ` Showing the first ${empty.households.length}; remove these and review again for the rest.` : ''}</p>
+      <div style="overflow-x:auto"><table class="list"><thead><tr><th>Family</th><th>Campus</th><th>Created</th><th>Last updated</th></tr></thead>
+        <tbody>${empty.households.map((h) => html`<tr><td>${h.name}</td><td>${h.campus || 'No campus'}</td><td>${fmtUtcDate(h.created_at)}</td><td>${fmtUtcDate(h.updated_at)}</td></tr>`)}</tbody></table></div>
+      <div><button class="btn danger" type="button" data-remove>Remove ${empty.households.length} empty ${empty.households.length === 1 ? 'family' : 'families'}</button></div>
+    </div>` : ''}
   </div>`);
+    const review = panel.querySelector('[data-review]');
+    if (review) review.onclick = () => { reviewing = !reviewing; draw(); };
+    const rm = panel.querySelector('[data-remove]');
+    if (rm) rm.onclick = async () => {
+      const n = empty.households.length;
+      if (!(await confirm(`Remove ${n} empty ${n === 1 ? 'family' : 'families'}?`, `This permanently removes ${n === 1 ? 'this family' : `these ${n} families`}. No one is in ${n === 1 ? 'it' : 'them'}, so no people or history are lost. Any family that has gained a member since this list was shown is skipped.`, `Remove ${n}`))) return;
+      try {
+        const r = await post('/households/empty/remove', { ids: empty.households.map((h) => h.id) });
+        toast(`Removed ${r.removed} empty ${r.removed === 1 ? 'family' : 'families'}.${r.skipped ? ` Skipped ${r.skipped} that are no longer empty.` : ''}`, 'good');
+        const next = await get('/households/empty');
+        empty.count = next.count; empty.households = next.households; reviewing = false;
+        draw();
+      } catch (err) { fail(err); }
+    };
+  };
+  draw();
 }

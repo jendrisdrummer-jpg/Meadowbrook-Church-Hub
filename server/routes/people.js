@@ -351,6 +351,52 @@ export default function peopleRoutes(db, { uploadDir }) {
     res.json(rows.map((h) => ({ ...h, people: people.all(h.id).map((m) => ({ name: m.nickname || m.first_name, role: m.household_role })) })));
   });
 
+  // Empty families (admins, Settings → Checks): households nobody belongs to, left behind when people were
+  // moved between families. A household counts as empty only when NOTHING points at it: no person at all
+  // (archived people count), no pickup person, nothing in any other table with a foreign key to households
+  // (found from the schema, so a table added later is covered too), and no notes. Never automatic.
+  const q = (n) => `"${String(n).replace(/"/g, '""')}"`;
+  const emptyHouseholdWhere = (user) => {
+    const refs = [];
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all()) {
+      for (const fk of db.prepare(`PRAGMA foreign_key_list(${q(name)})`).all()) {
+        if (fk.table === 'households') refs.push(`NOT EXISTS (SELECT 1 FROM ${q(name)} x WHERE x.${q(fk.from)} = h.id)`);
+      }
+    }
+    // A campus-limited admin only reaches households at their own campuses; church-wide (no campus) ones
+    // are left for an admin who covers every campus.
+    const scope = user.campusIds ? (user.campusIds.length ? [`h.campus_id IN (${user.campusIds.map(() => '?').join(',')})`, user.campusIds] : ['0 = 1', []]) : ['1 = 1', []];
+    return { sql: [...refs, "trim(h.notes) = ''", scope[0]].join(' AND '), args: scope[1] };
+  };
+  const EMPTY_LIMIT = 500;
+
+  r.get('/households/empty', requireRole('admin'), (req, res) => {
+    const w = emptyHouseholdWhere(req.user);
+    const rows = db.prepare(`SELECT h.id, h.name, h.campus_id, c.short_name campus, h.created_at, h.updated_at
+      FROM households h LEFT JOIN campuses c ON c.id = h.campus_id WHERE ${w.sql} ORDER BY h.name, h.id LIMIT ${EMPTY_LIMIT}`).all(...w.args);
+    const total = db.prepare(`SELECT COUNT(*) n FROM households h WHERE ${w.sql}`).get(...w.args).n;
+    res.json({ count: total, households: rows });
+  });
+
+  r.post('/households/empty/remove', requireRole('admin'), (req, res) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || !ids.length) throw bad('Choose at least one family to remove.');
+    if (ids.length > EMPTY_LIMIT) throw bad(`Remove up to ${EMPTY_LIMIT} families at a time.`);
+    const unique = [...new Set(ids.map((i) => int(i, 'Family')))];
+    const w = emptyHouseholdWhere(req.user);
+    const removed = tx(db, () => {
+      const done = [];
+      // Re-checked one by one at the moment of removal, so anyone added since the list was shown keeps their family.
+      for (const id of unique) {
+        const info = db.prepare(`DELETE FROM households WHERE id = ? AND id IN (SELECT h.id FROM households h WHERE ${w.sql})`).run(id, ...w.args);
+        if (info.changes) done.push(id);
+      }
+      return done;
+    });
+    if (removed.length) audit(db, req, 'household.remove_empty', { ids: removed, count: removed.length });
+    res.json({ removed: removed.length, skipped: unique.length - removed.length });
+  });
+
   r.post('/households', requireRole('staff'), (req, res) => {
     const b = req.body || {};
     const campusId = int(b.campus_id);

@@ -95,6 +95,7 @@ regularly, ask for automatic deletion first.
 Admins only (`GET /admin/production-checks`). Shows whether this server is set up safely for real use; never
 shows a secret, only yes/no and non-secret values such as `MB_TRUST_PROXY`. It also shows the signed-in admin's own
 address as the server sees it (so they can compare it with a “what is my IP” site); that is returned only to that admin and isn't stored.
+**Empty families** (`GET /households/empty`, `POST /households/empty/remove`, admins only, campus-limited admins only for households at their own campuses, not church-wide ones): lists and removes households with no people at all (archived people count), no pickup people, no notes and no other table pointing at them. Removal is explicit (confirm naming the count), skips any family that gained a member since the list, runs in one transaction and is audited as `household.remove_empty` (ids and count).
 It warns for an hour after the sign-in code limit for new accounts (`max_code_emails_per_hour`) was reached.
 
 **Sign-in policy in production:** use `invited` (or `directory`). Under `anyone`, sending a code to a new
