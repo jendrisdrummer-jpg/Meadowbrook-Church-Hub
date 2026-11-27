@@ -37,7 +37,7 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 
 | File | Role |
 |---|---|
-| `index.js` | Builds the Express app (`createApp`), mounts every router under `/api`, serves static files and the pages, and when run directly starts the **background timers** (below). |
+| `index.js` | Builds the Express app (`createApp({ db, uploadDir, now })`; `now` is an injectable clock, used by Classes so tests can fix "today"), mounts every router under `/api`, serves static files and the pages, and when run directly starts the **background timers** (below). |
 | `db.js` | `MIGRATIONS` (append-only), `openDb`, `tx`, `getSetting`/`setSetting` (key–value JSON in `settings`), `updateFields`. |
 | `auth.js` | Sessions (cookie `mb_session`), `loadUser`, `requireRole`, `canCampus`, `campusFilter`, `requireAppHeader`, Google OAuth, email codes and passwords, sign-in policy, Google Drive connect. |
 | `http.js` | `HttpError`, `bad`/`notFound`/`forbidden`, input helpers (`int`, `str`, `required`, `oneOf`, `isDate`), `audit`, `localNow`, the error handler. |
@@ -47,6 +47,7 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 | `daily.js` / `live.js` | Video calls in chats (Daily), live chat updates (server-sent events). |
 | `media.js` / `mux.js` / `podcast.js` | YouTube sync and live detection, Mux streaming/uploads/trims, podcast audio and feed. |
 | `backup.js` | Encrypted nightly backups to the disk and Google Drive. |
+| `classes.js` | Rules for Classes that need no request: marking a quiz, whether a make-up is open, how fast video credit may grow, question checks. Pure, so tests use fixed dates. |
 | `csv.js` | CSV parsing/writing for imports and exports. |
 
 ## A request, end to end

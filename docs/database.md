@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (39 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (40 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -80,6 +80,16 @@ Arrows show the main references.
 | `announcements` | Congregation announcements (audience, schedule, reach). |
 | `connect_cards` → people | Cards guests fill in from the app. |
 
+### Classes (migration 40)
+| Table | Purpose |
+|---|---|
+| `classes` | Title, description, `campus_id` (NULL = church-wide), `archived`. Archived, never deleted, once anyone enrolled. |
+| `class_steps` → classes (CASCADE; only reachable for a class nobody joined) | `kind` session / video / quiz, `sort`, `body`; session: `starts_on` and an optional make-up (`makeup_video_id`, `makeup_video_sec`, `makeup_questions` JSON); video: `video_id` (YouTube) and `video_sec`; quiz: `questions` JSON `[{id, text, choices, correct}]`. `correct` is never sent to anyone but staff. `archived` retires a step that has history. |
+| `class_managers` → classes, users (both CASCADE) | Accounts staff named to see one class's roster and take its attendance. |
+| `class_enrolments` → classes (RESTRICT), people (CASCADE) | One row per class and person; `removed_at` is a soft removal. |
+| `class_progress` → enrolments (CASCADE), steps (RESTRICT) | One row per enrolment and step: `state` started/done, `method` (attended, absent, makeup, watched, passed, manual), video `position_sec`/`max_sec`/`duration_sec`/`watched`, quiz `score` (best percent)/`attempts`/`passed`, `makeup_notified_at`. **Quiz answers are not stored.** |
+| `class_completions` → classes (RESTRICT), people (CASCADE) | Append-only history: `completed_at` (church date), `method` steps/manual, `by_user`, `note` (why, for a manual one), `revoked_at`/`revoked_by` (soft). |
+
 ### Giving (Finance permission only)
 | Table | Purpose |
 |---|---|
@@ -117,4 +127,5 @@ Where the sensitive data lives, so reviews know where to look (standards in
 | Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
 | Private communication | `messages`, `message_files`, `task_comments`, `notifications` |
+| Training records | `class_progress` (attendance, quiz scores), `class_completions` (including the staff's `note`), `class_enrolments`; visible to staff, that class's managers (not the note) and the person themselves |
 | Credentials | `users.password_hash`, `sessions` (hashed), `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |

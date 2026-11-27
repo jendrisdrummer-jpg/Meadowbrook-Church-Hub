@@ -41,6 +41,7 @@ in the README; this page is for building and reviewing code. Permissions: [permi
 | `me.js` | `PUT`/`DELETE /me/home-layout` (Customise Home: the signed-in account's own Home card order and hidden cards, `{order, hidden}` of card ids from `HOME_CARDS` — attention, services, serving, attendance, away, totals; unknown or repeated ids, non-lists or more than six are 400; `DELETE` returns to the standard Home; no id is accepted, not audited, like the theme; the saved value comes back as `homeLayout` on `GET /me`, `null` when none), `GET`/`PATCH /me/person` (the signed-in account's own linked person; no id is ever accepted). `PATCH` takes only `phone` and `birthdate` (People validation; `birthdate` not for a person whose household role is child, and `GET` says so in `can_edit_birthdate`); any other field is 400 with nothing saved. `GET` also returns email, campus and household address read-only. Audited `me.person.update` with field names only. `PATCH /me/address {address, city, state, zip}`: an adult (not household role child) changes their own household's home address for everyone in it; any other field 400; child or no household 403; audited `me.household.address` with field names only. `GET` returns `home` and `can_edit_address`. `POST /me/office-request {topic: email|family|other, message}` notifies active staff/admins whose campuses include the person's (all, if the person has no campus), audited `me.office_request`; 5 an hour per account (429); sent as notification kind `account`, which staff can turn off in their notification settings. Unlinked accounts get 409 "ask the office to link it" on all three | volunteer+, own record; needs `x-mb` |
 | `events.js` | `/events` (public), `/admin/events/*` | staff for admin |
 | `forms.js` | `/public/forms/:slug` (public), `/forms` (signed-in forms), `/admin/forms/*`, `/admin/form-responses/*` | staff for admin; admin deletes |
+| `classes.js` | `/classes/*` (hub), `/me/classes/*` (member app) | per route: staff, class manager, or the enrolled person; see [Classes](#classes-routesclassesjs) |
 | `giving.js`, `finance.js` | checkout (public), my giving, `/finance/*` | `requireFinance` |
 | `media.js` | `/watch` (public), `/media/*` (Mux, uploads, podcast settings) | staff |
 | `backups.js` | `/backups/*` | admin |
@@ -66,6 +67,33 @@ Question types and answer checking are shared with event sign-ups in `server/que
 Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signature),
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`
 (volunteer+, since photos include children), page routes.
+
+### Classes (`routes/classes.js`)
+All writes need `x-mb: 1`. "Staff" = staff or admin whose campuses include the class's campus; a church-wide class
+(no campus) needs staff with no campus limit (403 otherwise; a class at another campus is 404). "Manager" = an account
+staff named for that class. Anyone else gets 404 for a class they don't run. Audited actions: `class.create`, `.update`,
+`.archive`, `.step.add`, `.step.update`, `.step.remove`, `.step.reorder`, `.manager.add`, `.manager.remove`, `.enrol`,
+`.unenrol`, `.attendance` (with the account that marked), `.complete_manual`, `.revoke`. Progress pings and quiz tries are **not** audited (too many).
+
+| Route | Guard | Notes |
+|---|---|---|
+| `GET /classes` | volunteer+ | Classes the account runs (staff) or manages; counts only. Empty for everyone else. |
+| `GET /classes/manager-options?q=` | staff | Names (`id`, `name`, `role`) of active accounts linked to a person, 2+ letters, at campuses the caller can reach. |
+| `POST /classes`, `PATCH /classes/:id`, `POST /classes/:id/archive` | staff | `{title, description, campus_id}`; archive takes `{archived}`. Limited staff can't make church-wide classes (403). |
+| `GET /classes/:id` | staff or manager | Staff: every step including `questions[].correct` and video links. Manager: step titles, dates and `has_makeup` only (no answers, no links). |
+| `POST /classes/:id/steps`, `PATCH .../steps/:stepId`, `DELETE .../steps/:stepId`, `POST .../steps/reorder` | staff | Step `{kind, title, body, starts_on, video, makeup_video, questions, makeup_questions}`. YouTube links are checked with YouTube (a real video, not live) and the id and length are stored (`video_id`, `video_sec`). A quiz needs 1 to 30 questions of 2 to 6 answers each with at least one right. Delete retires a step that has progress. Reorder needs every step id. |
+| `POST /classes/:id/managers`, `DELETE /classes/:id/managers/:userId` | staff | Only staff name managers. |
+| `POST /classes/:id/enrol` `{person_ids}`, `DELETE /classes/:id/enrolments/:personId` | staff | Up to 100; each person must be at a campus the caller can reach (403). Archived class: 400. Un-enrolling is soft. |
+| `GET /classes/:id/roster` | staff or manager | People × steps: `state`, `method`, `score`, `attempts`; the completion (with `note` for staff only). Never answers. |
+| `POST /classes/:id/steps/:stepId/attendance` `{person_ids, present: true, false or null}` | staff or manager | Session steps only; everyone must be enrolled (400). `null` clears. Absent: one "make-up is ready" notice per person per step. Can complete the class. |
+| `POST /classes/:id/complete` `{person_id, note}`, `POST /classes/:id/completions/:cid/revoke` | staff | The note is required. Revoking is soft. |
+| `GET /me/classes`, `GET /me/classes/:id` | volunteer+, account linked to a person | Own enrolments and step states, never anyone else's. Unlinked: 409. Not enrolled: 404. |
+| `GET /me/classes/:id/steps/:stepId` | the enrolled person | The video id and questions (without `correct`; `multi` says "choose all that apply") appear **only when the step is open**: always for a video or quiz step, and for a session only once a make-up is open (marked absent, or the session date has passed by the church's clock without being marked here). |
+| `POST /me/classes/:id/steps/:stepId/progress` `{position, duration, ended}` | the enrolled person | Refused (404/409) for another class's step, a retired step, an archived class, a removed enrolment or a closed make-up. The video's length is the one stored from YouTube; if YouTube didn't give one, the player's `duration` (20 s to 6 h) is used and never lowered. Credit moves at most twice real time plus 10 s per ping; watched at 90%, or `ended` near the end after about half was really watched. |
+| `POST /me/classes/:id/steps/:stepId/quiz` `{answers: {questionId: [choice numbers]}}` | the enrolled person | Marked on the server: `{score, passed, review, message}` where `review` is question numbers only. 80% passes; 20 tries per hour per person (429 "take a short break"). Only the best score and the number of tries are stored. |
+
+`createApp({ db, uploadDir, now })`: `now` is the clock (default `() => new Date()`); classes work out the church's "today" with
+`localNow` from it (the class's campus time zone, or the first campus's). Tests pass a fixed clock.
 
 ## Integrations
 

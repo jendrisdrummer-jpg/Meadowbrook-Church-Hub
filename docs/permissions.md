@@ -90,6 +90,20 @@ answers). Don't collect children's medical or safeguarding details in forms; che
 The hub doesn't delete responses automatically yet; if a form will collect sensitive information
 regularly, ask for automatic deletion first.
 
+## Classes
+
+| Who | May |
+|---|---|
+| Staff and admins | Create, edit, archive classes and steps at their campuses; church-wide classes only for staff with no campus limit (the same rule as forms). Name and remove class managers, enrol and remove people (each person must be at a campus they reach), take attendance, mark someone finished with a note, undo it, and see everything including scores and the right quiz answers. |
+| A class manager (any role, named per class by staff) | See **that class's** roster with each person's step states and scores; mark attendance (here or absent) for that class's session steps. They cannot enrol or search people, see another class, see the right answers or video links, or change anything else. Every mark is in the audit log with their account. |
+| The enrolled person (an account linked to a person) | See their own classes, do video and quiz steps and make-ups, see their own scores. |
+| Everyone else | Nothing: a class they don't run or aren't in is "not found". |
+
+No new account flag. The **Classes** menu item shows for staff and admins, and for anyone who manages at least one class. v1 does not give
+whoever assigned a person any extra view: only staff enrol, and staff already see everything. Team leaders see nothing of classes yet.
+The right quiz answers (`correct`) go to staff only. Make-up videos and tests are not sent to a person until their make-up is open. Playback is
+YouTube, so a class video is only as private as an Unlisted link (anyone with the address can watch); don't put anything confidential in one.
+
 ## Settings → Checks
 
 Admins only (`GET /admin/production-checks`). Shows whether this server is set up safely for real use; never
