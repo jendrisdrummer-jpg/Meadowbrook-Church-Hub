@@ -55,8 +55,9 @@ export function thisWeekInner(w, ctx, h) {
   const serveTab = `#/${h.tabFor('serve')}`;
   const waiting = serving.find((a) => a.status === 'pending');
   const live = services[0] && services[0].start <= now;
-  // At most one call to action: a waiting reply first, then the livestream while it's on.
-  const cta = waiting ? html`<a class="btn small primary" href="${serveTab}">Reply to your request</a>`
+  // At most one call to action: a waiting reply first (unless Home's "Please reply" banner already shows it), then the livestream while it's on.
+  const cta = waiting && ctx.replyBanner ? (live ? html`<a class="btn small primary" href="#/${h.tabFor('watch')}">${icon('play')} Watch live</a>` : '')
+    : waiting ? html`<a class="btn small primary" href="${serveTab}">Reply to your request</a>`
     : live ? html`<a class="btn small primary" href="#/${h.tabFor('watch')}">${icon('play')} Watch live</a>` : '';
 
   const servingBlock = !app.user.linked

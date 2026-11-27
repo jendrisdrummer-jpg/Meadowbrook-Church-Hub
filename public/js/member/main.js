@@ -187,9 +187,10 @@ async function home(el, tab) {
   const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
-    const ctx = { app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
+    const ctx = { replyBanner: false, app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
     // A request waiting for an answer comes first, before the "You're serving" widget.
     const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
+    ctx.replyBanner = waiting.length > 0; // widgets skip their own "reply" button when this banner is up
     const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
     const replyCard = waiting.length ? html`<a class="m-reply" href="#/${serveTab}"><span class="grow"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</span><span class="tap">Tap to reply ›</span></a>` : '';
     mount(el, html`${installBanner()}${replyCard}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);

@@ -30,8 +30,8 @@ You'll see a greeting with your name, then cards:
 
 **Make Home yours:** tap **Customise** (top right of Home). Switch cards on or off, and use the up
 and down arrows to change the order. Tap **Save**. **Reset to default** puts it back. Only you see
-your layout. (In that list some cards have slightly different names: "Last Sunday's attendance" is
-the **Latest attendance** card, and "Who's away" is **Away this week**.)
+your layout. (The attendance card is called **Last Sunday** on Home when it shows
+the most recent Sunday.)
 
 ## Find things
 
@@ -47,7 +47,7 @@ the **Latest attendance** card, and "Who's away" is **Away this week**.)
 ## Notifications
 
 1. Tap the bell at the top right. You'll see your recent notices. **Mark all read** clears them.
-2. To get notices on your phone or computer, open **My Schedule** and tap **Turn on** beside
+2. To get notices on your phone or computer, open **My schedule** and tap **Turn on** beside
    **Notifications**, then allow them when your browser asks.
 3. **Choose which notices you get** (on the same page) lets you switch kinds off, and turn
    **Also send me emails** on or off.

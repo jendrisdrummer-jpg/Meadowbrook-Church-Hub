@@ -14,7 +14,7 @@ const SECTIONS = [
     id: 'reply', title: 'Reply to a request to serve', min: 'volunteer', app: true,
     intro: 'When someone schedules you, you get a notification and an email. You can answer from either of them, or from your schedule.',
     hub: [
-      html`Open ${b('My Schedule')} from the menu (${b('Schedule')} at the bottom of a phone). On Home, you can also tap ${b('Accept')} or ${b('Can’t make it')} right in ${b('Your next times serving')}.`,
+      html`Open ${b('My schedule')} from the menu (${b('Schedule')} at the bottom of a phone). On Home, you can also tap ${b('Accept')} or ${b('Can’t make it')} right in ${b('Your next times serving')}.`,
       html`Requests waiting for you are at the top, under ${b('Please reply')}.`,
       html`Tap ${b('Accept')} if you can serve.`,
       html`If you can’t, tap ${b('Can’t make it')}, add a short reason if you like, then tap ${b('Let my leader know')}.`,
@@ -34,7 +34,7 @@ const SECTIONS = [
     id: 'away', title: 'Add dates you’re away', min: 'volunteer', app: true,
     intro: 'Tell your leaders when you’re out of town, and you won’t be scheduled on those days.',
     hub: [
-      html`Open ${b('My Schedule')}.`,
+      html`Open ${b('My schedule')}.`,
       html`Find the ${b('Dates I’m away')} card and tap ${b('I’ll be away…')}.`,
       html`Choose the ${b('First day')}. If it’s more than one day, choose the ${b('Last day')} too.`,
       html`Add a reason if you like, then tap ${b('Save')}.`,
@@ -67,7 +67,7 @@ const SECTIONS = [
     hub: [
       html`Open ${b('Services')}, tap the service and choose the ${b('Who’s serving')} tab.`,
       html`People who haven’t answered show ${b('Waiting')}.`,
-      html`Tap ${b('Remind')} at the top of the card. It shows how many people haven’t replied.`,
+      html`Tap ${b('Remind')} at the top of the card. The button says how many people haven’t replied, like ${b('Remind 3 who haven’t replied')}.`,
       html`Check the message, then tap ${b('Send reminder')}.`,
       html`Anyone reminded in the last 12 hours is skipped, so it’s safe to tap again later.`,
     ],

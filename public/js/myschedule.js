@@ -1,11 +1,11 @@
 // The signed-in person's own schedule (accept/decline, dates away) and their notification
-// settings. Shared by the dashboard's My Schedule page and the member app's Serve tab.
+// settings. Shared by the dashboard's My schedule page and the member app's Serve tab.
 import { get, post, patch, del, html, raw, mount, icon, fmtDate, fmtTime, dialog, formData, toast, fail, today } from './lib.js';
 import { isIOS, isMobile, isInstalled, inShell, pushSupported, canPromptInstall, promptInstall, currentSubscription, enablePush, disablePush } from './push.js';
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 
-// The "Can’t make it?" question, shared by My Schedule and Home. Resolves true once it's saved.
+// The "Can’t make it?" question, shared by My schedule and Home. Resolves true once it's saved.
 export function declineAssignment(id) {
   return dialog({
     title: 'Can’t make it?', submit: 'Let my leader know',
@@ -146,7 +146,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
       <p class="muted small" style="margin:6px 0 0">Get a notice when you’re scheduled, and accept right from it.</p>`;
   }
 
-  // Compact (My Schedule in the dashboard): one line saying where things stand, options folded away.
+  // Compact (My schedule in the dashboard): one line saying where things stand, options folded away.
   const again = () => drawNotifyCard(box, { ui, role, appLink, compact });
   if (compact) {
     const state = !pushSupported() || perm === 'denied' ? push
