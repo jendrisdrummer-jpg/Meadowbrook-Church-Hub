@@ -482,3 +482,44 @@ test('a flood of daily-cap keys can’t push out a password key that is nearly a
     assert.equal((await t.post('/auth/password', { email: 'target@example.com', password: 'x' }, '192.0.2.51')).status, 429, '9th refused');
   } finally { t.close(); }
 });
+
+test('after the daily cap: a newly requested code works on its first try only; a wrong first try burns it; outsiders see the same 429s; no database writes', async () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 });
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'directory');
+  db.prepare("INSERT INTO people (first_name, last_name, email) VALUES ('Pat', 'Member', 'pat@example.com')").run();
+  const t = await authApp(db);
+  const changes = () => db.prepare('SELECT total_changes() n').get().n;
+  const raw = async (email, code, extra = {}) => {
+    const res = await fetch(`http://127.0.0.1:${t.port}/auth/code/verify`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.5' }, body: JSON.stringify({ email, code, ...extra }) });
+    return [res.status, await res.text()];
+  };
+  const newCode = async (minutes) => {
+    mock.timers.setTime(T0 + minutes * 60e3);
+    await t.post('/auth/code', { email: 'pat@example.com' });
+    return outbox.filter((m) => m.to === 'pat@example.com').at(-1).subject.slice(0, 6);
+  };
+  const notIt = (c) => (c === '111111' ? '222222' : '111111');
+  try {
+    const first = await newCode(0);
+    for (let i = 0; i < 20; i++) {
+      mock.timers.setTime(T0 + i * 16 * 60e3);
+      await raw('pat@example.com', notIt(first)); await raw('outsider@example.com', '000000');
+    }
+    // Capped: the old code, even typed right, is refused.
+    assert.equal((await raw('pat@example.com', first))[0], 429);
+    // A new code, wrong on its first try: 429, and then the right code is refused too.
+    const b = await newCode(330);
+    const before = changes();
+    const wrongB = await raw('pat@example.com', notIt(b));
+    const outsider = await raw('outsider@example.com', notIt(b));
+    assert.equal(wrongB[0], 429);
+    assert.deepEqual(outsider, wrongB, 'an outsider gets the same status and body');
+    assert.equal(changes(), before, 'no database write on a wrong try after the cap');
+    assert.deepEqual(await raw('pat@example.com', b, { password: 'a long enough password' }), wrongB, 'burned: the right code is refused');
+    // Another new code, typed right on its first try: signed in.
+    const c = await newCode(400);
+    const ok = await raw('pat@example.com', c, { password: 'a long enough password' });
+    assert.equal(ok[0], 200);
+  } finally { t.close(); mock.timers.reset(); }
+});

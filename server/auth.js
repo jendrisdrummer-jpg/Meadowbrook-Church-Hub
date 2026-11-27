@@ -297,6 +297,9 @@ export function authRoutes(app, db) {
   const codeCeiling = createLimiter({ cap: 10 });
   // Daily wrong-code counts have their own table so a flood of them can't push out the pw:/verify: keys.
   const dayLimits = createLimiter({ cap: 20000 });
+  const DAY = 24 * 60 * 60e3;
+  const CAP_MESSAGE = 'Too many tries for this email today. Sign in with your password or Google, or ask the church office.';
+  const capMarks = new Map(); // email -> newest code row id when its daily cap was reached
   const verifyLimits = createLimiter(); // verify:<email> and codetry:<id>, apart from the password keys
   let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
   let capWarnedAt = 0;
@@ -506,18 +509,28 @@ export function authRoutes(app, db) {
     // answers can't show who is in People. The address first, then the email (no new keys when refused).
     if (!ipAllowed(limits, 'verifyip', req.ip, 60, 15 * 60e3, { wide: 8 })) return res.status(429).json({ error: 'Too many tries. Wait a few minutes, then try again or send a new code.' });
     const dayKey = `verifyday:${email.slice(0, 200)}`;
-    // A sliding 24 hours; the same words for every email.
-    if (!dayLimits.allowed(dayKey, 20, 24 * 60 * 60e3)) return res.status(429).json({ error: 'Too many tries for this email today. Sign in with your password or Google, or ask the church office.' });
+    const capped = !dayLimits.allowed(dayKey, 20, DAY);
     const row = db.prepare("SELECT * FROM login_codes WHERE email = ? AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(email);
     // Tries per code are counted in memory (a database write only when a code exists would show in
     // the timing); codes last 15 minutes, so losing the count on a restart is fine.
     const tryKey = row && `codetry:${row.id}`;
-    const live = row && verifyLimits.allowed(tryKey, 5, 15 * 60e3);
+    // Under the daily cap only a code asked for after the cap was reached, on its very first try,
+    // can still sign in (a wrong first try burns it). Otherwise guessers could lock people out.
+    const live = row && (capped ? row.id > (capMarks.get(email) ?? Infinity) && verifyLimits.allowed(tryKey, 1, 15 * 60e3) : verifyLimits.allowed(tryKey, 5, 15 * 60e3));
     const given = String(b.code || '').replace(/\D/g, '');
-    const ok = live && given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
+    // The hash is compared against something either way, so a missing code costs the same time.
+    const ok = given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row?.code_hash || codeHash(email, 'x'))) && live;
     if (!ok) {
       if (row) verifyLimits.record(tryKey, 5, 15 * 60e3);
-      dayLimits.record(dayKey, 20, 24 * 60 * 60e3);
+      dayLimits.record(dayKey, 20, DAY);
+      if (!dayLimits.allowed(dayKey, 20, DAY)) {
+        // The cap is reached: remember the newest code row so later ones count as newly requested.
+        if (!capped || !capMarks.has(email)) {
+          if (capMarks.size > 5000) capMarks.delete(capMarks.keys().next().value);
+          capMarks.set(email, db.prepare('SELECT COALESCE(MAX(id), 0) n FROM login_codes').get().n);
+        }
+      } else capMarks.delete(email);
+      if (capped) return res.status(429).json({ error: CAP_MESSAGE });
       // Counted per email whether or not a code row exists: the 5th wrong try says "too many",
       // later ones the usual wording.
       const k = `verify:${email.slice(0, 200)}`;
