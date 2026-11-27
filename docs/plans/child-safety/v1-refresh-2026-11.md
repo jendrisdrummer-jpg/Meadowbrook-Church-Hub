@@ -424,6 +424,21 @@ Stations. Otherwise state that it wasn't tested in the browser.
 
 ---
 
+## 5a. Owner decisions made (27 Nov 2026)
+
+- **PR 1:** built and deployed (live with deploy #129). **PR 2:** built and reviewed (#130), held until the pilot.
+- **PR 3 approved:** protect check-in history (no deletes of check-ins or past serving records; past services can't
+  be deleted), after a backup and a rehearsal on a copy of real data.
+- **PR 4:** the "Kids' check-in" access is **automatic for staff and admins**; anyone else needs the per-account
+  switch (like Attendance). Who has the switch on day one: still to name before the pilot.
+- **PR 5 approved:** pickup codes are a station letter plus 4 characters; medical details at three levels (always
+  shown / on tap / office only).
+- **PR 6 approved as recommended:** holds are placed and removed by staff with check-in access at that campus, and the
+  safeguarding lead is told each time.
+- Still open: no offline approvals in V1 (item 5), the Christmas freeze (item 6), the pre-pilot names and printer
+  models (item 7), how long the check-in record is kept, and the PR 2 questions (refusing the old check-out shape and
+  mixed offline reports once all iPads are on version 2; accepting backdating within the check-in-to-now window).
+
 ## 5. Owner decisions still open
 
 **Needed before PR 1:** none.
