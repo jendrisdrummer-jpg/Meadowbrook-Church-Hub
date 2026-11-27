@@ -295,6 +295,9 @@ export function authRoutes(app, db) {
   const limits = createLimiter();
   const emailLimits = createLimiter();
   const codeCeiling = createLimiter({ cap: 10 });
+  // Daily wrong-code counts have their own table so a flood of them can't push out the pw:/verify: keys.
+  const dayLimits = createLimiter({ cap: 20000 });
+  const verifyLimits = createLimiter(); // verify:<email> and codetry:<id>, apart from the password keys
   let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
   let capWarnedAt = 0;
   const devLogin = process.env.MB_DEV_LOGIN === '1';
@@ -501,22 +504,25 @@ export function authRoutes(app, db) {
     const email = String(b.email || '').trim().toLowerCase();
     // Wrong guesses are refused the same way whether or not this email was sent a code, so the
     // answers can't show who is in People. The address first, then the email (no new keys when refused).
-    const tooMany = () => res.status(429).json({ error: 'Too many tries. Wait a few minutes, then try again or send a new code.' });
-    if (!ipAllowed(limits, 'verifyip', req.ip, 60, 15 * 60e3, { wide: 8 })) return tooMany();
+    if (!ipAllowed(limits, 'verifyip', req.ip, 60, 15 * 60e3, { wide: 8 })) return res.status(429).json({ error: 'Too many tries. Wait a few minutes, then try again or send a new code.' });
     const dayKey = `verifyday:${email.slice(0, 200)}`;
-    if (!emailLimits.allowed(dayKey, 20, 24 * 60 * 60e3)) return tooMany();
+    // A sliding 24 hours; the same words for every email.
+    if (!dayLimits.allowed(dayKey, 20, 24 * 60 * 60e3)) return res.status(429).json({ error: 'Too many tries for this email today. Sign in with your password or Google, or ask the church office.' });
     const row = db.prepare("SELECT * FROM login_codes WHERE email = ? AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(email);
-    const live = row && row.attempts < 5;
+    // Tries per code are counted in memory (a database write only when a code exists would show in
+    // the timing); codes last 15 minutes, so losing the count on a restart is fine.
+    const tryKey = row && `codetry:${row.id}`;
+    const live = row && verifyLimits.allowed(tryKey, 5, 15 * 60e3);
     const given = String(b.code || '').replace(/\D/g, '');
     const ok = live && given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
     if (!ok) {
-      if (live) db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
-      emailLimits.record(dayKey, 20, 24 * 60 * 60e3);
+      if (row) verifyLimits.record(tryKey, 5, 15 * 60e3);
+      dayLimits.record(dayKey, 20, 24 * 60 * 60e3);
       // Counted per email whether or not a code row exists: the 5th wrong try says "too many",
       // later ones the usual wording.
       const k = `verify:${email.slice(0, 200)}`;
-      const counted = emailLimits.hit(k, 5, 15 * 60e3);
-      const fifth = counted && !emailLimits.allowed(k, 5, 15 * 60e3);
+      const counted = verifyLimits.hit(k, 5, 15 * 60e3);
+      const fifth = counted && !verifyLimits.allowed(k, 5, 15 * 60e3);
       return res.status(400).json({ error: fifth ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right, or it has expired. Check the email or send a new one.' });
     }
     const user = userForEmail(db, email, { first_name: b.first_name, last_name: b.last_name });
@@ -541,7 +547,7 @@ export function authRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  return { limits, emailLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
+  return { limits, emailLimits, dayLimits, verifyLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
 }
 
 const SIGN_IN_HINTS = {
