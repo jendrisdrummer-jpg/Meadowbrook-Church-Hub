@@ -46,12 +46,12 @@ export default async function stations(el) {
         <li>Each iPad gets a letter (shown in the table). Its pickup codes start with that letter, so two iPads never make the same code.</li>
         <li>That’s it: the iPad checks kids in at that campus with no one signed in. Remove it here anytime.</li></ol></div>
     <div class="card"><h2>Check-in iPads</h2>
-      ${list.length ? html`<table class="list"><thead><tr><th>Station</th><th>Code letter</th><th>Campus</th><th>Device</th><th>Name tags</th><th>Last used</th><th></th></tr></thead><tbody>
+      ${list.length ? html`<div class="table-wrap"><table class="list"><thead><tr><th>Station</th><th>Code letter</th><th>Campus</th><th>Device</th><th>Name tags</th><th>Last used</th><th></th></tr></thead><tbody>
         ${list.map((d) => html`<tr><td><b>${d.name}</b>${d.added_by ? html`<div class="muted small">Added by ${d.added_by}</div>` : ''}<div style="margin-top:4px">${versionPill(d)}</div></td><td>${d.station_letter ? html`<b class="st-code">${d.station_letter}</b>` : html`<span class="muted small">Random</span>`}</td><td>${d.campus_name}</td>
           <td class="small">${d.device || '—'}</td><td>${d.print ? html`<span class="pill good">Prints</span>` : html`<span class="pill">Off</span>`}</td>
           <td class="small nowrap">${seen(d.last_seen)}</td>
           <td style="text-align:right" class="nowrap"><button class="btn small ghost" data-edit="${d.id}">Edit</button><button class="btn small ghost danger" data-remove="${d.id}">Remove</button></td></tr>`)}
-      </tbody></table>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
+      </tbody></table></div>` : html`<p class="muted" style="margin:0">No stations yet. Add one with the code from an iPad.</p>`}</div>
     <div class="card"><h2>Medical details to sort</h2>
       ${review.remaining ? html`<p class="small" style="margin:0 0 8px"><b>${review.remaining}</b> ${review.remaining === 1 ? 'child has' : 'children have'} allergy or medical details nobody has sorted yet:
           ${review.by_campus.map((x) => `${campusLabel(x.campus_id)} ${x.remaining}`).join(' · ')}. Open each child, put allergens and EpiPen in the safety line, private matters in care notes, leave the rest as the medical note, then tick “Sorted”.</p>

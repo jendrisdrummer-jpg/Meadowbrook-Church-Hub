@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { openDb } from '../server/db.js';
 import { createApp } from '../server/index.js';
 import { startSession } from '../server/auth.js';
-import { CHECKIN_APP_VERSION, level1, level1Text, SEE_LEADER } from '../public/js/checkin-rules.js';
+import { CHECKIN_APP_VERSION, level1, level1Text, labelSafety, SEE_LEADER } from '../public/js/checkin-rules.js';
 
 const T0 = '2027-02-21T15:30:00Z'; // a Sunday, 9:30 in Chicago
 const L1 = 'L1-ALLERGY-CANARY';
@@ -120,6 +120,24 @@ test('label lines: allergen words, EPI yes/no and a one-line action, never cut s
   assert.equal(long.action, 'SEE ROOM LEADER');
   assert.ok(!long.allergy.includes('peanuts'));
   assert.equal(level1({ allergies: '  peanuts \n egg ', allergy_epi: 0 }, 40).allergy, 'ALLERGY: peanuts egg', 'line breaks and extra spaces are squeezed out');
+});
+
+test('name tag safety strips: small tags join them into one short strip, EPI: YES is never lost', () => {
+  const kid = { allergies: 'peanuts, tree nuts, egg', allergy_epi: 1, allergy_action: 'EpiPen in bag, call 911' };
+  // Roomy tag: the Level 1 lines as they are.
+  assert.deepEqual(labelSafety(kid, { max: 60 }), ['EPI: YES', 'ALLERGY: peanuts, tree nuts, egg', 'EpiPen in bag, call 911']);
+  // Small tag: one strip, within the limit; the action becomes SEE ROOM LEADER.
+  for (const max of [30, 36]) {
+    const small = labelSafety(kid, { max, compact: true });
+    assert.equal(small.length, 1);
+    assert.ok(small[0].length <= max, small[0]);
+    assert.ok(small[0].startsWith('EPI: YES'));
+    assert.ok(small[0].includes('SEE ROOM LEADER'));
+  }
+  assert.deepEqual(labelSafety({ allergies: 'Peanuts', allergy_epi: 1 }, { max: 30, compact: true }), ['EPI: YES · Peanuts']);
+  assert.deepEqual(labelSafety({ allergies: '', allergy_epi: 1 }, { max: 30, compact: true }), ['EPI: YES']);
+  assert.deepEqual(labelSafety({ allergies: 'peanuts, tree nuts, egg, milk, soy, wheat', allergy_epi: 0 }, { max: 30, compact: true }), ['SEE ROOM LEADER']);
+  assert.deepEqual(labelSafety({ allergies: '', allergy_epi: 0, allergy_action: '' }, { max: 30, compact: true }), []);
 });
 
 test('Level 2 on tap: a station or an account with check-in access, one child checked in there today, and every look is recorded', async () => {
