@@ -30,6 +30,7 @@ export const DEFAULT_APP = {
     { id: 'more', type: 'more', label: 'More', icon: 'menu', on: true },
   ],
   home: [
+    { id: 'thisweek', type: 'thisweek', size: 'F', style: 'card' },
     { id: 'welcome', type: 'welcome', size: 'F', style: 'accent', title: 'Welcome home', text: 'We’re so glad you’re here.' },
     { id: 'new', type: 'button', size: 'M', style: 'accent', label: 'I’m new here', icon: 'hand', tab: 'connect' },
     { id: 'live', type: 'button', size: 'M', style: 'soft', label: 'Watch live', icon: 'play', tab: 'watch' },
@@ -133,6 +134,9 @@ export default function appRoutes(db, { uploadDir } = {}) {
   });
 
   // Everything the app needs to draw itself. Public: guests use the app without signing in.
+  // The signed-in person's own home campus, so "This week" can show their campus's service.
+  const personCampus = (req) => (req.user?.personId ? db.prepare('SELECT campus_id FROM people WHERE id = ?').get(req.user.personId)?.campus_id ?? null : null);
+
   r.get('/app/config', (req, res) => {
     // Only series that have started and not ended, and one row per campus, day and time even when
     // two series repeat the same slot.
@@ -150,7 +154,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
       config: appConfig(db),
       hub_url: (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
       giving: stripeConfigured(),
-      user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), person_id: req.user.personId ?? null, photo: req.user.photo, theme: req.user.theme } : null,
+      user: req.user ? { name: req.user.name, role: req.user.role, linked: Boolean(req.user.personId), person_id: req.user.personId ?? null, campus_id: personCampus(req), photo: req.user.photo, theme: req.user.theme } : null,
     });
   });
 

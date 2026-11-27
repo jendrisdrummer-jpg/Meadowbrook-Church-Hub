@@ -16,7 +16,7 @@ const TAB_INFO = {
   link: ['Link', 'Opens any website: events, sermons, small groups sign-up…'],
   more: ['More', 'Account, notifications, appearance, campuses. Always last.'],
 };
-const WIDGET_ICON = { countdown: 'clock', events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', tasks: 'tasks', times: 'clock', watch: 'play', sermon: 'video', text: 'edit' };
+const WIDGET_ICON = { countdown: 'clock', events: 'calendar', button: 'link', image: 'image', welcome: 'home', serving: 'calendar', thisweek: 'clock', tasks: 'tasks', times: 'clock', watch: 'play', sermon: 'video', text: 'edit' };
 const ICONS = WIDGET_ICONS;
 const MAX_TABS = 5;
 

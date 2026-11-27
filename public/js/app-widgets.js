@@ -21,6 +21,7 @@ export const WIDGETS = {
   welcome: { label: 'Welcome banner', hint: 'A big greeting at the top.', sizes: ['W', 'L', 'F'], size: 'F', style: 'accent', fields: ['title', 'text'], image: true },
   countdown: { label: 'Next service countdown', hint: 'Counts down to the next service from your repeating services, then says “We’re live” and opens Watch while it’s on.', sizes: ['T', 'W', 'F'], size: 'W', style: 'accent', fields: ['title', 'campus'] },
   events: { label: 'Upcoming events', hint: 'The next events from Events in the hub. Square shows the next one with its picture.', sizes: ['T', 'W', 'L', 'F'], size: 'F', style: 'card', fields: ['title'] },
+  thisweek: { label: 'This week', hint: 'One card for each person: the next service at their campus, what they’re serving, events they’re going to, and one next step. Guests see service times.', sizes: ['F'], size: 'F', style: 'card', fields: ['title'] },
   serving: { label: 'My serving', hint: 'Signed-in volunteers see when they serve next, with Accept.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },
   tasks: { label: 'My tasks', hint: 'Open tasks for whoever is signed in. Hidden for guests.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: [] },
   times: { label: 'Service times', hint: 'From your repeating services, with each campus address.', sizes: ['T', 'F'], size: 'F', style: 'card', fields: ['title'] },

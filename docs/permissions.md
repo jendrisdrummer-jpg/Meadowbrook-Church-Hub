@@ -111,6 +111,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | | Volunteer | Leader | Staff | Admin |
 |---|:-:|:-:|:-:|:-:|
 | Own schedule, accept/decline, away dates | ✓ | ✓ | ✓ | ✓ |
+| Edit **their own** phone and birthday (More → My info; saved straight to their People record), and send a “Tell the office” note. Never email, family, role, status, campus or notes: see `routes/me.js` | ✓ | ✓ | ✓ | ✓ |
 | Order of service for services they serve at; all services in the app | ✓ | ✓ | ✓ | ✓ |
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
 | See their own small groups: names and photos of the roster, and the group chat (members only) | ✓ | ✓ | ✓ | ✓ |
