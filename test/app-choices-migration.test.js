@@ -7,6 +7,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { openDb, SCHEMA_VERSION, getSetting } from '../server/db.js';
 
+// Migrations 38, 39 and 40 undone, so version 36 can run 37 and everything after it again.
+const UNDO_38_TO_40 = 'ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE class_completions; DROP TABLE class_progress; DROP TABLE class_enrolments; DROP TABLE class_managers; DROP TABLE class_steps; DROP TABLE classes; PRAGMA user_version = 36';
+
 test('migration 37: themes move to device, saved layouts get This week first, once', () => {
   assert.ok(SCHEMA_VERSION >= 37);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-m37-'));
@@ -16,7 +19,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     db.prepare("INSERT INTO users (email, role, theme) VALUES ('a@t.test', 'staff', 'light'), ('b@t.test', 'staff', 'dark'), ('c@t.test', 'volunteer', 'light')").run();
     const saved = { tabs: [{ id: 'home', type: 'home' }], home: [{ id: 'welcome', type: 'welcome', size: 'F' }, { id: 'times', type: 'times', size: 'F' }] };
     db.prepare("INSERT INTO settings (key, value) VALUES ('app_config', ?)").run(JSON.stringify(saved));
-    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; PRAGMA user_version = 36'); // also undo migrations 38 and 39, which run again with 37
+    db.exec(UNDO_38_TO_40); // also undo migrations 38 to 40, which run again with 37
     db.close();
 
     db = openDb(file); // runs 37
@@ -28,7 +31,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     assert.deepEqual(cfg.tabs, saved.tabs);
 
     // Running it again (e.g. a layout that already has the card) adds nothing.
-    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; PRAGMA user_version = 36'); // also undo migrations 38 and 39, which run again with 37
+    db.exec(UNDO_38_TO_40); // also undo migrations 38 to 40, which run again with 37
     db.close();
     db = openDb(file);
     assert.deepEqual(getSetting(db, 'app_config').home.map((w) => w.type), ['thisweek', 'welcome', 'times']);
