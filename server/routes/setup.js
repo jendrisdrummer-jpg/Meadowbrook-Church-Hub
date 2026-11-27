@@ -192,19 +192,19 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     const limited = Boolean(req.user.campusIds);
     const reach = (u) => !limited || accountInReach(req.user, u);
     const q = str(req.query.q, 100).toLowerCase();
-    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce, u.attendance,
+    const rows = db.prepare(`SELECT u.id, u.email, u.role, u.person_id, u.campus_ids, u.active, u.last_login, u.created_at, u.finance, u.announce, u.attendance, u.app_editor,
         u.password_hash IS NOT NULL has_password, u.role_auto, p.first_name, p.last_name, p.campus_id person_campus_id
       FROM users u LEFT JOIN people p ON p.id = u.person_id
-      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1 OR u.attendance = 1)"}
+      WHERE ${q ? "(lower(u.email) LIKE ? OR lower(p.first_name || ' ' || p.last_name) LIKE ?)" : "(u.role != 'volunteer' OR u.active = 0 OR u.finance = 1 OR u.announce = 1 OR u.attendance = 1 OR u.app_editor = 1)"}
       ORDER BY u.role = 'volunteer', u.email LIMIT ${limited ? 5000 : 200}`).all(...(q ? [`%${q}%`, `%${q}%`] : []));
     const checkinIds = getSetting(db, 'checkin_user_ids', []);
     const volunteers = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'volunteer' AND active = 1").get().n;
     const withEmail = db.prepare("SELECT COUNT(*) n FROM people WHERE archived = 0 AND email != ''").get().n;
     // Active accounts not linked to anyone in People: an admin links each one by hand.
     // (A campus-limited admin sees only the accounts they could manage, in all three lists.)
-    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce FROM users
+    const unlinked = db.prepare(`SELECT id, email, role, last_login, created_at, link_requested_at, campus_ids, finance, announce, app_editor FROM users
       WHERE person_id IS NULL AND active = 1 ORDER BY link_requested_at IS NULL, link_requested_at DESC, created_at DESC LIMIT ${limited ? 5000 : 200}`).all()
-      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, ...u }) => {
+      .filter((u) => reach(u)).slice(0, 200).map(({ campus_ids: _c, finance: _f, announce: _a, app_editor: _e, ...u }) => {
         // The person with the same email, shown only when this admin could link to them (a hint; an admin always confirms).
         const sg = linkSuggestion(db, u);
         const { campus_id: sgCampus, ...suggestion } = sg || {};
@@ -288,7 +288,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (req.user.campusIds) {
       // A campus-limited admin can't make an admin or grant church-wide flags, and the new account
       // stays inside their campuses (it defaults to all of theirs).
-      if (role === 'admin' || b.finance || b.announce) throw new HttpError(403, WIDER_MSG);
+      if (role === 'admin' || b.finance || b.announce || b.app_editor) throw new HttpError(403, WIDER_MSG);
       if (campusIds === undefined) campusIds = [...req.user.campusIds];
       else {
         const l = campusList(campusIds);
@@ -297,9 +297,9 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     }
     const person = b.person_id != null && b.person_id !== '' ? linkablePerson(b.person_id, null, req) : null;
     if (b.attendance) checkAttendanceCampuses(req, campusList(campusIds));
-    const info = db.prepare('INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0);
-    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}`);
+    const info = db.prepare("INSERT INTO users (email, role, person_id, campus_ids, finance, announce, attendance, app_editor, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'device')")
+      .run(email, role, person, campusList(campusIds), b.finance ? 1 : 0, b.announce ? 1 : 0, b.attendance ? 1 : 0, b.app_editor ? 1 : 0);
+    audit(db, req, 'user.create', `${email} as ${b.role}${b.checkin ? ' + check-in' : ''}${b.attendance ? ' + attendance' : ''}${b.app_editor ? ' + edit the app' : ''}`);
     if (person) {
       audit(db, req, 'user.link', { user_id: Number(info.lastInsertRowid), person_id: person });
       // The dialogs always send a role; Volunteer (the default) isn't a hand choice of more access.
@@ -313,7 +313,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
   // The rules for a campus-limited admin editing an account. Fields the dialog re-sends unchanged are
   // dropped (so they never error and never write); anything that would change is checked.
   function dropUnchanged(b, changed, keepCampus) {
-    for (const k of ['finance', 'announce', 'attendance', 'active', 'checkin', 'person_id']) if (!changed[k]) delete b[k];
+    for (const k of ['finance', 'announce', 'attendance', 'app_editor', 'active', 'checkin', 'person_id']) if (!changed[k]) delete b[k];
     if (!changed.campus_ids && !keepCampus) delete b.campus_ids;
   }
   function scopePatch(req, u, b) {
@@ -323,6 +323,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       campus_ids: wantCampus !== undefined && !sameCampuses(wantCampus, u.campus_ids),
       finance: b.finance !== undefined && Boolean(b.finance) !== Boolean(u.finance),
       announce: b.announce !== undefined && Boolean(b.announce) !== Boolean(u.announce),
+      app_editor: b.app_editor !== undefined && Boolean(b.app_editor) !== Boolean(u.app_editor),
       attendance: b.attendance !== undefined && Boolean(b.attendance) !== Boolean(u.attendance), // allowed inside their campuses; checked in PATCH
       active: b.active !== undefined && Boolean(b.active) !== Boolean(u.active),
       checkin: b.checkin !== undefined && Boolean(b.checkin) !== getSetting(db, 'checkin_user_ids', []).includes(u.id),
@@ -333,7 +334,7 @@ export default function setupRoutes(db, { uploadDir } = {}) {
       if (Object.values(changed).some(Boolean)) throw new HttpError(403, SELF_MSG);
     } else {
       if (!accountInReach(req.user, loadAccount(u.id))) throw new HttpError(403, OUT_MSG);
-      if (b.role === 'admin' || changed.finance || changed.announce) throw new HttpError(403, WIDER_MSG);
+      if (b.role === 'admin' || changed.finance || changed.announce || changed.app_editor) throw new HttpError(403, WIDER_MSG);
       if (changed.campus_ids && (wantCampus === null || !within(JSON.parse(wantCampus), C))) throw new HttpError(403, WIDER_MSG);
       if (['leader', 'staff'].includes(b.role ?? u.role)) {
         const ids = changed.campus_ids ? JSON.parse(wantCampus) : u.campus_ids ? JSON.parse(u.campus_ids) : null;
@@ -366,10 +367,11 @@ export default function setupRoutes(db, { uploadDir } = {}) {
     if (b.finance !== undefined) b.finance = Boolean(b.finance);
     if (b.announce !== undefined) b.announce = Boolean(b.announce);
     if (b.attendance !== undefined) b.attendance = Boolean(b.attendance);
+    if (b.app_editor !== undefined) b.app_editor = Boolean(b.app_editor);
     // Attendance needs a campus list (more than one campus); checked against the list the account will have.
     const willAttend = b.attendance !== undefined ? b.attendance : Boolean(u.attendance);
     if (willAttend && (b.attendance === true && !u.attendance || b.campus_ids !== undefined)) checkAttendanceCampuses(req, b.campus_ids !== undefined ? b.campus_ids : u.campus_ids);
-    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance']);
+    updateFields(db, 'users', u.id, b, ['role', 'campus_ids', 'person_id', 'active', 'finance', 'announce', 'attendance', 'app_editor']);
     if (b.person_id !== undefined && b.person_id !== u.person_id) {
       audit(db, req, b.person_id == null ? 'user.unlink' : 'user.link', { user_id: u.id, person_id: b.person_id, from_person_id: u.person_id });
     }

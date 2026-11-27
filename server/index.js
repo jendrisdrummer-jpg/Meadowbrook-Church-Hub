@@ -39,6 +39,7 @@ import givingRoutes, { stripeWebhook } from './routes/giving.js';
 import financeRoutes from './routes/finance.js';
 import feedbackRoutes from './routes/feedback.js';
 import formRoutes from './routes/forms.js';
+import meRoutes from './routes/me.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -100,6 +101,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(financeRoutes(db));
   api.use(feedbackRoutes(db));
   api.use(formRoutes(db));
+  api.use(meRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);
 

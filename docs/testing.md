@@ -51,7 +51,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 9 | Chat: team chat, group, reply, mention, file, task card | Volunteer / leader | Live updates; unread counts; only members see it |
 | 10 | Tasks: assign, remind, complete, repeat | Volunteer / leader | Notifications; next repeat created |
 | 11 | Give online (one-time, recurring) and record a cash batch | Guest / Finance | Gift recorded; statements; non-Finance accounts see nothing |
-| 12 | App Builder: change home widgets and tabs | Staff | Member app shows the change; guests too |
+| 12 | App Builder: change home widgets and tabs | Admin, or staff with Edit the app | Member app shows the change; guests too |
 | 13 | Media: new video arrives, edit title/trim, watch in app | Staff → member | Trimmed playback; library filters |
 | 14 | Sign in by Google / email code / password; sign out | Anyone | Correct role and campuses; policy respected |
 | 15 | Permissions sweep | Volunteer, campus staff | Staff-only pages refused; other campus invisible (`npm run test:ui` covers page level) |

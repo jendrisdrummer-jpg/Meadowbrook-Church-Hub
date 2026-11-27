@@ -52,6 +52,24 @@ a.w:hover { text-decoration: none; }
 /* Pictures */
 .w-image { padding: 0; justify-content: flex-end; }
 .w-image .w-caption { padding: 12px 14px; font-size: 17px; }
+/* A picture that is missing or won't load: a quiet placeholder instead of a broken image. */
+.w-pic-missing { display: none; }
+.w-image.w-broken { background: var(--panel-2); color: var(--muted); justify-content: center; align-items: center; min-height: 120px; }
+.w-image.w-broken .w-pic-missing { display: grid; justify-items: center; gap: 4px; font-size: 13px; }
+.w-image.w-broken .w-pic-missing .ic { width: 26px; height: 26px; }
+.w-image.w-broken .w-caption { color: var(--text); padding-top: 0; }
+.w-image.w-broken.has-img { background: var(--panel-2); }
+/* Announcement banner: icon, words, and a chevron when it opens something. */
+.w-ann { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; min-height: 64px; }
+.w-ann .w-ann-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.w-ann .w-label { font-size: 16px; }
+.w-ann .w-ann-body { font-size: 14px; opacity: .9; overflow-wrap: anywhere; }
+.w-chev { width: 18px; height: 18px; flex: none; opacity: .6; }
+/* Link list: tidy rows, each at least 44px tall to tap. */
+.w-ll { display: grid; margin: 4px -4px -6px; }
+.w-ll-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 4px; color: inherit; text-decoration: none; }
+.w-ll-row + .w-ll-row { border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.w-ll-row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 /* Text that doesn't fit a fixed-size tile fades out. */
 .w-text.sz-T p, .w-text.sz-W p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .w-text.sz-W p { -webkit-line-clamp: 1; }
@@ -251,3 +269,35 @@ a.w:hover { text-decoration: none; }
 .m-fold > summary::after { content: '›'; font-size: 22px; color: var(--muted); transition: transform .15s; }
 .m-fold[open] > summary::after { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .m-fold > summary::after { transition: none; } }
+
+/* ---------- Phone polish: back button, tap targets, touch behaviour ---------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body.member { overscroll-behavior-x: none; }
+/* One "Back" at the top left of every screen deeper than a tab. */
+.m-top [data-back] { display: contents; }
+.m-back { display: inline-flex; align-items: center; gap: 2px; flex: none; min-height: 44px; min-width: 44px; margin: -6px 0 -6px -8px; padding: 0 10px 0 4px; border-radius: 12px; color: var(--accent-text); font-weight: 600; font-size: 16px; text-decoration: none; }
+.m-back:hover { text-decoration: none; background: var(--hover); }
+.m-back .ic { width: 24px; height: 24px; }
+.m-back-text { display: none; }
+body.member .m-back-text { display: inline; font-weight: 600; }
+body.member .chat-back { text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding-right: 10px; color: var(--accent-text); font-size: 16px; }
+.m-top .icon-btn { width: 44px; height: 44px; border-radius: 12px; }
+.m-top .icon-btn .ic { width: 22px; height: 22px; }
+.m-tabs a, .m-top .icon-btn, .m-back, body.member .btn, body.member button { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+@media (pointer: coarse) {
+  /* iPhones zoom the page when a field under 16px is focused. */
+  body.member input, body.member select, body.member textarea { font-size: 16px; }
+  body.member .btn.small, body.member .icon-btn { min-height: 44px; }
+  body.member .btn.small { min-width: 44px; }
+  .m-cal-card .row .btn.small { font-size: 22px; line-height: 1; }
+  .m-seg a, .task-filters .seg a { display: flex; align-items: center; justify-content: center; min-height: 44px; }
+  .task-filters .chip.link, .m-chips .chip { min-height: 44px; display: inline-flex; align-items: center; }
+  .wv-selects select { min-height: 44px; }
+}
+/* "This week" Home card */
+.w-thisweek h2 { margin: 0 0 4px; }
+.tw-sec { padding: 10px 0; }
+.tw-sec + .tw-sec { border-top: 1px solid var(--line); }
+.tw-sec > .w-sub { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.tw-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; min-height: 44px; color: inherit; text-decoration: none; }
+.w-thisweek > .btn { margin-top: 6px; }

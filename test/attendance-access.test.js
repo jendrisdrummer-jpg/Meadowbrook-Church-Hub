@@ -57,8 +57,8 @@ async function api(who, method, url, body) {
 const audits = (action) => db.prepare('SELECT user_id, detail FROM audit_log WHERE action = ?').all(action);
 
 test('migration 36: the schema version and both columns', () => {
-  assert.equal(SCHEMA_VERSION, 36);
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 36);
+  assert.ok(SCHEMA_VERSION >= 36);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'attendance' && c.dflt_value === '0'));
   assert.ok(db.prepare('PRAGMA table_info(campuses)').all().some((c) => c.name === 'attendance_mode' && c.dflt_value === "'both'"));
   assert.equal(db.prepare('SELECT attendance_mode m FROM campuses WHERE id = 1').get().m, 'both');

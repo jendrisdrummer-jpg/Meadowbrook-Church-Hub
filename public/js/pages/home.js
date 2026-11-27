@@ -1,8 +1,9 @@
-import { get, patch, html, raw, mount, icon, fmtDate, fmtTime, toast, fail } from '../lib.js';
+import { get, patch, put, del, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, dialog } from '../lib.js';
 import { state, can, setTitle, campusQuery } from '../app.js';
 import { greetingForHour } from '../greeting.js';
 import { sparkline, pctChange, changeText } from '../attendance-chart.js';
 import { declineAssignment } from '../myschedule.js';
+import { DEFAULT_ORDER, CARD_NAMES, arrange, isStandard } from '../home-layout.js';
 
 export default async function home(el) {
   const first = state.me.name.split(' ')[0];
@@ -106,16 +107,25 @@ export default async function home(el) {
     : html`<div class="muted">Nobody has marked themselves away.</div>`}</div>`;
 
   const p = d.people;
-  mount(el, html`${setupHint}${teamHead}${tileRow}
-    <div class="grid two home-grid">
-      <div class="stack">${services}</div>
-      <div class="stack">
-        <div class="card"><div class="card-head"><h2>Your next time serving</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>
-        ${staff ? attCard : ''}
-        ${awayCard}
+  const yourTime = html`<div class="card"><div class="card-head"><h2>Your next time serving</h2><a href="#/my" class="btn small">My Schedule</a></div>${mine}</div>`;
+  const totals = html`<p class="home-totals muted small"><b>${p.total ?? 0}</b> people · <b>${p.members ?? 0}</b> members · <b>${p.new_guests ?? 0}</b> new guests in 30 days</p>`;
+  // Every card has a stable id; the ones this role can't see simply aren't in `cards`.
+  const cards = { attention: tileRow, services, serving: yourTime, away: awayCard, ...(staff ? { attendance: attCard, totals } : {}) };
+  const available = DEFAULT_ORDER.filter((id) => cards[id]);
+  const layout = state.me.homeLayout;
+  const tools = html`<div class="home-tools"><button type="button" class="btn small ghost" data-customise>${icon('settings')} Customise</button></div>`;
+
+  // Nobody who hasn't customised sees any change: the standard two-column Home.
+  const body = !layout
+    ? html`${tileRow}
+      <div class="grid two home-grid">
+        <div class="stack">${services}</div>
+        <div class="stack">${yourTime}${staff ? attCard : ''}${awayCard}</div>
       </div>
-    </div>
-    ${staff ? html`<p class="home-totals muted small"><b>${p.total ?? 0}</b> people · <b>${p.members ?? 0}</b> members · <b>${p.new_guests ?? 0}</b> new guests in 30 days</p>` : ''}`);
+      ${staff ? totals : ''}`
+    : html`<div class="grid two home-grid home-flow">${arrange(available, layout).filter((c) => !c.hidden).map((c) => html`<div class="${c.id === 'attention' || c.id === 'totals' ? 'wide' : ''}">${cards[c.id]}</div>`)}</div>`;
+  mount(el, html`${setupHint}${teamHead}${tools}${body}`);
+  el.querySelector('[data-customise]').onclick = () => customise(el, available);
   bind(el);
 }
 
@@ -140,4 +150,51 @@ function bind(el) {
       home(el);
     } catch (err) { fail(err); }
   };
+}
+
+// "Customise": show or hide each Home card and move it up or down (buttons, no dragging, so it works
+// on a phone). Reset only changes the dialog; nothing is saved until Save.
+async function customise(el, available) {
+  let cards = arrange(available, state.me.homeLayout);
+  const row = (c) => html`<li class="cust-row" data-id="${c.id}">
+      <label class="cust-main"><input type="checkbox" class="switch" ${c.hidden ? '' : 'checked'} aria-label="Show ${CARD_NAMES[c.id]}"><b>${CARD_NAMES[c.id]}</b></label>
+      <button type="button" class="icon-btn cust-move" data-move="-1" aria-label="Move ${CARD_NAMES[c.id]} up">${icon('up')}</button>
+      <button type="button" class="icon-btn cust-move" data-move="1" aria-label="Move ${CARD_NAMES[c.id]} down">${icon('down')}</button></li>`;
+  const read = (d) => [...d.querySelectorAll('.cust-row')].map((li) => ({ id: li.dataset.id, hidden: !li.querySelector('input').checked }));
+  const draw = (d) => {
+    const list = d.querySelector('.cust-list');
+    mount(list, html`${cards.map(row)}`);
+    list.firstElementChild?.querySelector('[data-move="-1"]').setAttribute('disabled', '');
+    list.lastElementChild?.querySelector('[data-move="1"]').setAttribute('disabled', '');
+  };
+  const saved = await dialog({
+    title: 'Customise Home', submit: 'Save', cancel: 'Cancel',
+    body: html`<p class="muted">Choose what you see on Home, and the order. This is just for you.</p><ul class="cust-list"></ul>
+      <button type="button" class="btn small" data-reset>Reset to default</button>`,
+    onOpen: (d) => {
+      draw(d);
+      d.addEventListener('click', (e) => {
+        if (e.target.closest('[data-reset]')) { cards = available.map((id) => ({ id, hidden: false })); draw(d); return; }
+        const mv = e.target.closest('[data-move]');
+        if (!mv || mv.disabled) return;
+        cards = read(d);
+        const i = cards.findIndex((c) => c.id === mv.closest('.cust-row').dataset.id);
+        const j = i + Number(mv.dataset.move);
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+        draw(d);
+        // Keep focus on the card that moved, on the same direction button if it can still go that way.
+        const moved = d.querySelectorAll('.cust-row')[j];
+        (moved.querySelector(`[data-move="${mv.dataset.move}"]:not([disabled])`) || moved.querySelector('[data-move]:not([disabled])'))?.focus();
+      });
+    },
+    onSubmit: async (_f, d) => {
+      const next = read(d);
+      // Back to exactly the standard Home: forget the saved layout rather than store a copy of it.
+      if (isStandard(next, available)) { await del('/me/home-layout'); state.me.homeLayout = null; return true; }
+      const r = await put('/me/home-layout', { order: next.map((c) => c.id), hidden: next.filter((c) => c.hidden).map((c) => c.id) });
+      state.me.homeLayout = r.home_layout;
+      return true;
+    },
+  });
+  if (saved) { toast('Home updated.'); home(el); }
 }

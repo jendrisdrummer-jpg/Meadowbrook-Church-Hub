@@ -81,7 +81,14 @@ function toUser(row) {
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
     announce: Boolean(row.announce) || row.role === 'admin',
+    appEditor: Boolean(row.app_editor) || row.role === 'admin',
+    homeLayout: parseLayout(row.home_layout),
   };
+}
+
+// A saved Home layout, or null (the standard Home) if there is none or it can't be read.
+function parseLayout(text) {
+  try { const v = text ? JSON.parse(text) : null; return v && Array.isArray(v.order) && Array.isArray(v.hidden) ? v : null; } catch { return null; }
 }
 
 // The public address of this request's site: PUBLIC_URL (dashboard) or MB_APP_URL (member
@@ -100,6 +107,16 @@ export function requireRole(min) {
     if (rank(req.user.role) < rank(min)) return res.status(403).json({ error: 'You don’t have access to that.' });
     next();
   };
+}
+
+// Editing the member app (App Builder, its pictures and saved layout): admins always, plus any active
+// account an admin gave the "Edit the app" switch, whatever its role. Reading the app's public
+// config stays open to everyone; only the writes use this guard.
+export const canEditApp = (user) => Boolean(user) && Boolean(user.appEditor);
+export function requireAppEditor(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+  if (!canEditApp(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
+  next();
 }
 
 // Taking attendance (roll call, families, new guests, headcounts): leaders and above as before,
@@ -145,7 +162,7 @@ export function accountInReach(user, t) {
   if (!user.campusIds) return true;
   if (t.id === user.id || t.role === 'admin') return false;
   // Finance and Announcements are church-wide, so accounts holding them are for unrestricted admins.
-  if (t.finance || t.announce) return false;
+  if (t.finance || t.announce || t.app_editor) return false;
   // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
   // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
   // A volunteer's own campus list, if set (e.g. staff who stepped down), must also sit inside theirs.
@@ -233,7 +250,7 @@ export function userForEmail(db, email, profile = {}) {
     });
   }
 
-  const info = db.prepare('INSERT INTO users (email, role, person_id) VALUES (?, ?, ?)').run(email, role, personId);
+  const info = db.prepare("INSERT INTO users (email, role, person_id, theme) VALUES (?, ?, ?, 'device')").run(email, role, personId);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
 }
 

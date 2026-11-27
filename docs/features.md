@@ -33,6 +33,7 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Global search (Ctrl/⌘K) | Verified | `routes/search.js` | `js/search.js` |
 | New sign-ups from the app, connect cards, follow-up lists | Verified | `routes/app.js` | `pages/connect.js` |
 | Dashboard (Home by role: volunteers see Please reply first, then Coming up; leaders see a Your team header with Message team and Schedule this team, tiles for their team's open spots, people who haven't replied and declines to cover, and compact service rows with Schedule and Attendance; staff and admins see tiles hidden at zero for open spots, haven't replied, declines, connect cards, app sign-ups and new form responses, then the week's services and one line of totals). A leader who isn't staff sees only services at the campuses of the teams they lead (their own campus if they lead none), and the connect cards and app sign-ups tiles match the Connect menu badge. Connect cards and Forms menu badges come from `GET /attention` (on load, on focus, every 5 minutes). Phone: More sheet in the bottom bar | Needs more testing | `routes/dashboard.js` | `pages/home.js` |
+| Customise Home (leaders and up; a Customise button above the cards): each person shows or hides Home cards and moves them up or down, with buttons and no dragging so it works on a phone, and Reset to default. Cards: Needs your attention (all the tiles together), This week’s services, Your next time serving, Last Sunday’s attendance and People totals (staff), Who’s away. Saved per account; a card the role can’t see is ignored; a card added later appears in its default place; nobody who hasn’t customised sees any change. Customised Home flows the shown cards in a two-column grid (attention and totals full width) | Built; checked with Playwright at desktop and iPhone widths | `routes/me.js` (`/me/home-layout`), `auth.js` | `pages/home.js`, `js/home-layout.js` |
 | Member directory | Not built (Stage 2) | | |
 
 ## Planning and volunteers (FT)
@@ -75,11 +76,15 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
 | Sign-in, profile, Serve tab (My Schedule, plans, all services), Tasks, Chat, More | Verified at phone size in both themes | (shared) | `member/main.js` |
+| iPhone app shell (Capacitor, `mobile/`): inside it the member app counts as installed (no “add to home screen” banner or card), shows “Notifications aren’t in the phone app yet. You’ll still get emails.” instead of push controls, and hides the Serve “Get a notification” banner. Swipe from the left edge goes back. | Built; needs testing on a real iPhone (Xcode build not run by QA) | | `push.js` (`inShell`), `member/main.js`, `mobile/ios/App/App/AppDelegate.swift` |
+| Member app polish: one consistent top-left Back on every detail screen; the screen refreshes when you return after a minute away; 44px tap targets and 16px fields on phones; guests follow the device’s light or dark setting | Built; checked with Playwright on an iPhone profile (not on a real phone) | | `member/main.js`, `member.css`, `login.html` |
 | Installable app (home screen), own address | Needs more testing (install on real iPhones and Android phones by hand) | `routes/app.js` | `member/*` |
-| Widget home screen (drag, sizes, styles, pictures) and App Builder | Needs more testing (App Builder editing not tried by QA) | `routes/app.js`, `js/app-widgets.js` | `member/home-edit.js`, `pages/appbuilder.js` |
+| Widget home screen (drag, sizes, styles, pictures) and App Builder. Open to admins and accounts with the **Edit the app** flag. Builder helpers: stacked tab rows and a full-screen Preview on phones, Preview as Me or A guest, Discard changes, Reset to starting layout, Home always on, warnings before removing or switching off a tab that buttons open, a red hint on a website left empty. Widgets include **Announcement** (pinned banner, optional link, hides itself after its end date) and **Link list** (up to 8 links); a picture that is missing shows a placeholder | Built; checked with Playwright at desktop and iPhone widths (not tried by QA) | `routes/app.js`, `js/app-widgets.js` | `member/home-edit.js`, `member/widgets.js`, `pages/appbuilder.js` |
 | Events calendar with RSVP and questions | Verified (sign-ups not tried by QA in this round) Member app: one Campus dropdown and a “Show service times” switch. | `routes/events.js` | `member/events.js`, `pages/events.js`, `event.js` |
 | Paid event sign-ups | Needs outside setup (Stripe) | `routes/events.js`, `stripe.js` | `member/events.js` |
 | Next-service countdown, Latest message widgets | Verified | | `member/widgets.js` |
+| **This week** Home widget: next service at my campus, what I'm serving (reply link when a request is waiting), events I'm going to, one call to action; guests see service times. First on the default Home; churches with a saved layout add it in the App Builder | Needs more testing (phone screenshots only) | `routes/app.js`; reuses `/my/schedule`, `/events` | `member/thisweek.js`, `member/widgets.js` |
+| **My info** (More → My info): edit own phone and birthday (not a teen's birthday); an adult can change their household's home address for the whole family; email and family changes go through “Tell the office” (notifies staff at the campus) | Needs more testing | `routes/me.js` | `member/myinfo.js` |
 
 ## Giving (SS, FT)
 Not part of the staff beta. Giving data is only ever shown to accounts with the **Finance** flag,
@@ -87,7 +92,7 @@ even admins.
 
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
-| Online giving (card, ACH, wallets, cover fee, recurring, guests), funds | Needs outside setup (Stripe); never tested with live payments | `routes/giving.js`, `stripe.js` | `js/give.js`, `give.html` |
+| Online giving (card, ACH, wallets, cover fee, recurring, guests), funds | Live (Stripe live keys); one real card gift and its refund tested by the owner on 26 Nov 2026. ACH, wallets, recurring and guest gifts not yet tried live | `routes/giving.js`, `stripe.js` | `js/give.js`, `give.html` |
 | My giving, statements; cash/check batches; year-end statements; finance dashboard and weekly view | Needs outside setup (Stripe for online gifts; Finance flag) | `routes/finance.js` | `pages/giving.js` |
 
 ## Media (SS)
@@ -109,7 +114,7 @@ Not part of this migration (Stage 3).
 | Feedback from staff and leaders (hub page and app More menu), admin triage with status, "You said, we did" | Verified | `routes/feedback.js` | `pages/feedback.js`, `member/main.js` |
 | Unlinked accounts tell the office; admins link accounts to people by hand (nothing links by email or name; Settings suggests the one person with the same email and the admin confirms; audited; one account per person, with an audit script and a Settings warning for duplicates) | Verified | `routes/setup.js`, `link-suggestion.js`, `db.js`, `scripts/audit-account-links.js` | `pages/settings.js`, `myschedule.js` |
 | Nightly encrypted backups to disk and Google Drive; restore script with `--check`; offline mode and [restore drill](restore-drill.md) | Needs outside setup (`MB_BACKUP_PASSWORD` on Render, Google Drive connected); the Backups page itself is verified | `backup.js`, `routes/backups.js` | `pages/settings-backups.js` |
-| Settings → Checks: yes/no production checks for admins (test sign-in off, `MB_TRUST_PROXY`, backups, email, sign-in policy, admins, one account per person; the admin's own address as the server sees it) | Verified | `routes/checks.js` | `pages/settings.js` |
+| Settings → Checks: yes/no production checks for admins (test sign-in off, `MB_TRUST_PROXY`, backups, email, sign-in policy, admins, one account per person; the admin's own address as the server sees it) and **Empty families**: review and remove households nobody belongs to, after a confirm, never automatically | Verified | `routes/checks.js`, `routes/people.js` | `pages/settings.js` |
 | Appearance: Light, Dark or Match my device (saved per person); time-of-day greeting from the device's clock | Verified | `routes/setup.js` (`/me`) | `app.js`, `greeting.js` |
 | Demo data (made-up people, for developers; refuses to run on Render or over real data) | Verified | `scripts/seed-demo.js` | `npm run demo` |
 

@@ -3,7 +3,7 @@
 import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
-import { isIOS, isMobile, isInstalled, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
+import { isIOS, isMobile, isInstalled, inShell, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
 import { openChat } from '../chat.js';
 import { taskList, taskPage } from '../tasks.js';
 import { giveForm, giveThanks, myGiving } from '../give.js';
@@ -14,12 +14,19 @@ import { fileChips, songTitle, wireSongSheets } from '../songfiles.js';
 import { watchPage, videoPage } from './watch.js';
 import { helpList } from '../help-content.js';
 import { formPage } from './forms.js';
+import { myInfoPage } from './myinfo.js';
+import { loadThisWeek } from './thisweek.js';
 
 const $ = (s) => document.querySelector(s);
 let app; // { church_name, brand_color, config, times, campuses, user, hub_url }
-const preview = new URLSearchParams(location.search).has('preview');
+// Only inside the App Builder's own frame; opened on its own, ?preview does nothing.
+const preview = new URLSearchParams(location.search).has('preview') && window.parent !== window;
 // In the App Builder, the preview's home screen can be rearranged (?preview=1&edit=1).
 const editing = preview && new URLSearchParams(location.search).has('edit');
+// "Preview as a guest" inside the App Builder: draw the signed-out view without signing anyone out.
+// Only inside the builder's own iframe, and it only ever hides things (user becomes null here, in
+// this page; the server never hears about it), so it can't be used to see or do anything more.
+const previewGuest = new URLSearchParams(location.search).get('preview') === 'guest' && window.parent !== window;
 let selectedWidget = null;
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
@@ -27,28 +34,59 @@ const atLeast = (role) => app.user && ROLES.indexOf(app.user.role) >= ROLES.inde
 const tabs = () => app.config.tabs.filter((t) => t.on);
 const signInHref = (back) => `/login?next=${encodeURIComponent(`/app/#${back}`)}`;
 
+// Guests have no saved choice, so index.html starts them on "device" (follow the phone's light or dark);
+// only a signed-in person's saved theme is cached and applied.
 function applyTheme() {
   const root = document.documentElement;
   if (app.user?.theme) root.dataset.theme = app.user.theme;
   if (/^#[0-9a-f]{6}$/i.test(app.brand_color)) root.style.setProperty('--accent', app.brand_color);
   try {
-    localStorage.setItem('mb.theme', root.dataset.theme);
+    if (app.user) localStorage.setItem('mb.theme', root.dataset.theme);
     localStorage.setItem('mb.accent', app.brand_color);
   } catch { /* private window */ }
+}
+
+// A detail screen (anything deeper than a tab) shows one "Back" at the top left. It steps back through
+// the app's own history when there is some, otherwise goes up to its parent tab. `idx` counts how many
+// screens deep this tab's history is (kept in history.state so Back and the swipe gesture agree).
+let backTo = null;
+let idx = Number(history.state?.idx) || 0;
+let renderedAt = Date.now();
+function trackHistory() {
+  const s = history.state?.idx;
+  if (Number.isInteger(s)) idx = s;
+  else { idx += 1; history.replaceState({ ...history.state, idx }, ''); }
 }
 
 // Every screen's title bar ends with the bell and, to its right, the chat button.
 function setTitle(title, actions = '') {
   $('[data-title]').textContent = title;
   document.title = `${title} · ${app.church_name}`;
+  mount($('[data-back]'), backTo ? html`<a class="m-back" href="${backTo}" data-go-back>${icon('back')}<span>Back</span></a>` : '');
   mount($('[data-actions]'), html`${actions}${headerButtons()}`);
   refreshChatBadge();
 }
 
 async function boot() {
   app = await get('/app/config');
+  if (previewGuest) app.user = null;
   applyTheme();
-  window.addEventListener('hashchange', route);
+  if (!Number.isInteger(history.state?.idx)) history.replaceState({ ...history.state, idx }, '');
+  window.addEventListener('hashchange', () => { trackHistory(); route(); });
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-go-back]');
+    if (!a) return;
+    e.preventDefault();
+    if (idx > 0) return history.back();
+    history.replaceState({ idx: 0 }, '', a.getAttribute('href'));
+    route();
+  });
+  // Coming back to the app after a while: show fresh information. Not while someone is typing.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || preview || Date.now() - renderedAt < 60e3) return;
+    if (document.querySelector('dialog[open]') || document.activeElement?.matches?.('input, textarea, select')) return;
+    route();
+  });
   // The App Builder's preview reloads this with fresh settings.
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || e.data?.type !== 'app-config') return;
@@ -59,6 +97,8 @@ async function boot() {
     if (onHome) return homeShown();
     route();
   });
+  // A picture that won't load shows the tidy placeholder (error events don't bubble, so listen while capturing).
+  document.addEventListener('error', (e) => { if (e.target?.matches?.('img.w-probe')) e.target.closest('.w')?.classList.add('w-broken'); }, true);
   if (preview) parent.postMessage({ type: 'app-ready' }, location.origin);
   if ('serviceWorker' in navigator && !preview) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -87,15 +127,20 @@ async function route() {
   const parts = path.split('/').filter(Boolean);
   const q = new URLSearchParams(query || '');
   const mine = ++seq;
+  renderedAt = Date.now();
+  backTo = null;
   const el = document.createElement('div');
   $('[data-content]').replaceChildren(el);
   window.scrollTo(0, 0);
   try {
-    if (parts[0] === 'plan' && parts[1]) { drawTabs('serve'); return await plan(el, parts[1], q); }
-    if (parts[0] === 'help') { drawTabs('more'); return await helpPage(el); }
-    if (parts[0] === 'form' && parts[1]) { drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
-    if (parts[0] === 'inbox') { drawTabs('more'); return await inbox(el); }
+    const serveId = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
+    if (parts[0] === 'plan' && parts[1]) { backTo = `#/${serveId}${q.get('from') === 'all' ? '?view=all' : ''}`; drawTabs('serve'); return await plan(el, parts[1], q); }
+    if (parts[0] === 'help') { backTo = '#/more'; drawTabs('more'); return await helpPage(el); }
+    if (parts[0] === 'form' && parts[1]) { backTo = '#/more'; drawTabs('more'); return await formPage(el, parts[1], { app, setTitle, signInHref }); }
+    if (parts[0] === 'my-info') { backTo = '#/more'; drawTabs('more'); return await myInfoPage(el, { app, setTitle, signInHref }); }
+    if (parts[0] === 'inbox') { backTo = '#/more'; drawTabs('more'); return await inbox(el); }
     if (parts[0] === 'giving') {
+      backTo = '#/more';
       drawTabs('more');
       setTitle('My giving');
       if (!app.user) { location.href = signInHref('/giving'); return; }
@@ -108,12 +153,13 @@ async function route() {
     }
     if (parts[0] === 'events' && parts[1]) {
       const t = app.config.tabs.find((x) => x.type === 'events');
+      backTo = `#/${t?.id || 'events'}`;
       drawTabs(t?.on ? t.id : 'more');
       return await eventPage(el, parts[1], q, { app, setTitle, signInHref });
     }
     const wt = app.config.tabs.find((x) => x.type === 'watch') || { id: 'watch', label: 'Watch', on: false };
-    if (parts[1] && (parts[0] === 'watch' || parts[0] === wt.id)) { drawTabs(wt.on ? wt.id : 'more'); return await videoPage(el, wt, parts[1], q, { setTitle }); }
-    if (parts[0] === 'tasks') { drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
+    if (parts[1] && (parts[0] === 'watch' || parts[0] === wt.id)) { backTo = `#/${wt.id}`; drawTabs(wt.on ? wt.id : 'more'); return await videoPage(el, wt, parts[1], q, { setTitle }); }
+    if (parts[0] === 'tasks') { if (parts[1]) backTo = '#/tasks'; drawTabs(tasksTab()?.on ? tasksTab().id : 'more'); return await tasks(el, tasksTab() || { label: 'Tasks' }, parts[1], q); }
     if (parts[0] === 'chat') { drawTabs(chatTab()?.on ? chatTab().id : 'more'); return await chat(el, chatTab() || { label: 'Chat' }, parts[1]); }
     // Tabs that are off still open (from the More tab or a home screen button).
     const tab = app.config.tabs.find((t) => t.id === parts[0] && t.type !== 'link') || tabs()[0];
@@ -132,12 +178,13 @@ async function home(el, tab) {
   setTitle(tab.label === 'Home' ? app.church_name : tab.label);
   const widgets = app.config.home;
   const has = (type) => widgets.some((w) => w.type === type);
-  const mine = has('serving') && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
+  const mine = (has('serving') || has('thisweek')) && app.user?.linked ? await get('/my/schedule').catch(() => null) : null;
   const myTasks = has('tasks') && app.user && !preview ? await get('/tasks?view=mine').catch(() => []) : [];
+  const week = has('thisweek') ? await loadThisWeek(app, { preview }) : null;
   const events = has('events') ? await get('/events?limit=6').catch(() => []) : [];
   const watching = has('sermon') ? await get('/watch').catch(() => null) : null;
   const draw = () => {
-    const ctx = { app, mine, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
+    const ctx = { app, mine, week, tasks: myTasks, events, sermon: watching?.items[0], live: watching?.live, edit: editing, signInHref, videoEmbed };
     // A request waiting for an answer comes first, before the "You're serving" widget.
     const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
     const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
@@ -207,11 +254,11 @@ async function serve(el, tab, q) {
     return;
   }
   const decline = q.get('decline');
-  if (decline) history.replaceState(null, '', `#/${tab.id}`);
+  if (decline) history.replaceState(history.state, '', `#/${tab.id}`);
   // Notifications are set up under More; here, just a nudge until they're on.
   const sub = await currentSubscription().catch(() => null);
   const on = sub && 'Notification' in window && Notification.permission === 'granted';
-  mount(el, html`${switcher}${on || preview ? '' : html`<a class="m-banner" href="#/more" style="text-decoration:none">${icon('bell')}<span class="grow">Get a notification when you’re scheduled</span>${icon('external', 'ic small-ic')}</a>`}<div data-schedule></div>`);
+  mount(el, html`${switcher}${on || preview || inShell ? '' : html`<a class="m-banner" href="#/more" style="text-decoration:none">${icon('bell')}<span class="grow">Get a notification when you’re scheduled</span>${icon('forward', 'ic small-ic')}</a>`}<div data-schedule></div>`);
   await drawSchedule(el.querySelector('[data-schedule]'), { planHref: (a) => `#/plan/${a.service_id}`, decline });
 }
 
@@ -274,7 +321,7 @@ async function allServices(el, tab, switcher) {
 // One service: tabs for the order of service and who's serving (the last choice is remembered),
 // with the signed-in person's own spot shown first.
 async function plan(el, id, q) {
-  setTitle('Service', html`<a class="btn small ghost" href="${q?.get('from') === 'all' ? '#/serve?view=all' : '#/serve'}">Back</a>`);
+  setTitle('Service');
   const s = await get(`/services/${id}`);
   const times = timeline(s.items, s.starts_at);
   const fmt = (m) => new Date(2000, 0, 1, 0, Math.round(m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -389,7 +436,8 @@ async function guestPushCard(box) {
   const sub = await currentSubscription().catch(() => null);
   const on = Boolean(sub) && 'Notification' in window && Notification.permission === 'granted';
   const draw = (state) => mount(box, html`<h2>Announcements</h2>
-    ${!pushSupported() ? html`<p class="small" style="margin:0">${isIOS && !isInstalled() ? 'Add this app to your home screen (Share, then Add to Home Screen), then open it from there to get announcements.' : 'This browser can’t show notifications.'}</p>`
+    ${inShell ? html`<p class="small" style="margin:0">Notifications aren’t in the phone app yet. Sign in and you’ll still get emails.</p>`
+      : !pushSupported() ? html`<p class="small" style="margin:0">${isIOS && !isInstalled() ? 'Add this app to your home screen (Share, then Add to Home Screen), then open it from there to get announcements.' : 'This browser can’t show notifications.'}</p>`
       : state === 'denied' ? html`<p class="small" style="margin:0">Notifications are blocked for this app. Allow them in your phone’s settings, then come back.</p>`
       : state === 'on' ? html`<div class="row"><span class="pill good">${icon('check')} On for this phone</span><span class="spacer"></span><button class="btn small ghost" data-guest-off>Turn off</button></div>`
       : html`<p class="small" style="margin:0 0 10px">Hear from ${app.church_name}: service changes, events and news. No account needed.</p>
@@ -421,6 +469,7 @@ async function more(el, tab, q) {
         : html`<p class="small" style="margin:0">Open your browser’s menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>`}</div>` : ''}
     ${app.user ? html`<div class="card app-card" data-notify></div>` : html`<div class="card" data-guest-push></div>`}
     <div class="card m-list">
+      ${app.user ? html`<a href="#/my-info">${icon('user')}<span class="grow">My info</span></a>` : ''}
       ${app.user ? html`<a href="#/inbox">${icon('bell')}<span class="grow">Notifications</span></a>` : ''}
       ${app.user && app.giving ? html`<a href="#/giving">${icon('heart')}<span class="grow">My giving</span></a>` : ''}
       ${app.user && !chatTab()?.on ? html`<a href="#/chat">${icon('chat')}<span class="grow">Chat</span><span class="nav-badge hidden" data-badge="chat"></span></a>` : ''}
@@ -481,7 +530,7 @@ async function more(el, tab, q) {
 
 // Short how-to guides for this person's role (the same words as the hub's Help page).
 function helpPage(el) {
-  setTitle('Help', html`<a class="btn small ghost" href="#/more">Back</a>`);
+  setTitle('Help');
   mount(el, html`<div class="help-page"><p class="muted" style="margin-top:0">Quick steps for the things you’ll do most. Tap a heading to open it. Stuck? Ask the church office.</p>${helpList('app', app.user?.role || 'volunteer')}</div>`);
 }
 
@@ -503,7 +552,7 @@ async function tasks(el, tab, id, q) {
       <a class="btn primary" href="${signInHref('/tasks')}">Sign in</a></div>`);
     return;
   }
-  if (id) return taskPage(el, id, { setTitle, q, me: app.user.person_id, onChange: refreshChatBadge });
+  if (id) return taskPage(el, id, { setTitle, q, showBack: false, me: app.user.person_id, onChange: refreshChatBadge });
   return taskList(el, { setTitle, q, onChange: refreshChatBadge });
 }
 

@@ -230,7 +230,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     const c = S.chat;
     const sub = `${c.members.length} ${c.members.length === 1 ? 'person' : 'people'}${c.member ? '' : ' · you’re not on this team'}`;
     if (!split) setTitle(c.name);
-    mount(main.querySelector('[data-head]'), html`${split ? '' : html`<a class="icon-btn chat-back" href="#/chat" aria-label="All chats">${icon('back')}</a>`}
+    mount(main.querySelector('[data-head]'), html`${split ? '' : html`<a class="icon-btn chat-back" href="#/chat" data-go-back aria-label="All chats">${icon('back')}<span class="m-back-text">Back</span></a>`}
       <button class="chat-title" data-info><b>${c.name}</b><span class="muted small">${sub}</span></button>${headActions()}`);
     drawTabs();
   }
@@ -753,7 +753,7 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
     await openConversation();
     const want = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('call'));
     if (want) {
-      history.replaceState(null, '', location.hash.split('?')[0]);
+      history.replaceState(history.state, '', location.hash.split('?')[0]);
       joinCall(want).catch(fail);
     }
   } else if (split) {

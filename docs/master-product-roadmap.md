@@ -106,7 +106,7 @@ The three-stage strategy is unchanged.
 | Events and sign-ups | **Built, verified** | "Duplicate event" (small). Repeating events can wait |
 | Connect cards, follow-up | **Built, verified** | Messages staff only (done, #52). Owner and due date can wait |
 | Member app | **Built, verified** | Pending requests first (done, #58) |
-| Giving | **Built, never tested with live payments** | Only in scope if Faith Teams runs giving |
+| Giving | **Live**: one real card gift and refund tested 26 Nov 2026; ACH, recurring and guest gifts not yet tried live | Only in scope if Faith Teams runs giving |
 | Backups | **Built, needs setup** | Password, Drive, restore drill (ops) |
 | Small groups | **Basic groups built** (#57) | Roster, leaders, members-only group chat, "My groups" in the app. Finder, attendance and join requests later |
 | Forms | **Built** (#60) | Set up the forms Meadowbrook uses in the hub, from the owner's list (no new code) |

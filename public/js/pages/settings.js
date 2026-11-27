@@ -357,7 +357,7 @@ async function accounts(panel, q = '') {
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
-      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.attendance ? html` <span class="pill info">Attendance</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
+      <td><span class="pill">${u.role}</span>${u.finance ? html` <span class="pill info">Finance</span>` : ''}${u.announce ? html` <span class="pill info">Announcements</span>` : ''}${u.attendance ? html` <span class="pill info">Attendance</span>` : ''}${u.app_editor ? html` <span class="pill info">Edit the app</span>` : ''}${u.checkin && !['staff', 'admin'].includes(u.role) ? html` <span class="pill info">Check-in</span>` : ''}</td><td class="small muted">${u.campus_ids ? u.campus_ids.map(campusName).join(', ') : 'All'}</td>
       <td class="small muted">${u.last_login ? fmtUtcDate(u.last_login) : 'Never'}</td></tr>`)}
     </tbody></table></div></div>
   <div class="card" style="margin-top:14px" data-unlinked>
@@ -395,6 +395,7 @@ async function accounts(panel, q = '') {
         ${limited ? html`<p class="muted small" style="margin:0">${SCOPE_NOTE}</p>` : ''}
         <label class="check"><input type="checkbox" name="finance" ${u.finance ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Finance</b>: sees giving (who gave and how much), records gifts, sends statements. Separate from Access above: admins don’t see giving without it.</span></label>
         <label class="check"><input type="checkbox" name="announce" ${u.announce ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Announcements</b>: sends notifications to the congregation from the hub (everyone, a campus or a team). Admins can always.</span></label>
+        <label class="check"><input type="checkbox" name="app_editor" ${u.app_editor ? 'checked' : ''} ${limited ? 'disabled' : ''}> <span><b>Edit the app</b>: can open the App Builder and change what the church app shows: its tabs, home screen and pictures. Admins always can.</span></label>
         <label class="check"><input type="checkbox" name="attendance" ${u.attendance ? 'checked' : ''}> <span><b>Attendance</b>: can take attendance (roll call, families, new guests, headcounts) at the campuses ticked above, and nothing else. Leaders and above already can. Needs a campus ticked.</span></label>
         <label class="check"><input type="checkbox" name="checkin" ${u.checkin ? 'checked' : ''}> <span><b>Kids’ check-in</b>: a leader can open check-in and the family list (children’s allergies and medical notes) on this account. For children’s ministry people only. Staff, admins and paired check-in iPads always can.</span></label>
         <div class="row"><span>Person: <b data-person>${personLabel || 'not linked'}</b></span><button type="button" class="btn small" data-link>Link to person…</button>${personId ? html`<button type="button" class="btn small ghost" data-unlink>Unlink</button>` : ''}</div>
@@ -418,8 +419,8 @@ async function accounts(panel, q = '') {
       },
       onSubmit: (f) => {
         const b = formData(f);
-        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, attendance: b.attendance, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
-        if (limited) { delete body.finance; delete body.announce; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
+        const body = { role: b.role, person_id: personId, finance: b.finance, announce: b.announce, app_editor: b.app_editor, attendance: b.attendance, checkin: b.checkin, campus_ids: b.all ? 'all' : [...f.querySelectorAll('[data-campus]:checked')].map((c) => Number(c.dataset.campus)) };
+        if (limited) { delete body.finance; delete body.announce; delete body.app_editor; if (!campusTouched) delete body.campus_ids; } // disabled for them; the server refuses changes
         if (u.id) body.active = b.active;
         else body.email = b.email;
         return u.id ? patch(`/users/${u.id}`, body) : post('/users', body);
@@ -517,13 +518,44 @@ function drawMapping(box, csv, pv) {
 // Is this server set up safely for real use? Yes/no checks from the server; no secrets shown.
 async function checks(panel) {
   const c = await get('/admin/production-checks');
+  const empty = await get('/households/empty').catch(() => ({ count: 0, households: [] }));
+  let reviewing = false;
   const pill = { ok: ['good', 'Yes'], warn: ['warn', 'Check'], bad: ['bad', 'No'], info: ['info', 'Info'] };
-  mount(panel, html`<div class="card stack" style="max-width:820px">
+  const draw = () => {
+    mount(panel, html`<div class="card stack" style="max-width:820px">
     <h2 style="margin:0">Checks</h2>
     <p class="muted small" style="margin:0">${c.hosted ? 'This server is hosted, so these are the settings for real use.' : 'This isn’t the hosted server, so some checks are for information only.'} Settings marked “No” must be fixed before staff use the hub.</p>
     ${c.ready ? html`<div class="alert good small">Nothing here blocks real use.</div>` : html`<div class="alert bad small">Some checks say “No”. Fix those first.</div>`}
     <table class="list"><tbody>${c.checks.map((x) => html`<tr>
       <td style="width:5.5em"><span class="pill ${pill[x.status][0]}">${pill[x.status][1]}</span></td>
-      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}</tbody></table>
+      <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}
+      <tr>
+      <td style="width:5.5em"><span class="pill ${empty.count ? 'info' : 'good'}">${empty.count ? 'Tidy up' : 'Yes'}</span></td>
+      <td><b>Empty families: ${empty.count}</b>
+        <div class="muted small">${empty.count ? 'Families with no one in them, left over from moving people between families. Nothing is removed until you review the list and confirm.' : 'No empty families to tidy up.'}</div>
+        ${empty.count ? html`<button class="btn small" type="button" data-review>${reviewing ? 'Hide list' : 'Review'}</button>` : ''}</td></tr></tbody></table>
+    ${reviewing && empty.count ? html`<div class="stack" data-empty>
+      <h3 style="margin:0">Empty families</h3>
+      <p class="muted small" style="margin:0">None of these has anyone in it (not even archived people), nor pickup people or notes.${empty.count > empty.households.length ? ` Showing the first ${empty.households.length}; remove these and review again for the rest.` : ''}</p>
+      <div style="overflow-x:auto"><table class="list"><thead><tr><th>Family</th><th>Campus</th><th>Created</th><th>Last updated</th></tr></thead>
+        <tbody>${empty.households.map((h) => html`<tr><td>${h.name}</td><td>${h.campus || 'No campus'}</td><td>${fmtUtcDate(h.created_at)}</td><td>${fmtUtcDate(h.updated_at)}</td></tr>`)}</tbody></table></div>
+      <div><button class="btn danger" type="button" data-remove>Remove ${empty.households.length} empty ${empty.households.length === 1 ? 'family' : 'families'}</button></div>
+    </div>` : ''}
   </div>`);
+    const review = panel.querySelector('[data-review]');
+    if (review) review.onclick = () => { reviewing = !reviewing; draw(); };
+    const rm = panel.querySelector('[data-remove]');
+    if (rm) rm.onclick = async () => {
+      const n = empty.households.length;
+      if (!(await confirm(`Remove ${n} empty ${n === 1 ? 'family' : 'families'}?`, `This permanently removes ${n === 1 ? 'this family' : `these ${n} families`}. No one is in ${n === 1 ? 'it' : 'them'}, so no people or history are lost. Any family that has gained a member since this list was shown is skipped.`, `Remove ${n}`))) return;
+      try {
+        const r = await post('/households/empty/remove', { ids: empty.households.map((h) => h.id) });
+        toast(`Removed ${r.removed} empty ${r.removed === 1 ? 'family' : 'families'}.${r.skipped ? ` Skipped ${r.skipped} that are no longer empty.` : ''}`, 'good');
+        const next = await get('/households/empty');
+        empty.count = next.count; empty.households = next.households; reviewing = false;
+        draw();
+      } catch (err) { fail(err); }
+    };
+  };
+  draw();
 }

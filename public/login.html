@@ -25,6 +25,14 @@
     .links button { background: none; border: 0; color: var(--accent-text); font: inherit; cursor: pointer; padding: 2px; }
     .code-input { font-size: 26px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums; }
     .names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    .login .btn, .links button { -webkit-tap-highlight-color: transparent; }
+    @media (pointer: coarse) {
+      /* iPhones zoom the page when a field under 16px is focused; keep the footer links easy to hit. */
+      .login input, .login select, .login textarea { font-size: 16px; }
+      .links button, .login .foot a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; }
+      .login .code-input { font-size: 26px; }
+    }
   </style>
 </head>
 <body>
@@ -83,7 +91,7 @@
       <p class="muted small">Test sign-in is on because the server was started with MB_DEV_LOGIN=1. Turn it off before going live.</p>
     </form>
     <p id="none" class="muted small hidden">Sign-in isn’t set up yet. See “Google sign-in” in the README.</p>
-    <p class="muted small" style="text-align:center;margin-top:16px"><a href="/privacy">Privacy</a></p>
+    <p class="muted small foot" style="text-align:center;margin-top:16px"><a href="/privacy">Privacy</a></p>
   </div>
   <script type="module">
     const $ = (s) => document.querySelector(s);
