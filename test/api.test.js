@@ -767,7 +767,7 @@ test('leaders see contact details but not health information, private notes or p
   assert.equal(active.find((c) => c.id === 'privacy-kid').medical_notes, 'CHILD-MEDICAL-CANARY');
   assert.equal(active.find((c) => c.id === 'privacy-adult').allergies, null);
   assert.ok(!JSON.stringify(active).includes('PARENT-'), 'no adult health information in the active list');
-  db.prepare("DELETE FROM checkins WHERE id LIKE 'privacy-%'").run();
+  db.prepare("UPDATE checkins SET voided_at = datetime('now'), void_reason = 'test fixture' WHERE id LIKE 'privacy-%'").run(); // check-ins can't be deleted
 });
 
 test('kids check-in is for staff, stations and authorised accounts; card messages are staff only; leader access is audited', async () => {
@@ -840,7 +840,7 @@ test('kids check-in is for staff, stations and authorised accounts; card message
   // A checkout by ids at their own campus can't reach another campus's child either.
   await api('gwen', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['south-guard-1'] });
   assert.equal(db.prepare("SELECT checked_out_at FROM checkins WHERE id = 'south-guard-1'").get().checked_out_at, null);
-  db.prepare("DELETE FROM checkins WHERE id LIKE 'south-guard-%'").run();
+  db.prepare("UPDATE checkins SET voided_at = datetime('now'), void_reason = 'test fixture' WHERE id LIKE 'south-guard-%'").run(); // check-ins can't be deleted
   await api('admin', 'PATCH', `/users/${user.id}`, { campus_ids: 'all' });
 
   // Taken away again: refused at once.
@@ -1779,7 +1779,7 @@ test('check-in stations: pair an iPad with a code, what it can and can’t reach
   await api('admin', 'DELETE', `/checkin/devices/${dev.id}`);
   const gone = await as('GET', '/checkin/roster?campus_id=1');
   assert.deepEqual([gone.status, gone.data.station_removed], [401, true]);
-  db.prepare('DELETE FROM checkins WHERE id = ?').run(rec.id); // keep today's check-ins for the next test
+  db.prepare("UPDATE checkins SET voided_at = datetime('now'), void_reason = 'test fixture' WHERE id = ?").run(rec.id); // keep today's check-ins for the next test (they can't be deleted)
 });
 
 test('search: people, songs, teams, services, events and tasks, only what you can see', async () => {

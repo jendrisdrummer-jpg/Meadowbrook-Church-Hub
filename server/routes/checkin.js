@@ -6,7 +6,9 @@
 import { Router } from 'express';
 import { requireRole, requireAllCampuses, requireAttendance, canAttendCampus, canCampus, campusFilter, rank } from '../auth.js';
 import { getSetting, setSetting, tx } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, localNow, audit, HttpError } from '../http.js';
+import { legalHold, saveHold, HOLD_MSG, HOLD_COOLING_DAYS } from '../history.js';
+import { notify } from '../notify.js';
 import { roomFor, securityCode, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
 import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-events.js';
 
@@ -174,7 +176,7 @@ export default function checkinRoutes(db) {
         p.household_id, rm.name room_name, h.name household_name
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
-      WHERE ci.campus_id = ? AND ci.day = ? AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
+      WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
       ORDER BY rm.sort, rm.name, p.first_name`).all(...args));
   });
 
@@ -216,7 +218,7 @@ export default function checkinRoutes(db) {
     };
     let rows;
     if (path === 'code') {
-      rows = db.prepare('SELECT id FROM checkins WHERE campus_id = ? AND day = ? AND security_code = ? AND checked_out_at IS NULL')
+      rows = db.prepare('SELECT id FROM checkins WHERE campus_id = ? AND day = ? AND security_code = ? AND checked_out_at IS NULL AND voided_at IS NULL')
         .all(c.id, day, code);
       if (!rows.length) {
         const misses = todayCount('checkout.code_miss');
@@ -227,9 +229,9 @@ export default function checkinRoutes(db) {
       rows = [...new Set(given.map((id) => str(id, 64)))].map((id) => ({ id }));
     }
     const upd = db.prepare(`UPDATE checkins SET checked_out_at = ?, checked_out_by = ?, checked_out_device_id = ?, checked_out_user_id = ?, client_checked_out_at = ?
-      WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL`);
+      WHERE id = ? AND campus_id = ? AND checked_out_at IS NULL AND voided_at IS NULL`);
     const find = db.prepare(`SELECT ci.id, ci.person_id, ci.security_code, ci.checked_in_at, ci.checked_out_at, p.household_id, h.name household_name, h.campus_id household_campus
-      FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id WHERE ci.id = ? AND ci.campus_id = ?`);
+      FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id WHERE ci.id = ? AND ci.campus_id = ? AND ci.voided_at IS NULL`);
     const familyOf = (x) => x.household_id ?? `p${x.person_id}`;
     const nowDate = new Date();
     const now = nowDate.toISOString();
@@ -311,15 +313,33 @@ export default function checkinRoutes(db) {
     res.json({ checked_out: count });
   });
 
-  // Undo a mistaken check-in. The record keeps a snapshot of what was deleted.
+  // A check-in is never deleted: the database refuses (migration 42). A mistake is voided, which hides it
+  // from every list and keeps it, with who and why, for the record. DELETE says so and points here.
   r.delete('/checkin/checkins/:id', requireCheckin, currentApp, (req, res) => {
+    const ci = db.prepare('SELECT campus_id FROM checkins WHERE id = ?').get(req.params.id);
+    if (!ci) throw notFound('Check-in');
+    if (!canCampus(req.user, ci.campus_id)) throw forbidden();
+    res.set('Allow', 'POST').status(405).json({ error: 'A check-in can’t be deleted, because it’s part of the record. Use “Void” instead and say why.' });
+  });
+
+  // Void a check-in (body: { reason }). Staff, admins and authorised leaders signed in to the Hub, never an iPad,
+  // so the record always names a person. Not allowed while a legal hold is on.
+  r.post('/checkin/checkins/:id/void', requireCheckin, (req, res) => {
+    if (req.user.station) throw new HttpError(403, 'An iPad can’t void a check-in. Ask a staff member to void it from the Hub.');
     const ci = db.prepare('SELECT ci.*, p.household_id FROM checkins ci LEFT JOIN people p ON p.id = ci.person_id WHERE ci.id = ?').get(req.params.id);
     if (!ci) throw notFound('Check-in');
     if (!canCampus(req.user, ci.campus_id)) throw forbidden();
+    const reason = str(req.body?.reason, 300);
+    if (!reason) throw bad('Say why you’re voiding this check-in.');
+    if (legalHold(db).on) throw new HttpError(409, HOLD_MSG);
+    if (ci.voided_at) throw new HttpError(409, 'That check-in is already voided.');
     tx(db, () => {
-      recordEvent(db, req, { action: 'checkin.delete', campusId: ci.campus_id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code,
+      db.prepare('UPDATE checkins SET voided_at = ?, voided_by = ?, voided_by_name = ?, void_reason = ? WHERE id = ? AND voided_at IS NULL')
+        .run(new Date().toISOString(), req.user.id, String(req.user.name || '').slice(0, 100), reason, ci.id);
+      // The reason stays on the check-in; the event holds only ids and codes, never free text.
+      recordEvent(db, req, { action: 'checkin.void', campusId: ci.campus_id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code,
         detail: { kind: ci.kind, room_id: ci.room_id, service_id: ci.service_id, day: ci.day, checked_in_at: ci.checked_in_at, checked_out_at: ci.checked_out_at } });
-      db.prepare('DELETE FROM checkins WHERE id = ?').run(ci.id);
+      audit(db, req, 'checkin.void', { checkin_id: ci.id, campus_id: ci.campus_id, person_id: ci.person_id, day: ci.day });
     });
     res.json({ ok: true });
   });
@@ -345,8 +365,44 @@ export default function checkinRoutes(db) {
     res.json({ events: rows.slice(0, 5000).map((e) => ({ ...e, security_code: past && e.security_code ? '••••' : e.security_code, detail: JSON.parse(e.detail) })), truncated: rows.length > 5000 });
   });
 
-  r.get('/checkin/safety', requireRole('admin'), (_req, res) => {
-    res.json({ require_current_app: safetySettings(db).require_current_app, current_app_version: CHECKIN_APP_VERSION });
+  const safetyView = () => {
+    const h = legalHold(db);
+    return { require_current_app: safetySettings(db).require_current_app, current_app_version: CHECKIN_APP_VERSION,
+      legal_hold: { on: h.on, reason: h.on ? h.reason : '', set_by_name: h.set_by_name, set_at: h.set_at, released_at: h.released_at, released_by_name: h.released_by_name, cooling_off_days: HOLD_COOLING_DAYS } };
+  };
+  r.get('/checkin/safety', requireRole('admin'), (_req, res) => res.json(safetyView()));
+
+  // The legal hold: when an allegation, claim or subpoena arrives, an admin who covers every campus sets it first.
+  // While it is on, check-ins can't be voided, people can't be merged and no backup copy is deleted. Setting and
+  // releasing both need a reason, are audited, and tell every admin.
+  const tellAdmins = (title, body) => notify(db, db.prepare("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((u) => u.id),
+    { kind: 'safety', title, body, url: '/#/stations' });
+  r.post('/checkin/legal-hold', requireRole('admin'), requireAllCampuses, (req, res) => {
+    const reason = str(req.body?.reason, 300);
+    if (!reason) throw bad('Say why you’re putting a legal hold on.');
+    if (legalHold(db).on) throw new HttpError(409, 'A legal hold is already on.');
+    const at = new Date().toISOString();
+    tx(db, () => {
+      saveHold(db, { on: true, reason, set_by: req.user.id, set_by_name: String(req.user.name || '').slice(0, 100), set_at: at });
+      audit(db, req, 'checkin.legal_hold.set', { reason });
+      recordEvent(db, req, { action: 'safety.settings', detail: { legal_hold: 'set' } });
+    });
+    tellAdmins('A legal hold is on', `${req.user.name || 'An admin'} put a legal hold on. Nothing is voided, merged or cleaned up until it’s released.`);
+    res.status(201).json(safetyView());
+  });
+
+  r.post('/checkin/legal-hold/release', requireRole('admin'), requireAllCampuses, (req, res) => {
+    const reason = str(req.body?.reason, 300);
+    if (!reason) throw bad('Say why you’re releasing the legal hold.');
+    const was = legalHold(db);
+    if (!was.on) throw new HttpError(409, 'There’s no legal hold on.');
+    tx(db, () => {
+      saveHold(db, { ...was, on: false, released_at: new Date().toISOString(), released_by: req.user.id, released_by_name: String(req.user.name || '').slice(0, 100), release_reason: reason });
+      audit(db, req, 'checkin.legal_hold.release', { reason, set_at: was.set_at });
+      recordEvent(db, req, { action: 'safety.settings', detail: { legal_hold: 'released' } });
+    });
+    tellAdmins('The legal hold was released', `${req.user.name || 'An admin'} released it. Old backup copies are kept for ${HOLD_COOLING_DAYS} more days.`);
+    res.json(safetyView());
   });
 
   // Body: { require_current_app: boolean }. Stricter than PATCH /settings: unknown keys and wrong types are refused.
@@ -365,7 +421,7 @@ export default function checkinRoutes(db) {
       audit(db, req, 'checkin.safety', { from, to });
       recordEvent(db, req, { action: 'safety.settings', detail: { from, to } });
     });
-    res.json({ require_current_app: to.require_current_app, current_app_version: CHECKIN_APP_VERSION });
+    res.json(safetyView());
   });
 
   // ---------------------------------------------------------------- attendance
@@ -405,7 +461,7 @@ export default function checkinRoutes(db) {
         (SELECT COUNT(*) FROM headcounts h WHERE h.service_id = s.id) areas,
         (SELECT COALESCE(SUM(h.count), 0) FROM headcounts h WHERE h.service_id = s.id) headcount,
         (SELECT COUNT(*) FROM attendance a WHERE a.service_id = s.id
-           AND a.person_id NOT IN (SELECT person_id FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid')) names
+           AND a.person_id NOT IN (SELECT person_id FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid' AND k.voided_at IS NULL)) names
       FROM services s WHERE s.starts_at >= ? AND ${cf.sql}`).all(from, ...cf.args);
     const byWeek = new Map();
     for (const sv of perService) {
@@ -419,7 +475,7 @@ export default function checkinRoutes(db) {
     const source = [...byWeek.values()].filter((w) => w.kinds.size).map((w) => ({ campus_id: w.campus_id, week: w.week, source: w.kinds.size > 1 ? 'mixed' : [...w.kinds][0] }));
     const cf2 = campusFilter(req.user, 'ci.campus_id');
     const kids = db.prepare(`SELECT ci.campus_id, ${week('ci.day')} week, COUNT(*) total
-      FROM checkins ci WHERE ci.day >= ? AND ci.kind = 'kid' AND ${cf2.sql} GROUP BY 1, 2`).all(from, ...cf2.args);
+      FROM checkins ci WHERE ci.day >= ? AND ci.kind = 'kid' AND ci.voided_at IS NULL AND ${cf2.sql} GROUP BY 1, 2`).all(from, ...cf2.args);
     const volunteers = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, COUNT(DISTINCT a.person_id) total
       FROM assignments a JOIN services s ON s.id = a.service_id WHERE a.status = 'accepted' AND s.starts_at >= ? AND s.starts_at <= datetime('now') AND ${cf.sql} GROUP BY 1, 2`).all(from, ...cf.args);
     const marked = db.prepare(`SELECT s.campus_id, ${week('substr(s.starts_at, 1, 10)')} week, COUNT(DISTINCT a.person_id) total
@@ -472,10 +528,10 @@ export default function checkinRoutes(db) {
     const headcounts = new Map(db.prepare(`SELECT h.service_id id, SUM(h.count) total FROM headcounts h JOIN services s ON s.id = h.service_id
       WHERE ${range} AND ${scope} GROUP BY h.service_id`).all(...base).map((x) => [x.id, x.total]));
     const kids = new Map(db.prepare(`SELECT k.service_id id, COUNT(DISTINCT k.person_id) n FROM checkins k JOIN services s ON s.id = k.service_id
-      WHERE k.kind = 'kid' AND ${range} AND ${scope} GROUP BY k.service_id`).all(...base).map((x) => [x.id, x.n]));
+      WHERE k.kind = 'kid' AND k.voided_at IS NULL AND ${range} AND ${scope} GROUP BY k.service_id`).all(...base).map((x) => [x.id, x.n]));
     const marked = new Map(db.prepare(`SELECT a.service_id id, COUNT(DISTINCT a.person_id) n FROM attendance a JOIN services s ON s.id = a.service_id
       WHERE ${range} AND ${scope}
-        AND NOT EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = a.service_id AND k.person_id = a.person_id AND k.kind = 'kid')
+        AND NOT EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = a.service_id AND k.person_id = a.person_id AND k.kind = 'kid' AND k.voided_at IS NULL)
       GROUP BY a.service_id`).all(...base).map((x) => [x.id, x.n]));
 
     const rows = [];
@@ -511,7 +567,7 @@ export default function checkinRoutes(db) {
     };
     const years = db.prepare(`SELECT DISTINCT substr(s.starts_at, 1, 4) y FROM services s WHERE ${scope} AND (
         EXISTS (SELECT 1 FROM headcounts h WHERE h.service_id = s.id) OR EXISTS (SELECT 1 FROM attendance a WHERE a.service_id = s.id)
-        OR EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid')) ORDER BY y DESC`).all(...scopeArgs);
+        OR EXISTS (SELECT 1 FROM checkins k WHERE k.service_id = s.id AND k.kind = 'kid' AND k.voided_at IS NULL)) ORDER BY y DESC`).all(...scopeArgs);
     res.json({ from: first, to: last, year: year ?? null, weeks: weeksOut, stats,
       services: rows.filter((x) => x.date >= first).reverse(), service_times: [...times].sort(), years: years.map((x) => Number(x.y)) });
   });

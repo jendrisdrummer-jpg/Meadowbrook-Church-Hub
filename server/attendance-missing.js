@@ -8,7 +8,7 @@
 import { campusFilter } from './auth.js';
 
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
-  UNION SELECT service_id, person_id FROM checkins WHERE service_id IS NOT NULL`;
+  UNION SELECT service_id, person_id FROM checkins WHERE service_id IS NOT NULL AND voided_at IS NULL`;
 
 // `today` is 'YYYY-MM-DD' (the church's local date), passed in so tests can fix it.
 export function missingPeople(db, user, { today, campusId = null, minWeeks = 2 } = {}) {

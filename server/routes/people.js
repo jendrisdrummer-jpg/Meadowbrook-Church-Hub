@@ -175,7 +175,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       blockouts: db.prepare("SELECT * FROM blockouts WHERE person_id = ? AND end_date >= date('now') ORDER BY start_date").all(p.id)
         .map((b) => (showReasons ? b : withoutKeys(b, ['reason']))),
       checkins: db.prepare(`SELECT ci.checked_in_at, ci.kind, rm.name room FROM checkins ci LEFT JOIN rooms rm ON rm.id = ci.room_id
-        WHERE ci.person_id = ? ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
+        WHERE ci.person_id = ? AND ci.voided_at IS NULL ORDER BY ci.checked_in_at DESC LIMIT 10`).all(p.id),
       account: accountFor(req, p.id),
     });
   });
