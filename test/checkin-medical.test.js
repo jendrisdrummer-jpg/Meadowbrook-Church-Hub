@@ -266,3 +266,34 @@ test('a station adding a new child can say they carry an EpiPen, and a station c
   assert.equal(db.prepare('SELECT medical_sorted_at FROM people WHERE id = ?').get(sneaky.data.id).medical_sorted_at, null);
   assert.equal((await asStation('PATCH', `/people/${kid.data.id}`, { medical_sorted: true })).status, 401, 'stations can’t edit people');
 });
+
+test('security review: family campus counts for care notes and the review list; Level 2 tightened and flagged', async () => {
+  // A child with no campus of their own whose family is at South: North staff can't open care notes or see them for review.
+  const southKid = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role, medical_notes) VALUES ('Sky', 'Sol', NULL, ?, 'child', 'SKY-MEDICAL')").run(ids.hhS).lastInsertRowid);
+  assert.equal((await api('north', 'GET', `/people/${southKid}/care-notes`)).status, 403);
+  assert.equal((await api('north', 'PUT', `/people/${southKid}/care-notes`, { note: 'x' })).status, 403);
+  assert.equal((await api('south', 'GET', `/people/${southKid}/care-notes`)).status, 200);
+  const northReview = await api('north', 'GET', '/checkin/medical/review');
+  assert.ok(!northReview.data.rows.some((r) => r.id === southKid) && !JSON.stringify(northReview.data).includes('SKY-MEDICAL'));
+  assert.ok((await api('south', 'GET', '/checkin/medical/review')).data.rows.some((r) => r.id === southKid));
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'checkin.medical.review'").get(), 'opening the review list is audited');
+
+  // A child with no family whose own campus is South can't be read at North, even once checked in there.
+  const loner = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_role, medical_notes) VALUES ('Lou', 'Ner', 2, 'child', 'LOU-MEDICAL')").run().lastInsertRowid);
+  await api('leaderOn', 'POST', '/checkin/checkins', { campus_id: 1, records: [{ id: 'md-lou-000001', person_id: loner, kind: 'kid', security_code: 'AZZZ2', checked_in_at: '2027-02-21T15:10:00.000Z' }] });
+  assert.equal((await api('leaderOn', 'GET', `/checkin/medical/${loner}?campus_id=1`)).status, 404);
+
+  // A read by whoever made the check-in is flagged in the record.
+  const ben2 = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role, medical_notes) VALUES ('Bo', 'Aldrin', 1, ?, 'child', 'BO-MEDICAL')").run(ids.hhA).lastInsertRowid);
+  assert.equal((await api('leaderOn', 'POST', '/checkin/checkins', { campus_id: 1, records: [{ id: 'md-bo-0000001', person_id: ben2, kind: 'kid', security_code: 'AZZZ3', checked_in_at: '2027-02-21T15:11:00.000Z' }] })).status, 201);
+  assert.equal((await api('leaderOn', 'GET', `/checkin/medical/${ben2}?campus_id=1`)).status, 200);
+  assert.equal(events('medical.view').at(-1).d.self_checkin, true);
+  assert.equal((await asStation('GET', `/checkin/medical/${ben2}?campus_id=1`)).status, 200);
+  assert.equal(events('medical.view').at(-1).d.self_checkin, false);
+
+  // After pickup, only staff can still read it.
+  assert.equal((await api('staff', 'POST', '/checkin/checkout', { campus_id: 1, ids: ['md-bo-0000001'] })).status < 300, true);
+  assert.equal((await asStation('GET', `/checkin/medical/${ben2}?campus_id=1`)).status, 404);
+  assert.equal((await api('leaderOn', 'GET', `/checkin/medical/${ben2}?campus_id=1`)).status, 404);
+  assert.equal((await api('staff', 'GET', `/checkin/medical/${ben2}?campus_id=1`)).status, 200);
+});
