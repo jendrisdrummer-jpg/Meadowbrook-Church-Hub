@@ -185,7 +185,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   // loads only its own scripts, styles, fonts and pictures, and talks only to this server.
   const CHECKIN_FILES = new Set(['/checkin', '/checkin.html', '/js/checkin.js', '/js/checkin-rules.js', '/css/checkin.css']);
   app.use((req, res, next) => {
-    if (CHECKIN_FILES.has(req.path)) for (const [k, v] of Object.entries(CHECKIN_HEADERS)) res.setHeader(k, v);
+    if (CHECKIN_FILES.has(req.path.toLowerCase().replace(/\/+$/, ''))) for (const [k, v] of Object.entries(CHECKIN_HEADERS)) res.setHeader(k, v);
     next();
   });
 

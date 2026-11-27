@@ -117,7 +117,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Chat with their teams and groups; tasks | ✓ | ✓ | ✓ | ✓ |
 | See their own small groups: names and photos of the roster, and the group chat (members only) | ✓ | ✓ | ✓ | ✓ |
 | Create, edit, archive small groups and set their leaders (at their campuses) | | | ✓ | ✓ |
-| See people, teams, attendance; run check-in; add families; connect cards | | ✓ | ✓ | ✓ |
+| See people, teams, attendance; run check-in (with the Kids' check-in switch); add families; connect cards | | ✓ | ✓ | ✓ |
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
 | Events, Forms, Media, check-in stations | | | ✓ | ✓ |
@@ -271,7 +271,7 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   (leader or volunteer) an admin has given the "Kids' check-in" switch** (Settings → Sign-in & accounts → the
   account; `users.checkin`, migration 43; `canCheckin` and `canCheckinCampus` in `auth.js`). Any admin may grant it, like
   Attendance; a campus-limited admin only inside their own campuses, and every change is audited (`user.checkin`).
-  A volunteer-level account needs a campus list on a church with several campuses (400 otherwise), and with none it
+  A volunteer-level account needs a campus list on a church with several campuses (400 otherwise, whether or not it is linked to a person), and with none it
   fails closed (403), like Attendance. Leaders keep their old meaning of no list (all campuses). Automatic leader
   access removed on unlink also clears the switch. **A station token wins over a hub session**: with a valid
   `x-station` header the request is the station's even if a session cookie is present (a removed token is 401). It sends
