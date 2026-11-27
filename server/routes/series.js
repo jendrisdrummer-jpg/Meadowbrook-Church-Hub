@@ -6,6 +6,7 @@ import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, required, isDate, audit } from '../http.js';
 import { applyTemplate } from './templates.js';
+import { serviceKeptSql } from '../history.js';
 
 const AHEAD_DAYS = 120;
 const MAX_AHEAD_DAYS = 400;
@@ -18,6 +19,22 @@ export const addDays = (day, n) => {
 const dayOfWeek = (day) => new Date(`${day}T12:00:00Z`).getUTCDay();
 const daysBetween = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5);
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Deletes a series' services dated on or after `from` (and, with `after`, only those after that date), never one
+// that has already happened and never one that is kept for the record (serving, roll-call, headcount or
+// check-in records, migration 42). Dates before today are never touched, whatever the caller asked for.
+// Returns how many were deleted and how many were kept.
+function deleteServices(db, typeId, { from = null, after = null }) {
+  const floor = today();
+  const where = ['service_type_id = ?', 'substr(starts_at, 1, 10) >= ?'];
+  const args = [typeId, from && from > floor ? from : floor];
+  if (after) { where.push('substr(starts_at, 1, 10) > ?'); args.push(after); }
+  const rows = db.prepare(`SELECT s.id, ${serviceKeptSql('s')} kept FROM services s WHERE ${where.join(' AND ')}`).all(...args);
+  const del = db.prepare('DELETE FROM services WHERE id = ?');
+  let removed = 0;
+  for (const s of rows) if (!s.kept) removed += Number(del.run(s.id).changes);
+  return { removed, kept: rows.length - removed };
+}
 
 // Copies a series' positions onto one service.
 function copyNeeds(db, typeId, serviceId) {
@@ -194,19 +211,22 @@ export default function seriesRoutes(db) {
       }
       // Ending the series earlier removes its services after the new last date.
       const ends = b.ends_on !== undefined ? b.ends_on : t.ends_on;
-      if (ends) db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) > ?').run(t.id, ends);
+      if (ends) deleteServices(db, t.id, { after: ends });
     });
     ensureServices(db);
     res.json({ ok: true });
   });
 
-  // Stops a series from `from` on, deleting those services (with their plans and schedules).
+  // Stops a series from `from` on, deleting those upcoming services (with their plans and schedules). Services that
+  // have already happened, and any with serving or check-in records, stay.
   r.delete('/series/:id', requireRole('staff'), (req, res) => {
     const t = series(req, req.params.id);
     const from = isDate(req.query.from) ? req.query.from : today();
+    let keptCount = 0;
     const removed = tx(db, () => {
       db.prepare('UPDATE service_types SET ends_on = ? WHERE id = ?').run(addDays(from, -1), t.id);
-      const n = Number(db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').run(t.id, from).changes);
+      const { removed: n, kept } = deleteServices(db, t.id, { from });
+      keptCount = kept;
       // With nothing upcoming left, it leaves the list of repeating services. Past services stay.
       if (!db.prepare('SELECT 1 FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').get(t.id, today())) {
         db.prepare('UPDATE service_types SET archived = 1 WHERE id = ?').run(t.id);
@@ -214,7 +234,7 @@ export default function seriesRoutes(db) {
       return n;
     });
     audit(db, req, 'series.stop', `${t.name} from ${from}`);
-    res.json({ removed });
+    res.json({ removed, kept: keptCount });
   });
 
   return r;

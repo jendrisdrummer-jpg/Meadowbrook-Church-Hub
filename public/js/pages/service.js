@@ -1,5 +1,5 @@
 // One service: order of service, who's serving, and attendance counts.
-import { get, post, patch, put, del, html, raw, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, confirm, fmtDate, fmtTime, fmtLength, parseLength, debounce, addDays, pickPerson } from '../lib.js';
+import { get, post, patch, put, del, html, raw, mount, icon, avatar, displayName, dialog, formData, options, toast, fail, confirm, fmtDate, fmtTime, fmtLength, parseLength, debounce, addDays, pickPerson, servedAlready } from '../lib.js';
 import { state, can, setTitle, go } from '../app.js';
 import { editServiceDialog, needsDialog, repeatLabel } from '../service-forms.js';
 import { drawRollCall } from '../rollcall.js';
@@ -140,7 +140,7 @@ async function drawPeople(panel, s, chats) {
           <div class="position-head"><b>${p.name}</b>${p.needed && p.detail !== false ? html`<span class="muted small">${live.length}/${p.needed}</span>` : ''}</div>
           ${p.assignments.map((a) => html`<div class="slot ${!a.sent_at && a.status !== 'declined' ? 'draft' : ''}">${avatar(a)}<a class="name" href="#/people/${a.person_id}" style="color:inherit">${displayName(a)}</a>${badge(a)}
             ${p.can_schedule && a.status === 'declined' && p.detail !== false ? html`<button class="btn small" data-replace="${p.id}" title="Pick someone else for ${p.name}. They’re added as a draft until you Send requests.">Find a replacement</button>` : ''}
-            ${p.can_schedule ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
+            ${p.can_schedule && !servedAlready(a, s.starts_at) ? html`<button class="icon-btn" data-unassign="${a.id}" title="Remove">${icon('x')}</button>` : ''}</div>${reason(a)}`)}
           ${Array.from({ length: open }, () => html`<div class="slot open">${p.can_schedule ? html`<button class="btn small" data-assign="${p.id}">${icon('plus')} Schedule someone</button>` : 'Open'}</div>`)}
           ${!open && p.can_schedule ? html`<button class="btn small ghost" data-assign="${p.id}">${icon('plus')} Add another</button>` : ''}
         </div>`;

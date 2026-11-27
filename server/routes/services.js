@@ -2,7 +2,8 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow, HttpError } from '../http.js';
+import { serviceKept, assignmentKept, MSG } from '../history.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
@@ -151,6 +152,7 @@ export default function serviceRoutes(db) {
       type,
       can_edit_plan: canEditPlan(req, s),
       can_lock: isStaff(req) && canCampus(req.user, s.campus_id),
+      kept: serviceKept(db, s.id), // already happened, with serving or check-in records: can't be deleted
       items: planItems(s.id),
       positions: positions.map((p) => ({
         ...p,
@@ -186,6 +188,8 @@ export default function serviceRoutes(db) {
 
   r.delete('/services/:id', requireRole('staff'), (req, res) => {
     const s = service(req, req.params.id);
+    // A service that has happened (with serving, roll-call, headcount or check-in records) is part of the record.
+    if (serviceKept(db, s.id)) throw new HttpError(409, MSG.service);
     tx(db, () => {
       // Remember the skipped date so the series doesn't create this service again.
       if (s.service_type_id) db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
@@ -608,6 +612,8 @@ export default function serviceRoutes(db) {
     const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(req.params.id);
     if (!a) throw notFound('Assignment');
     requireSchedule(req, service(req, a.service_id), a.position_id);
+    // Someone who served (accepted) at a service that has happened stays in the record.
+    if (assignmentKept(db, a.id)) throw new HttpError(409, MSG.assignment);
     const told = assignmentRow(db, a.id);
     db.prepare('DELETE FROM assignments WHERE id = ?').run(a.id);
     // Someone who was already asked hears they're no longer needed.

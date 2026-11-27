@@ -11,6 +11,7 @@ import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
 import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
+import { legalHold, assignmentKeptSql, HOLD_MSG } from '../history.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
 export const STATUSES = ['guest', 'regular', 'member', 'inactive'];
@@ -269,6 +270,8 @@ export default function peopleRoutes(db, { uploadDir }) {
   // Merge a duplicate into the person we keep: their history moves over, then they're archived.
   r.post('/people/:id/merge', requireRole('admin'), (req, res) => {
     const keep = visiblePerson(req, req.params.id);
+    // A merge moves check-in and serving records between people, so it waits while a legal hold is on.
+    if (legalHold(db).on) throw new HttpError(409, HOLD_MSG);
     const dupId = int(req.body?.duplicate_id, 'Duplicate');
     const dup = visiblePerson(req, dupId);
     if (keep.id === dup.id) throw bad('Pick two different people.');
@@ -305,7 +308,10 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('DELETE FROM group_members WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE OR IGNORE serving_campuses SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(dup.id);
-      db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
+      // Whatever couldn't move because the kept person already has it is a duplicate, so it goes, except serving
+      // at a service that has already happened: that stays on the archived duplicate as part of the record.
+      db.prepare(`DELETE FROM assignments WHERE person_id = ? AND NOT EXISTS (
+        SELECT 1 FROM services s WHERE s.id = assignments.service_id AND ${assignmentKeptSql('assignments', 's')})`).run(dup.id);
       movedUsers.push(...db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id).map((u) => u.id));
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       // Fill blanks on the kept record from the duplicate.
