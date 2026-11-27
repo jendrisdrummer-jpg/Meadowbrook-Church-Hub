@@ -37,8 +37,9 @@ const freePort = () => new Promise((resolve) => {
 });
 
 const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
-  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks'];
-const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
+  '/events', '/templates', '/giving', '/media', '/media/podcast', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks',
+  '/classes', '/classes/1', '/classes/1/steps', '/classes/1/people', '/classes/1/managers', '/classes/1/details', '/classes/1/attendance/1'];
+const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest', '/classes', '/classes/1', '/classes/1/1', '/classes/1/4', '/classes/1/5'];
 // leader and finance are added to the throwaway database below; the others come from the demo seed.
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church'],
   ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church']];
@@ -47,9 +48,9 @@ const EVERYDAY = ['Home', 'My Schedule', 'Chat', 'Tasks'];
 const NAV_WANT = {
   volunteer: [...EVERYDAY, 'Groups', 'Services'],
   finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
-  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
-  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
-  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
+  leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Classes', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
+  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Classes', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
+  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Classes', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
 };
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
 
@@ -67,6 +68,8 @@ async function main() {
     const db = new DatabaseSync(env.MB_DB);
     db.prepare("INSERT INTO users (email, role) VALUES ('leader@meadowbrook.church', 'leader')").run();
     db.prepare("INSERT INTO users (email, role, finance) VALUES ('finance@meadowbrook.church', 'volunteer', 1)").run();
+    // The leader is named a manager of the demo class: the Classes menu appears for managers (and only for them below staff).
+    db.prepare("INSERT INTO class_managers (class_id, user_id) SELECT 1, id FROM users WHERE email = 'leader@meadowbrook.church'").run();
     db.close();
   }
   const port = await freePort();

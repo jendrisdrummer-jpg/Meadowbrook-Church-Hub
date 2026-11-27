@@ -224,6 +224,32 @@ tx(db, () => {
   ins('form_responses', { form_id: formId, name: 'Taylor Sample', email: 'taylor@example.com', phone: '555-0142', answers: JSON.stringify({ area: ['Kids', 'Welcome team'], days: 'Sundays', about: 'I help with a youth group at my old church.' }) });
   ins('form_responses', { form_id: formId, name: 'Jordan Example', answers: JSON.stringify({ area: ['Music'] }), status: 'done', done_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
 
+  // One class (made-up): Life Group Training, six weeks in person with a make-up for each week missed.
+  {
+    const quiz = (n) => JSON.stringify(Array.from({ length: n }, (_v, i) => ({ id: `q${i + 1}`, text: ['What is the first thing a group leader should do each week?', 'Who can you ask when you are not sure what to do?', 'How long should one person talk in a small group?'][i % 3], choices: ['Pray for the group', 'Start without a plan', 'Talk the whole time'], correct: [0] })));
+    const clsId = ins('classes', { title: 'Life Group Training', description: 'Six weeks together to get ready to lead a life group. If you miss a week, watch that week’s recording and take the short test.', campus_id: north });
+    const day = (n) => iso(daysFrom(n));
+    const mk = (row) => ins('class_steps', { class_id: clsId, ...row });
+    const w1 = mk({ sort: 0, kind: 'session', title: 'Week 1: Welcome and vision', starts_on: day(-14), makeup_video_id: 'aqz-KE-bpKQ', makeup_video_sec: 600, makeup_video_title: 'Week 1 recording', makeup_questions: quiz(3) });
+    const w2 = mk({ sort: 1, kind: 'session', title: 'Week 2: Leading a conversation', starts_on: day(-7), makeup_video_id: 'aqz-KE-bpKQ', makeup_video_sec: 600, makeup_video_title: 'Week 2 recording', makeup_questions: quiz(3) });
+    const w3 = mk({ sort: 2, kind: 'session', title: 'Week 3: Caring for people', starts_on: day(7), makeup_video_id: 'aqz-KE-bpKQ', makeup_video_sec: 600, makeup_video_title: 'Week 3 recording', makeup_questions: quiz(3) });
+    const vid = mk({ sort: 3, kind: 'video', title: 'Watch: Keeping your group safe', video_id: 'aqz-KE-bpKQ', video_sec: 600, video_title: 'Keeping your group safe' });
+    const fin = mk({ sort: 4, kind: 'quiz', title: 'Final check', body: 'A few questions to finish. You need 80%, and you can try again.', questions: quiz(3) });
+    const north2 = people.filter((p) => p.adult && p.campus === north);
+    const learners = [volunteer, ...north2.filter((p) => p.id !== volunteer.id && p.id !== pastor.id).slice(0, 7)];
+    const now = new Date().toISOString();
+    learners.forEach((p, i) => {
+      const enr = ins('class_enrolments', { class_id: clsId, person_id: p.id, enrolled_by: 1 });
+      const prog = (step, row) => ins('class_progress', { enrolment_id: enr, step_id: step, ...row });
+      if (p === volunteer) { prog(w1, { state: 'started', method: 'absent', makeup_notified_at: now }); prog(w2, { state: 'done', method: 'attended', done_at: now }); return; }
+      prog(w1, i % 4 === 3 ? { state: 'started', method: 'absent', makeup_notified_at: now } : { state: 'done', method: 'attended', done_at: now });
+      if (i % 5 !== 4) prog(w2, { state: 'done', method: 'attended', done_at: now });
+      if (i < 3) prog(vid, { state: 'done', method: 'watched', watched: 1, max_sec: 600, duration_sec: 600, done_at: now });
+      if (i < 2) prog(fin, { state: 'done', method: 'passed', passed: 1, score: 100, attempts: 1, done_at: now });
+      if (i === 5) prog(fin, { state: 'started', score: 67, attempts: 2 });
+    });
+  }
+
   // A few away dates.
   for (const p of adults.slice(0, 5)) ins('blockouts', { person_id: p.id, start_date: iso(daysFrom(2)), end_date: iso(daysFrom(9)), reason: pick(['Vacation', 'Work trip', 'Family visit']) });
 });
