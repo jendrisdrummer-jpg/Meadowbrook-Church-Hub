@@ -174,7 +174,7 @@ export default function mediaRoutes(db) {
     let members;
     try { members = await playlistMembers(cfg); } catch (e) { throw bad(`Couldn’t read the playlist: ${e.message}`); }
     // Without the API key a long playlist is only partly visible, and hiding by a partial list would hide real messages.
-    if (!members.complete) throw bad('This playlist has more videos than the hub can see without the YouTube key, so it can’t tell which ones are missing. Add the key (see Setup) first.');
+    if (!members.complete) throw bad(hasApiKey() ? 'This playlist is too long for the hub to read all of it (over 2,000 videos), so it can’t tell which ones are missing.' : 'This playlist has more videos than the hub can see without the YouTube key, so it can’t tell which ones are missing. Add the key (see Setup) first.');
     const rows = db.prepare("SELECT id, video_id FROM media WHERE status = 'published' AND source = 'youtube'").all();
     return { cfg, ids: rows.filter((m) => !members.ids.has(m.video_id)).map((m) => m.id) };
   };
@@ -187,7 +187,7 @@ export default function mediaRoutes(db) {
     const { ids } = await notInPlaylist();
     const hide = db.prepare("UPDATE media SET status = 'hidden', skip_reason = 'Not in the messages playlist', edited_by = ?, edited_at = datetime('now') WHERE id = ? AND status = 'published'");
     for (const id of ids) hide.run(req.user.id, id);
-    audit(db, req, 'media.hide_not_in_playlist', { count: ids.length });
+    audit(db, req, 'media.hide_not_in_playlist', { count: ids.length, ids: ids.slice(0, 2000) });
     res.json({ hidden: ids.length });
   });
 

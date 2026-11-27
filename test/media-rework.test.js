@@ -159,7 +159,7 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   assert.deepEqual((await api('staff', 'POST', '/media/playlist-extras/hide', {})).data, { hidden: 1 });
   const hidden = (await api('staff', 'GET', '/media')).data.items.find((m) => m.id === stray);
   assert.deepEqual([hidden.status, hidden.reason], ['hidden', 'Not in the messages playlist']);
-  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'media.hide_not_in_playlist'").get());
+  assert.match(db.prepare("SELECT detail FROM audit_log WHERE action = 'media.hide_not_in_playlist'").get().detail, new RegExp(`"ids":\\[${stray}\\]`), 'the audit names what was hidden');
   assert.equal(rowOf('msgAAAAAAAA').status, 'published'); // in the playlist: untouched
   assert.equal(db.prepare("SELECT status FROM media WHERE video_id = 'mux:keep'").get().status, 'published');
   assert.equal((await api('staff', 'GET', '/media/playlist-extras')).data.count, 0);
@@ -184,6 +184,12 @@ test('playlist mode with the Data API reads only the playlist; title words and t
   assert.equal(rowOf('oldkidsHHHH').status, 'published');
   assert.equal((await api('admin', 'POST', '/media/sync', {})).status, 200);
   assert.deepEqual([rowOf('oldkidsHHHH').status, rowOf('oldkidsHHHH').skip_reason, rowOf('oldkidsHHHH').duration], ['skipped', 'Under 20 minutes', 180]);
+  // …but one staff chose to show by hand is left as they set it.
+  yt.videos.handpickIII = { title: 'Short but wanted', secs: 240, at: '2025-03-02T16:30:00Z' };
+  insertMedia(db, { video_id: 'handpickIII', title: 'Short but wanted', thumbnail: '', recorded_at: '2025-03-02 16:30:00', day: '2025-03-02', service_id: null, campus_id: null, speaker: '', series: '', was_live: 0, duration: null });
+  db.prepare("UPDATE media SET edited_at = datetime('now') WHERE video_id = 'handpickIII'").run();
+  await api('admin', 'POST', '/media/sync', {});
+  assert.equal(rowOf('handpickIII').status, 'published');
   assert.equal(rowOf('chanFFFFFFF').status, 'published');
   // Without a speaker from the schedule that Sunday, nothing is guessed.
   assert.equal(rowOf('chanFFFFFFF').speaker, '');

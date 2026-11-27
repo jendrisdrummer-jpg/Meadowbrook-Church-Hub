@@ -184,6 +184,7 @@ async function playlistVideoIds(playlistId, pages) {
     pageToken = r.nextPageToken;
     if (!pageToken) break;
   }
+  ids.more = Boolean(pageToken); // stopped at the page limit with more still to read
   return ids;
 }
 
@@ -210,7 +211,10 @@ async function latestVideos(db, cfg, { deep = false, knownIds = new Set() } = {}
 // Every video in the messages playlist: { ids: Set, complete }. Through the Data API that is the
 // whole playlist; the public feed shows only 15, so a full feed may be missing some (complete: false).
 export async function playlistMembers(cfg) {
-  if (hasApiKey()) return { ids: new Set(await playlistVideoIds(cfg.playlist_id, 40)), complete: true };
+  if (hasApiKey()) {
+    const ids = await playlistVideoIds(cfg.playlist_id, 40);
+    return { ids: new Set(ids), complete: !ids.more };
+  }
   const { entries } = await readFeed({ playlist: cfg.playlist_id });
   return { ids: new Set(entries.map((e) => e.video_id)), complete: entries.length < 15 };
 }
@@ -419,12 +423,13 @@ async function doSync(db, { deep = false } = {}) {
   // Videos that came in before their length could be read (no API key then): read it now, and
   // take any that are too short out of the app. Only rows still missing a length are touched.
   if (hasApiKey()) {
-    const unknown = db.prepare("SELECT id, video_id, status FROM media WHERE source = 'youtube' AND duration IS NULL AND status IN ('published', 'review') LIMIT 200").all();
+    const unknown = db.prepare("SELECT id, video_id, status FROM media WHERE source = 'youtube' AND duration IS NULL AND status IN ('published', 'review') AND edited_at IS NULL LIMIT 200").all();
     if (unknown.length) {
       const known = new Map((await videoDetails(unknown.map((r) => r.video_id))).filter((v) => v.duration != null && v.state === 'none').map((v) => [v.video_id, v.duration]));
       for (const r of unknown) {
         const secs = known.get(r.video_id);
         if (secs == null) continue;
+        // (A video staff chose by hand is left as they set it.)
         const tooShort = !cfg.playlist_id && secs < cfg.min_minutes * 60;
         const next = tooShort ? 'skipped' : r.status === 'review' ? 'published' : r.status;
         db.prepare('UPDATE media SET duration = ?, status = ?, skip_reason = ? WHERE id = ?').run(secs, next, tooShort ? `Under ${cfg.min_minutes} minutes` : '', r.id);
