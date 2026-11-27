@@ -4,7 +4,7 @@
 @supports (font: -apple-system-body) and (-webkit-touch-callout: none) { html { font: -apple-system-body; } }
 body.member { background: var(--bg); min-height: 100vh; font-size: 1rem; overflow-wrap: break-word; }
 .m-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: calc(12px + env(safe-area-inset-top)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.m-top h1 { min-width: 0; overflow-wrap: anywhere; margin: 0 auto 0 0; font-size: 1.5625rem; line-height: 1.15; letter-spacing: -.02em; }
+.m-top h1 { min-width: 0; overflow-wrap: break-word; hyphens: auto; margin: 0 auto 0 0; font-size: min(1.5625rem, 7vw); line-height: 1.15; letter-spacing: -.02em; }
 .m-top-actions { display: flex; gap: 2px; align-items: center; flex: none; }
 .m-main { max-width: 640px; margin: 0 auto; padding: 4px 16px calc(96px + env(safe-area-inset-bottom)); }
 .m-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; background: var(--panel); border-top: 1px solid var(--line); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
