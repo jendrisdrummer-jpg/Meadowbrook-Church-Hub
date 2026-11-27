@@ -27,6 +27,8 @@ export function checkinFeatures(db) {
     holds,
     medical_tap: s.medical_tap !== false,
     label_overflow: OVERFLOW_MODES.includes(s.label_overflow) ? s.label_overflow : 'leader',
+    // Families can be checked in at any campus: the roster carries every family, whatever their campus. Off unless an admin turns it on.
+    any_campus: s.any_campus === true,
     auto_team_ids: liveTeams(db, ids(s.auto_team_ids)),
   };
 }

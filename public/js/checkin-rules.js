@@ -242,6 +242,7 @@ export function weakenedSettings(from, to) {
   if (to.holds !== from.holds && (to.holds === 'off' || (from.holds === 'block' && to.holds === 'alert'))) out.push('holds');
   if (from.checkout !== 'tag' && to.checkout === 'tag') out.push('checkout');
   if (from.medical_tap !== to.medical_tap) out.push('medical_tap');
+  if (!from.any_campus && to.any_campus) out.push('any_campus'); // every iPad can then see every family
   if (JSON.stringify(from.auto_team_ids || []) !== JSON.stringify(to.auto_team_ids || [])) out.push('auto_team_ids');
   return out;
 }

@@ -103,7 +103,7 @@ const events = (action) => db.prepare('SELECT * FROM checkin_events WHERE action
 const row = (id) => db.prepare('SELECT * FROM checkins WHERE id = ?').get(id);
 const notices = (user) => db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY id').all(ids[user]);
 const audits = (action) => db.prepare('SELECT * FROM audit_log WHERE action = ? ORDER BY id').all(action).map((a) => ({ ...a, d: JSON.parse(a.detail) }));
-const DEFAULTS = { checkout: 'ipad', holds: 'block', medical_tap: true, label_overflow: 'leader', auto_team_ids: [] };
+const DEFAULTS = { checkout: 'ipad', holds: 'block', medical_tap: true, label_overflow: 'leader', auto_team_ids: [], any_campus: false };
 // Sets the settings directly (setup for a test); the routes' own rules are tested through the API below.
 const setFeatures = (f = {}) => setSetting(db, 'checkin_features', { ...DEFAULTS, ...f });
 let n = 0;
@@ -976,4 +976,93 @@ test('the iPad’s “already checked in” is for this service only when parent
   ];
   assert.deepEqual(inRoomNow(rooms, true).map((c) => c.id), ['x2'], 'tag: the latest per child, and not if that one left');
   assert.deepEqual(inRoomNow(rooms, false).map((c) => c.id), ['x1', 'x2', 'y1'], 'check-out on the iPad: as before');
+});
+
+// ---------------------------------------------------------------- families at any campus
+test('families at any campus: off by default (as before), and only an admin covering every campus can turn it on, with a reason, telling the leads and admins', async () => {
+  setFeatures();
+  assert.equal((await api('staff', 'GET', '/checkin/settings')).data.any_campus, false);
+  assert.ok(!('any_campus' in (await asStation('GET', '/checkin/settings')).data), 'an iPad needs only the roster');
+  const on = { any_campus: true, reason: 'Many people attend one campus and serve at the other' };
+  for (const who of ['north', 'staff', 'limitedAdmin', 'leaderSwitch']) assert.equal((await api(who, 'PUT', '/checkin/settings', on)).status, 403, who);
+  assert.equal((await asStation('PUT', '/checkin/settings', on)).status, 403);
+  assert.equal((await api('admin', 'PUT', '/checkin/settings', { any_campus: 'yes', reason: 'x' })).status, 400);
+  const bare = await api('admin', 'PUT', '/checkin/settings', { any_campus: true });
+  assert.equal(bare.status, 400, 'widening needs a reason');
+  assert.match(bare.data.error, /Say why/);
+  const leadBefore = notices('lead').length;
+  const adminBefore = notices('admin').length;
+  const turned = await api('admin', 'PUT', '/checkin/settings', on);
+  assert.equal(turned.status, 200);
+  assert.equal(turned.data.any_campus, true);
+  assert.deepEqual(notices('lead').slice(leadBefore).map((x) => x.title), ['A check-in safety setting was changed']);
+  assert.match(notices('lead').slice(leadBefore)[0].body, /families at any campus/);
+  assert.deepEqual(notices('admin').slice(adminBefore).map((x) => x.title), ['A check-in safety setting was changed']);
+  assert.ok(audits('checkin.settings').at(-1).detail.includes('serve at the other'), 'the reason is in the audit entry');
+  // Turning it off again is not a widening: no reason, nobody told.
+  const quiet = notices('lead').length;
+  assert.equal((await api('admin', 'PUT', '/checkin/settings', { any_campus: false })).status, 200);
+  assert.equal(notices('lead').length, quiet);
+  setFeatures();
+});
+
+test('families at any campus: a Howard family is on the Luxemburg iPad, checks in there, counts at Luxemburg, and keeps its home campus', async () => {
+  const hhH = Number(db.prepare("INSERT INTO households (name, campus_id, phone) VALUES ('Hale', 1, '555-0100')").run().lastInsertRowid);
+  db.prepare("INSERT INTO household_pickups (household_id, name, phone, relationship) VALUES (?, 'Gran Hale', '', 'Grandmother')").run(hhH);
+  const hana = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role) VALUES ('Hana', 'Hale', 1, ?, 'adult')").run(hhH).lastInsertRowid);
+  const hal = Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_id, household_role, birthdate, allergies, allergy_epi) VALUES ('Hal', 'Hale', 1, ?, 'child', '2020-01-01', 'peanuts', 1)").run(hhH).lastInsertRowid);
+  const lux = svcAt(2, 'Luxemburg afternoon', '2027-02-21T14:00');
+  const rosterAt = async (who, campus) => (await asStation('GET', `/checkin/roster?campus_id=${campus}`, undefined, who)).data;
+  const attempt = () => checkInFor(hal, 'H7J8K', { who: 'SouthDesk', at: '2027-02-21T20:00:00.000Z', service: lux });
+
+  // Off: as today. The family isn't on the other campus's list and a check-in there is skipped.
+  setFeatures();
+  assert.ok(!(await rosterAt('SouthDesk', 2)).households.some((h) => h.id === hhH));
+  const skipsBefore = events('checkin.skipped').length;
+  const refused = await attempt();
+  assert.deepEqual(refused.r.data, [], 'nothing was saved');
+  assert.equal(events('checkin.skipped').length, skipsBefore + 1);
+  assert.equal(events('checkin.skipped').at(-1).d.reason, 'other_campus');
+
+  // On: the family is on every iPad's list, with its pickups and Level 1, and the check-in is accepted at the iPad's campus.
+  setFeatures({ any_campus: true });
+  const roster = await rosterAt('SouthDesk', 2);
+  const fam = roster.households.find((h) => h.id === hhH);
+  assert.ok(fam, 'a Howard family is on the Luxemburg iPad’s roster');
+  assert.equal(fam.campus_id, 1, 'the family keeps its own campus on the list');
+  assert.equal(fam.pickups.length, 1);
+  const kid = fam.members.find((m) => m.id === hal);
+  assert.equal(kid.allergies, 'peanuts');
+  assert.equal(kid.allergy_epi, 1);
+  const adult = fam.members.find((m) => m.id === hana);
+  assert.equal(adult.allergies, null, 'an adult carries no medical details, as for any family');
+  assert.equal(roster.campus.id, 2);
+  const skips = events('checkin.skipped').length;
+  const kidsBefore = await summaryKids(lux);
+  const ok = await attempt();
+  assert.equal(ok.r.data.length, 1);
+  assert.equal(ok.r.data[0].campus_id, 2, 'the check-in keeps the iPad’s campus');
+  assert.equal(events('checkin.skipped').length, skips, 'no other_campus skip');
+  assert.equal(db.prepare('SELECT campus_id FROM households WHERE id = ?').get(hhH).campus_id, 1, 'the household keeps its home campus');
+  assert.equal((await summaryKids(lux) ?? 0) - (kidsBefore ?? 0), 1, 'counted in Luxemburg’s service attendance');
+  assert.ok((await asStation('GET', '/checkin/active?campus_id=2', undefined, 'SouthDesk')).data.some((x) => x.id === ok.id), 'and in Luxemburg’s rooms');
+  assert.ok(!(await asStation('GET', '/checkin/active?campus_id=1')).data.some((x) => x.id === ok.id), 'but not Howard’s');
+  assert.equal((await asStation('GET', `/checkin/medical/${hal}?campus_id=2`, undefined, 'SouthDesk')).status, 200, 'the Care note works for a child checked in here');
+
+  // Holds apply everywhere.
+  assert.equal((await place('staff', hal, 1)).status, 201);
+  const held = (await rosterAt('SouthDesk', 2)).households.find((h) => h.id === hhH).members.find((m) => m.id === hal);
+  assert.equal(held.on_hold, 1);
+  const out = await asStation('POST', '/checkin/checkout', { campus_id: 2, mode: 'request', household_id: hhH, ids: [ok.id], collector: { kind: 'household_adult', person_id: hana, id_type: 'drivers_license' } }, 'SouthDesk');
+  assert.equal(out.status, 409);
+  assert.equal(out.data.reason, 'hold', 'a hold placed at Howard still stops the check-out at Luxemburg');
+  await unlift(hal);
+
+  // Only the roster widens: South staff still can't manage a Howard family's people in the Hub, and the tag-less checks still hold.
+  assert.equal((await api('south', 'GET', `/people/${hal}`)).status, 403);
+  assert.equal((await api('south', 'PATCH', `/people/${hal}`, { allergies: 'none' })).status, 403);
+  assert.equal((await api('south', 'GET', `/households/${hhH}`)).status === 200, false);
+  // A campus-limited station still can't read another campus's lists.
+  assert.equal((await asStation('GET', '/checkin/roster?campus_id=1', undefined, 'SouthDesk')).status, 403);
+  setFeatures();
 });

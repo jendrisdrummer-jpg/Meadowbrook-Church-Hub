@@ -76,6 +76,9 @@ export default async function stations(el) {
         ${radio('label_overflow', 'desk', '“SEE CHECK-IN DESK”', 'Good when allergy details are sorted out at the check-in desk.', feats.label_overflow)}
         ${radio('label_overflow', 'smaller', 'Print it smaller', 'The allergy words are printed in smaller type so they all fit. Only when even small type can’t fit does it say “SEE CHECK-IN DESK”.', feats.label_overflow)}
         <p class="muted small" style="margin:6px 0 0">“EPI: YES” always prints, whichever you choose.</p></fieldset>
+      <fieldset class="st-set"><legend>Families at other campuses</legend>
+        <label class="check st-choice"><input type="checkbox" name="any_campus" ${feats.any_campus ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
+          <span><b>Families can be checked in at any campus</b><br><span class="muted small">Every iPad’s family list includes every family, whatever their campus, so a family who usually attends one campus can be checked in at another. The check-in counts at the campus where it happens, and the family keeps its own campus. Staff in the Hub still only manage their own campuses’ people.</span></span></label></fieldset>
       <fieldset class="st-set"><legend>Kids’ check-in for team leaders</legend>
         <p class="muted small" style="margin:0 0 8px">Leaders of the teams you tick can open Kids’ check-in at that team’s campus (the family list, each child’s allergy line, and care notes on tap) while they lead the team, as if you had switched it on for their account. A team with no campus uses the campuses on the leader’s own account. It stops when they stop leading it. Leave every team unticked to give check-in only account by account.</p>
         ${canEdit ? (teamList.length ? html`<div class="stack" data-auto-teams>${teamList.map((t) => html`<label class="check"><input type="checkbox" value="${t.id}" ${feats.auto_team_ids.includes(t.id) ? 'checked' : ''}> ${t.name} ${t.campus_id ? html`<span class="muted small">${campusLabel(t.campus_id)}</span>` : ''}</label>`)}</div>` : html`<p class="muted small" style="margin:0">There are no teams yet.</p>`)
@@ -111,7 +114,7 @@ export default async function stations(el) {
   };
   settings.querySelectorAll('input[name=checkout]').forEach((i) => { i.onchange = syncBlock; });
   settings.querySelector('[data-save-settings]')?.addEventListener('click', async () => {
-    const body = { checkout: picked('checkout'), holds: picked('holds'), medical_tap: settings.querySelector('input[name=medical_tap]').checked, label_overflow: picked('label_overflow'),
+    const body = { checkout: picked('checkout'), holds: picked('holds'), medical_tap: settings.querySelector('input[name=medical_tap]').checked, label_overflow: picked('label_overflow'), any_campus: settings.querySelector('input[name=any_campus]').checked,
       auto_team_ids: [...settings.querySelectorAll('[data-auto-teams] input:checked')].map((i) => Number(i.value)) };
     // Making check-in less protective needs a reason (kept in the audit log), and the safeguarding leads and admins are told.
     const weakened = weakenedSettings(feats, { ...feats, ...body });

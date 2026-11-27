@@ -10,8 +10,8 @@ import { tellLeads } from '../holds.js';
 import { weakenedSettings } from '../../public/js/checkin-rules.js';
 import { FEATURES_KEY, CHECKOUT_MODES, HOLD_MODES, OVERFLOW_MODES, MAX_AUTO_TEAMS, checkinFeatures, defaultHolds, ipadFeatures } from '../checkin-settings.js';
 
-const KEYS = ['checkout', 'holds', 'medical_tap', 'label_overflow', 'auto_team_ids'];
-const WEAK_WORDS = { holds: 'pickup holds', checkout: 'how children go home', medical_tap: 'care notes on the iPad', auto_team_ids: 'who gets check-in automatically' };
+const KEYS = ['checkout', 'holds', 'medical_tap', 'label_overflow', 'auto_team_ids', 'any_campus'];
+const WEAK_WORDS = { holds: 'pickup holds', checkout: 'how children go home', medical_tap: 'care notes on the iPad', auto_team_ids: 'who gets check-in automatically', any_campus: 'families at any campus' };
 
 export default function checkinSettingsRoutes(db) {
   const r = Router();
@@ -57,6 +57,10 @@ export default function checkinSettingsRoutes(db) {
       if (!OVERFLOW_MODES.includes(b.label_overflow)) throw bad('Choose what a name tag says when the allergy details are too long for it.');
       to.label_overflow = b.label_overflow;
     }
+    if (b.any_campus !== undefined) {
+      if (typeof b.any_campus !== 'boolean') throw bad('Families at any campus is on or off.');
+      to.any_campus = b.any_campus;
+    }
     if (b.auto_team_ids !== undefined) {
       if (!Array.isArray(b.auto_team_ids) || !b.auto_team_ids.every((x) => Number.isInteger(x) && x > 0)) throw bad('Choose teams from the list.');
       const list = [...new Set(b.auto_team_ids)];
@@ -82,7 +86,7 @@ export default function checkinSettingsRoutes(db) {
         audit(db, req, 'checkin.settings', { from, to, changed, ...(reason ? { reason } : {}) });
         // Who gets check-in access automatically is a permission, so it has an entry of its own.
         if (changed.includes('auto_team_ids')) audit(db, req, 'checkin.settings.auto_teams', { from: from.auto_team_ids, to: to.auto_team_ids });
-        recordEvent(db, req, { action: 'safety.settings', detail: { changed, checkout: to.checkout, holds: to.holds, medical_tap: to.medical_tap, label_overflow: to.label_overflow, auto_team_count: to.auto_team_ids.length } });
+        recordEvent(db, req, { action: 'safety.settings', detail: { changed, checkout: to.checkout, holds: to.holds, medical_tap: to.medical_tap, label_overflow: to.label_overflow, auto_team_count: to.auto_team_ids.length, any_campus: to.any_campus } });
       }
     });
     // Making check-in less protective is never quiet. The message is generic (no names, no reason); the reason stays in the audit log.

@@ -83,7 +83,10 @@ export default function checkinRoutes(db) {
     // households have none yet, and leaving them out would hide real children from check-in. Once
     // staff assign a campus (People → household → edit), the family appears only at that campus.
     // A family visiting another campus is looked up online or added as a guest.
-    const households = db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
+    // With "Families can be checked in at any campus" (Check-in settings) every family is on every iPad's list.
+    const anyCampus = checkinFeatures(db).any_campus;
+    const households = anyCampus ? db.prepare('SELECT id, name, phone, campus_id FROM households').all()
+      : db.prepare('SELECT id, name, phone, campus_id FROM households WHERE campus_id = ? OR campus_id IS NULL').all(c.id);
     // Only what the check-in screen uses: no photos, and no adult's birthdate or medical details. Children keep
     // their birthdate (rooms are by age) and Level 1 (allergen words, EpiPen, one-line action). The longer medical
     // note (Level 2) is never in the roster: it is fetched on tap, online, and logged. Care notes (Level 3) never leave the Hub.
@@ -154,7 +157,7 @@ export default function checkinRoutes(db) {
       if (!person) { skips.not_found.push(personId); return null; }
       // Same rule as the roster: never a family assigned to another campus, so check-in can't be used
       // to pull another campus's child into this campus's lists. (Visiting families: later item.)
-      if (person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
+      if (!features.any_campus && person.household_campus != null && person.household_campus !== c.id) { skips.other_campus.push(person.id); return null; }
       const at = Number.isNaN(Date.parse(rec.checked_in_at)) ? new Date() : new Date(rec.checked_in_at);
       const day = localNow(c.timezone, at).date;
       const kind = oneOf(rec.kind, ['kid', 'adult', 'volunteer'], 'kid');
@@ -234,7 +237,7 @@ export default function checkinRoutes(db) {
           AND c2.voided_at IS NULL AND (c2.checked_in_at > ci.checked_in_at OR (c2.checked_in_at = ci.checked_in_at AND c2.id > ci.id))))) THEN 1 ELSE 0 END in_room
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN rooms rm ON rm.id = ci.room_id
       LEFT JOIN households h ON h.id = p.household_id
-      WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)${extra}
+      WHERE ci.campus_id = ? AND ci.day = ? AND ci.voided_at IS NULL AND ${features.any_campus ? '1 = 1' : '(h.campus_id IS NULL OR h.campus_id = ci.campus_id)'}${extra}
       ORDER BY rm.sort, rm.name, p.first_name`).all(features.checkout === 'tag' ? 1 : 0, todayHere, ...args);
     if (features.holds === 'off') for (const x of rows) delete x.on_hold;
     res.json(older ? rows.map((x) => ({ ...x, allergies: x.allergies == null ? null : level1Text(x) })) : rows);
@@ -610,7 +613,7 @@ export default function checkinRoutes(db) {
     const row = db.prepare(`SELECT ci.id checkin_id, p.id person_id, p.household_id, p.allergies, p.allergy_epi, p.allergy_action, p.medical_notes
       FROM checkins ci JOIN people p ON p.id = ci.person_id LEFT JOIN households h ON h.id = p.household_id
       WHERE ci.campus_id = ? AND ci.day = ? AND ci.person_id = ? AND ci.voided_at IS NULL AND p.household_role = 'child'
-        AND (h.campus_id IS NULL OR h.campus_id = ci.campus_id)
+        AND ${checkinFeatures(db).any_campus ? '1 = 1' : '(h.campus_id IS NULL OR h.campus_id = ci.campus_id)'}
         AND (p.household_id IS NOT NULL OR p.campus_id IS NULL OR p.campus_id = ci.campus_id)
         AND (ci.checked_out_at IS NULL OR ?) ORDER BY ci.checked_in_at DESC LIMIT 1`).get(c.id, day, personId, staffReader ? 1 : 0);
     if (!row) throw notFound('A child checked in here today');
