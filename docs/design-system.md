@@ -71,6 +71,14 @@ selected row 4.7; accent text on card 5.5, on page 5.0, on selected row 4.6; whi
 status pills 4.9-7.2; input border 3.7 (4.1 dark); dark accent text 5.0-6.5. Status always carries a
 word or icon, never colour alone. Focus: `:focus-visible` draws a 2px `--accent-text` ring.
 
+**Brand colour rule:** the church's colour must give 4.5:1 for white text on it (primary buttons),
+for itself as link text on the light selected-row surface (`#ece4d6`), and, after dark mode's 60%-white
+lightening (`--accent-text`), on the dark selected-row surface (`#332d26`). Settings → Church checks
+this live (`public/js/contrast.js`, tested in `test/contrast.test.js`) and warns under the picker with a
+swatch and a one-click "Use #xxxxxx" shade (same hue, lightness adjusted). Saving a low-contrast colour
+is still allowed: it is the church's choice, but it is warned. Never hard-code text colours over `--accent`;
+use `--accent-ink`.
+
 **Dark mode:** `html[data-theme="dark"]` and `data-theme="device"` (follows the OS). Every new
 colour must come from tokens so both themes work. Check both.
 
