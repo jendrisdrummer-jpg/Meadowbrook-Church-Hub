@@ -2073,7 +2073,7 @@ test('media: YouTube sync fills in from the order of service, own titles and tri
   assert.equal(setup.data.settings.channel_title, 'MB Church & Friends');
   assert.equal((await api('admin', 'POST', '/media/sync', { deep: true })).status, 400); // needs the key
   const first = await api('admin', 'POST', '/media/sync', {});
-  assert.deepEqual(first.data, { added: 1, skipped: 2 });
+  assert.deepEqual(first.data, { added: 1, skipped: 2, review: 0 });
 
   // Live now: the app shows it, and everyone hears about it once.
   let watch = (await api(null, 'GET', '/watch')).data;
@@ -2138,7 +2138,7 @@ test('media: YouTube sync fills in from the order of service, own titles and tri
   const rec = watch.items.find((x) => x.video_id === 'liveLLLLLLL');
   assert.equal(rec.length, 4200);
   const deep = await api('admin', 'POST', '/media/sync', { deep: true });
-  assert.deepEqual(deep.data, { added: 0, skipped: 0 });
+  assert.deepEqual(deep.data, { added: 0, skipped: 0, review: 0 });
   const old = (await api(null, 'GET', '/watch')).data.items.find((x) => x.video_id === 'oldOOOOOOOO');
   assert.equal(old.title, 'Old Sunday | Faith'); // plain titles by default
 
@@ -2205,7 +2205,8 @@ test('streaming through Mux: one stream key, live in the app during services, re
 
   // Not set up: the hub says how.
   delete process.env.MUX_TOKEN_ID;
-  assert.equal((await api('admin', 'GET', '/media/setup')).data.mux.configured, false);
+  assert.equal((await api('admin', 'GET', '/media/setup')).data.mux, undefined); // Mux has no staff screen
+  assert.match((await api('admin', 'PUT', '/media/podcast', { enabled: true, email: 'a@mb.org' })).data.error, /isn’t set up/);
   assert.match((await api('admin', 'POST', '/media/mux/stream', {})).data.error, /MUX_TOKEN_ID/);
   process.env.MUX_TOKEN_ID = 'tok';
   process.env.MUX_TOKEN_SECRET = 'sec';
@@ -2308,7 +2309,7 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.equal(up.data.url, 'https://storage.example/upl1');
   assert.match(state.uploads.upl1.cors, /^http:\/\/127\.0\.0\.1:/);
   await api('north', 'POST', `/media/${yt.id}/upload/done`, {});
-  assert.equal((await api('admin', 'GET', `/media/${yt.id}`)).data.upload_status, 'processing');
+  assert.equal(db.prepare('SELECT upload_status FROM media WHERE id = ?').get(yt.id).upload_status, 'processing');
   // Still YouTube's player in the app until Mux has it ready.
   assert.equal((await api(null, 'GET', `/watch/${yt.id}`)).data.source, 'youtube');
   state.uploads.upl1 = { status: 'asset_created', asset_id: 'up1' };
@@ -2328,13 +2329,10 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.ok(!(await api(null, 'GET', '/watch')).data.items.some((x) => x.id === fresh.data.id));
   state.uploads.upl2 = { status: 'errored' };
   await muxTick(db);
-  assert.equal((await api('admin', 'GET', `/media/${fresh.data.id}`)).data.upload_status, 'failed');
+  assert.equal(db.prepare('SELECT upload_status FROM media WHERE id = ?').get(fresh.data.id).upload_status, 'failed');
 
-  // Only our own player: videos still on YouTube leave the app.
+  // The old "only our own player" switch is gone: videos still on YouTube stay in the app.
   await api('admin', 'PUT', '/media/setup', { own_player_only: true });
-  const own = (await api(null, 'GET', '/watch')).data.items;
-  assert.ok(own.length && own.every((x) => x.source === 'mux'));
-  await api('admin', 'PUT', '/media/setup', { own_player_only: false });
   assert.ok((await api(null, 'GET', '/watch')).data.items.some((x) => x.source === 'youtube'));
 
   // The podcast: off until it's turned on, which needs an owner email.
