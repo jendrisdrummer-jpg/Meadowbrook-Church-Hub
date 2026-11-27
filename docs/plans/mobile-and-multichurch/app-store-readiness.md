@@ -234,6 +234,19 @@ until 13 April. The kids' check-in pilot keeps priority throughout.
 
 ## 7. Owner decisions (plain language)
 
+**Answered by the owner on 27 Nov 2026:**
+1. **Sign in with Apple: yes (a).** Google stays in the app, and Sign in with Apple is added beside it. It needs a Sign in with Apple key in the Render environment variables (the owner adds it; never in code or chat), and the relay email domain registered with Apple.
+2. **Same screen for everyone after the email** (the recommended option).
+3. **"Directory":** people already in People can create their own account.
+4. **The free official add-ons are approved**, pinned to exact version 8 releases.
+5. **Account deletion approved as written.** App accounts are for ages 13 and up.
+6. **Apple's test account:** the free option, a made-up volunteer on the live Hub.
+7. **A separate app for early testing.** It has its own bundle id, through TestFlight and then possibly its own listing. When the app launches to the whole church, it may replace the Subsplash app instead. That needs Subsplash to transfer the app to the church's Apple account, and a build under that app's bundle id.
+8. **The church finder starts on Meadowbrook's own server** and moves to the product's central service later.
+
+The original questions follow, for the record.
+
+
 1. **Google in the app:** add Sign in with Apple (recommended), or hide Google inside the app (fastest to approve), or
    keep Google alone and risk rejection?
 2. **After the email, same screen for everyone** (safer: nobody can test who's a member) **or Faith Teams' style**
