@@ -162,6 +162,26 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - Everything works with the keyboard; focus is visible; dialogs trap focus and close on Escape.
 - Don't rely on colour alone: pills carry words.
 - Respect `prefers-reduced-motion` for any new animation.
+- **Text size follows the person.** Font sizes are `rem`, never `px` (line-heights unitless). The member app and
+  login set the root from the phone's own setting (`font: -apple-system-body` inside
+  `@supports (-webkit-touch-callout: none)`, so desktop Safari stays at 16px), so iOS Larger Text and browser text
+  size both work. Give text-bearing boxes `rem`/`min-` sizes, not fixed `px` widths, and check at 150% root size and
+  320px wide: no sideways scroll, no clipped labels. Tap targets stay px (44px minimum).
+- **State attributes must say `false`.** The `html` template drops `false`, so write `aria-pressed="${String(on)}"`
+  (same for `aria-expanded`, `aria-selected`, `aria-checked`).
+- **Form errors go next to the field**, not only in a toast: use `fieldError()`, `formError()` and `clearFieldErrors()`
+  from `lib.js` (message under the field with `.field-error`, `aria-invalid`, `aria-describedby`, focus moves there).
+  Wrap every control in `<label class="field">`; groups of choices (yes/no, tick boxes) are
+  `<fieldset class="field"><legend>`. Search boxes with only a placeholder need an `aria-label`.
+- **Navigation:** after a page change focus moves to the title (`[data-title]` has `tabindex="-1"`); after re-drawing a
+  list in place, return focus to the item or control. Links that switch views are plain links with
+  `aria-current="page"` (no `role="tablist"` unless it is a real tab widget); the active bottom tab has `aria-current`.
+  The hub has a "Skip to content" link. Don't put an `href="#id"` on anything in the hub or app (the hash is the router).
+- Calendar day buttons carry a full `aria-label` ("Sunday 29 November, 2 services"). Unread items say "New" in words,
+  not just bold. Scroll with `behavior: scrollBehavior()` (respects reduced motion). Dialogs are labelled by their title.
+- Secondary button borders use `--line-input` (3:1 against the page in both themes). Heading colours that use the
+  brand colour on dark backgrounds use `--accent-text`, not `--accent`.
+- Not covered by code: the brand colour chosen in Settings can fail contrast; a server-side check is a separate task.
 
 ## Mobile checklist
 
@@ -171,6 +191,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - Long tables collapse or scroll inside their card, never the page.
 - Member app, on touch screens (`@media (pointer: coarse)` in `member.css`): fields are 16px so iPhones
   don't zoom on focus, and buttons, chips, tabs and calendar arrows are at least 44px tall. Login does the same.
+  The staff hub does the same for buttons, icon buttons, the bell and fields on touch screens (end of `app.css`).
 - Member app detail screens (anything deeper than a tab) get one top-left **Back** (`.m-back`, 44px):
   `route()` in `member/main.js` sets `backTo`, `setTitle` draws it. Don't add a Back button of your own to a
   member page. Back uses `history.back()` when the app has history, else goes to the parent tab. In the chat
