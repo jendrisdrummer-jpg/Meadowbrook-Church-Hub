@@ -215,6 +215,17 @@ export function featuresOf(roster) {
   };
 }
 
+// Settings changes that make check-in less protective. They need a reason, and the safeguarding leads and the all-campus admins are told.
+// `from` and `to` are complete settings ({ checkout, holds, medical_tap, auto_team_ids }); returns the names of what was weakened.
+export function weakenedSettings(from, to) {
+  const out = [];
+  if (to.holds !== from.holds && (to.holds === 'off' || (from.holds === 'block' && to.holds === 'alert'))) out.push('holds');
+  if (from.checkout !== 'tag' && to.checkout === 'tag') out.push('checkout');
+  if (from.medical_tap !== to.medical_tap) out.push('medical_tap');
+  if (JSON.stringify(from.auto_team_ids || []) !== JSON.stringify(to.auto_team_ids || [])) out.push('auto_team_ids');
+  return out;
+}
+
 // What the volunteer sees when a child with a hold is checked in (holds set to "Warn at check-in"). The child's first name only:
 // never the note, the reason or who placed the hold.
 const joinNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);

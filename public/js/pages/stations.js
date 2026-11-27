@@ -2,7 +2,7 @@
 // signed in on them. Each station belongs to one campus and can only do check-in.
 import { get, post, patch, del, api, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
 import { state, setTitle, visibleCampuses } from '../app.js';
-import { CHECKIN_APP_VERSION, STATION_LETTERS, leadRows } from '../checkin-rules.js';
+import { CHECKIN_APP_VERSION, STATION_LETTERS, leadRows, weakenedSettings } from '../checkin-rules.js';
 
 const seen = (t) => {
   if (!t) return 'Not yet';
@@ -77,7 +77,7 @@ export default async function stations(el) {
         ${radio('label_overflow', 'smaller', 'Print it smaller', 'The allergy words are printed in smaller type so they all fit. Only when even small type can’t fit does it say “SEE CHECK-IN DESK”.', feats.label_overflow)}
         <p class="muted small" style="margin:6px 0 0">“EPI: YES” always prints, whichever you choose.</p></fieldset>
       <fieldset class="st-set"><legend>Kids’ check-in for team leaders</legend>
-        <p class="muted small" style="margin:0 0 8px">Leaders of the teams you tick can open Kids’ check-in at their own campuses (the family list, each child’s allergy line, and care notes on tap) while they lead the team, as if you had switched it on for their account. It stops when they stop leading it. Leave every team unticked to give check-in only account by account.</p>
+        <p class="muted small" style="margin:0 0 8px">Leaders of the teams you tick can open Kids’ check-in at that team’s campus (the family list, each child’s allergy line, and care notes on tap) while they lead the team, as if you had switched it on for their account. A team with no campus uses the campuses on the leader’s own account. It stops when they stop leading it. Leave every team unticked to give check-in only account by account.</p>
         ${canEdit ? (teamList.length ? html`<div class="stack" data-auto-teams>${teamList.map((t) => html`<label class="check"><input type="checkbox" value="${t.id}" ${feats.auto_team_ids.includes(t.id) ? 'checked' : ''}> ${t.name} ${t.campus_id ? html`<span class="muted small">${campusLabel(t.campus_id)}</span>` : ''}</label>`)}</div>` : html`<p class="muted small" style="margin:0">There are no teams yet.</p>`)
           : html`<p class="small" style="margin:0">${feats.auto_teams.length ? feats.auto_teams.map((t) => t.name).join(', ') : 'No teams chosen.'}</p>`}</fieldset>
       ${canEdit ? html`<button class="btn primary" data-save-settings>Save check-in settings</button>` : html`<p class="muted small" style="margin:0">${ALL_CAMPUSES_MESSAGE}</p>`}</div>
@@ -113,7 +113,24 @@ export default async function stations(el) {
   settings.querySelector('[data-save-settings]')?.addEventListener('click', async () => {
     const body = { checkout: picked('checkout'), holds: picked('holds'), medical_tap: settings.querySelector('input[name=medical_tap]').checked, label_overflow: picked('label_overflow'),
       auto_team_ids: [...settings.querySelectorAll('[data-auto-teams] input:checked')].map((i) => Number(i.value)) };
-    try { await api('PUT', '/checkin/settings', body); toast('Saved. iPads pick this up the next time they refresh.'); stations(el); } catch (err) { fail(err); }
+    // Making check-in less protective needs a reason (kept in the audit log), and the safeguarding leads and admins are told.
+    const weakened = weakenedSettings(feats, { ...feats, ...body });
+    try {
+      if (weakened.length) {
+        const ok = await dialog({
+          title: 'Why are you changing this?', submit: 'Save the change',
+          body: html`<p>This makes check-in less protective, so the safeguarding leads and the admins who cover every campus will be told.</p>
+            <label class="field">Why?<textarea name="reason" maxlength="300" required></textarea></label>
+            <p class="muted small">Only people who can read the audit log see your reason.</p>`,
+          onSubmit: (f) => api('PUT', '/checkin/settings', { ...body, reason: f.reason.value }),
+        });
+        if (!ok) return;
+      } else {
+        await api('PUT', '/checkin/settings', body);
+      }
+      toast('Saved. iPads pick this up the next time they refresh.');
+      stations(el);
+    } catch (err) { fail(err); }
   });
 
   const sw = el.querySelector('[data-safety]');

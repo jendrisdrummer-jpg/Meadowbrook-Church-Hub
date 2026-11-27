@@ -55,8 +55,15 @@ const siteUrl = () => (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
 // Tells the safeguarding lead (or every admin until one is named) in the Hub and by email when email is set up.
 // `body` names the child and is for the inbox only (the phone push is generic); the email never names the child and never carries a note,
 // it only says to open the Hub. Never throws: a failure to tell must not undo or block the hold itself.
-export function tellLeads(db, { title, body, personId = null }) {
-  const { users, fallback } = leadAccounts(db);
+export function tellLeads(db, { title, body, personId = null, admins = false }) {
+  const found = leadAccounts(db);
+  const fallback = found.fallback;
+  let users = found.users;
+  // `admins`: also every active admin who covers all campuses (for a change to how check-in protects children).
+  if (admins) {
+    const have = new Set(users.map((u) => u.id));
+    users = [...users, ...db.prepare("SELECT id, email, notify FROM users WHERE active = 1 AND role = 'admin' AND campus_ids IS NULL").all().filter((u) => !have.has(u.id))];
+  }
   const url = personId ? `/#/people/${personId}` : '/#/stations';
   try {
     notify(db, users.map((u) => u.id), { kind: 'safety', title, body: fallback ? `${body} (No safeguarding lead is named yet, so every admin is told.)` : body, url,

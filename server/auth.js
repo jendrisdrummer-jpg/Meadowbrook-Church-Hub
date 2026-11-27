@@ -14,7 +14,7 @@ import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
 import { legalHold } from './history.js';
-import { leadsAutoTeam } from './checkin-settings.js';
+import { autoCheckinScope } from './checkin-settings.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -71,7 +71,7 @@ export function loadUser(db) {
 }
 
 function toUser(row, db) {
-  return {
+  const user = {
     id: row.id,
     email: row.email,
     role: row.role,
@@ -83,12 +83,32 @@ function toUser(row, db) {
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
     checkin: Boolean(row.checkin),
-    // Kids' check-in because they lead a team an admin chose (Check-in settings). Worked out here, on every request, and never stored.
-    autoCheckin: !row.checkin && rank(row.role) < rank('staff') && leadsAutoTeam(db, row.person_id),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
     homeLayout: parseLayout(row.home_layout),
   };
+  // Kids' check-in because they lead a team an admin chose (Check-in settings). Worked out on the first use in a request (so most requests
+  // never ask), kept for the rest of it, and never stored. `autoReach` is the campuses it covers: the campus of each such team they lead,
+  // or, for a team with no campus, the account's own campus list (an account with no list on a church with several campuses gets none).
+  let reach;
+  const autoReach = () => {
+    if (reach) return reach;
+    reach = { any: false, ids: new Set() };
+    const scope = !row.checkin && rank(row.role) < rank('staff') ? autoCheckinScope(db, row.person_id) : null;
+    if (!scope) return reach;
+    const own = user.campusIds;
+    const several = db.prepare('SELECT COUNT(*) n FROM campuses').get().n > 1;
+    if (!own && several && rank(row.role) < rank('leader')) return reach; // fails closed, like the switch
+    for (const c of scope.ids) if (!own || own.includes(c)) reach.ids.add(c);
+    if (scope.churchWide) {
+      if (own) own.forEach((c) => reach.ids.add(c));
+      else if (!several) reach.any = true;
+    }
+    return reach;
+  };
+  Object.defineProperty(user, 'autoReach', { get: autoReach, enumerable: false });
+  Object.defineProperty(user, 'autoCheckin', { get: () => { const r = autoReach(); return r.any || r.ids.size > 0; }, enumerable: false });
+  return user;
 }
 
 // A saved Home layout, or null (the standard Home) if there is none or it can't be read.
@@ -143,6 +163,11 @@ export const canCheckin = (user) => Boolean(user) && (Boolean(user.station) || r
 // (the account dialog requires a list). Leaders keep their existing meaning of no list.
 export function canCheckinCampus(db, user, campusId) {
   if (!canCheckin(user)) return false;
+  // Access that comes only from leading a chosen team covers just that team's campus (a team with no campus: the account's own list).
+  if (!user.station && rank(user.role) < rank('staff') && !user.checkin) {
+    const r = user.autoReach;
+    return campusId == null || ((r.any || r.ids.has(Number(campusId))) && canCampus(user, campusId));
+  }
   if (!user.station && rank(user.role) < rank('leader') && !user.campusIds && db.prepare('SELECT COUNT(*) n FROM campuses').get().n > 1) return false;
   return canCampus(user, campusId);
 }

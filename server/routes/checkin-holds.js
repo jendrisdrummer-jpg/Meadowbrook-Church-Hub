@@ -140,6 +140,8 @@ export default function checkinHoldRoutes(db) {
     if (ci.checked_out_at) throw new HttpError(409, 'That child has already been checked out.');
     const hold = activeHold(db, ci.person_id);
     if (!hold) throw new HttpError(409, 'This child doesn’t have a hold, so check them out at the check-out screen.');
+    // A hold placed at a campus this account doesn't cover is the other campus's to release.
+    if (!canCheckinCampus(db, req.user, hold.campus_id)) throw new HttpError(403, 'This hold was placed at another campus. Contact that campus’s staff before releasing this child.');
     const reason = str(req.body?.reason, 300);
     if (!reason) throw bad('Say what you checked before releasing this child (for example, “called a parent”).');
     const who = resolveCollector(db, req.body?.collector, ci.household_id, { allowOther: true });

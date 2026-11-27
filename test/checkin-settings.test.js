@@ -15,7 +15,7 @@ import { startSession } from '../server/auth.js';
 import { outbox as mailbox } from '../server/mail.js';
 import {
   CHECKIN_APP_VERSION, LABELS, labelStrips, labelSafety, level1, kidLabelHtml, parentTagHtml, labelName, featuresOf, holdAlertText, holdLeaveText,
-  SMALLEST_SCALE, SEE_ROOM_LEADER, SEE_DESK,
+  SMALLEST_SCALE, SEE_ROOM_LEADER, SEE_DESK, weakenedSettings,
 } from '../public/js/checkin-rules.js';
 
 const T0 = '2027-02-21T15:30:00Z'; // a Sunday, 9:30 in Chicago
@@ -125,11 +125,15 @@ const outRequest = (who, ciId, household = ids.hhA, adult = ids.ann) => (who ===
 test('the settings start as the public product’s: check out on the iPad, block a held child, care notes on, “see room leader”, no automatic teams', async () => {
   assert.equal((await api(null, 'GET', '/checkin/settings')).status, 401);
   for (const who of ['volunteer', 'leaderNoSwitch', 'lead']) assert.equal((await api(who, 'GET', '/checkin/settings')).status, 403, who);
-  for (const who of ['staff', 'north', 'admin', 'limitedAdmin', 'leaderSwitch']) {
+  for (const who of ['staff', 'north', 'admin', 'limitedAdmin']) {
     const r = await api(who, 'GET', '/checkin/settings');
     assert.equal(r.status, 200, who);
     assert.deepEqual({ ...r.data, auto_teams: undefined }, { ...DEFAULTS, auto_teams: undefined }, who);
   }
+  // Staff in the Hub see everything; anyone else with check-in access (the switch, an iPad) sees only what the iPad needs.
+  const IPAD = { checkout: 'ipad', holds: 'block', medical_tap: true, label_overflow: 'leader' };
+  assert.deepEqual((await api('leaderSwitch', 'GET', '/checkin/settings')).data, IPAD);
+  assert.deepEqual((await asStation('GET', '/checkin/settings')).data, IPAD);
   // The iPad reads them with its own token, and they ride along on its roster.
   const s = await asStation('GET', '/checkin/settings');
   assert.equal(s.status, 200);
@@ -154,7 +158,7 @@ test('only an admin who covers every campus can change them; every change is aud
   assert.equal(audits('checkin.settings').length, 0);
 
   // Until holds have been chosen on purpose, they follow the way children go home.
-  const first = await api('admin', 'PUT', '/checkin/settings', { checkout: 'tag' });
+  const first = await api('admin', 'PUT', '/checkin/settings', { checkout: 'tag', reason: 'We check children out by tag' });
   assert.equal(first.status, 200, JSON.stringify(first.data));
   assert.equal(first.data.checkout, 'tag');
   assert.equal(first.data.holds, 'alert', 'matching tags: nothing to block, so the default is to warn');
@@ -518,7 +522,7 @@ test('automatic check-in: nothing changes until an admin picks teams, then those
   for (const who of ['autoN', 'autoS', 'autoVol', 'autoAll', 'autoMember', 'autoArch']) assert.equal((await get(who)).status, 403, `${who} has nothing until a team is picked`);
   assert.equal((await api('autoN', 'GET', '/me')).data.checkin, false);
 
-  const picked = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [ids.teamKids] });
+  const picked = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [ids.teamKids], reason: 'Children’s ministry leaders run check-in' });
   assert.equal(picked.status, 200, JSON.stringify(picked.data));
   assert.deepEqual(picked.data.auto_team_ids, [ids.teamKids]);
   assert.deepEqual(picked.data.auto_teams.map((t) => t.name), ['Children’s ministry']);
@@ -529,9 +533,9 @@ test('automatic check-in: nothing changes until an admin picks teams, then those
   assert.equal((await api('autoN', 'GET', '/checkin/campuses')).data.map((c) => c.id).join(), '1');
   assert.equal((await get('autoS', 2)).status, 200);
   assert.equal((await get('autoS', 1)).status, 403);
-  // A leader with no campus list keeps the meaning leaders always had: every campus.
-  assert.equal((await get('autoAll', 1)).status, 200);
-  assert.equal((await get('autoAll', 2)).status, 200);
+  // A leader with no campus list, on a church with two campuses, is refused for a team with no campus (it means "the account's own list", and there is none).
+  assert.equal((await get('autoAll', 1)).status, 403);
+  assert.equal((await get('autoAll', 2)).status, 403);
   // Fails closed: below leader with no campus list, on a church with two campuses, is refused.
   assert.equal((await get('autoVol', 1)).status, 403);
   assert.equal((await get('autoVol', 2)).status, 403);
@@ -581,10 +585,10 @@ test('automatic check-in goes when the person stops leading the team, the team i
   assert.equal(await get('autoN'), 200);
   // Taken off the list by an admin, and the audit of each change.
   const before = audits('checkin.settings.auto_teams').length;
-  const off = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [] });
+  const off = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [], reason: 'Stopping for now' });
   assert.equal(off.status, 200);
   assert.equal(await get('autoN'), 403);
-  const on = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [ids.teamOther, ids.teamKids] });
+  const on = await api('admin', 'PUT', '/checkin/settings', { auto_team_ids: [ids.teamOther, ids.teamKids], reason: 'Adding parking' });
   assert.deepEqual(on.data.auto_team_ids, [ids.teamKids, ids.teamOther].sort((a, b) => a - b));
   assert.equal(await get('autoN'), 200);
   const log = audits('checkin.settings.auto_teams');
@@ -593,7 +597,7 @@ test('automatic check-in goes when the person stops leading the team, the team i
   assert.deepEqual(log.at(-1).d, { from: [], to: [ids.teamKids, ids.teamOther].sort((a, b) => a - b) });
   assert.equal(log.at(-1).user_id, ids.admin);
   // Changing something else leaves the list's own log alone.
-  await api('admin', 'PUT', '/checkin/settings', { medical_tap: false });
+  await api('admin', 'PUT', '/checkin/settings', { medical_tap: false, reason: 'No iPad care notes' });
   assert.equal(audits('checkin.settings.auto_teams').length - before, 2);
   assert.equal(audits('checkin.settings').at(-1).d.changed.join(), 'medical_tap');
   setFeatures();
@@ -626,4 +630,253 @@ test('a hold placed at another campus still shows as a hold to staff with check-
   await unlift(ids.dee);
   assert.deepEqual((await api('south', 'GET', `/checkin/holds?person_id=${ids.dee}`)).data.holds, []);
   await unlift(ids.abe);
+});
+
+// ---------------------------------------------------------------- security review fixes
+let extra = 0;
+const addPerson = (first, campus) => Number(db.prepare("INSERT INTO people (first_name, last_name, campus_id, household_role) VALUES (?, 'Reviewer', ?, 'adult')").run(first, campus).lastInsertRowid);
+const addUser = (key, role, campuses, personId) => {
+  const id = db.prepare('INSERT INTO users (email, role, campus_ids, person_id) VALUES (?, ?, ?, ?)').run(`${key}-${++extra}@mb.org`, role, campuses, personId).lastInsertRowid;
+  startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
+  ids[key] = Number(id);
+};
+const addTeam = (name, campus) => Number(db.prepare('INSERT INTO teams (name, campus_id) VALUES (?, ?)').run(name, campus).lastInsertRowid);
+const roster = (who, campus = 1) => api(who, 'GET', `/checkin/roster?campus_id=${campus}`).then((r) => r.status);
+const storedTeams = () => JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'checkin_features'").get().value).auto_team_ids;
+
+test('automatic check-in needs a person who isn’t archived', async () => {
+  setFeatures({ auto_team_ids: [ids.teamKids] });
+  assert.equal(await roster('autoN'), 200);
+  db.prepare('UPDATE people SET archived = 1 WHERE id = ?').run(ids.pLeaderN);
+  assert.equal(await roster('autoN'), 403, 'an archived person no longer has it');
+  db.prepare('UPDATE people SET archived = 0 WHERE id = ?').run(ids.pLeaderN);
+  assert.equal(await roster('autoN'), 200);
+  setFeatures();
+});
+
+test('automatic check-in covers the campus of the team they lead; a team with no campus means the account’s own list, and fails closed with none', async () => {
+  ids.teamNorth = addTeam('North kids', 1);
+  ids.teamSouth = addTeam('South kids', 2);
+  ids.pNoList = addPerson('Noor', 1);
+  addUser('autoNoList', 'leader', null, ids.pNoList);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(ids.teamNorth, ids.pNoList);
+  // Only a church-wide team is ticked: a leader with no campus list gets nothing at all.
+  setFeatures({ auto_team_ids: [ids.teamKids] });
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(ids.teamKids, ids.pNoList);
+  assert.equal(await roster('autoNoList', 1), 403);
+  assert.equal(await roster('autoNoList', 2), 403);
+  assert.equal((await api('autoNoList', 'GET', '/me')).data.checkin, false, 'and the Hub doesn’t offer a page it would refuse');
+  // The campus-1 team is ticked: campus 1 only.
+  setFeatures({ auto_team_ids: [ids.teamNorth, ids.teamKids] });
+  assert.equal(await roster('autoNoList', 1), 200);
+  assert.equal(await roster('autoNoList', 2), 403, 'not the other campus, though the account has no list');
+  assert.equal((await api('autoNoList', 'GET', '/checkin/campuses')).data.map((c) => c.id).join(), '1');
+  // A leader limited to South who leads the North team has nothing from it (their own list doesn't reach North); with a campus list a team with no campus gives that list.
+  const pCross = addPerson('Cruz', 2);
+  addUser('autoCross', 'leader', '[2]', pCross);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(ids.teamNorth, pCross);
+  assert.equal(await roster('autoCross', 1), 403);
+  assert.equal(await roster('autoCross', 2), 403);
+  db.prepare('INSERT INTO team_members (team_id, person_id, is_leader) VALUES (?, ?, 1)').run(ids.teamKids, pCross);
+  assert.equal(await roster('autoCross', 2), 200, 'a team with no campus: the account’s own list');
+  assert.equal(await roster('autoCross', 1), 403);
+  setFeatures();
+});
+
+test('making an existing no-list leader the leader of a ticked team grants only that team’s campus, and the change is audited', async () => {
+  setFeatures({ auto_team_ids: [ids.teamNorth] });
+  const person = addPerson('Nell', 1);
+  addUser('autoNell', 'leader', null, person);
+  assert.equal(await roster('autoNell', 1), 403);
+  const before = audits('checkin.auto_grant').length;
+  // A staff member limited to North makes her a leader of the North team.
+  const made = await api('north', 'PUT', `/teams/${ids.teamNorth}/members/${person}`, { is_leader: true });
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  assert.equal(await roster('autoNell', 1), 200);
+  assert.equal(await roster('autoNell', 2), 403, 'campus 2 is not granted');
+  const grant = audits('checkin.auto_grant').slice(before);
+  assert.equal(grant.length, 1);
+  assert.deepEqual(grant[0].d, { person_id: person, team_id: ids.teamNorth, granted: true });
+  assert.equal(grant[0].user_id, ids.north, 'the audit names who made her a leader');
+  // Saving the same leader again changes nothing, so nothing more is audited; taking it away is.
+  assert.equal((await api('north', 'PUT', `/teams/${ids.teamNorth}/members/${person}`, { is_leader: true })).status, 200);
+  assert.equal(audits('checkin.auto_grant').length - before, 1);
+  assert.equal((await api('north', 'DELETE', `/teams/${ids.teamNorth}/members/${person}`)).status, 200);
+  assert.equal(await roster('autoNell', 1), 403);
+  assert.deepEqual(audits('checkin.auto_grant').at(-1).d, { person_id: person, team_id: ids.teamNorth, granted: false });
+  // A team that isn't ticked isn't audited.
+  const quiet = audits('checkin.auto_grant').length;
+  assert.equal((await api('north', 'PUT', `/teams/${ids.teamSouth}/members/${person}`, { is_leader: true })).status, 403, 'North staff can’t manage a South team');
+  await api('staff', 'PUT', `/teams/${ids.teamSouth}/members/${person}`, { is_leader: true });
+  assert.equal(audits('checkin.auto_grant').length, quiet);
+  setFeatures();
+});
+
+test('archiving a ticked team takes it off the list, so unarchiving never brings the access back', async () => {
+  setFeatures({ auto_team_ids: [ids.teamKids, ids.teamOther] });
+  assert.equal(await roster('autoN'), 200);
+  const before = audits('checkin.settings.auto_teams').length;
+  assert.equal((await api('staff', 'PATCH', `/teams/${ids.teamKids}`, { archived: 1 })).status, 200);
+  assert.deepEqual(storedTeams(), [ids.teamOther], 'the list was updated, not just read around');
+  const log = audits('checkin.settings.auto_teams').slice(before);
+  assert.equal(log.length, 1);
+  assert.deepEqual(log[0].d.removed, [ids.teamKids]);
+  assert.equal(log[0].d.why, 'team_archived');
+  assert.equal(await roster('autoN'), 200, 'still leads the Parking team, which is ticked');
+  assert.equal((await api('staff', 'PATCH', `/teams/${ids.teamKids}`, { archived: 0 })).status, 200);
+  assert.equal(await roster('autoS', 2), 403, 'unarchived, the Children’s ministry leaders still have nothing');
+  assert.equal((await api('staff', 'GET', '/checkin/settings')).data.auto_team_ids.includes(ids.teamKids), false);
+  // Who can archive teams is unchanged: a leader of the team can't be made able to by this.
+  setFeatures();
+});
+
+test('a team or campus that is deleted drops off the automatic list', async () => {
+  const gone = addTeam('Gone team', null);
+  const campus3 = Number(db.prepare("INSERT INTO campuses (name, short_name, timezone) VALUES ('East', 'East', 'America/Chicago')").run().lastInsertRowid);
+  const eastTeam = addTeam('East kids', campus3);
+  setFeatures({ auto_team_ids: [ids.teamKids, gone, eastTeam] });
+  db.prepare('DELETE FROM teams WHERE id = ?').run(gone);
+  db.prepare('DELETE FROM campuses WHERE id = ?').run(campus3);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM teams WHERE id = ?').get(eastTeam).n, 0, 'the campus took its team with it');
+  assert.deepEqual((await api('staff', 'GET', '/checkin/settings')).data.auto_team_ids, [ids.teamKids], 'neither counts, or is reported');
+  assert.equal(await roster('autoN'), 200);
+  // The next save writes the cleaned list.
+  assert.equal((await api('admin', 'PUT', '/checkin/settings', { label_overflow: 'leader' })).status, 200);
+  assert.deepEqual(storedTeams(), [ids.teamKids]);
+  setFeatures();
+});
+
+test('what makes check-in less protective needs a reason, and tells the safeguarding leads and the all-campus admins', async () => {
+  const put = (body) => api('admin', 'PUT', '/checkin/settings', body);
+  const cases = [
+    ['block to warn', { holds: 'block', checkout: 'ipad' }, { holds: 'alert' }, true],
+    ['anything to off', { holds: 'alert', checkout: 'tag' }, { holds: 'off' }, true],
+    ['off to warn', { holds: 'off', checkout: 'ipad' }, { holds: 'alert' }, false],
+    ['warn to block', { holds: 'alert', checkout: 'ipad' }, { holds: 'block' }, false],
+    ['check-out by tag', { holds: 'alert', checkout: 'ipad' }, { checkout: 'tag' }, true],
+    ['tag back to the iPad', { holds: 'alert', checkout: 'tag' }, { checkout: 'ipad' }, false],
+    ['care notes off', { medical_tap: true }, { medical_tap: false }, true],
+    ['care notes on', { medical_tap: false }, { medical_tap: true }, true],
+    ['automatic teams', { auto_team_ids: [] }, { auto_team_ids: [ids.teamKids] }, true],
+    ['name tag wording', {}, { label_overflow: 'desk' }, false],
+  ];
+  for (const [what, from, body, needs] of cases) {
+    setFeatures(from);
+    const attempt = await put(body);
+    if (needs) {
+      assert.equal(attempt.status, 400, `${what}: a reason is needed`);
+      assert.match(attempt.data.error, /Say why/);
+      assert.equal((await put({ ...body, reason: '   ' })).status, 400, `${what}: not just spaces`);
+      assert.equal((await put({ ...body, reason: 'x'.repeat(301) })).status, 400, `${what}: up to 300 characters`);
+      assert.equal((await put({ ...body, reason: 'x'.repeat(300) })).status, 200, `${what}: 300 is fine`);
+    } else {
+      assert.equal(attempt.status, 200, `${what}: no reason needed`);
+    }
+  }
+  setFeatures({ holds: 'block' });
+  mailbox.length = 0;
+  assert.equal((await place('staff', ids.bo)).status, 201);
+  const leadBefore = notices('lead').length;
+  const adminBefore = notices('admin').length;
+  const limitedBefore = notices('limitedAdmin').length;
+  mailbox.length = 0;
+  const weakened = await put({ holds: 'off', reason: `${REASON} (settings)` });
+  assert.equal(weakened.status, 200);
+  // The safeguarding lead and the admin who covers every campus are told; an admin limited to one campus isn't.
+  const heardLead = notices('lead').slice(leadBefore);
+  const heardAdmin = notices('admin').slice(adminBefore);
+  assert.deepEqual(heardLead.map((x) => x.title), ['A check-in safety setting was changed']);
+  assert.deepEqual(heardAdmin.map((x) => x.title), ['A check-in safety setting was changed']);
+  assert.equal(notices('limitedAdmin').length, limitedBefore);
+  assert.equal(heardLead[0].kind, 'safety');
+  assert.match(heardLead[0].body, /changed check-in settings \(pickup holds\)\. 1 hold is on right now\./);
+  assert.ok(!heardLead[0].body.includes('CANARY') && !/Bo Bell/.test(heardLead[0].body), 'generic: no names, no reason');
+  const mails = mailbox.filter((m) => /safety setting/.test(m.subject));
+  assert.deepEqual(mails.map((m) => m.to).sort(), ['admin@mb.org', 'lead@mb.org']);
+  assert.ok(mails.every((m) => !/CANARY|Bo|hold is on/.test(m.text)), 'the email is generic');
+  // The reason is only in the audit entry (the afterEach check also proves it is in no notification, email or record).
+  assert.ok(audits('checkin.settings').at(-1).detail.includes(`${REASON} (settings)`));
+  assert.ok(!JSON.stringify(events('safety.settings')).includes('CANARY'));
+  // A change that doesn't weaken anything is quiet.
+  const quiet = notices('lead').length;
+  assert.equal((await put({ holds: 'alert' })).status, 200);
+  assert.equal(notices('lead').length, quiet);
+  await unlift(ids.bo);
+  setFeatures();
+});
+
+test('weakenedSettings, on its own', () => {
+  const base = { checkout: 'ipad', holds: 'block', medical_tap: true, auto_team_ids: [] };
+  assert.deepEqual(weakenedSettings(base, base), []);
+  assert.deepEqual(weakenedSettings(base, { ...base, holds: 'alert', checkout: 'tag', medical_tap: false, auto_team_ids: [3] }), ['holds', 'checkout', 'medical_tap', 'auto_team_ids']);
+  assert.deepEqual(weakenedSettings({ ...base, holds: 'off' }, { ...base, holds: 'block' }), []);
+  assert.deepEqual(weakenedSettings({ ...base, checkout: 'tag', holds: 'alert' }, { ...base, checkout: 'ipad', holds: 'alert' }), []);
+});
+
+test('holds off: an existing hold is still shown to staff (and can be lifted); only the placing is gone', async () => {
+  setFeatures({ holds: 'block' });
+  assert.equal((await place('staff', ids.abby)).status, 201);
+  setFeatures({ holds: 'off' });
+  const r = await api('staff', 'GET', `/checkin/holds?person_id=${ids.abby}`);
+  assert.equal(r.data.hold_mode, 'off');
+  assert.equal(r.data.holds.filter((h) => h.active).length, 1, 'the hold is still reported, so the person page can say it isn’t checked');
+  assert.equal((await place('staff', ids.bo)).status, 409);
+  await unlift(ids.abby);
+  assert.equal((await api('staff', 'GET', `/checkin/holds?person_id=${ids.abby}`)).data.holds.filter((h) => h.active).length, 0);
+  setFeatures();
+});
+
+test('a hold placed at another campus can’t be released by staff who can’t manage that hold', async () => {
+  setFeatures({ holds: 'block' });
+  assert.equal((await place('staff', ids.dee, 1)).status, 201);
+  // Dee is checked in at South (written directly: the check-in route only takes a family at its own campus).
+  const cid = 'ci-other-campus-hold';
+  db.prepare("INSERT INTO checkins (id, campus_id, person_id, kind, security_code, day, checked_in_at) VALUES (?, 2, ?, 'kid', 'D4D5E', '2027-02-21', '2027-02-21T15:00:00.000Z')").run(cid, ids.dee);
+  const release = (who) => api(who, 'POST', `/checkin/checkins/${cid}/release-held`, { collector: { kind: 'household_adult', person_id: ids.dan, id_type: 'drivers_license' }, reason: 'Called a parent' });
+  const refused = await release('south');
+  assert.equal(refused.status, 403);
+  assert.match(refused.data.error, /another campus/);
+  assert.equal(row(cid).checked_out_at, null, 'nothing was released');
+  // Staff who cover both campuses can.
+  assert.equal((await release('staff')).status, 200);
+  assert.ok(row(cid).checked_out_at);
+  await unlift(ids.dee);
+  setFeatures();
+});
+
+test('a report of a release made while check-out is by tag is marked, and noted once per iPad per day', async () => {
+  setFeatures({ checkout: 'tag', holds: 'alert' });
+  const a = await checkIn(ids.abe, 'R1R2T');
+  const b = await checkIn(ids.abby, 'R1R2T');
+  const before = events('checkout.reported_in_tag_mode').length;
+  const one = await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'report', ids: [a.id], at: '2027-02-21T15:10:00.000Z' });
+  assert.equal(one.status, 200);
+  const two = await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'report', ids: [b.id], at: '2027-02-21T15:12:00.000Z' });
+  assert.equal(two.status, 200);
+  assert.equal(events('checkout').filter((e) => [a.id, b.id].includes(e.checkin_id)).every((e) => e.d.tag_mode === true), true, 'each release says it was made in tag mode');
+  const noted = events('checkout.reported_in_tag_mode').filter((e) => e.device_name === 'Lobby');
+  assert.equal(noted.length, 1, 'one note per iPad per day (this iPad already had its note from the first report today)');
+  assert.equal(noted[0].d.reporter.name, 'Lobby');
+  // Not in the usual mode.
+  setFeatures();
+  const c = await checkIn(ids.bo, 'R1R3T');
+  assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'report', ids: [c.id], at: '2027-02-21T15:14:00.000Z' })).status, 200);
+  assert.equal(events('checkout').find((e) => e.checkin_id === c.id).d.tag_mode, undefined);
+  assert.equal(events('checkout.reported_in_tag_mode').length, before, 'a report outside tag mode adds no note');
+});
+
+test('the automatic-access check is lazy: a request that doesn’t need check-in never asks, and one that does asks once', async () => {
+  setFeatures({ auto_team_ids: [ids.teamKids] });
+  const real = db.prepare.bind(db);
+  let asked = 0;
+  db.prepare = (sql) => { if (sql.includes('SELECT DISTINCT t.campus_id')) asked++; return real(sql); };
+  try {
+    await api('autoN', 'GET', '/campuses');
+    assert.equal(asked, 0, 'a page that has nothing to do with check-in');
+    assert.equal(await roster('autoN', 1), 200);
+    assert.equal(asked, 1, 'asked once, though the roster checks access more than once');
+    const me = (await api('autoN', 'GET', '/me')).data;
+    assert.ok(!('autoReach' in me) && !('autoCheckin' in me), 'not part of what /me reports about the account');
+  } finally { db.prepare = real; }
+  setFeatures();
 });

@@ -252,6 +252,7 @@ export default function checkinRoutes(db) {
     const b = req.body || {};
     const features = checkinFeatures(db);
     const holdMode = features.holds;
+    const tagReport = features.checkout === 'tag' && b.mode === 'report';
     // Where parents show their tag, children aren't checked out on an iPad (or by a leader's signed-in browser). Staff in the
     // Hub still can. A report of a release that already happened (an iPad catching up) is still recorded, as before.
     if (features.checkout === 'tag' && b.mode !== 'report' && (req.user.station || rank(req.user.role) < rank('staff'))) {
@@ -397,7 +398,7 @@ export default function checkinRoutes(db) {
         count += 1;
         released.push(ci);
         recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
-          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(heldAtRelease ? { held: true } : {}) } });
+          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(heldAtRelease ? { held: true } : {}), ...(tagReport ? { tag_mode: true } : {}) } });
         if (hold) {
           recordEvent(db, req, { action: 'checkout.held_released', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
             detail: { hold_id: hold.id, via: live ? 'alert' : 'offline', ...modeDetail, reported_by: reporter, reported_while_online: reportedOnline, ...(holdLater ? { placed_after_release: true } : {}) } });
@@ -410,6 +411,10 @@ export default function checkinRoutes(db) {
             : { title: station ? 'A child with a hold was checked out on an iPad' : 'A child with a hold was reported as checked out',
               body: `${ci.child} was checked out ${station ? `on ${station.name}` : 'and reported from the Hub'} while a hold was on. ${station ? 'The iPad didn’t have the hold yet. ' : ''}Please follow up. ${who2}`, personId: ci.person_id });
         }
+      }
+      // With matching tags nobody should be checked out on an iPad, so a report that one was is noted, once per iPad or account per day.
+      if (tagReport && released.length && todayCount('checkout.reported_in_tag_mode') === 0) {
+        recordEvent(db, req, { action: 'checkout.reported_in_tag_mode', campusId: c.id, checkinId: released[0].id, personId: released[0].person_id, householdId: released[0].household_id, detail: { count: released.length, reporter } });
       }
       // Children already released: one summary row per request (count and the first 20 ids), like unknown ids.
       if (repeats.length) recordEvent(db, req, { action: 'checkout.repeat', campusId: c.id, checkinId: repeats[0].id, personId: repeats[0].person_id, householdId: repeats[0].household_id,

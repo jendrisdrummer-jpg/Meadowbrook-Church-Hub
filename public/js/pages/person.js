@@ -27,22 +27,24 @@ function servesText(p) {
 async function drawHold(body, p, reload) {
   let data;
   try { data = await get(`/checkin/holds?person_id=${p.id}`); } catch (err) { mount(body, html`<p class="muted small" style="margin:0">Holds are managed by staff with check-in access.</p>`); return; }
-  // Holds switched off in Check-in settings: nothing about them is shown here (any existing rows are kept).
-  if (data.hold_mode === 'off') { body.closest('[data-hold-card]')?.remove(); return; }
   const on = data.holds.find((h) => h.active);
+  // Holds switched off in Check-in settings: no hold to place, and nothing to show unless this child still has one on (it is kept, and
+  // can be lifted, but no iPad checks it).
+  const off = data.hold_mode === 'off';
+  if (off && !on) { body.closest('[data-hold-card]')?.remove(); return; }
   const past = data.holds.filter((h) => !h.active).slice(0, 3);
   const campusId = p.household?.campus_id ?? p.campus_id ?? state.campusId ?? visibleCampuses()[0]?.id;
   // Releasing is for staff at the campus the child is checked in at (the same rule the server applies).
   const open = p.checkins.find((c) => !c.checked_out_at && c.checked_in_at.slice(0, 10) >= new Date(Date.now() - 36 * 3600e3).toISOString().slice(0, 10)
     && (!state.me.campusIds || state.me.campusIds.includes(c.campus_id)));
   const safeguarding = await get('/checkin/safeguarding').catch(() => null);
-  const effect = data.hold_mode === 'alert' ? 'The iPad asks the volunteer to bring a leader to the desk when this child is checked in.' : 'No iPad will check this child out.';
+  const effect = off ? 'Holds are switched off, so this hold isn’t checked at the iPad.' : data.hold_mode === 'alert' ? 'The iPad asks the volunteer to bring a leader to the desk when this child is checked in.' : 'No iPad will check this child out.';
   mount(body, html`${on?.other_campus ? html`<div class="alert bad"><b>On hold (placed at another campus).</b> ${effect} Staff at that campus can see the details and lift it.</div>
-    <div class="row" style="margin-top:10px">${open ? html`<button class="btn small danger" data-hold-release>Release to a collector…</button>` : ''}</div>`
+    <p class="small" style="margin:10px 0 0">Placed at another campus: contact that campus’s staff before releasing.</p>`
     : on ? html`<div class="alert bad"><b>On hold.</b> ${effect} Placed ${fmtUtcDate(on.placed_at)} by ${on.placed_by_name}.
       ${on.note ? html`<div style="white-space:pre-wrap;margin-top:6px">${on.note}</div>` : ''}</div>
-    <div class="row" style="margin-top:10px">${on.active ? html`<button class="btn small" data-hold-note>Change note</button><button class="btn small" data-hold-lift>Lift the hold</button>` : ''}
-      ${open ? html`<button class="btn small danger" data-hold-release>Release to a collector…</button>` : ''}</div>`
+    <div class="row" style="margin-top:10px">${on.active ? html`${off ? '' : html`<button class="btn small" data-hold-note>Change note</button>`}<button class="btn small" data-hold-lift>Lift the hold</button>` : ''}
+      ${open && !off ? html`<button class="btn small danger" data-hold-release>Release to a collector…</button>` : ''}</div>`
       : html`<p class="muted small" style="margin:0 0 8px">No hold. Put one on when someone must not collect this child without a staff member (custody or a court order). Keep the details on the confidential list.</p>
         <button class="btn small danger" data-hold-set>Put a hold on</button>`}
     ${safeguarding?.fallback ? html`<p class="small" style="margin:10px 0 0"><span class="pill warn">No safeguarding lead named</span> Until an admin names one under Check-in iPads, every admin is told about holds.</p>` : ''}
