@@ -16,8 +16,30 @@ const ADDRESS = { address: 200, city: 100, state: 50, zip: 20 };
 // The home address belongs to the whole household; an adult in it may change it for everyone.
 const canEditAddress = (p) => Boolean(p.household_id) && p.household_role !== 'child';
 
+// The Home cards a person can order and hide (public/js/pages/home.js draws them; keep both lists in step).
+export const HOME_CARDS = ['attention', 'services', 'serving', 'attendance', 'away', 'totals'];
+
 export default function meRoutes(db) {
   const r = Router();
+
+  // A personal preference, like the theme: only the signed-in account's own row, no id is accepted,
+  // and it isn't audited. Body: { order: [cardId], hidden: [cardId] }. Card ids the person can't see
+  // by role are simply ignored when Home is drawn.
+  const idList = (v, what) => {
+    if (!Array.isArray(v) || v.length > HOME_CARDS.length) throw bad(`The ${what} list isn’t right. Please try again.`);
+    if (v.some((x) => !HOME_CARDS.includes(x)) || new Set(v).size !== v.length) throw bad(`We don’t recognise one of the cards in the ${what} list. Please refresh and try again.`);
+    return v;
+  };
+  r.put('/me/home-layout', requireRole('volunteer'), (req, res) => {
+    const layout = { order: idList(req.body?.order, 'order'), hidden: idList(req.body?.hidden, 'hidden') };
+    db.prepare('UPDATE users SET home_layout = ? WHERE id = ?').run(JSON.stringify(layout), req.user.id);
+    res.json({ home_layout: layout });
+  });
+  // Back to the standard Home.
+  r.delete('/me/home-layout', requireRole('volunteer'), (req, res) => {
+    db.prepare('UPDATE users SET home_layout = NULL WHERE id = ?').run(req.user.id);
+    res.json({ home_layout: null });
+  });
 
   // The caller's own person record, never one named in the request.
   function mine(req) {

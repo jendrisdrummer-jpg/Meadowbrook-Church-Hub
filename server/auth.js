@@ -82,7 +82,13 @@ function toUser(row) {
     attendance: Boolean(row.attendance),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
+    homeLayout: parseLayout(row.home_layout),
   };
+}
+
+// A saved Home layout, or null (the standard Home) if there is none or it can't be read.
+function parseLayout(text) {
+  try { const v = text ? JSON.parse(text) : null; return v && Array.isArray(v.order) && Array.isArray(v.hidden) ? v : null; } catch { return null; }
 }
 
 // The public address of this request's site: PUBLIC_URL (dashboard) or MB_APP_URL (member

@@ -982,6 +982,11 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN app_editor INTEGER NOT NULL DEFAULT 0;
   `,
+  // 39: Customise Home. users.home_layout is one person's choice of which Home cards to show and in
+  // what order, as JSON {order:[cardId], hidden:[cardId]}. NULL = the standard Home.
+  `
+  ALTER TABLE users ADD COLUMN home_layout TEXT;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

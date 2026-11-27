@@ -1154,6 +1154,19 @@ table.list.pair .btn { white-space: nowrap; }
 .bar > i { display: block; height: 100%; background: var(--warn-fill); }
 .warn-text { color: var(--warn); }
 .home-totals { margin: 18px 0 0; }
+/* Customise Home */
+.home-tools { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
+.home-flow { align-items: start; }
+.home-flow > .wide { grid-column: 1 / -1; }
+.home-flow > div > .card { margin-top: 0; }
+.home-flow .home-totals { margin-top: 0; }
+.cust-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.cust-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); min-height: 52px; }
+.cust-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; min-height: 44px; cursor: pointer; }
+.cust-main b { font-weight: 600; overflow-wrap: anywhere; }
+.cust-move { width: 44px; height: 44px; }
+.cust-move .ic { width: 20px; height: 20px; }
+.cust-move[disabled] { opacity: .3; cursor: default; }
 @media (max-width: 640px) {
   .attn { grid-template-columns: 1fr 1fr; gap: 10px; }
   .attn-tile b { font-size: 28px; }

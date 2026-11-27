@@ -135,6 +135,7 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
   anything would clip it. The header (title plus search, bell and avatar) stays on one line.
 - **Banner with folded options:** a one-line state plus its button, with the extra choices in a
   `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My Schedule.
+- **Show/hide and reorder list (`.cust-list`, Customise Home):** a dialog list of rows, each a `.switch` with the name and two 44px `.cust-move` up/down icon buttons (no dragging, so it works with a thumb or a keyboard; the end rows disable the button that cannot move). Reset changes the dialog only; Save writes.
 - **Rows with one action (`table.list.pair`):** details on the left (words never break mid-word),
   status or action on the right; use this instead of 3+ narrow columns on phones.
 - **Dates:** always `fmtDate`/`fmtTime`; for database timestamps in UTC use `fmtUtcDate`.
