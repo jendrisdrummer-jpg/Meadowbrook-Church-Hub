@@ -1,14 +1,13 @@
 # Kids' check-in child-safety plan
 
-**Status: Version 1 strategy proposed (see v1-strategy.md); revision 3.2 kept as the Version 2/3 reference. Awaiting owner approval. Nothing here is implemented.** Approving means
-merging the pull request that adds this folder. Development then starts with Phase 0, one phase per
-pull request, each needing its own review and the owner's merge. Deployment approvals (Group III of
+**Status: approved to start (owner, 2026-11-27). Version 1 is being built as six pull requests; see [v1-refresh-2026-11.md](v1-refresh-2026-11.md) for the order, the current-code check and the first PR's brief. Revision 3.2 stays the Version 2/3 reference. Nothing here is implemented yet.** Each pull request needs its own review and the owner's merge. Deployment approvals (Group III of
 the checklist) are asked for one at a time, when each phase is ready.
 
 ## The plan (read these)
 
 | File | What it is |
 |---|---|
+| [v1-refresh-2026-11.md](v1-refresh-2026-11.md) | **Read first now.** V1 checked against today's code (what changed), the six V1 pull requests, the complete brief for PR 1 (the check-in record), open owner decisions |
 | [subsplash-cutover.md](subsplash-cutover.md) | **Read with v1-strategy.md.** Moving kids' check-in from Subsplash to the Hub as a separate safety-critical release: what changes because the Hub isn't live at the desk, the import and device work, estimates (Architect and Senior Developer), calendar, exit criteria |
 | [v1-strategy.md](v1-strategy.md) | **Read first.** The Version 1 / 2 / 3 strategy: the smallest safe first release, what stays manual, what is postponed and its real risk, effort, calendar, and the rest of Church Hub. Reviewed independently by all five agents, who then challenged each other's positions. Sets the scope of the first release |
 | [revision-3.2.md](revision-3.2.md) | The full design (now the Version 2/3 reference). Revision 3.2: interim safety and the new first phase P0.5, the temporary pickup procedure, the approved release roster, exact label content, hardware and costs. Governs over plan.md where they differ |

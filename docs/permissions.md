@@ -284,10 +284,11 @@ and a manual assignment for one is refused with 409 unless the request sends `al
 
 ### Moving the interim check-in authorisation to the permanent permissions
 
-The `checkin_user_ids` setting is temporary. Child-safety V1, PR 3 ("Access"), replaces it with the
-permanent check-in access, stored as the first row type of a grants table (`user, capability =
-'checkin', scope = campus`). That table was approved as part of the child-safety plan. The switch is
-done in one PR:
+The `checkin_user_ids` setting is temporary. Child-safety V1, PR 4 ("Access"), replaces it with the
+permanent check-in access: a per-account "Kids' check-in" switch (`users.checkin`, like the Attendance
+switch), limited by the account's campuses and failing closed like `canAttendCampus` (design in
+[v1-refresh-2026-11.md](plans/child-safety/v1-refresh-2026-11.md); owner approval needed before PR 4).
+The switch is done in one PR:
 
 1. **Copy the grants.** A migration creates one `checkin` grant per account in `checkin_user_ids`,
    scoped to that account's campuses (all campuses if it has no campus limit). Nobody gains or loses
