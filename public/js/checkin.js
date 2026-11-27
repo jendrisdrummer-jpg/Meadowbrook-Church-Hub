@@ -486,7 +486,7 @@ function showMatch(code) {
   mount(box, html`<div class="k-out" style="text-align:left">
     <p class="k-count"><b>${open.length}</b> ${plural(open.length, 'child is', 'children are')} checked in with this code. Read the number to the parent and check it against their tag.</p>
     ${many ? html`<div class="alert bad" role="alert"><b>This code matches ${families.length === 2 ? 'two' : families.length} families.</b> Check ID and choose the children.</div>` : ''}
-    ${anyHeld ? html`<div class="alert bad" role="alert"><b>Hold: see coordinator.</b> ${HOLD_MESSAGE} <button class="btn small" data-recheck>Check again</button></div>` : ''}
+    ${anyHeld ? html`<div class="alert bad" role="alert"><b>Hold: see coordinator.</b> ${HOLD_MESSAGE} <button class="btn small" style="margin-top:8px" data-recheck>Check again</button></div>` : ''}
     <div data-message></div>
     ${families.map((f) => {
       const allowed = pickupList(f.household_id);
@@ -499,7 +499,7 @@ function showMatch(code) {
           : html`<label class="k-kid"><input type="checkbox" data-pick="${k.id}">${avatar(k)}
           <span class="info"><b>${displayName(k)}</b></span><span class="room">${k.room_name || ''}</span></label>`))}</div>
         ${who.length ? html`<label class="field k-collector">Who is collecting?<select data-collector><option value="">Choose…</option>${who.map((w) => html`<option value="${w.value}">${w.label}</option>`)}</select></label>
-          <label class="field k-collector">ID shown<select data-idtype>${ID_TYPES.map((t) => html`<option value="${t.value}" ${t.value === 'not_checked' ? 'selected' : ''}>${t.label}</option>`)}</select></label>`
+          <label class="field k-collector">ID shown<select data-idtype required><option value="">Choose…</option>${ID_TYPES.map((t) => html`<option value="${t.value}">${t.label}</option>`)}</select></label>`
           : html`<p class="small muted">No one is on file to collect this child. Please ask a coordinator to come to the desk; they check ID and call a parent.</p>`}
         <p class="small muted">${allowed.length ? html`Allowed to pick up: ${allowed.join(', ')}` : 'No one is listed to pick up this child. Check ID and ask a coordinator.'}</p>
         ${many ? html`<label class="check k-idcheck"><input type="checkbox" data-id-checked> ID checked</label>` : ''}
@@ -517,8 +517,9 @@ function showMatch(code) {
       const btn = card.querySelector('[data-out]');
       const needId = many && !card.querySelector('[data-id-checked]').checked;
       const needWho = Boolean(card.querySelector('[data-collector]')) && !card.querySelector('[data-collector]').value;
-      btn.disabled = locked || !picked || needId || needWho || !card.querySelector('[data-collector]');
-      btn.textContent = !picked ? 'Choose the children' : needId ? 'Tick “ID checked” first' : needWho ? 'Choose who is collecting' : `Check out ${picked} ${plural(picked, 'child', 'children')}`;
+      const needIdType = Boolean(card.querySelector('[data-idtype]')) && !card.querySelector('[data-idtype]').value;
+      btn.disabled = locked || !picked || needId || needWho || needIdType || !card.querySelector('[data-collector]');
+      btn.textContent = !picked ? 'Choose the children' : needId ? 'Tick “ID checked” first' : needWho ? 'Choose who is collecting' : needIdType ? 'Choose the ID shown' : `Check out ${picked} ${plural(picked, 'child', 'children')}`;
       card.querySelectorAll('.k-kid').forEach((l) => l.classList.toggle('on', Boolean(l.querySelector('input')?.checked)));
     });
   };

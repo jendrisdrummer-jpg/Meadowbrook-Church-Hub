@@ -60,6 +60,7 @@ export const MSG = {
   holdOrigin: 'Who a hold is for, where and when it was placed can’t be changed.',
   holdFinal: 'A lifted hold stays lifted. Place a new hold instead.',
   personHold: 'This person has a check-in hold on record, so they’re kept in the record. Archive them instead.',
+  checkedOutFinal: 'When a child was checked out is part of the record and can’t be changed.',
   collector: 'Who collected a child is part of the record and can’t be changed.',
 };
 export const isHistoryError = (err) => err?.code === 'ERR_SQLITE_ERROR' && Object.values(MSG).includes(err.message);

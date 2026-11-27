@@ -153,7 +153,17 @@ export function collectorChoice(value, idType) {
   const n = Number(id);
   if (!Number.isInteger(n) || n <= 0) return null;
   const out = kind === 'adult' ? { kind: 'household_adult', person_id: n } : kind === 'pickup' ? { kind: 'pickup_contact', pickup_id: n } : null;
-  return out ? { ...out, id_type: ID_TYPES.some((t) => t.value === idType) ? idType : 'not_checked' } : null;
+  // The ID shown is chosen on purpose: nothing chosen (or something unknown) is no choice, never "Not checked" by default.
+  return out && ID_TYPES.some((t) => t.value === idType) ? { ...out, id_type: idType } : null;
+}
+
+// The rows of the safeguarding lead picker: every active account the Hub lists, plus any named lead it doesn't list (for example a
+// volunteer account with no flags), so saving never drops a lead by accident and they can be unticked deliberately.
+export function leadRows(accounts, lead) {
+  const rows = accounts.map((u) => ({ id: u.id, name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email, role: u.role }));
+  const seen = new Set(rows.map((r) => r.id));
+  for (const l of lead.leads || []) if (!seen.has(l.id)) rows.push({ id: l.id, name: l.name, role: '' });
+  return rows.map((r) => ({ ...r, checked: (lead.lead_ids || []).includes(r.id) }));
 }
 
 // A release the hub refuses every time (for example the iPad moved campus) is parked, with only its ids, times and

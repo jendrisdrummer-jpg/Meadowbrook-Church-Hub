@@ -2,7 +2,7 @@
 // signed in on them. Each station belongs to one campus and can only do check-in.
 import { get, post, patch, del, api, html, mount, icon, dialog, formData, options, toast, fail, confirm, fmtDate, fmtUtcDate } from '../lib.js';
 import { state, setTitle, visibleCampuses } from '../app.js';
-import { CHECKIN_APP_VERSION, STATION_LETTERS } from '../checkin-rules.js';
+import { CHECKIN_APP_VERSION, STATION_LETTERS, leadRows } from '../checkin-rules.js';
 
 const seen = (t) => {
   if (!t) return 'Not yet';
@@ -36,6 +36,7 @@ export default async function stations(el) {
   // Who is told about check-in holds (admins name them; every admin is told until then).
   const lead = safety ? await get('/checkin/safeguarding') : null;
   const accounts = lead ? (await get('/users')).users.filter((u) => u.active) : [];
+  const leadList = lead ? leadRows(accounts, lead) : [];
   const allCampuses = !state.me.campusIds;
   // Children whose allergy and medical details haven't been sorted into the check-in levels yet (see the person's page).
   const review = await get('/checkin/medical/review');
@@ -65,7 +66,7 @@ export default async function stations(el) {
       ${allCampuses ? '' : html`<p class="muted small" style="margin:6px 0 0">${ALL_CAMPUSES_MESSAGE}</p>`}
       <h3 style="margin:16px 0 6px">Safeguarding lead</h3>
       <p class="muted small" style="margin:0 0 8px">Told in the Hub, and by email if it’s set up, every time someone puts a hold on a child, changes it or lifts it, and if a child with a hold is released. ${lead.fallback ? 'Nobody is named yet, so every admin is told.' : ''}</p>
-      ${accounts.length ? html`<div class="stack" data-leads>${accounts.map((u) => html`<label class="check"><input type="checkbox" value="${u.id}" ${lead.lead_ids.includes(u.id) ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> ${`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email} <span class="muted small">${u.role}</span></label>`)}</div>
+      ${leadList.length ? html`<div class="stack" data-leads>${leadList.map((u) => html`<label class="check"><input type="checkbox" value="${u.id}" ${u.checked ? 'checked' : ''} ${allCampuses ? '' : 'disabled'}> ${u.name} ${u.role ? html`<span class="muted small">${u.role}</span>` : ''}</label>`)}</div>
         <button class="btn small" style="margin-top:8px" data-save-leads ${allCampuses ? '' : 'disabled'}>Save</button>` : ''}
       <h3 style="margin:16px 0 6px">Legal hold</h3>
       ${holdBlock(safety.legal_hold)}

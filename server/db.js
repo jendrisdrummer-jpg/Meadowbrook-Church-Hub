@@ -1167,6 +1167,10 @@ const MIGRATIONS = [
     WHEN OLD.checked_out_at IS NOT NULL AND (NEW.checked_out_to_name IS NOT OLD.checked_out_to_name OR NEW.checked_out_to_relationship IS NOT OLD.checked_out_to_relationship
       OR NEW.checked_out_to_kind IS NOT OLD.checked_out_to_kind OR NEW.checked_out_id_type IS NOT OLD.checked_out_id_type OR NEW.checked_out_held IS NOT OLD.checked_out_held)
     BEGIN SELECT RAISE(ABORT, 'Who collected a child is part of the record and can’t be changed.'); END;
+  -- Once a child has been checked out, when can't be changed or cleared (a second route could otherwise reopen the check-in and release again unseen).
+  CREATE TRIGGER checkins_checkout_is_final BEFORE UPDATE OF checked_out_at ON checkins
+    WHEN OLD.checked_out_at IS NOT NULL AND NEW.checked_out_at IS NOT OLD.checked_out_at
+    BEGIN SELECT RAISE(ABORT, 'When a child was checked out is part of the record and can’t be changed.'); END;
   `,
 ];
 

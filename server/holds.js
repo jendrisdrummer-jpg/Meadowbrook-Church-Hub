@@ -24,9 +24,15 @@ export function heldSet(db, personIds) {
 export const holdAt = (db, personId, atIso) => db.prepare(
   'SELECT * FROM checkin_holds WHERE person_id = ? AND placed_at <= ? AND (lifted_at IS NULL OR lifted_at > ?) ORDER BY id DESC LIMIT 1').get(personId, atIso, atIso);
 
+// Any hold that was on at some point between a check-in and now (placed by now, not lifted before the check-in). A report of a
+// release that "already happened" is checked against this as well as holdAt, because the time came from an iPad: a hold placed
+// after the release was reported (an honest offline iPad) or a time made up to be earlier must never pass without a word.
+export const holdSince = (db, personId, sinceIso, untilIso) => db.prepare(
+  'SELECT * FROM checkin_holds WHERE person_id = ? AND placed_at <= ? AND (lifted_at IS NULL OR lifted_at > ?) ORDER BY id DESC LIMIT 1').get(personId, untilIso, sinceIso);
+
 // ---------------------------------------------------------------- the safeguarding lead
 // A per-church setting (`checkin_safeguarding` in settings, set by an admin): the accounts told about every hold, usually
-// the safeguarding lead and a backup. Until one is named, every admin is told instead, so a hold is never silent.
+// the safeguarding lead and a backup. Until one is named, every admin who covers all campuses is told instead (every admin if none does), so a hold is never silent.
 export const MAX_LEADS = 5;
 export const leadIds = (db) => {
   const ids = getSetting(db, 'checkin_safeguarding', {}).lead_ids;
@@ -36,7 +42,9 @@ export function leadAccounts(db) {
   const named = leadIds(db);
   const pick = (where, args = []) => db.prepare(`SELECT id, email, notify FROM users WHERE active = 1 AND ${where}`).all(...args);
   const leads = named.length ? pick(`id IN (${named.map(() => '?').join(',')})`, named) : [];
-  return leads.length ? { users: leads, fallback: false } : { users: pick("role = 'admin'"), fallback: true };
+  if (leads.length) return { users: leads, fallback: false };
+  const all = pick("role = 'admin' AND campus_ids IS NULL");
+  return { users: all.length ? all : pick("role = 'admin'"), fallback: true };
 }
 
 // Is this account one of the named leads? (They may read holds, but never change them unless they are also staff.)
@@ -45,13 +53,15 @@ export const isLead = (db, user) => Boolean(user?.id) && leadIds(db).includes(us
 const siteUrl = () => (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
 
 // Tells the safeguarding lead (or every admin until one is named) in the Hub and by email when email is set up.
-// `body` names the child and is for the inbox and the phone; the email never names the child and never carries a note,
+// `body` names the child and is for the inbox only (the phone push is generic); the email never names the child and never carries a note,
 // it only says to open the Hub. Never throws: a failure to tell must not undo or block the hold itself.
 export function tellLeads(db, { title, body, personId = null }) {
   const { users, fallback } = leadAccounts(db);
   const url = personId ? `/#/people/${personId}` : '/#/stations';
   try {
-    notify(db, users.map((u) => u.id), { kind: 'safety', title, body: fallback ? `${body} (No safeguarding lead is named yet, so every admin is told.)` : body, url });
+    notify(db, users.map((u) => u.id), { kind: 'safety', title, body: fallback ? `${body} (No safeguarding lead is named yet, so every admin is told.)` : body, url,
+      // A phone's lock screen never shows a child's or a collector's name: the push is generic, the inbox item has the detail.
+      pushBody: 'A check-in hold needs attention. Open the Hub.' });
   } catch (e) { console.error('Could not tell the safeguarding lead:', e.message); }
   if (mailConfigured() || canSendMail()) {
     for (const u of users) {

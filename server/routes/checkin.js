@@ -11,7 +11,7 @@ import { legalHold, saveHold, HOLD_MSG, HOLD_COOLING_DAYS } from '../history.js'
 import { notify } from '../notify.js';
 import { roomFor, pickupCode, normalizeCode, level1Text, CHECKIN_APP_VERSION } from '../../public/js/checkin-rules.js';
 import { ACTIONS, recordEvent, recordedToday, appVersion } from '../checkin-events.js';
-import { heldSet, holdAt, tellLeads, resolveCollector, unverifiedCollector } from '../holds.js';
+import { heldSet, holdAt, holdSince, tellLeads, resolveCollector, unverifiedCollector } from '../holds.js';
 
 // Check-in safety switches live in one settings key with their own admin endpoint, so they never
 // appear in GET /settings and can't be changed through PATCH /settings. Later releases add keys here.
@@ -242,6 +242,12 @@ export default function checkinRoutes(db) {
     // iPad, or one with a made-up time, stands out in the record. No usable time at all is marked no_time.
     const timing = mode !== 'report' ? {} : reportAt ? { lag_s: Math.round((Date.now() - reportAt.getTime()) / 1000) } : { no_time: true };
     const modeDetail = mode ? { mode, ...timing } : {};
+    // Who sent a report (an iPad, or someone signed in to the Hub), and whether it came as it happened. A report skips the hold
+    // block, so a person looking at a flagged release needs to know where it came from.
+    const reporter = station ? { kind: 'ipad', name: station.name } : { kind: 'account', name: String(req.user.name || '').slice(0, 100), role: req.user.role };
+    const reporterText = station ? `${station.name} (iPad)` : `${reporter.name || 'an account'} (${reporter.role})`;
+    const reportedOnline = reportAt ? timing.lag_s < 120 : null;
+    const reportedText = reportedOnline === null ? 'with no time given' : reportedOnline ? 'as it happened' : 'after a delay';
     // A few rows per actor per campus per day for the same kind of event, so a loop can't flood the record.
     const todayCount = (action) => {
       const who = station ? ['device_id', station.id] : ['user_id', req.user.id];
@@ -298,8 +304,9 @@ export default function checkinRoutes(db) {
           refusal = { reason: 'hold', check_in_ids: blocked.map((x) => x.id) };
           for (const x of blocked) {
             // At most one message to the lead per child per day, and a few rows per iPad or account per day.
+            // The first attempt for a child each day is always recorded (even past the cap), so "first" can be read from the record.
             const first = !db.prepare("SELECT 1 FROM checkin_events WHERE campus_id = ? AND day = ? AND action = 'checkout.hold_blocked' AND person_id = ?").get(c.id, day, x.person_id);
-            if (todayCount('checkout.hold_blocked') < REFUSED_ROWS) {
+            if (first || todayCount('checkout.hold_blocked') < REFUSED_ROWS) {
               recordEvent(db, req, { action: 'checkout.hold_blocked', campusId: c.id, checkinId: x.id, personId: x.person_id, householdId: x.household_id, code: x.security_code, detail: { path, ...modeDetail } });
               audit(db, req, 'checkin.checkout.hold_blocked', { campus_id: c.id, person_id: x.person_id, device_id: actor.device, device_name: station?.name ?? '' });
             }
@@ -341,20 +348,29 @@ export default function checkinRoutes(db) {
           try { who = resolveCollector(db, b.collector, ci.household_id, { allowOther }); } catch (e) { if (mode === 'report') who = unverifiedCollector(b.collector); else throw e; }
         }
         // A child released offline while a hold was on (the iPad's list was from before the hold) is recorded and flagged.
-        const hold = mode === 'report' && ci.checked_out_at == null ? holdAt(db, ci.person_id, when.at) : null;
-        if (Number(upd.run(when.at, by, actor.device, actor.user, reportAt ? reportAt.toISOString() : null, who?.name ?? '', who?.relationship ?? '', who?.kind ?? '', who?.id_type ?? '', hold ? 1 : 0, ci.id, c.id).changes) !== 1) {
+        // The iPad's time can't be trusted to clear a hold, so a hold placed since the release it reports (an offline iPad that
+        // caught up late) or one on at any point since check-in (a made-up earlier time) is flagged too, as "placed_after_release".
+        const reporting = mode === 'report' && ci.checked_out_at == null;
+        const heldAtRelease = reporting ? holdAt(db, ci.person_id, when.at) : null;
+        const holdLater = reporting && !heldAtRelease ? holdSince(db, ci.person_id, ci.checked_in_at, now) : null;
+        const hold = heldAtRelease || holdLater;
+        if (Number(upd.run(when.at, by, actor.device, actor.user, reportAt ? reportAt.toISOString() : null, who?.name ?? '', who?.relationship ?? '', who?.kind ?? '', who?.id_type ?? '', heldAtRelease ? 1 : 0, ci.id, c.id).changes) !== 1) {
           repeats.push(ci);
           continue;
         }
         count += 1;
         released.push(ci);
         recordEvent(db, req, { action: 'checkout', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
-          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(hold ? { held: true } : {}) } });
+          detail: { path, ...modeDetail, ...(mode && !claimed ? {} : { by_claimed: claimed }), ...(when.clamped ? { time_adjusted: true } : {}), ...(who ? { collector: who } : {}), ...(heldAtRelease ? { held: true } : {}) } });
         if (hold) {
           recordEvent(db, req, { action: 'checkout.held_released', campusId: c.id, checkinId: ci.id, personId: ci.person_id, householdId: ci.household_id, code: ci.security_code, clientAt: reportAt?.toISOString(),
-            detail: { hold_id: hold.id, via: 'offline', ...modeDetail } });
-          audit(db, req, 'checkin.hold.released_offline', { checkin_id: ci.id, hold_id: hold.id, person_id: ci.person_id, campus_id: c.id, device_id: actor.device, device_name: station?.name ?? '' });
-          alerts.push({ title: 'A child with a hold was checked out on an iPad', body: `${ci.child} was checked out on ${station ? station.name : 'an iPad'} while a hold was on. The iPad didn’t have the hold yet. Please follow up.`, personId: ci.person_id });
+            detail: { hold_id: hold.id, via: 'offline', ...modeDetail, reported_by: reporter, reported_while_online: reportedOnline, ...(holdLater ? { placed_after_release: true } : {}) } });
+          audit(db, req, 'checkin.hold.released_offline', { checkin_id: ci.id, hold_id: hold.id, person_id: ci.person_id, campus_id: c.id, device_id: actor.device, device_name: station?.name ?? '', reported_by: reporterText, reported_while_online: reportedOnline, placed_after_release: Boolean(holdLater) });
+          const who2 = `Reported by ${reporterText}, ${reportedText}.`;
+          alerts.push(holdLater
+            ? { title: 'A child was checked out around the time a hold was placed', body: `${ci.child} was checked out at about the time a hold was placed. Please check where they are. ${who2}`, personId: ci.person_id }
+            : { title: station ? 'A child with a hold was checked out on an iPad' : 'A child with a hold was reported as checked out',
+              body: `${ci.child} was checked out ${station ? `on ${station.name}` : 'and reported from the Hub'} while a hold was on. ${station ? 'The iPad didn’t have the hold yet. ' : ''}Please follow up. ${who2}`, personId: ci.person_id });
         }
       }
       // Children already released: one summary row per request (count and the first 20 ids), like unknown ids.

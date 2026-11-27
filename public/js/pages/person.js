@@ -61,7 +61,7 @@ async function drawHold(body, p, reload) {
           <option value="other">Someone else…</option></select></label>
         <label class="field">If someone else: their name<input type="text" name="name" maxlength="100"></label>
         <label class="field">How they’re connected<input type="text" name="relationship" maxlength="60"></label>
-        <label class="field">ID shown<select name="id_type">${ID_TYPES.map((t) => html`<option value="${t.value}" ${t.value === 'drivers_license' ? 'selected' : ''}>${t.label}</option>`)}</select><span class="muted small">Someone not on the list needs photo ID (${PHOTO_ID_TYPES.length} kinds). Never write down the number.</span></label>
+        <label class="field">ID shown<select name="id_type" required><option value="">Choose…</option>${ID_TYPES.map((t) => html`<option value="${t.value}">${t.label}</option>`)}</select><span class="muted small">Someone not on the list needs photo ID (${PHOTO_ID_TYPES.length} kinds). Never write down the number.</span></label>
         <label class="field">What did you check?<textarea name="reason" maxlength="300" required placeholder="For example: called a parent, who agreed"></textarea></label>`,
       onSubmit: (f) => {
         const [kind, id] = f.who.value.split(':');
@@ -154,7 +154,7 @@ export default async function person(el, id) {
             <td>${fmtDate(a.starts_at)}</td><td class="muted small">${fmtTime(a.starts_at)} · ${a.campus_short || a.campus}</td></tr>`)}</tbody></table>
             ${att.recent.length > 3 ? html`<button class="btn small ghost" data-att-all style="margin-top:6px">Show all</button>` : ''}`
             : html`<p class="muted">No attendance marked yet.</p>`}
-          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}${c.checked_out_to_kind ? html` <span class="muted">· collected by ${c.checked_out_to_name || 'someone (name not recorded)'}${c.checked_out_to_relationship ? ` (${c.checked_out_to_relationship})` : ''}${c.checked_out_held ? ' while a hold was on' : ''}</span>` : ''}</div>`)}` : ''}
+          ${p.checkins.length ? html`<h3 style="margin-top:12px">Kids check-in</h3>${p.checkins.slice(0, 5).map((c) => html`<div class="small">${fmtUtcDate(c.checked_in_at)} · ${c.room || c.kind}${c.checked_out_to_kind ? html` <span class="muted">· collected by ${c.checked_out_to_name || 'someone (name not recorded)'}${c.checked_out_to_relationship ? ` (${c.checked_out_to_relationship})` : ''}${c.checked_out_to_kind === 'unverified' ? ' (not matched to the family’s list)' : c.checked_out_to_kind === 'other' ? ' (someone else, ID checked)' : ''}${c.checked_out_held ? ' while a hold was on' : ''}</span>` : ''}</div>`)}` : ''}
         </div>
         ${staff && !p.archived ? html`<button class="btn danger" data-archive>${icon('trash')} Archive this person</button>` : ''}
       </div>

@@ -302,7 +302,7 @@ and a manual assignment for one is refused with 409 unless the request sends `al
   leader, staff or an admin at the check-out screen: **only staff in the Hub** release them (`POST /checkin/checkins/:id/release-held`, with a reason and who collected, audited).
   The **safeguarding lead** is a per-church setting (`checkin_safeguarding`, `PUT /checkin/safeguarding`: an admin who covers every campus; staff may read who is named).
   The lead is told in the Hub (and by email when email is set up) each time a hold is placed, changed or lifted, when a held child is released or an iPad's release
-  was over a hold, and when an iPad tries to check out a held child (once per child per day). With nobody named, every active admin is told instead.
+  was over a hold, and when an iPad tries to check out a held child (once per child per day). With nobody named, every active admin who covers all campuses is told instead (every active admin if none does). Phone pushes never name the child or collector. A report of a release (`mode: 'report'`, from an iPad or any account with check-in access) is never refused but is flagged to the lead with who reported it, including when a hold was placed after the time given. Saving the lead list keeps a named lead the account list doesn't show (for example a volunteer with no flags).
   Merging a duplicate who has a hold is refused (409) until the hold is lifted. **Who collected** (`checked_out_to_*`) is shown to staff and above on the person page, not to leaders.
 - **The check-in roster** for a campus holds that campus's families **plus families with no campus
   set**, and never a family assigned to another campus. The rule uses the **family's** (household's)

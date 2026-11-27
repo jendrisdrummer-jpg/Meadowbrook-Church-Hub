@@ -14,7 +14,7 @@ import { startSession } from '../server/auth.js';
 import { ACTIONS } from '../server/checkin-events.js';
 import { outbox as mailbox } from '../server/mail.js';
 import { isHistoryError } from '../server/history.js';
-import { CHECKIN_APP_VERSION, rosterIsToday, heldPeople, collectorChoice } from '../public/js/checkin-rules.js';
+import { CHECKIN_APP_VERSION, rosterIsToday, heldPeople, collectorChoice, leadRows } from '../public/js/checkin-rules.js';
 
 const T0 = '2027-02-21T15:30:00Z'; // a Sunday, 9:30 in Chicago
 const NOTE = 'CANARY-NOTE-7Q custody order, see the blue folder';
@@ -275,7 +275,7 @@ test('check-out is blocked for a held child on every path: iPad (any version), a
   assert.equal(row(abe).checked_out_to_name, 'Gran Aldrin');
 });
 
-test('an iPad that was offline: the release is recorded and never refused; one made over a hold is flagged and the lead is told', async () => {
+test('an iPad that was offline: the release is recorded and never refused; one made over a hold, or just before one was placed, is flagged and the lead is told', async () => {
   const bo = await checkIn(ids.bo, 'M4P2R');
   const bix = await checkIn(ids.bix, 'M4P2R');
   // Bix's hold was already on when the iPad released him (15:10); Bo's was placed at 15:30, after the iPad had gone offline.
@@ -287,21 +287,90 @@ test('an iPad that was offline: the release is recorded and never refused; one m
   assert.equal(r.data.checked_out, 2);
   assert.deepEqual([row(bo).checked_out_held, row(bix).checked_out_held], [0, 1]);
   assert.equal(row(bo).checked_out_at, '2027-02-21T15:10:00.000Z', 'at the time it really happened');
+  // Both are flagged: Bix's hold was on at 15:10; Bo's was placed after the release but before the report reached the hub, so the
+  // hub can't tell the iPad's release came first. Bo is not marked held (it wasn't on at 15:10) but is flagged placed_after_release.
   const flagged = events('checkout.held_released');
-  assert.equal(flagged.length, 1);
-  assert.deepEqual([flagged[0].person_id, flagged[0].d.via, flagged[0].d.hold_id], [ids.bix, 'offline', db.prepare('SELECT id FROM checkin_holds WHERE person_id = ?').get(ids.bix).id]);
+  assert.equal(flagged.length, 2);
+  const [fBo, fBix] = [flagged.find((e) => e.person_id === ids.bo), flagged.find((e) => e.person_id === ids.bix)];
+  assert.deepEqual([fBix.d.via, fBix.d.hold_id, fBix.d.placed_after_release], ['offline', db.prepare('SELECT id FROM checkin_holds WHERE person_id = ?').get(ids.bix).id, undefined]);
+  assert.deepEqual([fBo.d.via, fBo.d.placed_after_release], ['offline', true]);
+  assert.deepEqual(fBix.d.reported_by, { kind: 'ipad', name: 'Lobby' });
+  assert.equal(fBix.d.reported_while_online, false, 'a release from five minutes before it arrived');
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'checkin.hold.released_offline'").get());
   const heard = notices('lead').slice(told);
-  assert.equal(heard.length, 1);
-  assert.match(heard[0].body, /Bix Bell was checked out on Lobby while a hold was on/);
+  assert.equal(heard.length, 2);
+  assert.match(heard.find((x) => /Bix Bell/.test(x.body)).body, /Bix Bell was checked out on Lobby while a hold was on/);
+  assert.match(heard.find((x) => /Bo Bell/.test(x.body)).body, /Bo Bell was checked out at about the time a hold was placed\. Please check where they are\. Reported by Lobby \(iPad\)/);
   // The same report sent again changes nothing and doesn't tell anyone twice.
   const again = await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'report', ids: [bo, bix], at: '2027-02-21T15:10:00.000Z' });
   assert.equal(again.status, 200);
   assert.equal(again.data.checked_out, 0);
-  assert.equal(notices('lead').slice(told).length, 1);
+  assert.equal(notices('lead').slice(told).length, 2);
   assert.equal(row(bix).checked_out_to_name, 'Bea Bell', 'the first record of who collected is kept');
   await unlift(ids.bo);
   await unlift(ids.bix);
+});
+
+test('a backdated report from a Hub account over a hold is flagged with who reported it, never released silently', async () => {
+  const bix = await checkIn(ids.bix, 'B4K7Z');
+  const bo = await checkIn(ids.abby, 'B4K7Z'); // a child who has never had a hold
+  const told = notices('lead').length;
+  assert.equal((await place('staff', ids.bix, 1)).status, 201); // placed now (15:30)
+  // A made-up earlier time (before the hold) from someone signed in with the Kids' check-in switch: this child has no hold, Bix does.
+  const r = await api('leaderSwitch', 'POST', '/checkin/checkout', { campus_id: 1, mode: 'report', ids: [bix, bo], at: '2027-02-21T15:01:00.000Z', collector: { kind: 'other', name: 'Someone', id_type: 'drivers_license' } });
+  assert.equal(r.status, 200, 'still never refused');
+  assert.equal(r.data.checked_out, 2);
+  assert.equal(row(bix).checked_out_held, 0, 'the hold was not on at the time given');
+  assert.equal(row(bix).checked_out_to_kind, 'unverified', 'only staff can record someone off the list');
+  assert.equal(row(bo).checked_out_held, 0);
+  const flagged = events('checkout.held_released').filter((e) => e.checkin_id === bix);
+  assert.equal(flagged.length, 1, 'only the child with a hold is flagged');
+  assert.equal(flagged[0].d.placed_after_release, true);
+  assert.deepEqual(flagged[0].d.reported_by, { kind: 'account', name: 'leaderSwitch@mb.org', role: 'leader' });
+  assert.equal(flagged[0].d.reported_while_online, false);
+  assert.equal(events('checkout.held_released').filter((e) => e.checkin_id === bo).length, 0);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'checkin.hold.released_offline' AND detail LIKE '%placed_after_release%'").get());
+  const heard = notices('lead').slice(told).filter((x) => /checked out/.test(x.body));
+  assert.equal(heard.length, 1);
+  assert.match(heard[0].body, /Bix Bell was checked out at about the time a hold was placed\. Please check where they are\./);
+  assert.match(heard[0].body, /Reported by .*\(leader\)/);
+  // A report sent right away from an account says it came as it happened.
+  const cy = await checkIn(ids.cy, 'B4K7Z', { who: 'SouthDesk' });
+  assert.equal((await place('south', ids.cy, 2)).status, 201);
+  const live = await api('south', 'POST', '/checkin/checkout', { campus_id: 2, mode: 'report', ids: [cy], at: new Date().toISOString() });
+  assert.equal(live.status, 200);
+  const f2 = events('checkout.held_released').find((e) => e.checkin_id === cy);
+  assert.deepEqual([f2.d.reported_while_online, f2.d.placed_after_release], [true, undefined]);
+  assert.equal(row(cy).checked_out_held, 1, 'the hold was on at the time given');
+  await unlift(ids.bix);
+  await unlift(ids.cy);
+});
+
+test('the lead hears once per child about a blocked attempt, even past the cap on recorded rows', async () => {
+  for (const p of [ids.abby, ids.bo]) assert.equal((await place('staff', p, 1)).status, 201);
+  const abby = await checkIn(ids.abby, 'C3D9F');
+  const bo = await checkIn(ids.bo, 'C3D9F');
+  const told = notices('lead').length;
+  for (let i = 0; i < 22; i += 1) assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'request', household_id: ids.hhA, ids: [abby] })).status, 409);
+  assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'request', household_id: ids.hhB, ids: [bo] })).status, 409);
+  const heard = notices('lead').slice(told).filter((x) => x.title === 'Someone tried to check out a child with a hold');
+  assert.equal(heard.length, 2, 'one for each child');
+  assert.ok(db.prepare("SELECT 1 FROM checkin_events WHERE action = 'checkout.hold_blocked' AND person_id = ? AND checkin_id = ?").get(ids.bo, bo), 'the first attempt for a child is always recorded');
+  await unlift(ids.abby);
+  await unlift(ids.bo);
+  for (const c of [abby, bo]) await api('admin', 'POST', `/checkin/checkins/${c}/void`, { reason: 'test cleanup' });
+});
+
+test('once a child has been checked out, when can’t be changed or cleared', async () => {
+  const id = await checkIn(ids.abby, 'F1N4P');
+  assert.equal((await asStation('POST', '/checkin/checkout', { campus_id: 1, mode: 'request', household_id: ids.hhA, ids: [id], collector: { kind: 'household_adult', person_id: ids.ann } })).status, 200);
+  const at = row(id).checked_out_at;
+  for (const v of [null, '2030-01-01T00:00:00.000Z']) {
+    assert.throws(() => db.prepare('UPDATE checkins SET checked_out_at = ? WHERE id = ?').run(v, id), (e) => isHistoryError(e) && /checked out is part of the record/.test(e.message));
+  }
+  assert.equal(row(id).checked_out_at, at);
+  // Voiding, which does not touch checked_out_at, still works.
+  assert.equal((await api('admin', 'POST', `/checkin/checkins/${id}/void`, { reason: 'test cleanup' })).status, 200);
 });
 
 test('releasing a held child is done by staff in the Hub, with a reason and who collected, and the lead is told', async () => {
@@ -377,11 +446,12 @@ test('until a lead is named every admin is told, and only an admin who covers ev
   assert.equal((await api('volunteer', 'GET', '/checkin/safeguarding')).status, 403);
   assert.equal((await api('admin', 'PUT', '/checkin/safeguarding', { lead_ids: [] })).status, 200);
   assert.equal((await api('staff', 'GET', '/checkin/safeguarding')).data.fallback, true);
+  // The fallback goes to admins who cover every campus; a campus-limited admin is told only if there are none.
   const adminNotes = [notices('admin').length, notices('admin2').length, notices('limitedAdmin').length, notices('lead').length];
   const made = await place('north', ids.bix, 1);
   assert.equal(made.status, 201);
   assert.equal(made.data.lead.fallback, true);
-  assert.deepEqual([notices('admin').length, notices('admin2').length, notices('limitedAdmin').length, notices('lead').length], [adminNotes[0] + 1, adminNotes[1] + 1, adminNotes[2] + 1, adminNotes[3]]);
+  assert.deepEqual([notices('admin').length, notices('admin2').length, notices('limitedAdmin').length, notices('lead').length], [adminNotes[0] + 1, adminNotes[1] + 1, adminNotes[2], adminNotes[3]]);
   assert.match(notices('admin').at(-1).body, /No safeguarding lead is named yet/);
   await unlift(ids.bix);
   assert.equal((await api('admin2', 'PUT', '/checkin/safeguarding', { lead_ids: [ids.lead, ids.north] })).data.leads.length, 2);
@@ -487,7 +557,12 @@ test('the iPad’s offline rules: a hold, a roster from before today, and the ch
   assert.equal(rosterIsToday(null), false);
   assert.equal(rosterIsToday({ campus: {} }), false);
   assert.deepEqual(collectorChoice('adult:12', 'passport'), { kind: 'household_adult', person_id: 12, id_type: 'passport' });
-  assert.deepEqual(collectorChoice('pickup:3', 'bogus'), { kind: 'pickup_contact', pickup_id: 3, id_type: 'not_checked' });
+  assert.equal(collectorChoice('pickup:3', 'bogus'), null, 'an unknown ID type is no choice');
+  assert.equal(collectorChoice('pickup:3', ''), null, 'the ID shown must be chosen, never assumed');
+  assert.deepEqual(collectorChoice('pickup:3', 'not_checked'), { kind: 'pickup_contact', pickup_id: 3, id_type: 'not_checked' }, '"Not checked" is a choice the volunteer makes');
+  // The lead picker lists a named lead the account list hides (a volunteer with no flags), ticked, so saving keeps them.
+  const rows = leadRows([{ id: 1, first_name: 'Ann', last_name: 'A', role: 'admin' }, { id: 2, email: 'b@x.org', role: 'staff' }], { lead_ids: [3], leads: [{ id: 3, name: 'Vic Volunteer' }] });
+  assert.deepEqual(rows.map((r) => [r.id, r.name, r.checked]), [[1, 'Ann A', false], [2, 'b@x.org', false], [3, 'Vic Volunteer', true]]);
   assert.equal(collectorChoice('', 'passport'), null);
   assert.equal(collectorChoice('other:1', 'passport'), null);
   assert.equal(collectorChoice('adult:x', 'passport'), null);
