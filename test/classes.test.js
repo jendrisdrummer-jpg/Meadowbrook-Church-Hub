@@ -276,7 +276,7 @@ test('video: skipping ahead does not finish it; watching does; unknown lengths a
 
 test('quiz: pass at 80%, kind wording, no answers kept, tries capped per hour', async () => {
   const r = await api('p1', 'POST', `/me/classes/${A}/steps/${S3}/quiz`, { answers: { ...allRight(5), q2: [1], q4: [2] } });
-  assert.deepEqual([r.data.passed, r.data.score, r.data.review], [false, 60, [2, 4]]);
+  assert.deepEqual([r.data.passed, r.data.score, r.data.review], [false, 60, []], 'no question numbers on the first tries, so answers can’t be worked out by elimination');
   assert.equal(r.data.message, 'Not quite — try again.');
   assert.ok(!/fail/i.test(JSON.stringify(r.data)));
   assert.ok(!JSON.stringify(r.data).includes('correct'));
@@ -383,4 +383,24 @@ test('rules that need no server: marking, make-up timing, questions, links', () 
   assert.equal(youtubeId('https://example.com/x'), null);
   assert.throws(() => cleanQuestions([{ text: 'x', choices: ['a'], correct: [0] }]));
   assert.throws(() => cleanQuestions([{ text: 'x', choices: ['a', 'b'], correct: [5] }]));
+});
+
+test('a burst of progress pings at one moment never adds up to a watched video', () => {
+  let row = { last_ping_at: null, max_sec: 0, duration_sec: null, watched: 0 };
+  const at = Date.parse('2031-03-01T10:00:00Z');
+  for (let i = 0; i < 200; i++) {
+    const out = applyPing(row, { position: 1800, reported: 1800 }, 1800, at);
+    row = { ...row, max_sec: out.max, duration_sec: out.duration, watched: out.watched ? 1 : 0, last_ping_at: new Date(at).toISOString() };
+  }
+  assert.ok(row.max_sec <= 10, `max ${row.max_sec}`);
+  assert.equal(row.watched, 0);
+  assert.equal(applyPing({ last_ping_at: null, max_sec: 0 }, { position: 10, reported: 30 }, null, at), null, 'a reported length under a minute isn’t trusted');
+});
+
+test('quiz tries and finishing a class are written to the audit log; question numbers show after a few tries', async () => {
+  const before = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'class.quiz'").get().n;
+  assert.ok(before >= 1);
+  const row = db.prepare("SELECT detail FROM audit_log WHERE action = 'class.quiz' ORDER BY id DESC LIMIT 1").get();
+  assert.match(row.detail, /"score":/);
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'class.complete'").get().n >= 1, 'a class finished by its steps is audited');
 });

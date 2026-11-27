@@ -95,13 +95,14 @@ export function stepSatisfied(step, row) {
 // point only moves as fast as time passes (twice real time, plus a little), so skipping ahead
 // can't finish a video. "Ended" counts only from near the end after about half was really watched.
 export function applyPing(row, { position, reported, ended }, knownSec, nowMs, watchPct = DEFAULTS.watch_pct) {
-  const rep = Number.isFinite(Number(reported)) && Number(reported) >= 20 && Number(reported) <= 6 * 3600 ? Math.round(Number(reported)) : 0;
+  const rep = Number.isFinite(Number(reported)) && Number(reported) >= 60 && Number(reported) <= 6 * 3600 ? Math.round(Number(reported)) : 0;
   const duration = knownSec || Math.max(row.duration_sec || 0, rep) || null;
   if (!duration) return null;
   const pos = Math.min(duration, Math.max(0, Math.round(Number(position) || 0)));
   const last = row.last_ping_at ? Date.parse(row.last_ping_at) : NaN;
   const elapsed = Number.isFinite(last) ? Math.max(0, (nowMs - last) / 1000) : 0;
-  const max = Math.max(row.max_sec || 0, Math.min(pos, (row.max_sec || 0) + 2 * elapsed + 10));
+  // The extra allowance grows with time too, so a burst of pings in one moment adds nothing.
+  const max = Math.max(row.max_sec || 0, Math.min(pos, (row.max_sec || 0) + 2 * elapsed + Math.min(10, elapsed)));
   const near = pos >= duration - Math.max(5, duration * 0.03);
   const watched = Boolean(row.watched) || max >= (watchPct / 100) * duration || (Boolean(ended) && near && max >= duration * 0.5);
   return { duration, position: pos, max: Math.min(duration, Math.round(max)), watched };

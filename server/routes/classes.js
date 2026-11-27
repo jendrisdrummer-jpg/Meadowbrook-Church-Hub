@@ -92,7 +92,7 @@ export default function classRoutes(db, { now = () => new Date() } = {}) {
   }
 
   // The class is complete when every step still in it is done. Written once; revoking is staff's call.
-  function checkComplete(enrolment) {
+  function checkComplete(enrolment, req) {
     const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(enrolment.class_id);
     const list = steps(cls.id);
     if (!list.length) return false;
@@ -100,6 +100,7 @@ export default function classRoutes(db, { now = () => new Date() } = {}) {
     if (!list.every((s) => done.includes(s.id))) return false;
     if (db.prepare('SELECT 1 FROM class_completions WHERE class_id = ? AND person_id = ?').get(cls.id, enrolment.person_id)) return false;
     db.prepare("INSERT INTO class_completions (class_id, person_id, completed_at, method) VALUES (?, ?, ?, 'steps')").run(cls.id, enrolment.person_id, classToday(db, cls, now));
+    if (req) audit(db, req, 'class.complete', { class_id: cls.id, person_id: enrolment.person_id, method: 'steps' });
     announceDone(cls, enrolment.person_id);
     return true;
   }
@@ -383,7 +384,7 @@ export default function classRoutes(db, { now = () => new Date() } = {}) {
             settle(e.id, step);
           } else db.prepare('DELETE FROM class_progress WHERE enrolment_id = ? AND step_id = ?').run(e.id, step.id);
         }
-        if (checkComplete(e)) completed.push(e.person_id);
+        if (checkComplete(e, req)) completed.push(e.person_id);
       }
     });
     for (const pid of toTell) {
@@ -503,7 +504,7 @@ export default function classRoutes(db, { now = () => new Date() } = {}) {
     db.prepare('UPDATE class_progress SET position_sec = ?, max_sec = ?, duration_sec = ?, watched = ?, last_ping_at = ? WHERE enrolment_id = ? AND step_id = ?')
       .run(out.position, out.max, p.videoSec ? row.duration_sec : out.duration, out.watched ? 1 : 0, stamp(), e.id, s.id);
     settle(e.id, s);
-    checkComplete(e);
+    checkComplete(e, req);
     const now2 = getRow(e.id, s.id);
     res.json({ position: out.position, watched: out.watched, done: now2.state === 'done' });
   });
@@ -518,10 +519,13 @@ export default function classRoutes(db, { now = () => new Date() } = {}) {
     // Only the best score and the number of tries are kept; the answers themselves are not.
     db.prepare('UPDATE class_progress SET score = MAX(COALESCE(score, 0), ?), attempts = attempts + 1, passed = MAX(passed, ?) WHERE enrolment_id = ? AND step_id = ?').run(g.score, g.passed ? 1 : 0, e.id, s.id);
     settle(e.id, s);
-    checkComplete(e);
+    checkComplete(e, req);
     const after = getRow(e.id, s.id);
+    audit(db, req, 'class.quiz', { class_id: e.class_id, step_id: s.id, score: g.score, passed: g.passed });
+    // Which questions to look at again only after a few tries, so the feedback can't be used to
+    // work out the answers one choice at a time.
     res.json({
-      score: g.score, passed: g.passed, review: g.passed ? [] : g.review, done: after.state === 'done',
+      score: g.score, passed: g.passed, review: g.passed || (after.attempts || 0) < 3 ? [] : g.review, done: after.state === 'done',
       message: g.passed ? 'Passed!' : 'Not quite — try again.',
     });
   });

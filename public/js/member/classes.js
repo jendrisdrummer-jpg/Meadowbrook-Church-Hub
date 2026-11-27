@@ -107,7 +107,7 @@ async function check(el, form, classId, s) {
       mount(out, html`<div class="alert good" role="status">${icon('check')} <span><b>Passed!</b> You got ${r.score}%.${r.done ? ' This step is done.' : s.kind === 'session' && s.video && !s.video.watched ? ' Now watch the recording to finish.' : ''}</span></div>`);
       btn.textContent = 'Passed';
     } else {
-      mount(out, html`<div class="alert" role="status"><span><b>Not quite — try again.</b> You got ${r.score}%. Have another look at question${r.review.length === 1 ? '' : 's'} ${r.review.join(', ')}.</span></div>`);
+      mount(out, html`<div class="alert" role="status"><span><b>Not quite — try again.</b> You got ${r.score}%.${r.review.length ? ` Have another look at question${r.review.length === 1 ? '' : 's'} ${r.review.join(', ')}.` : ''}</span></div>`);
       btn.disabled = false;
       btn.textContent = 'Check my answers again';
     }
