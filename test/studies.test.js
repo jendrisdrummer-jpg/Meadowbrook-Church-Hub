@@ -157,7 +157,7 @@ test('choosing people: coordinators get names only, from campuses they reach', a
   const names = res.data.map((p) => p.name);
   assert.ok(names.includes('Tess Test'));
   assert.equal(names.includes('Stu Test'), false, 'a south person is not offered to a north-only coordinator');
-  assert.deepEqual(Object.keys(res.data[0]).sort(), ['campus', 'has_account', 'id', 'name', 'photo']);
+  assert.deepEqual(Object.keys(res.data[0]).sort(), ['campus', 'has_account', 'id', 'name']);
   assert.deepEqual((await api('coord', 'GET', '/studies/people?q=t')).data, [], 'at least two letters');
   for (const who of ['leader', 'vol', 'teacher']) assert.equal((await api(who, 'GET', '/studies/people?q=tess')).status, 403, who);
 });
@@ -247,10 +247,11 @@ test('a teacher with an account updates only their own study; they never see the
   assert.equal(view.data.students.find((s) => s.id === P.s2).phone, undefined);
   assert.equal((await api('teacher', 'GET', `/studies/${S.southCampus}`)).status, 403);
   assert.equal((await api('student', 'GET', `/studies/${S.main}`)).status, 403);
-  // A coordinator does see everything, including the note and every contact.
-  const full = await api('coord', 'GET', `/studies/${S.main}`);
+  // Staff see everything, including every contact; a coordinator below staff sees the note but only shared contacts (see the contact test at the end).
+  const full = await api('staff', 'GET', `/studies/${S.main}`);
   assert.equal(full.data.coordinator_note, 'Prefers mornings');
   assert.equal(full.data.students.find((s) => s.id === P.s2).phone, '555-0122');
+  assert.equal((await api('coord', 'GET', `/studies/${S.main}`)).data.coordinator_note, 'Prefers mornings');
   // The teacher may choose the material on their own study (an active one only); a coordinator can too.
   assert.equal((await api('teacher', 'POST', `/studies/${S.main}/progress`, { material_id: M.old })).status, 400);
   assert.equal((await api('teacher3', 'POST', `/studies/${S.south}/progress`, { material_id: M.found })).status, 200);
@@ -267,7 +268,7 @@ test('a teacher with an account updates only their own study; they never see the
 
 test('adding and removing teachers and students: soft removal, at least one of each, finished studies', async () => {
   assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.other, role: 'student', share_contact: true })).status, 201);
-  assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.other, role: 'teacher' })).status, 400, 'not both roles');
+  assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.other, role: 'teacher' })).status, 409, 'not both roles');
   assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.s3, role: 'student' })).status, 201, 'a coordinator covers every campus');
   assert.equal((await api('northcoord', 'POST', `/studies/${S.main}/people`, { person_id: P.s3, role: 'student' })).status, 403, 'north only');
   const t = await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.dupa, role: 'teacher' });
@@ -316,11 +317,12 @@ test('contact consent: a teacher sees a student’s phone and email only if that
   const text = JSON.stringify(sv.data);
   for (const bad of ['Sue', '555-0122', '555-0101', 'teacher@', 'Prefers']) assert.equal(text.includes(bad), false, bad);
   assert.deepEqual(sv.data.as_teacher, []);
-  // Changing consent: a coordinator re-adds the student with the tick off.
-  assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.s1, role: 'student', share_contact: false })).status, 201);
+  // Changing consent: a coordinator records it (re-adding someone already in is a 409).
+  assert.equal((await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.s1, role: 'student', share_contact: false })).status, 409);
+  assert.equal((await api('coord', 'PATCH', `/studies/${S.main}/people/${P.s1}`, { share_contact: false })).status, 200);
   const after = await api('teacher', 'GET', `/studies/${S.main}`);
   assert.equal(after.data.students.find((s) => s.id === P.s1).phone, undefined);
-  await api('coord', 'POST', `/studies/${S.main}/people`, { person_id: P.s1, role: 'student', share_contact: true });
+  await api('coord', 'PATCH', `/studies/${S.main}/people/${P.s1}`, { share_contact: true });
   // Someone not in any study gets empty lists, an unlinked account is told to ask the office.
   assert.equal((await api('vol', 'GET', '/me/studies')).status, 409);
   assert.equal((await api('unlinked', 'GET', '/me/studies')).status, 409);
@@ -582,6 +584,7 @@ test('CSV import of past completions: admins only, a preview first, id or exact 
     `${P.s2},,Foundations,2023-03-03,Pastor Joe`,         // same row twice in the file
     `${P.s2},,Old Workbook,2024-05-05,`,                  // already on file (added on the profile)
     `99999,,Foundations,2020-01-01,`,
+    `${P.s2},someone-else@example.com,Foundations,2020-02-02,`, // the id and the email disagree
   ].join('\n');
   for (const who of ['staff', 'coord', 'leader', 'northadmin', 'vol']) {
     assert.equal((await api(who, 'POST', '/studies/import/preview', { csv })).status, 403, `${who} preview`);
@@ -592,14 +595,16 @@ test('CSV import of past completions: admins only, a preview first, id or exact 
   const completionsBefore = db.prepare('SELECT COUNT(*) n FROM study_completions').get().n;
   const prev = await api('admin', 'POST', '/studies/import/preview', { csv });
   assert.equal(prev.status, 200);
-  assert.deepEqual(prev.data.counts, { ok: 2, ambiguous: 1, unmatched: 2, unknown_material: 1, bad_date: 2, duplicate: 2 });
-  assert.equal(prev.data.total, 10);
+  assert.deepEqual(prev.data.counts, { ok: 2, ambiguous: 1, unmatched: 2, unknown_material: 1, bad_date: 2, duplicate: 2, mismatch: 1 });
+  assert.equal(prev.data.total, 11);
+  assert.equal(prev.data.rows[0].person, 'Sue Test', 'the preview names who was matched');
+  assert.equal(prev.data.rows.find((x) => x.status === 'mismatch').matched, false);
   assert.deepEqual(prev.data.new_materials, ['Brand New Workbook']);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM study_completions').get().n, completionsBefore, 'a preview writes nothing');
   assert.equal((await api('admin', 'POST', '/studies/import/preview', { csv: 'foo,bar\n1,2' })).status, 400);
   assert.equal((await api('admin', 'POST', '/studies/import/preview', { csv: '' })).status, 400);
   const imp = await api('admin', 'POST', '/studies/import', { csv });
-  assert.deepEqual(imp.data, { imported: 2, skipped: 8, materials_created: 0 });
+  assert.deepEqual(imp.data, { imported: 2, skipped: 9, materials_created: 0 });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM people').get().n, people, 'never creates people');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM users').get().n, users, 'never links or creates accounts');
   const rows = db.prepare("SELECT person_id, material_title, completed_on, source, teacher_names FROM study_completions WHERE source = 'import' ORDER BY id").all();
@@ -641,4 +646,167 @@ test('the session carries the coordinator flag, and the person page knows who ha
   assert.equal(acct.data.account.studies, 0);
   const coord = await api('admin', 'GET', `/people/${db.prepare("SELECT person_id FROM users WHERE id = ?").get(U.student).person_id}`);
   assert.ok('studies' in coord.data.account);
+});
+
+// ---------------------------------------------------------------- security review fixes
+const newPerson = (first, campus, extra = {}) => Number(db.prepare('INSERT INTO people (first_name, last_name, email, phone, campus_id, household_role) VALUES (?, ?, ?, ?, ?, ?)')
+  .run(first, 'Extra', extra.email ?? '', extra.phone ?? '', campus, extra.role ?? 'adult').lastInsertRowid);
+const quiet = () => {
+  db.prepare("UPDATE study_requests SET status = 'closed' WHERE status = 'waiting'").run();
+  db.prepare("DELETE FROM audit_log WHERE action = 'study.request'").run(); // the hourly cap is tested on its own
+};
+
+test('the name search: no photos, wildcards are literal, children are left out, and it is rate limited', async () => {
+  const kid = newPerson('Kiddo', 1, { role: 'child' });
+  const res = await api('coord', 'GET', '/studies/people?q=extra');
+  assert.equal(res.data.some((p) => p.id === kid), false, 'children are not offered');
+  assert.equal(res.data.some((p) => 'photo' in p), false);
+  assert.deepEqual((await api('coord', 'GET', '/studies/people?q=%25%25')).data, [], 'a typed % matches nothing, not everyone');
+  assert.deepEqual((await api('coord', 'GET', '/studies/people?q=_e')).data, [], 'a typed _ is not a wildcard');
+  // A child is added by staff only.
+  const adult = newPerson('Adult', 1);
+  const body = { teacher_ids: [adult], student_ids: [kid] };
+  assert.equal((await api('coord', 'POST', '/studies', body)).status, 403, 'a coordinator below staff cannot add a child');
+  const made = await api('staff', 'POST', '/studies', body);
+  assert.equal(made.status, 201);
+  await api('admin', 'DELETE', `/studies/${made.data.id}`);
+  let last;
+  for (let i = 0; i < 121; i++) last = await api('coord2', 'GET', '/studies/people?q=te');
+  assert.equal(last.status, 429);
+  assert.equal((await api('coord', 'GET', '/studies/people?q=te')).status, 200, 'the limit is per account');
+});
+
+test('contact details: staff see all; a coordinator below staff sees only shared ones or those from their own request', async () => {
+  const staff = (await api('staff', 'GET', `/studies/${S.main}`)).data;
+  assert.equal(staff.students.find((s) => s.id === P.s2).phone, '555-0122');
+  assert.equal(staff.teachers[0].phone !== undefined, true);
+  const co = (await api('coord', 'GET', `/studies/${S.main}`)).data;
+  const sue = co.students.find((s) => s.id === P.s2); // did not agree
+  assert.equal(sue.phone, undefined);
+  assert.equal(sue.email, undefined);
+  assert.equal(sue.contact_hidden, true);
+  assert.ok(co.teachers.every((t) => t.phone === undefined && t.contact_hidden), 'teachers have no sharing choice: through the office');
+  // Someone who agreed, and someone who asked through a request, are shown.
+  await api('coord', 'PATCH', `/studies/${S.main}/people/${P.s2}`, { share_contact: true });
+  assert.equal((await api('coord', 'GET', `/studies/${S.main}`)).data.students.find((s) => s.id === P.s2).phone, '555-0122');
+  await api('coord', 'PATCH', `/studies/${S.main}/people/${P.s2}`, { share_contact: false });
+  const viaRequest = db.prepare('SELECT study_id FROM study_requests WHERE study_id IS NOT NULL').get().study_id;
+  const rq = (await api('coord', 'GET', `/studies/${viaRequest}`)).data;
+  assert.equal(rq.students.find((s) => s.id === P.s3).phone, '555-0100', 'they asked for it themselves');
+  assert.ok(audits('study.people').some((a) => a.detail.includes('"action":"consent"') && a.detail.includes('"share_contact":true')));
+});
+
+test('merge: the kept person comes back where the duplicate was active, and extra waiting requests close', async () => {
+  const keep = newPerson('Keeper', 1);
+  const dup = newPerson('Dupe', 1);
+  const t = newPerson('Tutor', 1);
+  const study = (await api('staff', 'POST', '/studies', { teacher_ids: [t], student_ids: [dup, P.other] })).data.id;
+  db.prepare("INSERT INTO study_people (study_id, person_id, role, removed_at) VALUES (?, ?, 'teacher', datetime('now'))").run(study, keep);
+  quiet();
+  const a = Number(db.prepare("INSERT INTO study_requests (person_id, format) VALUES (?, 'either')").run(keep).lastInsertRowid);
+  const b = Number(db.prepare("INSERT INTO study_requests (person_id, format) VALUES (?, 'either')").run(dup).lastInsertRowid);
+  assert.equal((await api('admin', 'POST', `/people/${keep}/merge`, { duplicate_id: dup })).status, 200);
+  const row = db.prepare('SELECT role, removed_at FROM study_people WHERE study_id = ? AND person_id = ?').get(study, keep);
+  assert.deepEqual([row.role, row.removed_at], ['student', null], 'back in, in the duplicate’s role');
+  assert.equal(db.prepare('SELECT status FROM study_requests WHERE id = ?').get(a).status, 'waiting');
+  const extra = db.prepare('SELECT status, close_reason FROM study_requests WHERE id = ?').get(b);
+  assert.deepEqual([extra.status, extra.close_reason], ['closed', 'duplicate']);
+  await api('admin', 'DELETE', `/studies/${study}`);
+});
+
+test('notices: with no coordinator in reach the admins who cover every campus are told; one email per 15 minutes', async () => {
+  quiet();
+  db.prepare("DELETE FROM audit_log WHERE action = 'study.request_email'").run();
+  db.prepare('UPDATE users SET studies = 0 WHERE studies = 1').run();
+  db.prepare("UPDATE users SET studies = 1 WHERE email = 'northcoord@mb.org'").run(); // north only; the request is south
+  const count = (uid) => db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND kind = 'study'").get(uid).n;
+  const [adminBefore, northAdminBefore, northCoordBefore] = [count(U.admin), count(U.northadmin), count(U.northcoord)];
+  assert.equal((await api('student3', 'POST', '/me/study-request', { format: 'either' })).status, 201);
+  assert.equal(count(U.admin) - adminBefore, 1, 'an admin with no campus limit');
+  assert.equal(count(U.northadmin) - northAdminBefore, 0, 'a campus-limited admin is not');
+  assert.equal(count(U.northcoord) - northCoordBefore, 0);
+  // Email: a second request within 15 minutes still gets the in-app notice, but no second email.
+  db.prepare("UPDATE users SET studies = 1 WHERE email IN ('coord@mb.org', 'coord2@mb.org')").run();
+  quiet();
+  outbox.length = 0;
+  const before = count(U.coord);
+  assert.equal((await api('student3', 'POST', '/me/study-request', { format: 'either' })).status, 201);
+  quiet();
+  assert.equal((await api('student3', 'POST', '/me/study-request', { format: 'either' })).status, 201);
+  assert.equal(count(U.coord) - before, 2, 'both in-app notices');
+  assert.equal(outbox.filter((m) => m.to === 'coord@mb.org').length, 1, 'one email in 15 minutes');
+  quiet();
+  db.prepare("UPDATE users SET studies = 1 WHERE email IN ('new-coord@mb.org')").run();
+});
+
+test('consent: re-adding is a 409, coordinators record it, and a student can change their own', async () => {
+  const sId = (await api('coord', 'POST', '/studies', { teacher_ids: [P.teacher], students: [{ person_id: P.s1, share_contact: true }], material_id: M.john })).data.id;
+  assert.equal((await api('coord', 'POST', `/studies/${sId}/people`, { person_id: P.s1, role: 'student', share_contact: false })).status, 409);
+  assert.equal((await api('coord', 'POST', `/studies/${sId}/people`, { person_id: P.teacher, role: 'teacher' })).status, 409);
+  assert.equal((await api('coord', 'POST', `/studies/${sId}/people`, { person_id: P.other, role: 'student', share_contact: true })).status, 201);
+  assert.ok(audits('study.people').some((a) => a.detail.includes(`"id":${sId}`) && a.detail.includes('"action":"add"') && a.detail.includes('"share_contact":true')));
+  // The student stops sharing: the teacher no longer sees their phone.
+  assert.equal((await api('teacher', 'GET', `/studies/${sId}`)).data.students.find((x) => x.id === P.s1).phone, '555-0111');
+  const mine = await api('student', 'GET', '/me/studies');
+  assert.equal(mine.data.as_student.find((x) => x.id === sId).share_contact, true);
+  assert.equal((await api('student', 'PATCH', `/me/studies/${sId}`, { share_contact: false })).status, 200);
+  assert.equal((await api('teacher', 'GET', `/studies/${sId}`)).data.students.find((x) => x.id === P.s1).phone, undefined);
+  assert.equal((await api('student', 'PATCH', `/me/studies/${sId}`, { share_contact: 'yes' })).status, 400);
+  const log = audits('study.people').filter((a) => a.detail.includes('"by":"student"'));
+  assert.equal(log.length, 1);
+  assert.equal(JSON.parse(log[0].detail).share_contact, false);
+  // Only the student, on their own study.
+  for (const who of ['teacher', 'student3', 'vol', 'leader']) assert.ok([404, 409].includes((await api(who, 'PATCH', `/me/studies/${sId}`, { share_contact: true })).status), who);
+  assert.equal((await api('student', 'PATCH', `/me/studies/${S.main}`, { share_contact: true })).status, 404, 'a study they are not in');
+  assert.equal((await api('student', 'GET', '/me/studies')).data.as_student.find((x) => x.id === sId).share_contact, false);
+  assert.equal((await api('teacher', 'PATCH', `/studies/${sId}/people/${P.s1}`, { share_contact: true })).status, 403, 'a teacher cannot record it');
+  await api('student', 'PATCH', `/me/studies/${sId}`, { share_contact: true });
+});
+
+test('campus scope: studies taught, history and the year count follow the account’s campuses', async () => {
+  const t = P.s4; // no campus, so every campus's staff may open their card
+  const a = (await api('staff', 'POST', '/studies', { teacher_ids: [t], student_ids: [P.other], campus_id: 1, material_id: M.john })).data.id;
+  const b = (await api('staff', 'POST', '/studies', { teacher_ids: [t], student_ids: [P.s3], campus_id: 2, material_id: M.john })).data.id;
+  db.prepare("INSERT INTO study_completions (person_id, material_id, material_title, teacher_ids, completed_on, source) VALUES (?, ?, 'Foundations', ?, '2026-02-02', 'profile')").run(P.s3, M.found, JSON.stringify([t]));
+  const taught = async (who) => (await api(who, 'GET', `/people/${t}/studies`)).data.taught;
+  const ids = (list) => list.filter((x) => x.study_id).map((x) => x.study_id);
+  assert.deepEqual(ids(await taught('northstaff')).sort(), [a], 'north staff: only the north study');
+  assert.deepEqual(ids(await taught('southstaff')).sort(), [b]);
+  assert.deepEqual(ids(await taught('admin')).sort(), [a, b].sort());
+  assert.equal((await taught('northstaff')).some((x) => x.student_name === 'Stu Test'), false, 'a south student’s hand-added history is not shown');
+  assert.equal((await taught('southstaff')).some((x) => x.student_name === 'Stu Test'), true);
+  // The completions count is scoped through the person's campus.
+  const year = async (who) => (await api(who, 'GET', '/studies/summary')).data.completions_this_year;
+  const [north, south, all] = [await year('northstaff'), await year('southstaff'), await year('admin')];
+  db.prepare("INSERT INTO study_completions (person_id, material_id, material_title, completed_on, source) VALUES (?, ?, 'Foundations', '2026-03-03', 'profile')").run(P.s3, M.found);
+  assert.equal(await year('northstaff'), north, 'a south completion does not count for north staff');
+  assert.equal(await year('southstaff'), south + 1);
+  assert.equal(await year('admin'), all + 1);
+  await api('admin', 'DELETE', `/studies/${a}`);
+  await api('admin', 'DELETE', `/studies/${b}`);
+});
+
+test('finish dates are checked, and deleting a study puts its request back in the queue', async () => {
+  const id = (await api('coord', 'POST', '/studies', { teacher_ids: [P.teacher], student_ids: [P.other], material_id: M.john })).data.id;
+  // Not finishing: a date is ignored. Finishing with a future date: refused.
+  assert.equal((await api('teacher', 'POST', `/studies/${id}/progress`, { status: 'paused', finished_on: '2020-01-01' })).status, 200);
+  assert.equal(db.prepare('SELECT finished_on FROM studies WHERE id = ?').get(id).finished_on, null);
+  assert.equal((await api('teacher', 'POST', `/studies/${id}/progress`, { lesson: 2, finished_on: '2020-01-01' })).status, 200);
+  assert.equal(db.prepare('SELECT finished_on FROM studies WHERE id = ?').get(id).finished_on, null);
+  assert.equal((await api('teacher', 'POST', `/studies/${id}/progress`, { status: 'finished', finished_on: '2026-06-16' })).status, 400);
+  assert.equal((await api('teacher', 'POST', `/studies/${id}/progress`, { status: 'finished', finished_on: '2026-06-01' })).status, 200);
+  assert.equal(db.prepare('SELECT finished_on FROM studies WHERE id = ?').get(id).finished_on, '2026-06-01');
+  assert.equal((await api('coord', 'PATCH', `/studies/${id}`, { status: 'finished', finished_on: '2999-01-01' })).status, 400);
+  // A request that became a study goes back to waiting when the study is deleted.
+  quiet();
+  await api('student3', 'POST', '/me/study-request', { format: 'either' });
+  const q = db.prepare("SELECT id FROM study_requests WHERE status = 'waiting'").get().id;
+  const made = await api('coord', 'POST', `/studies/requests/${q}/match`, { teacher_ids: [P.teacher] });
+  assert.equal(db.prepare('SELECT status FROM study_requests WHERE id = ?').get(q).status, 'matched');
+  assert.equal((await api('admin', 'DELETE', `/studies/${made.data.study_id}`)).status, 200);
+  const back = db.prepare('SELECT status, study_id, handled_by FROM study_requests WHERE id = ?').get(q);
+  assert.deepEqual([back.status, back.study_id, back.handled_by], ['waiting', null, null]);
+  assert.equal((await api('coord', 'GET', '/studies/requests')).data.requests.length, 1);
+  quiet();
+  await api('admin', 'DELETE', `/studies/${id}`);
 });

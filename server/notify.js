@@ -67,6 +67,9 @@ export function notifyStudyRequest(db, userIds) {
   const church = getSetting(db, 'church_name', 'Church');
   for (const u of db.prepare(`SELECT id, email, notify FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids)) {
     if (prefs(u).email === false || prefs(u).study === false) continue;
+    // At most one email per coordinator every 15 minutes (the in-app notice always arrives).
+    if (db.prepare("SELECT 1 FROM audit_log WHERE action = 'study.request_email' AND json_extract(detail, '$.to') = ? AND at > datetime('now', '-15 minutes')").get(u.id)) continue;
+    db.prepare("INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, 'study.request_email', ?)").run(JSON.stringify({ to: u.id }));
     sendMail({ to: u.email, subject: 'A new Bible study request',
       text: [`Hi,`, 'Someone would like to do a Bible study. Open Bible studies in the Hub to see who is waiting and find them a teacher:', hub('/#/studies?tab=waiting'), '', `${church}`].join('\n') })
       .catch((e) => console.error(`Email to ${u.email} failed:`, e.message));

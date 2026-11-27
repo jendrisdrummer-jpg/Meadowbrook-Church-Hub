@@ -285,11 +285,11 @@ async function studyDialog(id) {
         ${s.rhythm ? html`<div class="small">Meets: ${s.rhythm}</div>` : ''}
         ${s.material_title ? '' : html`<div class="alert">The material hasn’t been chosen yet. The teacher, or you, can choose it under Edit details.</div>`}
         <div><h3 style="margin:0 0 6px">Teachers</h3>${s.teachers.length ? s.teachers.map((t) => html`<div class="row small" style="padding:3px 0"><b>${t.name}</b>${t.has_account ? '' : html`<span class="pill warn">No account yet</span>`}
-          ${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}<span class="spacer"></span>
+          ${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}<span class="spacer"></span>
           <button type="button" class="icon-btn" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div>`) : html`<span class="muted small">No teacher</span>`}
           <button type="button" class="btn small" data-add="teacher">${icon('plus')} Add a teacher</button></div>
         <div><h3 style="margin:0 0 6px">Students</h3>${s.students.length ? s.students.map((t) => html`<div class="row small" style="padding:3px 0"><b>${t.name}</b>
-          <span class="muted">${t.share_contact ? 'shares contact with teachers' : 'contact not shared'}</span>${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}<span class="spacer"></span>
+          <span class="muted">${t.share_contact ? 'shares contact with teachers' : 'contact not shared'}</span>${t.phone ? html`<a href="tel:${t.phone}">${t.phone}</a>` : ''}${t.email ? html`<a href="mailto:${t.email}">${t.email}</a>` : ''}${t.contact_hidden ? html`<span class="muted">Contact through the office</span>` : ''}<span class="spacer"></span>
           <button type="button" class="btn small" data-finish="${t.id}">${icon('check')} Finished</button>
           <button type="button" class="icon-btn" data-rm="${t.id}" aria-label="Remove ${t.name}" title="Remove">${icon('x')}</button></div>`) : html`<span class="muted small">No students</span>`}
           ${s.status === 'finished' ? '' : html`<button type="button" class="btn small" data-add="student">${icon('plus')} Add a student</button>`}</div>
@@ -379,10 +379,10 @@ function importForm() {
           csv = await file.text();
           const r = await post('/studies/import/preview', { csv });
           previewed = true;
-          const label = { ok: 'ready to import', unmatched: 'no matching person', ambiguous: 'email belongs to more than one person', unknown_material: 'material not on the list', bad_date: 'date missing or not valid', duplicate: 'already recorded' };
+          const label = { ok: 'ready to import', unmatched: 'no matching person', ambiguous: 'email belongs to more than one person', unknown_material: 'material not on the list', mismatch: 'the id and the email are different people', bad_date: 'date missing or not valid', duplicate: 'already recorded' };
           mount(prev, html`<p><b>${r.total}</b> rows. ${Object.entries(r.counts).map(([k, n]) => html`<span class="pill ${k === 'ok' ? 'good' : ''}">${n} ${label[k]}</span> `)}</p>
             ${r.new_materials.length ? html`<p class="small">New materials: ${r.new_materials.join(', ')}</p>` : ''}
-            <div class="table-scroll"><table class="list small"><thead><tr><th>Row</th><th>Material</th><th>Date</th><th>Result</th></tr></thead><tbody>${r.rows.slice(0, 50).map((x) => html`<tr><td>${x.line}</td><td>${x.material}</td><td>${x.completed_on}</td><td>${label[x.status]}</td></tr>`)}</tbody></table></div>`);
+            <div class="table-scroll"><table class="list small"><thead><tr><th>Row</th><th>Person</th><th>Material</th><th>Date</th><th>Result</th></tr></thead><tbody>${r.rows.slice(0, 50).map((x) => html`<tr><td>${x.line}</td><td>${x.person || '—'}</td><td>${x.material}</td><td>${x.completed_on}</td><td>${label[x.status]}</td></tr>`)}</tbody></table></div>`);
         } catch (err) { previewed = false; fail(err); }
       });
     },

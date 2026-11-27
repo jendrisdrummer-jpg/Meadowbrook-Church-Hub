@@ -6,7 +6,7 @@
 // A finished material is a row in study_completions, which outlives the study. No attendance, no
 // reminders, no pastoral notes: the only free text is a short coordinator-only note.
 import { Router } from 'express';
-import { requireRole, requireStudies, requireAllCampuses, canStudies, canCampus, campusFilter } from '../auth.js';
+import { requireRole, requireStudies, requireAllCampuses, canStudies, canCampus, campusFilter, rank } from '../auth.js';
 import { tx } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, localNow } from '../http.js';
 import { notifyStudyRequest } from '../notify.js';
@@ -20,11 +20,15 @@ const NOTE_MAX = 280;
 const RHYTHM_MAX = 120;
 const IMPORT_MAX_ROWS = 2000;
 const REQUESTS_PER_HOUR = 5;
+const SEARCHES = 120; // name searches per account per 10 minutes
+const SEARCH_WINDOW = 10 * 60e3;
+const isStaff = (user) => rank(user.role) >= rank('staff');
 
 const nameOf = (p) => `${p.nickname || p.first_name || ''} ${p.last_name || ''}`.trim();
 
 export default function studyRoutes(db, { now = () => new Date() } = {}) {
   const r = Router();
+  const searches = new Map(); // user id -> recent search times
 
   // The church's "today": the first campus's own clock (studies are church-wide).
   const today = () => {
@@ -51,6 +55,8 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     const p = db.prepare('SELECT * FROM people WHERE id = ? AND archived = 0').get(int(id, what));
     if (!p) throw notFound(what);
     if (!canCampus(req.user, p.campus_id)) throw forbidden();
+    // Children are added by staff and admins only; a coordinator below staff asks the office.
+    if (p.household_role === 'child' && !isStaff(req.user)) throw new HttpError(403, 'A child can only be added to a study by a staff member. Please ask the office.');
     return p;
   }
   const material = (id, { mustBeActive = true } = {}) => {
@@ -78,19 +84,22 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
   const progressOf = (s) => ({ lesson: s.lesson, planned: s.planned_lessons ?? s.material_lessons ?? null, sessions: s.sessions, since: s.started_on });
 
   // Active people of the given studies, grouped by study. `contacts`: 'all' (coordinators and staff),
-  // 'consented' (a teacher sees a student's phone and email only if that student agreed) or 'none'.
+  // 'consented' (a teacher sees a student's phone and email only if that student agreed), 'limited' (a
+  // coordinator below staff: only people who asked through a request, or who agreed to share) or 'none'.
   function peopleFor(studyIds, contacts) {
     const out = new Map(studyIds.map((id) => [id, []]));
     if (!studyIds.length) return out;
     const rows = db.prepare(`SELECT sp.study_id, sp.role, sp.share_contact, p.id, p.first_name, p.last_name, p.nickname, p.photo, p.phone, p.email,
-        EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
+        EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account,
+        EXISTS (SELECT 1 FROM study_requests q WHERE q.person_id = p.id AND q.study_id = sp.study_id) via_request
       FROM study_people sp JOIN people p ON p.id = sp.person_id
       WHERE sp.removed_at IS NULL AND sp.study_id IN (${studyIds.map(() => '?').join(',')}) ORDER BY sp.role DESC, p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(...studyIds);
     for (const x of rows) {
       const o = { id: x.id, name: nameOf(x), photo: x.photo || null, role: x.role, has_account: Boolean(x.has_account) };
       if (x.role === 'student') o.share_contact = Boolean(x.share_contact);
-      const showContact = contacts === 'all' || (contacts === 'consented' && x.role === 'student' && x.share_contact);
-      if (showContact) { o.phone = x.phone; o.email = x.email; }
+      const agreed = x.role === 'student' && x.share_contact;
+      const showContact = contacts === 'all' || (contacts === 'consented' && agreed) || (contacts === 'limited' && (agreed || x.via_request));
+      if (showContact) { o.phone = x.phone; o.email = x.email; } else if (contacts === 'limited') o.contact_hidden = true;
       out.get(x.study_id).push(o);
     }
     return out;
@@ -189,7 +198,10 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
       waiting: db.prepare(`SELECT COUNT(*) n FROM study_requests WHERE status = 'waiting' AND ${rcf.sql}`).get(...rcf.args).n,
       teachers: db.prepare(`SELECT COUNT(DISTINCT sp.person_id) n FROM study_people sp JOIN studies s ON s.id = sp.study_id WHERE sp.role = 'teacher' AND sp.removed_at IS NULL AND s.status = 'active' AND ${w}`).get(...args).n,
       students: db.prepare(`SELECT COUNT(DISTINCT sp.person_id) n FROM study_people sp JOIN studies s ON s.id = sp.study_id WHERE sp.role = 'student' AND sp.removed_at IS NULL AND s.status = 'active' AND ${w}`).get(...args).n,
-      completions_this_year: db.prepare("SELECT COUNT(*) n FROM study_completions WHERE revoked_at IS NULL AND completed_on >= ?").get(yearStart).n,
+      completions_this_year: (() => {
+        const pf = campusFilter(req.user, 'p.campus_id');
+        return db.prepare(`SELECT COUNT(*) n FROM study_completions c JOIN people p ON p.id = c.person_id WHERE c.revoked_at IS NULL AND c.completed_on >= ? AND ${pf.sql}`).get(yearStart, ...pf.args).n;
+      })(),
       year,
     });
   });
@@ -199,14 +211,19 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
   r.get('/studies/people', requireStudies, (req, res) => {
     const q = str(req.query.q, 80).toLowerCase();
     if (q.length < 2) return res.json([]);
+    const t = Date.now();
+    const recent = (searches.get(req.user.id) || []).filter((x) => t - x < SEARCH_WINDOW);
+    if (recent.length >= SEARCHES) { searches.set(req.user.id, recent); throw new HttpError(429, 'That’s a lot of searches. Please wait a few minutes.'); }
+    recent.push(t);
+    searches.set(req.user.id, recent);
     const cf = campusFilter(req.user, 'p.campus_id');
-    const like = `%${q}%`;
-    const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, p.photo, c.short_name campus_short,
+    const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`; // a typed % or _ matches itself
+    const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, c.short_name campus_short,
         EXISTS (SELECT 1 FROM users u WHERE u.person_id = p.id AND u.active = 1) has_account
       FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
-      WHERE p.archived = 0 AND ${cf.sql} AND (lower(p.first_name || ' ' || p.last_name) LIKE ? OR lower(p.nickname || ' ' || p.last_name) LIKE ?)
+      WHERE p.archived = 0 AND p.household_role != 'child' AND ${cf.sql} AND (lower(p.first_name || ' ' || p.last_name) LIKE ? ESCAPE '\\' OR lower(p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\')
       ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 20`).all(...cf.args, like, like);
-    res.json(rows.map((p) => ({ id: p.id, name: nameOf(p), photo: p.photo || null, campus: p.campus_short || '', has_account: Boolean(p.has_account) })));
+    res.json(rows.map((p) => ({ id: p.id, name: nameOf(p), campus: p.campus_short || '', has_account: Boolean(p.has_account) })));
   });
 
   // ---------------------------------------------------------------- the list, teachers and export
@@ -323,16 +340,19 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     const seen = new Set();
     const todayDate = today();
     const rows = records.map((rec, i) => {
-      const row = { line: i + 2, status: 'ok', person_id: null, material: rec.material, completed_on: rec.completed_on, teacher: str(rec.teacher, 200), material_id: null, new_material: false };
+      const row = { line: i + 2, status: 'ok', person_id: null, person_name: '', material: rec.material, completed_on: rec.completed_on, teacher: str(rec.teacher, 200), material_id: null, new_material: false };
       const email = String(rec.email || '').trim().toLowerCase();
       if (rec.person_id) {
-        const p = /^\d+$/.test(rec.person_id) ? db.prepare('SELECT id FROM people WHERE id = ? AND archived = 0').get(Number(rec.person_id)) : null;
-        if (p) row.person_id = p.id; else row.status = 'unmatched';
+        const p = /^\d+$/.test(rec.person_id) ? db.prepare('SELECT id, email FROM people WHERE id = ? AND archived = 0').get(Number(rec.person_id)) : null;
+        if (!p) row.status = 'unmatched';
+        else if (email && String(p.email || '').trim().toLowerCase() !== email) row.status = 'mismatch'; // the id and the email name different people
+        else row.person_id = p.id;
       } else if (email) {
         const hits = byEmail(email);
         if (hits.length === 1) row.person_id = hits[0].id;
         else row.status = hits.length ? 'ambiguous' : 'unmatched';
       } else row.status = 'unmatched';
+      if (row.person_id != null) row.person_name = nameOf(db.prepare('SELECT first_name, last_name, nickname FROM people WHERE id = ?').get(row.person_id));
       if ((!isDate(rec.completed_on) || rec.completed_on > todayDate) && row.status === 'ok') row.status = 'bad_date';
       const title = String(rec.material || '').trim();
       if (!title) { if (row.status === 'ok') row.status = 'unknown_material'; } else {
@@ -350,7 +370,7 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     for (const x of rows) counts[x.status] = (counts[x.status] || 0) + 1;
     return { rows, counts, new_materials: [...new Set(rows.filter((x) => x.new_material).map((x) => String(x.material).trim()))].slice(0, 100) };
   }
-  const importView = (plan) => ({ counts: plan.counts, new_materials: plan.new_materials, total: plan.rows.length, rows: plan.rows.slice(0, 200).map(({ line, status, material, completed_on, teacher, person_id }) => ({ line, status, material, completed_on, teacher, matched: person_id != null })) });
+  const importView = (plan) => ({ counts: plan.counts, new_materials: plan.new_materials, total: plan.rows.length, rows: plan.rows.slice(0, 200).map(({ line, status, material, completed_on, teacher, person_id, person_name }) => ({ line, status, material, completed_on, teacher, matched: person_id != null, person: person_name })) });
 
   const adminOnly = [requireRole('admin'), requireAllCampuses];
   r.post('/studies/import/preview', ...adminOnly, (req, res) => {
@@ -393,7 +413,7 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
   function addPerson(req, s, personId, role, share) {
     person(req, personId);
     const row = db.prepare('SELECT * FROM study_people WHERE study_id = ? AND person_id = ?').get(s.id, personId);
-    if (row && !row.removed_at && row.role !== role) throw bad(`That person is already in this study as a ${row.role}.`);
+    if (row && !row.removed_at) throw new HttpError(409, row.role === role ? 'They’re already in this study.' : `That person is already in this study as a ${row.role}.`);
     if (row) db.prepare("UPDATE study_people SET role = ?, share_contact = ?, removed_at = NULL, added_at = CASE WHEN removed_at IS NULL THEN added_at ELSE datetime('now') END WHERE study_id = ? AND person_id = ?")
       .run(role, role === 'student' && share ? 1 : 0, s.id, personId);
     else db.prepare('INSERT INTO study_people (study_id, person_id, role, share_contact) VALUES (?, ?, ?, ?)').run(s.id, personId, role, role === 'student' && share ? 1 : 0);
@@ -438,7 +458,7 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
   r.get('/studies/:id', requireRole('volunteer'), (req, res) => {
     const s = db.prepare(`${STUDY_SELECT} WHERE s.id = ?`).get(int(req.params.id, 'Study'));
     if (!s) throw notFound('Study');
-    if (manages(req, s)) return res.json(shape(s, peopleFor([s.id], 'all').get(s.id)));
+    if (manages(req, s)) return res.json(shape(s, peopleFor([s.id], isStaff(req.user) ? 'all' : 'limited').get(s.id)));
     if (teaches(req, s.id)) return res.json(shape(s, peopleFor([s.id], 'consented').get(s.id), { forTeacher: true }));
     throw forbidden();
   });
@@ -475,7 +495,12 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
       const id = int(b.material_id, 'Material');
       if (id !== s.material_id) p.material_id = id == null ? null : material(id).id; // an unchanged (maybe retired) material stays as it is
     }
-    if (b.finished_on !== undefined) { if (b.finished_on !== null && !isDate(b.finished_on)) throw bad('Use a date like 2026-03-12.'); p.finished_on = b.finished_on; }
+    // A finish date only means something when the study is being finished, and never in the future.
+    if (b.finished_on != null && b.status === 'finished') {
+      if (!isDate(b.finished_on)) throw bad('Use a date like 2026-03-12.');
+      if (b.finished_on > today()) throw bad('That date is in the future.');
+      p.finished_on = b.finished_on;
+    }
     return p;
   }
   function save(s, patch) {
@@ -507,8 +532,21 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     if (s.status === 'finished') throw bad('That study is finished. Start a new one instead.');
     const p = person(req, b.person_id);
     addPerson(req, s, p.id, role, Boolean(b.share_contact));
-    audit(db, req, 'study.people', { id: s.id, person_id: p.id, role, action: 'add' });
+    audit(db, req, 'study.people', { id: s.id, person_id: p.id, role, action: 'add', share_contact: role === 'student' && Boolean(b.share_contact) });
     res.status(201).json({ ok: true, teachers_without_account: role === 'teacher' && !hasAccount(p.id) ? [{ id: p.id, name: nameOf(p) }] : [] });
+  });
+
+  // A coordinator or staff member records a student's choice about sharing their phone and email with the
+  // teachers (they talk to them). Audited; the student can change it too from the app.
+  r.patch('/studies/:id/people/:personId', requireStudies, (req, res) => {
+    const s = getManaged(req, req.params.id);
+    const pid = int(req.params.personId, 'Person');
+    const row = db.prepare("SELECT * FROM study_people WHERE study_id = ? AND person_id = ? AND role = 'student' AND removed_at IS NULL").get(s.id, pid);
+    if (!row) throw notFound('Student in this study');
+    const share = req.body?.share_contact ? 1 : 0;
+    db.prepare('UPDATE study_people SET share_contact = ? WHERE study_id = ? AND person_id = ?').run(share, s.id, pid);
+    audit(db, req, 'study.people', { id: s.id, person_id: pid, role: 'student', action: 'consent', share_contact: Boolean(share), by: 'coordinator' });
+    res.json({ ok: true });
   });
 
   r.delete('/studies/:id/people/:personId', requireStudies, (req, res) => {
@@ -530,6 +568,11 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
   r.delete('/studies/:id', requireRole('admin'), (req, res) => {
     const s = getManaged(req, req.params.id);
     if (db.prepare('SELECT 1 FROM study_completions WHERE study_id = ?').get(s.id)) throw new HttpError(409, 'Someone has finished this study, so it stays on record. Mark it finished instead.');
+    // A request this study came from goes back in the queue (or closes as a duplicate if they asked again).
+    for (const q of db.prepare('SELECT id, person_id FROM study_requests WHERE study_id = ?').all(s.id)) {
+      const again = db.prepare("SELECT 1 FROM study_requests WHERE person_id = ? AND status = 'waiting'").get(q.person_id);
+      db.prepare("UPDATE study_requests SET study_id = NULL, handled_by = NULL, handled_at = NULL, status = ?, close_reason = ? WHERE id = ?").run(again ? 'closed' : 'waiting', again ? 'duplicate' : '', q.id);
+    }
     db.prepare('DELETE FROM studies WHERE id = ?').run(s.id);
     audit(db, req, 'study.delete', { id: s.id });
     res.json({ ok: true });
@@ -610,14 +653,17 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     return db.prepare(`SELECT id, material_id, material_title, teacher_names, completed_on, source, study_id FROM study_completions
       WHERE person_id = ? AND revoked_at IS NULL ORDER BY completed_on DESC, id DESC LIMIT 200`).all(personId);
   }
-  function taughtBy(personId) {
+  // `req` scopes what a coordinator or staff member sees to their campuses; a person's own card is not scoped.
+  function taughtBy(personId, req, self) {
+    const cf = self ? { sql: '1 = 1', args: [] } : campusFilter(req.user, 's.campus_id');
     const fromStudies = db.prepare(`SELECT s.id study_id, s.status, m.title material_title, sp.removed_at,
         (SELECT COUNT(*) FROM study_people x WHERE x.study_id = s.id AND x.role = 'student') students
       FROM study_people sp JOIN studies s ON s.id = sp.study_id LEFT JOIN study_materials m ON m.id = s.material_id
-      WHERE sp.person_id = ? AND sp.role = 'teacher' ORDER BY s.started_on DESC LIMIT 100`).all(personId)
+      WHERE sp.person_id = ? AND sp.role = 'teacher' AND ${cf.sql} ORDER BY s.started_on DESC LIMIT 100`).all(personId, ...cf.args)
       .map((x) => ({ study_id: x.study_id, material_title: x.material_title, status: x.status, current: !x.removed_at, students: x.students }));
-    const fromHistory = db.prepare(`SELECT c.id, c.material_title, c.completed_on, p.first_name, p.last_name, p.nickname FROM study_completions c JOIN people p ON p.id = c.person_id
+    const fromHistory = db.prepare(`SELECT c.id, c.material_title, c.completed_on, p.first_name, p.last_name, p.nickname, p.campus_id FROM study_completions c JOIN people p ON p.id = c.person_id
       WHERE c.revoked_at IS NULL AND c.study_id IS NULL AND EXISTS (SELECT 1 FROM json_each(c.teacher_ids) WHERE value = ?) ORDER BY c.completed_on DESC LIMIT 100`).all(personId)
+      .filter((x) => self || canCampus(req.user, x.campus_id))
       .map((x) => ({ study_id: null, material_title: x.material_title, status: 'finished', current: false, students: 1, completed_on: x.completed_on, student_name: nameOf(x) }));
     return [...fromStudies, ...fromHistory];
   }
@@ -633,7 +679,7 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
     res.json({
       studying,
       completed: completionsOf(p.id).map((c) => ({ ...c, can_revoke: staff && canCampus(req.user, p.campus_id) })),
-      taught: taughtBy(p.id),
+      taught: taughtBy(p.id, req, self),
       can_edit: staff && canCampus(req.user, p.campus_id),
     });
   });
@@ -663,7 +709,8 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
       const base = { id: s.id, status: s.status, material_title: s.material_title || null, rhythm: s.rhythm, progress: progressOf(s) };
       if (mineRole === 'student') {
         const done = db.prepare('SELECT completed_on FROM study_completions WHERE study_id = ? AND person_id = ? AND revoked_at IS NULL').get(s.id, p.id);
-        asStudent.push({ ...base, teachers: people.filter((x) => x.role === 'teacher').map((x) => ({ name: x.name })), finished: Boolean(done), completed_on: done?.completed_on || null });
+        const mine = db.prepare('SELECT share_contact FROM study_people WHERE study_id = ? AND person_id = ?').get(s.id, p.id);
+        asStudent.push({ ...base, share_contact: Boolean(mine.share_contact), teachers: people.filter((x) => x.role === 'teacher').map((x) => ({ name: x.name })), finished: Boolean(done), completed_on: done?.completed_on || null });
       } else {
         const finished = new Set(db.prepare('SELECT person_id FROM study_completions WHERE study_id = ? AND revoked_at IS NULL').all(s.id).map((x) => x.person_id));
         asTeacher.push({ ...base, material_id: s.material_id, teacher_notes: s.material_teacher_notes || '',
@@ -677,6 +724,17 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
       request: request && { ...request, share_contact: Boolean(request.share_contact) },
       materials: db.prepare('SELECT id, title, author FROM study_materials WHERE active = 1 ORDER BY title COLLATE NOCASE LIMIT 200').all(),
     });
+  });
+
+  // A student chooses whether their teachers can see their phone and email. Only their own row, on a study they are in.
+  r.patch('/me/studies/:id', requireRole('volunteer'), (req, res) => {
+    const p = mine(req);
+    const row = db.prepare("SELECT 1 FROM study_people WHERE study_id = ? AND person_id = ? AND role = 'student' AND removed_at IS NULL").get(int(req.params.id, 'Study'), p.id);
+    if (!row) throw notFound('Study');
+    if (typeof req.body?.share_contact !== 'boolean') throw bad('Say whether to share your contact details with your teacher.');
+    db.prepare('UPDATE study_people SET share_contact = ? WHERE study_id = ? AND person_id = ?').run(req.body.share_contact ? 1 : 0, int(req.params.id), p.id);
+    audit(db, req, 'study.people', { id: int(req.params.id), person_id: p.id, role: 'student', action: 'consent', share_contact: req.body.share_contact, by: 'student' });
+    res.json({ ok: true, share_contact: req.body.share_contact });
   });
 
   // "I'd like to do a Bible study". Always the signed-in account's own person, never typed details.
@@ -696,9 +754,10 @@ export default function studyRoutes(db, { now = () => new Date() } = {}) {
       .run(p.id, p.campus_id, format, m?.id ?? null, str(b.topic, 200), str(b.times, 200), b.share_contact ? 1 : 0).lastInsertRowid);
     audit(db, req, 'study.request', { id });
     // Every coordinator (the switch), or admins if nobody has it yet, so a request is never lost.
-    let who = db.prepare('SELECT id, campus_ids FROM users WHERE active = 1 AND studies = 1').all();
-    if (!who.length) who = db.prepare("SELECT id, campus_ids FROM users WHERE active = 1 AND role = 'admin'").all();
-    const reach = who.filter((u) => !u.campus_ids || p.campus_id == null || JSON.parse(u.campus_ids).includes(p.campus_id)).map((u) => u.id);
+    const covers = (u) => !u.campus_ids || p.campus_id == null || JSON.parse(u.campus_ids).includes(p.campus_id);
+    let reach = db.prepare('SELECT id, campus_ids FROM users WHERE active = 1 AND studies = 1').all().filter(covers).map((u) => u.id);
+    // Nobody who covers this campus has the switch: tell the admins who cover every campus, so it is never lost.
+    if (!reach.length) reach = db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin' AND campus_ids IS NULL").all().map((u) => u.id);
     notifyStudyRequest(db, reach);
     res.status(201).json({ ok: true, message: 'Thanks. Someone will be in touch.' });
   });
