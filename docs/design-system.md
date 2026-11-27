@@ -98,7 +98,7 @@ Use these before writing new CSS.
 | Page frame | `setTitle(title, actions)` in the hub puts the title and the page's buttons in the top bar |
 
 Member app home screen widgets have their own system (`js/app-widgets.js`): sizes S/M/T/W/L/F on a
-four-column grid, styles card/soft/accent/color.
+four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size in everyday words for the App Builder.
 
 ## Patterns
 
@@ -135,6 +135,7 @@ four-column grid, styles card/soft/accent/color.
   anything would clip it. The header (title plus search, bell and avatar) stays on one line.
 - **Banner with folded options:** a one-line state plus its button, with the extra choices in a
   `<details>` underneath (`.notify-banner`, `.notify-options`), as for notifications on My Schedule.
+- **Show/hide and reorder list (`.cust-list`, Customise Home):** a dialog list of rows, each a `.switch` with the name and two 44px `.cust-move` up/down icon buttons (no dragging, so it works with a thumb or a keyboard; the end rows disable the button that cannot move). Reset changes the dialog only; Save writes.
 - **Rows with one action (`table.list.pair`):** details on the left (words never break mid-word),
   status or action on the right; use this instead of 3+ narrow columns on phones.
 - **Dates:** always `fmtDate`/`fmtTime`; for database timestamps in UTC use `fmtUtcDate`.
@@ -165,6 +166,13 @@ four-column grid, styles card/soft/accent/color.
 - Fixed bottom bars leave room for the iPhone home indicator (`env(safe-area-inset-bottom)`).
 - Inputs use the right `type`/`inputmode` so phones show the right keyboard.
 - Long tables collapse or scroll inside their card, never the page.
+- Member app, on touch screens (`@media (pointer: coarse)` in `member.css`): fields are 16px so iPhones
+  don't zoom on focus, and buttons, chips, tabs and calendar arrows are at least 44px tall. Login does the same.
+- Member app detail screens (anything deeper than a tab) get one top-left **Back** (`.m-back`, 44px):
+  `route()` in `member/main.js` sets `backTo`, `setTitle` draws it. Don't add a Back button of your own to a
+  member page. Back uses `history.back()` when the app has history, else goes to the parent tab. In the chat
+  thread (which hides the title bar) the chat header's own Back does the same.
+- Member app theme: no saved choice (guests, new visitors) means follow the device (`data-theme="device"`).
 
 ## Help guides
 

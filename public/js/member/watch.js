@@ -82,7 +82,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
 
   const sync = () => {
     const p = new URLSearchParams(Object.entries(f).filter(([, v]) => v));
-    history.replaceState(null, '', `#/${tab.id}${p.size ? `?${p}` : ''}`);
+    history.replaceState(history.state, '', `#/${tab.id}${p.size ? `?${p}` : ''}`);
     draw();
   };
   el.oninput = (e) => {
@@ -108,7 +108,7 @@ export async function watchPage(el, tab, q, { app, setTitle, videoEmbed }) {
 // One message: the player, our title and details, topics to tap, and more from the series.
 export async function videoPage(el, tab, id, q, { setTitle }) {
   const m = await get(`/watch/${id}`);
-  setTitle(tab.label, html`<a class="btn small ghost" href="#/${tab.id}">Back</a>`);
+  setTitle(tab.label);
   const ended = q.get('ended');
   mount(el, html`<div class="m-video wv-box" data-box>${poster(m, { big: true })}</div>
     <div class="wv-detail"><h2>${m.title}</h2>

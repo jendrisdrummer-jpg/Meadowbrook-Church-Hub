@@ -2,9 +2,10 @@
 // ctx: { app, mine (my schedule), tasks (my open tasks), edit (App Builder preview), signInHref, videoEmbed }
 import { html, raw, icon, fmtDate, fmtTime, DAYS } from '../lib.js';
 import { taskRow } from '../tasks.js';
-import { WIDGETS, SIZES, isHex } from '../app-widgets.js';
+import { WIDGETS, SIZES, isHex, linkableTab, announcementLive } from '../app-widgets.js';
 import { whenText, badge } from './events.js';
 import { livePicture } from './watch.js';
+import { thisWeekInner } from './thisweek.js';
 
 const clock = (hhmm) => new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -14,7 +15,11 @@ function inkFor(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#111418' : '#ffffff';
 }
 
-const href = (w) => (w.url ? w.url : w.tab ? `#/${w.tab}` : '');
+// Where a widget (or one link in a list) goes. A tab that no longer exists, or is a website tab or
+// a switched-off page, gives no link at all, so nobody lands on a dead "#/missing" screen.
+let tabsNow = [];
+const href = (w) => (w.url ? w.url : w.tab && linkableTab(tabsNow, w.tab) ? `#/${w.tab}` : '');
+const isWeb = (u) => /^https?:\/\//i.test(u);
 
 // One widget's outer box. Links make the whole tile tappable.
 function box(w, inner, { link = href(w), cls = '' } = {}) {
@@ -33,13 +38,29 @@ const placeholder = (w, why) => box(w, html`<div class="w-empty">${icon('info')}
 
 export function widget(w, ctx) {
   const { app } = ctx;
+  tabsNow = app.config.tabs;
   const tall = w.size === 'F';
   const tabFor = (type) => app.config.tabs.find((t) => t.type === type)?.id || type;
   switch (w.type) {
     case 'button':
       return box(w, html`<span class="w-ic">${icon(w.icon || 'link')}</span><b class="w-label">${w.label}</b>`);
-    case 'image':
-      return box(w, w.title ? html`<b class="w-caption">${w.title}</b>` : '');
+    case 'image': {
+      // No picture saved, or one that won't load (the probe image reports that), shows a tidy
+      // placeholder instead of a broken image.
+      const caption = w.title ? html`<b class="w-caption">${w.title}</b>` : '';
+      if (!w.image) return box(w, html`<span class="w-pic-missing">${icon('image')}<span>Picture not available</span></span>${caption}`, { cls: 'w-broken' });
+      return box(w, html`<img class="w-probe" src="${w.image}" alt="" hidden><span class="w-pic-missing">${icon('image')}<span>Picture not available</span></span>${caption}`);
+    }
+    case 'announcement': {
+      if (!announcementLive(w, app.today)) return ctx.edit ? placeholder(w, `Ended ${w.ends}. Hidden in the app`) : null;
+      const go = href(w);
+      return box(w, html`<span class="w-ic">${icon('bell')}</span><span class="w-ann-text"><b class="w-label">${w.title}</b>${w.text ? html`<span class="w-ann-body">${w.text}</span>` : ''}</span>${go ? icon('forward', 'ic w-chev') : ''}`, { link: go, cls: 'w-ann' });
+    }
+    case 'linklist': {
+      const rows = (w.links || []).map((x) => ({ x, to: href(x) })).filter((r) => r.to);
+      if (!rows.length) return ctx.edit ? placeholder(w, 'Add links to show them here') : null;
+      return box(w, html`${w.title ? html`<h2>${w.title}</h2>` : ''}<div class="w-ll">${rows.map(({ x, to }) => html`<a class="w-ll-row" href="${to}" ${isWeb(to) ? raw('target="_blank" rel="noopener"') : ''}><span class="grow">${x.label}</span>${icon('forward', 'ic w-chev')}</a>`)}</div>`, { link: '' });
+    }
     case 'welcome':
       return box(w, html`<small>${app.church_name}</small><h2>${w.title || 'Welcome'}</h2>${w.text && w.size !== 'W' ? html`<p>${w.text}</p>` : ''}`, { link: '' });
     case 'text':
@@ -98,6 +119,8 @@ export function widget(w, ctx) {
         ${next.slice(0, 3).map((a) => html`<div class="m-serving-row"><div class="what"><b>${fmtDate(a.starts_at)}</b> · ${fmtTime(a.starts_at)}<div class="w-sub">${a.position} · ${a.campus}</div></div>
           ${a.status === 'pending' ? html`<button class="btn small primary" data-accept="${a.id}">Accept</button>` : html`<a class="btn small ghost" href="#/plan/${a.service_id}">Plan</a>`}</div>`)}`, { link: '' });
     }
+    case 'thisweek':
+      return box(w, thisWeekInner(w, ctx, { nextService, clock, tabFor, signInHref: ctx.signInHref }), { link: '' });
     case 'times': {
       if (!app.times.length) return ctx.edit ? placeholder(w, 'Add repeating services to fill this in') : null;
       if (!tall) {

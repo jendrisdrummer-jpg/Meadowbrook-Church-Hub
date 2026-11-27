@@ -48,7 +48,7 @@ const NAV_WANT = {
   volunteer: [...EVERYDAY, 'Groups', 'Services'],
   finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
   leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
-  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads'],
+  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
   admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
 };
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];

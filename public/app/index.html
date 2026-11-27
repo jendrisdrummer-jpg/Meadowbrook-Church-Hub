@@ -11,11 +11,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <script src="/js/theme.js"></script>
+  <script>
+    // Nobody has chosen a look yet (guests, new visitors): follow the phone's light or dark setting.
+    try { if (!localStorage.getItem('mb.theme')) document.documentElement.dataset.theme = 'device'; } catch (e) { document.documentElement.dataset.theme = 'device'; }
+  </script>
   <link rel="stylesheet" href="/css/app.css">
   <link rel="stylesheet" href="/css/member.css">
 </head>
 <body class="member">
-  <header class="m-top"><h1 data-title></h1><div class="m-top-actions" data-actions></div></header>
+  <header class="m-top"><span data-back></span><h1 data-title></h1><div class="m-top-actions" data-actions></div></header>
   <main class="m-main" data-content></main>
   <nav class="m-tabs" data-tabs></nav>
   <script type="module" src="/js/member/main.js"></script>

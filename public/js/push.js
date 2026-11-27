@@ -5,7 +5,10 @@ const ua = navigator.userAgent;
 export const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 export const isAndroid = /Android/.test(ua);
 export const isMobile = isIOS || isAndroid;
-export const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// Running inside the iPhone app (a Capacitor shell around this site). It counts as installed, and web
+// push and "add to home screen" don't apply there.
+export const inShell = !!window.Capacitor?.isNativePlatform?.();
+export const isInstalled = () => inShell || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 // iPhones only allow notifications once the app is on the home screen.
 export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 

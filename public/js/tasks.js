@@ -113,7 +113,7 @@ export async function taskList(el, { setTitle, q, base = '#/tasks', onChange = (
 
 // ---------------------------------------------------------------- one task
 // id: a task id, or 'new' (q may carry team or group, title, service, due from where it was started).
-export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onChange = () => {} }) {
+export async function taskPage(el, id, { setTitle, q, base = '#/tasks', showBack = true, me, onChange = () => {} }) {
   const isNew = id === 'new';
   const teams = await get('/tasks/teams'); // teams and groups
   const shared = q.get('team') || q.get('group');
@@ -123,7 +123,7 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', me, onCh
   const placeKey = () => (t.chat_id ? `chat:${t.chat_id}` : t.team_id ? `team:${t.team_id}` : '');
   const placeOf = () => teams.find((x) => x.key === placeKey());
   if (isNew && placeKey() && !placeOf()) Object.assign(t, { team_id: null, chat_id: null, assignee_id: me });
-  setTitle(isNew ? 'New task' : 'Task', html`<a class="btn small ghost" href="${base}">${icon('back')} Tasks</a>`);
+  setTitle(isNew ? 'New task' : 'Task', showBack ? html`<a class="btn small ghost" href="${base}">${icon('back')} Tasks</a>` : '');
   let services = [];
 
   async function loadServices() {

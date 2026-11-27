@@ -29,6 +29,32 @@ export function digits(s) {
   return String(s || '').replace(/\D/g, '');
 }
 
+// Cleans an incoming person body; `partial` allows leaving required fields out.
+export function personFields(b, partial) {
+  const out = {};
+  if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
+  for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
+  for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
+    if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
+  }
+  if (b.email !== undefined) {
+    out.email = str(b.email, 200).toLowerCase();
+    if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
+  }
+  if (b.phone !== undefined) out.phone = str(b.phone, 40);
+  if (b.birthdate !== undefined) {
+    if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
+    if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
+    out.birthdate = b.birthdate || null;
+  }
+  if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
+  if (b.campus_id !== undefined) out.campus_id = int(b.campus_id, 'Campus');
+  if (b.household_id !== undefined) out.household_id = int(b.household_id, 'Household');
+  if (b.status !== undefined) out.status = oneOf(b.status, STATUSES, 'guest');
+  if (b.household_role !== undefined) out.household_role = oneOf(b.household_role, ['adult', 'child'], 'adult');
+  return out;
+}
+
 export default function peopleRoutes(db, { uploadDir }) {
   const r = Router();
   const getPerson = (id) => db.prepare('SELECT * FROM people WHERE id = ?').get(id);
@@ -48,32 +74,6 @@ export default function peopleRoutes(db, { uploadDir }) {
     if (!h) throw notFound('Household');
     if (!canCampus(req.user, h.campus_id)) throw forbidden();
     return h;
-  }
-
-  // Cleans an incoming person body; `partial` allows leaving required fields out.
-  function personFields(b, partial) {
-    const out = {};
-    if (!partial || b.first_name !== undefined) out.first_name = required(b.first_name, 'First name');
-    for (const k of ['last_name', 'nickname', 'gender', 'allergies', 'medical_notes', 'notes']) if (b[k] !== undefined) out[k] = str(b[k]);
-    for (const [k, label] of [['first_name', 'First name'], ['last_name', 'Last name'], ['nickname', 'Nickname']]) {
-      if (b[k] !== undefined && String(b[k] ?? '').trim().length > NAME_MAX) throw bad(`${label} is too long (up to ${NAME_MAX} characters).`);
-    }
-    if (b.email !== undefined) {
-      out.email = str(b.email, 200).toLowerCase();
-      if (out.email && !EMAIL_SHAPE.test(out.email)) throw bad('That email doesn’t look right. It should be like name@example.org.');
-    }
-    if (b.phone !== undefined) out.phone = str(b.phone, 40);
-    if (b.birthdate !== undefined) {
-      if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
-      if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
-      out.birthdate = b.birthdate || null;
-    }
-    if (b.grade !== undefined) out.grade = int(b.grade, 'Grade');
-    if (b.campus_id !== undefined) out.campus_id = int(b.campus_id, 'Campus');
-    if (b.household_id !== undefined) out.household_id = int(b.household_id, 'Household');
-    if (b.status !== undefined) out.status = oneOf(b.status, STATUSES, 'guest');
-    if (b.household_role !== undefined) out.household_role = oneOf(b.household_role, ['adult', 'child'], 'adult');
-    return out;
   }
 
   // ---------------------------------------------------------------- list / search
@@ -134,7 +134,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   // The account linked to a person, as shown on their page. For an admin it says whether they may
   // change it (`editable`): a campus-limited admin can't touch their own, an admin's or another campus's.
   function accountFor(req, personId) {
-    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.person_id,
+    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.app_editor, u.person_id,
         u.password_hash IS NOT NULL has_password, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?`).get(personId);
     if (!u) return null;
     const { person_id: _p, person_campus_id: campusId, ...account } = u;
@@ -349,6 +349,52 @@ export default function peopleRoutes(db, { uploadDir }) {
         AND ${cf.sql} ORDER BY h.name LIMIT 30`).all(q, q, q, ...cf.args);
     const people = db.prepare("SELECT first_name, nickname, household_role FROM people WHERE household_id = ? AND archived = 0 ORDER BY household_role, birthdate");
     res.json(rows.map((h) => ({ ...h, people: people.all(h.id).map((m) => ({ name: m.nickname || m.first_name, role: m.household_role })) })));
+  });
+
+  // Empty families (admins, Settings → Checks): households nobody belongs to, left behind when people were
+  // moved between families. A household counts as empty only when NOTHING points at it: no person at all
+  // (archived people count), no pickup person, nothing in any other table with a foreign key to households
+  // (found from the schema, so a table added later is covered too), and no notes. Never automatic.
+  const q = (n) => `"${String(n).replace(/"/g, '""')}"`;
+  const emptyHouseholdWhere = (user) => {
+    const refs = [];
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all()) {
+      for (const fk of db.prepare(`PRAGMA foreign_key_list(${q(name)})`).all()) {
+        if (fk.table === 'households') refs.push(`NOT EXISTS (SELECT 1 FROM ${q(name)} x WHERE x.${q(fk.from)} = h.id)`);
+      }
+    }
+    // A campus-limited admin only reaches households at their own campuses; church-wide (no campus) ones
+    // are left for an admin who covers every campus.
+    const scope = user.campusIds ? (user.campusIds.length ? [`h.campus_id IN (${user.campusIds.map(() => '?').join(',')})`, user.campusIds] : ['0 = 1', []]) : ['1 = 1', []];
+    return { sql: [...refs, "trim(h.notes) = ''", scope[0]].join(' AND '), args: scope[1] };
+  };
+  const EMPTY_LIMIT = 500;
+
+  r.get('/households/empty', requireRole('admin'), (req, res) => {
+    const w = emptyHouseholdWhere(req.user);
+    const rows = db.prepare(`SELECT h.id, h.name, h.campus_id, c.short_name campus, h.created_at, h.updated_at
+      FROM households h LEFT JOIN campuses c ON c.id = h.campus_id WHERE ${w.sql} ORDER BY h.name, h.id LIMIT ${EMPTY_LIMIT}`).all(...w.args);
+    const total = db.prepare(`SELECT COUNT(*) n FROM households h WHERE ${w.sql}`).get(...w.args).n;
+    res.json({ count: total, households: rows });
+  });
+
+  r.post('/households/empty/remove', requireRole('admin'), (req, res) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || !ids.length) throw bad('Choose at least one family to remove.');
+    if (ids.length > EMPTY_LIMIT) throw bad(`Remove up to ${EMPTY_LIMIT} families at a time.`);
+    const unique = [...new Set(ids.map((i) => int(i, 'Family')))];
+    const w = emptyHouseholdWhere(req.user);
+    const removed = tx(db, () => {
+      const done = [];
+      // Re-checked one by one at the moment of removal, so anyone added since the list was shown keeps their family.
+      for (const id of unique) {
+        const info = db.prepare(`DELETE FROM households WHERE id = ? AND id IN (SELECT h.id FROM households h WHERE ${w.sql})`).run(id, ...w.args);
+        if (info.changes) done.push(id);
+      }
+      return done;
+    });
+    if (removed.length) audit(db, req, 'household.remove_empty', { ids: removed, count: removed.length });
+    res.json({ removed: removed.length, skipped: unique.length - removed.length });
   });
 
   r.post('/households', requireRole('staff'), (req, res) => {

@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 import Capacitor
 
 @UIApplicationMain
@@ -40,5 +41,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                           sessionRole: connectingSceneSession.role)
         config.delegateClass = SceneDelegate.self
         return config
+    }
+}
+
+// The web view's screen. Swiping in from the left edge goes back one step in the member app's history
+// (the app's screens are #/ addresses, so each one the person opens is a step they can go back to).
+// This class lives here, in a file the Xcode target already contains, so project.pbxproj needn't change.
+class MainViewController: CAPBridgeViewController {
+    override func capacitorDidLoad() {
+        webView?.allowsBackForwardNavigationGestures = true
     }
 }
