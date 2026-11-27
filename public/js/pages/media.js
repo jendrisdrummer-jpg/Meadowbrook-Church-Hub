@@ -18,9 +18,9 @@ const ago = (utc) => {
 export default async function media(el, tab) {
   const setup = await get('/media/setup');
   tab ||= setup.settings.channel_id || setup.mux.configured ? 'published' : 'setup';
-  setTitle('Media', html`<button class="btn" data-sync ${setup.settings.channel_id || setup.status.mux ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
-    ${setup.mux.configured ? html`<label class="btn">${icon('upload')} Upload videos<input type="file" accept="video/*" multiple data-bulk hidden></label>` : ''}
-    <button class="btn primary" data-add>${icon('plus')} Add a video</button>`);
+  setTitle('Media', html`<button class="btn primary" data-add>${icon('plus')} Add a video</button>
+    <button class="btn" data-sync ${setup.settings.channel_id || setup.status.mux ? '' : 'disabled'}>${icon('download')} Check for new videos</button>
+    ${setup.mux.configured ? html`<label class="btn">${icon('upload')} Upload videos<input type="file" accept="video/*" multiple data-bulk hidden></label>` : ''}`);
   const actions = document.querySelector('[data-actions]');
   actions.querySelector('[data-sync]').onclick = async (e) => {
     const b = e.currentTarget;
@@ -45,7 +45,7 @@ export default async function media(el, tab) {
   const bulk = actions.querySelector('[data-bulk]');
   if (bulk) bulk.onchange = () => { const files = [...bulk.files]; bulk.value = ''; if (files.length) bulkUpload(el, files, () => media(el, tab)); };
 
-  const head = (counts) => html`<div class="tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}${counts?.[k] ? html` <span class="muted">${counts[k]}</span>` : ''}</button>`)}</div>`;
+  const head = (counts) => html`<div class="tabs md-tabs">${TABS.map(([k, label]) => html`<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${label}${counts?.[k] ? html` <span class="muted">${counts[k]}</span>` : ''}</button>`)}</div>`;
   el.onclick = async (e) => {
     const t = e.target.closest('[data-tab]');
     if (t) go(t.dataset.tab === 'published' ? '/media' : `/media/${t.dataset.tab}`);
@@ -67,12 +67,12 @@ export default async function media(el, tab) {
     const shown = d.items.filter((m) => (!speaker || m.speaker === speaker) && (!series || m.series === series)
       && (!needle || [m.title, m.speaker, m.series, m.scripture, m.yt_title, ...m.topics].join(' ').toLowerCase().includes(needle)));
     mount(el.querySelector('[data-list]'), shown.length ? html`<div class="md-grid">${shown.map((m) => html`<a class="md-card" href="#/media/${m.id}">
-        <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}${m.source !== 'mux' ? html`<span class="md-src">YouTube player</span>` : m.upload_status ? html`<span class="md-src">Getting ready…</span>` : ''}</span>
+        <span class="md-pic" style="background-image:url('${m.picture}')">${m.length ? html`<span class="md-len">${hms(m.length)}</span>` : ''}${m.start || m.end ? html`<span class="md-trimmed">${icon('edit')} Trimmed</span>` : ''}${m.source === 'mux' ? html`<span class="md-src">${m.upload_status ? 'Getting ready…' : 'Mux'}</span>` : ''}</span>
         <span class="md-body"><b>${m.title}</b>
           <span class="muted small">${[fmtDate(m.day, { month: 'short', day: 'numeric', year: 'numeric' }), m.speaker].filter(Boolean).join(' · ')}</span>
           ${m.series ? html`<span class="pill">${m.series}</span>` : ''}
           ${tab === 'skipped' ? html`<span class="muted small">${m.skip_reason}</span>` : ''}</span></a>`)}</div>`
-      : html`<div class="card empty">${d.items.length ? 'Nothing matches.' : tab === 'skipped' ? 'Nothing skipped. Short clips and Shorts land here, in case you want one in the library.' : tab === 'hidden' ? 'Nothing hidden.' : 'No videos yet. They come in on their own after each service; Check for new videos looks now.'}</div>`);
+      : html`<div class="card empty">${d.items.length ? 'Nothing matches.' : tab === 'skipped' ? 'Nothing skipped. Short clips and Shorts land here, in case you want one in the library.' : tab === 'hidden' ? 'Nothing hidden.' : !d.settings.channel_id && !d.status.mux ? html`No videos yet. Connect your YouTube channel in <a href="#/media/setup">Setup</a> and every service comes in on its own, or use <b>Add a video</b> for a single YouTube link.` : 'No videos yet. They come in on their own after each service; Check for new videos looks now.'}</div>`);
   };
   mount(el, html`${head(d.counts)}
     ${live && live.public === false ? html`<div class="alert md-live"><span class="md-dot"></span><span class="grow"><b>Receiving a stream</b> outside service times (a rehearsal?). It isn’t in the app.</span><button class="btn small primary" data-show-live>Show it in the app</button></div>`
@@ -83,7 +83,7 @@ export default async function media(el, tab) {
       ${d.speakers.length ? html`<select data-speaker>${options(d.speakers.map((x) => ({ value: x, label: x })), '', { blank: 'Every speaker' })}</select>` : ''}
       ${d.series.length ? html`<select data-series>${options(d.series.map((x) => ({ value: x, label: x })), '', { blank: 'Every series' })}</select>` : ''}</div>
     <div data-list></div>
-    <p class="muted small">${d.status.mux ? 'Streaming through Mux: each service comes in a few minutes after the stream ends.' : html`Last checked YouTube ${ago(d.status.last_sync)}${d.settings.channel_title ? ` (${d.settings.channel_title})` : ''}. New services come in on their own within the hour.`}</p>`);
+    <p class="muted small">${d.status.mux ? 'Streaming through Mux: each service comes in a few minutes after the stream ends.' : d.status.last_sync ? html`Last checked YouTube ${ago(d.status.last_sync)}${d.settings.channel_title ? ` (${d.settings.channel_title})` : ''}. New services come in on their own within the hour.` : html`Not checked yet.${d.settings.channel_id ? ' New services come in on their own within the hour.' : ''}`}</p>`);
   el.querySelector('[data-q]').oninput = debounce((e) => { q = e.target.value; draw(); }, 150);
   const sp = el.querySelector('[data-speaker]');
   if (sp) sp.onchange = () => { speaker = sp.value; draw(); };
@@ -125,7 +125,8 @@ function streamingCard(x, s) {
 
 function drawSetup(el, setup, head) {
   const { settings: s, status, formats, api_key: hasKey } = setup;
-  mount(el, html`${head(null)}${streamingCard(setup.mux, s)}<div class="grid two md-setup">
+  const muxOn = setup.mux.configured;
+  mount(el, html`${head(null)}${muxOn ? streamingCard(setup.mux, s) : ''}<div class="grid two md-setup">
     <form class="card stack" data-form>
       <h2 style="margin:0">YouTube channel</h2>
       ${status.mux ? html`<p class="small" style="margin:0"><span class="pill">Older videos only</span> You’re streaming through Mux, so new services come from there. The channel is for bringing in past services.</p>` : ''}
@@ -157,7 +158,8 @@ function drawSetup(el, setup, head) {
             <li>In Render → your service → <b>Environment</b>, add <code>YOUTUBE_API_KEY</code> with that key.</li></ol></details>`}
       <h2 style="margin:8px 0 0">In the app</h2>
       <p class="small" style="margin:0">The <b>Watch</b> tab shows the library with your titles, pictures and trims: search, and filter by speaker, series and topic. When you’re live, the live service is at the top. Add a <b>Latest message</b> widget to the home screen in the App Builder.</p>
-    </div></div>`);
+    </div></div>
+    ${muxOn ? '' : html`<details class="md-own-host"><summary class="muted small">Own video hosting (Mux, paid) — not set up</summary>${streamingCard(setup.mux, s)}</details>`}`);
 
   const f = el.querySelector('[data-form]');
   f.onsubmit = async (e) => {
@@ -177,6 +179,7 @@ function drawSetup(el, setup, head) {
     } catch (err) { fail(err); b.disabled = false; }
   };
   const card = el.querySelector('.md-stream');
+  if (!muxOn) return;
   card.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
