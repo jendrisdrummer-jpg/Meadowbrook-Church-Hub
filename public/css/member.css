@@ -293,8 +293,13 @@ body.member .chat-back { text-decoration: none; display: inline-flex; align-item
 @media (pointer: coarse) {
   /* iPhones zoom the page when a field under 16px is focused. */
   body.member input, body.member select, body.member textarea { font-size: 1rem; }
+  body.member .give-amount input { font-size: inherit; }
   body.member .btn.small, body.member .icon-btn { min-height: 44px; }
   body.member .btn.small { min-width: 44px; }
+  /* Small text is still readable at arm's length. */
+  body.member .btn.small { font-size: 1rem; }
+  body.member .pill { font-size: 0.875rem; }
+  body.member .muted.small { font-size: 0.875rem; }
   .m-cal-card .row .btn.small { font-size: 1.375rem; line-height: 1; }
   .m-seg a, .task-filters .seg a { display: flex; align-items: center; justify-content: center; min-height: 44px; }
   .task-filters .chip.link, .m-chips .chip { min-height: 44px; display: inline-flex; align-items: center; }
@@ -303,7 +308,7 @@ body.member .chat-back { text-decoration: none; display: inline-flex; align-item
   body.member input:not([type=checkbox]):not([type=radio]):not([type=range]), body.member select { min-height: 44px; }
   body.member input[type=date], body.member input[type=time] { height: 44px; }
   body.member label.check, body.member .toggle-row { min-height: 44px; }
-  body.member input[type=radio], body.member input[type=checkbox] { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+  body.member input[type=radio], body.member input[type=checkbox]:not(.switch) { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
   body.member .icon-btn { min-width: 44px; }
   .m-cal .day { aspect-ratio: auto; min-height: 44px; }
   .m-list a, .m-list button { min-height: 48px; }

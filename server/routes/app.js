@@ -208,14 +208,22 @@ export default function appRoutes(db, { uploadDir, now = () => new Date() } = {}
     const first = required(b.first_name, 'First name').slice(0, 60);
     const email = str(b.email, 200).toLowerCase();
     const phone = str(b.phone, 40);
-    if (!email && !phone) throw bad('Please leave an email or phone number so we can reach you.');
+    // A phone number is required (email stays optional); 7 digits is the shortest real local number.
+    if (!phone) throw bad('Please add a phone number so we can reach you.');
+    if (phone.replace(/\D/g, '').length < 7) throw bad('That phone number doesn’t look right. For example: 555-123-4567.');
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw bad('That email doesn’t look right.');
-    const campusId = int(b.campus_id);
+    // The campus must be one of ours. With a single campus the form has no picker, so a missing one means that campus.
+    const campuses = db.prepare('SELECT id FROM campuses ORDER BY sort, id LIMIT 2').all();
+    let campusId = b.campus_id === '' || b.campus_id == null ? null : Number(b.campus_id);
+    if (campusId != null && !Number.isInteger(campusId)) campusId = -1; // junk counts as unknown
+    if (campusId == null && campuses.length === 1) campusId = campuses[0].id;
+    if (campuses.length && campusId == null) throw bad('Please choose your campus.');
+    if (campusId != null && !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId)) throw bad('That campus isn’t available. Please choose one from the list.');
     const allowed = appConfig(db).connect.interests;
     const interests = (Array.isArray(b.interests) ? b.interests : []).filter((x) => allowed.includes(x));
     const info = db.prepare(`INSERT INTO connect_cards (campus_id, first_name, last_name, email, phone, first_time, interests, message)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      campusId && db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(campusId) ? campusId : null,
+      campusId ?? null,
       first, str(b.last_name, 60), email, phone, b.first_time ? 1 : 0, JSON.stringify(interests), str(b.message, 2000));
     // Staff (at that campus) hear about it in their inbox.
     const staff = db.prepare("SELECT id, campus_ids FROM users WHERE active = 1 AND role IN ('staff', 'admin')").all()

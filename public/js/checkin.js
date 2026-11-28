@@ -231,7 +231,7 @@ const saveToday = (list) => store.set(KEY.today(state.station.campusId, day()), 
 function drawSearch() {
   mount($main, html`<input class="k-search" type="search" aria-label="Last 4 of phone, or last name" data-q placeholder="Last 4 of phone, or last name" autocomplete="off" inputmode="search">
     <p class="k-hint">Type the last four digits of a parent’s phone number, or the family’s last name.</p>
-    <div class="k-results" data-results></div>
+    <div class="k-results" data-results aria-live="polite"></div>
     <p class="k-hint" style="margin-top:28px">First time here? <button class="btn small" data-new-family>Add a new family</button></p>`);
   const q = $main.querySelector('[data-q]');
   q.focus();

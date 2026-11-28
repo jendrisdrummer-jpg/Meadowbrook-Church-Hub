@@ -630,7 +630,13 @@ export async function openChat(el, { id = null, split = false, setTitle, onUnrea
               if (people.length) { await post(`/chats/${c.id}/members`, { person_ids: people.map((p) => p.id) }); toast('Added.'); }
               return reloadChat();
             }
-            if (b.dataset.remove) { await del(`/chats/${c.id}/members/${b.dataset.remove}`); close(); return reloadChat(); }
+            if (b.dataset.remove) {
+              const who = c.members.find((x) => String(x.person_id) === b.dataset.remove);
+              await del(`/chats/${c.id}/members/${b.dataset.remove}`);
+              close();
+              toastAction(`${who ? displayName(who) : 'They'} was removed.`, 'Undo', () => post(`/chats/${c.id}/members`, { person_ids: [Number(b.dataset.remove)] }).then(reloadChat).catch(fail));
+              return reloadChat();
+            }
             if (b.matches('[data-leave]')) {
               close();
               if (!(await confirm(`Leave ${c.name}?`, 'You won’t see its messages any more. Someone who runs the group can add you back.', 'Leave'))) return;

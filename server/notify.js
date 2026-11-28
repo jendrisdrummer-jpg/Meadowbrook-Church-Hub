@@ -223,9 +223,9 @@ export function notifyUnscheduled(db, a) {
   if (!a?.sent_at || a.status === 'declined') return;
   const [u] = usersOf(db, [a.person_id]);
   const day = when(a.starts_at).split(' at ')[0];
-  if (u) notify(db, [u.id], { kind: 'scheduled', title: `No longer needed ${day}`, body: `You’ve been taken off ${a.position} at ${when(a.starts_at).split(' at ')[1]}. Thank you!`, url: '/#/my', app_url: '/app/#/serve' });
+  if (u) notify(db, [u.id], { kind: 'scheduled', title: `Schedule change: ${day}`, body: `We’ve found cover for ${day}. Thank you for being willing.`, url: '/#/my', app_url: '/app/#/serve' });
   const emails = emailTargets(db, [a.person_id]);
-  if (emails.has(a.person_id)) mail(db, emails.get(a.person_id), `Schedule change: ${day}`, [`Hi ${a.nickname || a.first_name},`, `You’re no longer needed for ${a.position} on ${when(a.starts_at)} at ${a.campus}. Thank you for being willing to serve!`]);
+  if (emails.has(a.person_id)) mail(db, emails.get(a.person_id), `Schedule change: ${day}`, [`Hi ${a.nickname || a.first_name},`, `We’ve found cover for ${day}. Thank you for being willing.`]);
 }
 
 export const assignmentRow = (db, id) => assignmentRows(db, [id])[0];

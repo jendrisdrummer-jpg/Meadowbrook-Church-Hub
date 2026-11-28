@@ -90,7 +90,7 @@ Merging two people moves their `study_people`, `study_completions` (and the teac
 | `messages` (+ `message_files`, `message_reactions`) | Messages with replies, mentions, files, reactions, task and call cards. **Private.** Indexes (migration 43): `messages_reply` on `reply_to` (only rows that are replies) and `message_files_message` on `message_id`, so deleting a group chat doesn’t scan every message and file. |
 | `calls` → chats | Video calls/meetings (Daily rooms). |
 | `tasks`, `task_items`, `task_comments` | Personal, team and chat tasks with checklists, comments, repeats. |
-| `notifications` → users | Each account's inbox. |
+| `notifications` → users | Each account's inbox. The daily job (`purgeStale`) deletes ones **read** more than 90 days ago (by `created_at`, the same text format); unread ones are never deleted. |
 | `push_subscriptions` → users, `guest_push` | Devices that allowed push (accounts and guests). Index `push_subscriptions_user` on `user_id` (migration 43). |
 | `announcements` | Congregation announcements (audience, schedule, reach). |
 | `connect_cards` → people | Cards guests fill in from the app. |
@@ -119,6 +119,16 @@ Merging two people moves their `study_people`, `study_completions` (and the teac
 | Table | Purpose |
 |---|---|
 | `backups`, `backup_files` | Nightly encrypted backup runs and which uploaded files are in Drive. |
+
+### Merging people
+
+`POST /people/:id/merge` runs in one transaction and moves the duplicate's rows to the kept person: assignments, check-ins, blockouts,
+plan items, team, group and serving-campus membership, Bible-study rows, `users.person_id`, **and** `gifts`, `recurring_gifts`,
+`tasks.assignee_id`, `connect_cards`, `form_responses`, `event_signups`, `study_pending_people` and `template_items`. Rows keyed by
+person are merged: `chat_members` and `profile_values` keep the kept person's row when both have one (the duplicate's leftovers are
+deleted); `giving_customers` (person is the key) moves only if the kept person has none, otherwise it stays on the archived duplicate
+and the `person.merge` audit line says so. The duplicate's non-empty notes are appended to the kept person's notes as
+“From merged record: …”. `checkin_events` is append-only (plain ids) and is not changed. Any new table that references `people(id)` must be added to this list.
 
 ## Append-only tables
 

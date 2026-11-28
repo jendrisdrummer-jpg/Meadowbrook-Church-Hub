@@ -1,10 +1,10 @@
 // People directory: search, filter by status, add someone.
-import { get, post, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast, dialog, options, familyName } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast, dialog, options, familyName, STATUS_LABEL } from '../lib.js';
 import { state, can, setTitle, go, campusName } from '../app.js';
 import { personDialog } from './person.js';
 
 const STATUS = { member: 'good', regular: 'info', guest: 'warn', inactive: '' };
-const LABEL = { member: 'Member', regular: 'Regular', guest: 'Guest', inactive: 'Inactive' };
+const LABEL = STATUS_LABEL;
 // Where the list was when someone opened a person, so coming back lands in the same place.
 const POS = 'mb.people.pos';
 

@@ -186,7 +186,8 @@ email is in `MB_ADMIN_EMAILS` (its next sign-in would make it an admin again).
 **Team-leader rule.** When a campus-limited actor (an admin linking an account, staff or a leader changing a team, or a merge) makes someone an automatic leader, the account's campus list ends up inside the actor's campuses: the person's campus if it's one of theirs, otherwise their campuses, and an existing list that reaches further is narrowed the same way. An unrestricted actor keeps the older behaviour. The narrowing is audited (`user.leader_auto` records the campus list before and after) and stays if they later stop leading. Open questions for the owner: (1) accept that narrowing, or skip such promotions instead; (2) accounts holding Finance, Announcements or Edit the app are out of reach for campus-limited admins even inside their campuses (safe default); (3) campus-limited admins can still send announcements to the whole church (existing behaviour; their own power, not a grant). Also: campus-limited staff can make someone from another campus a leader of one of their own teams (teams can be shared across campuses); the access granted stays inside the staff member's campuses.
 
 **Merging people** moves the duplicate's account to the kept person, so a limited admin can't merge
-when that account is out of reach.
+when that account is out of reach. The merge also moves the duplicate's gifts and recurring gifts to the kept person; it stays admin-only and
+doesn't show any giving amounts, so it doesn't need the Finance flag.
 
 **Church-wide admin routes** are for admins with no campus limit (`requireAllCampuses`):
 

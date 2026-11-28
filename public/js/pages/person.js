@@ -1,5 +1,5 @@
 // One person's profile: details, household, teams, schedule and check-in history.
-import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate, familyName } from '../lib.js';
+import { get, post, patch, del, api, html, mount, icon, avatar, displayName, dialog, formData, exclusiveCampusBoxes, options, toast, fail, fmtDate, fmtTime, confirm, pickPerson, pickFamily, shrinkImage, fmtUtcDate, familyName, STATUS_LABEL } from '../lib.js';
 import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { gradeLabel, ageLabel } from '../checkin-rules.js';
 import { drawProfile } from '../profile.js';
@@ -42,7 +42,7 @@ export default async function person(el, id) {
             <label style="cursor:${staff ? 'pointer' : 'default'}" title="${staff ? 'Change photo' : ''}">${avatar(p, 'lg')}
               ${staff ? html`<input type="file" accept="image/*" data-photo hidden>` : ''}</label>
             <div class="stack" style="gap:4px">
-              <div class="row"><span class="pill">${p.status}</span>${p.household_role === 'child' ? html`<span class="pill">Child</span>` : ''}
+              <div class="row"><span class="pill">${STATUS_LABEL[p.status] || p.status}</span>${p.household_role === 'child' ? html`<span class="pill">Child</span>` : ''}
                 ${p.campus_id ? html`<span class="campus-tag">${campusName(p.campus_id)}</span>` : ''}</div>
               ${p.email ? html`<a href="mailto:${p.email}">${p.email}</a>` : ''}
               ${p.phone ? html`<a href="tel:${p.phone}">${p.phone}</a>` : ''}
@@ -226,7 +226,11 @@ export default async function person(el, id) {
         });
         if (ok) reload();
       }
-      if (b.dataset.delPickup) { await del(`/pickups/${b.dataset.delPickup}`); reload(); }
+      if (b.dataset.delPickup) {
+        if (!await confirm('Remove this pickup person?', 'They will no longer be listed as allowed to pick up this family’s kids.', 'Remove')) return;
+        await del(`/pickups/${b.dataset.delPickup}`);
+        reload();
+      }
     } catch (err) { fail(err); }
   };
 }
@@ -324,10 +328,18 @@ export async function personDialog(p = {}) {
         if (e.status !== 409) throw e;
         const dup = e.data.duplicate;
         const goThere = await dialog({
-          title: 'Already in the directory?', submit: 'Add anyway', cancel: 'Open existing',
+          title: 'Already in the directory?', submit: 'Add anyway', cancel: 'Cancel',
           body: html`<p>${displayName(dup)} is already in the directory${dup.email ? ` (${dup.email})` : ''}. Is this the same person?</p>`,
+          // Escape, the X and Cancel all mean "stay here"; only this button leaves the form.
+          onOpen: (dd, close) => {
+            const open = document.createElement('button');
+            open.type = 'button'; open.className = 'btn'; open.textContent = 'Open existing';
+            open.addEventListener('click', () => close('open'));
+            dd.querySelector('.dlg-foot button[type=submit]').before(open);
+          },
         });
-        if (goThere === undefined) { go(`/people/${dup.id}`); return true; }
+        if (goThere === undefined) return false;
+        if (goThere === 'open') { go(`/people/${dup.id}`); return true; }
         saved = await create({ force: true });
       }
       if (!wantsAnother || editing) { toast(editing ? 'Saved.' : 'Added.'); return true; }

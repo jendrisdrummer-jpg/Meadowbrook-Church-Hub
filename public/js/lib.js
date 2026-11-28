@@ -166,17 +166,35 @@ export function parseLength(s) {
   const m = s.match(/^(\d+)(?::(\d{1,2}))?$/);
   return m ? Number(m[1]) * 60 + Number(m[2] || 0) : 0;
 }
+// Words for a person's status, everywhere it is shown.
+export const STATUS_LABEL = { member: 'Member', regular: 'Regular', guest: 'Guest', inactive: 'Inactive' };
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // ---------------------------------------------------------------- toasts
+// The live region exists from start-up (empty), so screen readers are already listening when the
+// first message arrives.
+function toastBox() {
+  let box = document.querySelector('.toasts');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'toasts';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    document.body.append(box);
+  }
+  return box;
+}
+if (typeof document !== 'undefined') {
+  if (document.body) toastBox();
+  else document.addEventListener('DOMContentLoaded', toastBox);
+}
 export function toast(msg, kind = '') {
-  let box = $('.toasts');
-  if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.append(box); }
+  const box = toastBox();
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
   t.textContent = msg;
   box.append(t);
-  setTimeout(() => t.remove(), kind === 'bad' ? 6000 : 3000);
+  setTimeout(() => t.remove(), kind === 'bad' ? 10000 : 3000);
 }
 export const fail = (e) => toast(e.message || String(e), 'bad');
 
@@ -453,8 +471,7 @@ export function pickPeople(title = 'Choose people', { exclude = new Set(), submi
 
 // A toast with one action button (e.g. Undo). The action runs at most once.
 export function toastAction(msg, label, action, ms = 6000) {
-  let box = $('.toasts');
-  if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.append(box); }
+  const box = toastBox();
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg + ' ';

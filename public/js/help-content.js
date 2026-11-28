@@ -127,7 +127,6 @@ const SECTIONS = [
       html`If you need to use it, ask the church office to give your account access.`,
       html`It’s ${b('Kids Check-in')} in the menu. Without access, it tells you to ask the office.`,
     ],
-    note: 'Step-by-step help for check-in is coming separately.',
   },
   {
     id: 'account', title: 'Getting help', min: 'volunteer',

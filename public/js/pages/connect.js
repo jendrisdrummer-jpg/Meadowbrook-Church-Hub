@@ -7,7 +7,7 @@ export default async function connect(el) {
   // Connect cards, or people who created their own account in the app.
   let tab = hashQuery().get('tab') === 'signups' ? 'signups' : 'cards';
   setTitle('Connect cards', html`<div class="seg"><button data-tab="cards" class="${tab === 'cards' ? 'on' : ''}">Connect cards</button><button data-tab="signups" class="${tab === 'signups' ? 'on' : ''}">App sign-ups</button></div>
-    <div class="seg"><button data-status="open" class="on">To follow up</button><button data-status="done">Done</button></div>`);
+    <div class="seg"><button data-status="open" class="on">To follow up</button><button data-status="done">Followed up</button></div>`);
   const top = document.querySelector('[data-actions]');
   top.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => {
     status = b.dataset.status;
@@ -34,11 +34,11 @@ export default async function connect(el) {
           ${c.person_id ? html`<a class="btn small ghost" href="#/people/${c.person_id}">${icon('user')} ${c.person_first} ${c.person_last}</a>`
             : html`<button class="btn small" data-add="${c.id}">${icon('plus')} Add to People</button><button class="btn small ghost" data-link="${c.id}">Already in People…</button>`}
           <span class="spacer"></span>
-          ${c.done_at ? html`<span class="muted small">Done${c.done_by_name ? ` by ${c.done_by_name}` : ''}</span><button class="btn small ghost" data-reopen="${c.id}">Reopen</button>`
+          ${c.done_at ? html`<span class="muted small">Followed up${c.done_by_name ? ` by ${c.done_by_name}` : ''}</span><button class="btn small ghost" data-reopen="${c.id}">Reopen</button>`
             : html`<button class="btn small primary" data-done="${c.id}">${icon('check')} Followed up</button>`}
           ${can('staff') ? html`<button class="icon-btn danger" data-del="${c.id}" title="Delete">${icon('trash')}</button>` : ''}
         </div></div>`)}</div>`
-      : html`<div class="card empty">${status === 'open' ? html`No connect cards waiting. Guests fill them in from the church app’s connect card, which opens from a button or link on the home screen. You can add or change it in App Builder.` : 'Nothing marked done yet.'}</div>`);
+      : html`<div class="card empty">${status === 'open' ? html`No connect cards waiting. Guests fill them in from the church app’s connect card, which opens from a button or link on the home screen. You can add or change it in App Builder.` : 'Nothing marked followed up yet.'}</div>`);
 
     el.onclick = async (e) => {
       const b = e.target.closest('button');
@@ -80,8 +80,8 @@ export default async function connect(el) {
       ${list.length ? html`<div class="card"><table class="list"><tbody>${list.map((p) => html`<tr>
         <td><a href="#/people/${p.id}"><b>${p.first_name} ${p.last_name}</b></a><div class="muted small">${p.email}${p.phone ? ` · ${p.phone}` : ''}</div></td>
         <td class="muted small nowrap">Joined ${fmtDate(p.signed_up_at.slice(0, 10))}${p.campus_short ? ` · ${p.campus_short}` : ''}</td>
-        <td style="text-align:right" class="nowrap">${p.welcomed_at ? html`<button class="btn small ghost" data-unwelcome="${p.id}">Reopen</button>` : html`<button class="btn small primary" data-welcome="${p.id}">${icon('check')} Welcomed</button>`}</td></tr>`)}</tbody></table></div>`
-        : html`<div class="card empty">${status === 'open' ? 'No new app sign-ups to welcome.' : 'Nothing marked welcomed yet.'}</div>`}`);
+        <td style="text-align:right" class="nowrap">${p.welcomed_at ? html`<button class="btn small ghost" data-unwelcome="${p.id}">Reopen</button>` : html`<button class="btn small primary" data-welcome="${p.id}">${icon('check')} Followed up</button>`}</td></tr>`)}</tbody></table></div>`
+        : html`<div class="card empty">${status === 'open' ? 'No new app sign-ups to follow up with.' : 'Nothing marked followed up yet.'}</div>`}`);
     el.onclick = async (e) => {
       const b = e.target.closest('button');
       if (!b) return;

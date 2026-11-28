@@ -3,8 +3,9 @@
 **Who it's for:** the Bible studies coordinator (an account an admin has given the **Bible studies
 coordinator** switch), and staff. Works on a computer, a tablet or a phone. Everything saves as you go.
 
-Bible studies are personal: mostly one person with a teacher, sometimes a few people. Nobody else
-sees who is studying with whom, and there are no reminders for missed weeks.
+Bible studies are personal: mostly one person with a teacher, sometimes a few people. Only the
+coordinator, the teacher, and church staff and admins can see who is studying. There are no reminders
+for missed weeks.
 
 ## Open the page
 

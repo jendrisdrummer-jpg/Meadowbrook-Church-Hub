@@ -1,7 +1,7 @@
 // The app's Events: a month calendar with everything coming up (events, and service times if you
 // like), and each event's page with its sign-up form. Paid sign-ups use Stripe's card form inside
 // the page. ctx: { app, setTitle, signInHref }
-import { get, post, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, scrollBehavior, fieldError, clearFieldErrors, formError } from '../lib.js';
+import { confirm, get, post, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, scrollBehavior, fieldError, clearFieldErrors, formError } from '../lib.js';
 import { loadStripe } from '../give.js';
 
 const money = (c) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -134,7 +134,7 @@ export async function eventPage(el, id, q, ctx) {
 
   const mapLink = e.address ? `https://maps.google.com/?q=${encodeURIComponent(e.address)}` : '';
   mount(el, html`${e.image ? html`<img src="${e.image}" alt="" class="ev-hero">` : ''}
-    <div class="card ev-head"><h2>${e.title}</h2>
+    <div class="card ev-head"><h2 tabindex="-1">${e.title}</h2>
       <div class="ev-fact">${icon('clock')}<span>${whenText(e, { long: true })}</span></div>
       ${e.location || e.address ? html`<div class="ev-fact">${icon('map')}<span>${e.location}${e.location && e.address ? html`<br>` : ''}${mapLink ? html`<a href="${mapLink}" target="_blank" rel="noopener">${e.address}</a>` : ''}</span></div>` : ''}
       ${e.campus_name ? html`<div class="ev-fact">${icon('home')}<span>${e.campus_name}</span></div>` : ''}
@@ -143,13 +143,14 @@ export async function eventPage(el, id, q, ctx) {
     <div data-signup></div>`);
   const box = el.querySelector('[data-signup]');
 
-  function drawSignedUp(s) {
+  function drawSignedUp(s, focus = false) {
     const pending = s.status === 'pending';
     mount(box, html`<div class="card ev-done">${icon(pending ? 'clock' : 'check')}
-      <h2>${pending ? 'Finishing your payment…' : 'You’re signed up!'}</h2>
+      <h2 tabindex="-1">${pending ? 'Finishing your payment…' : 'You’re signed up!'}</h2>
       <p class="muted" style="margin:0">${s.count} ${s.count === 1 ? 'person' : 'people'}${s.amount_cents ? ` · ${money(s.amount_cents)}${pending ? '' : ' paid'}` : ''}${s.email ? ` · confirmation sent to ${s.email}` : ''}</p>
       ${!pending && !s.amount_cents ? html`<button class="btn small ghost danger" data-cancel>Can’t make it? Cancel</button>` : ''}
       ${!pending && s.amount_cents ? html`<p class="muted small" style="margin:0">Need to cancel? Contact the church office for a refund.</p>` : ''}</div>`);
+    if (focus) box.querySelector('h2')?.focus({ preventScroll: true });
     if (pending) setTimeout(async () => {
       const again = await get(`/event-signups/${s.id}?key=${ref.key}`).catch(() => null);
       if (again && el.isConnected) drawSignedUp(again);
@@ -217,7 +218,7 @@ export async function eventPage(el, id, q, ctx) {
         ref = { id: res.id, key: res.key };
         if (!res.client_secret) {
           toast('You’re signed up!');
-          return drawSignedUp(await get(`/event-signups/${res.id}?key=${res.key}`));
+          return drawSignedUp(await get(`/event-signups/${res.id}?key=${res.key}`), true);
         }
         const stripe = await loadStripe(e.publishable_key);
         form.classList.add('hidden');
@@ -225,7 +226,7 @@ export async function eventPage(el, id, q, ctx) {
         mount(pay, html`<div class="give-checkout" data-mount></div>`);
         const checkout = await stripe.initEmbeddedCheckout({
           fetchClientSecret: async () => res.client_secret,
-          onComplete: async () => { checkout.destroy(); window.scrollTo(0, 0); drawSignedUp(await get(`/event-signups/${res.id}?key=${res.key}`)); },
+          onComplete: async () => { checkout.destroy(); window.scrollTo(0, 0); drawSignedUp(await get(`/event-signups/${res.id}?key=${res.key}`), true); },
         });
         checkout.mount(pay.querySelector('[data-mount]'));
         pay.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
@@ -241,10 +242,12 @@ export async function eventPage(el, id, q, ctx) {
   box.addEventListener('click', async (ev) => {
     if (!ev.target.closest('[data-cancel]')) return;
     try {
+      if (!await confirm('Cancel your sign-up?', 'We’ll let the organizers know you can’t make it. You can sign up again if there’s still room.', 'Yes, cancel', { danger: true })) return;
       await post(`/event-signups/${ref.id}/cancel?key=${ref.key}`, {});
       forgetSignup(e.id);
       toast('Canceled. Thanks for letting us know.');
-      eventPage(el, id, new URLSearchParams(), ctx);
+      await eventPage(el, id, new URLSearchParams(), ctx);
+      el.querySelector('.ev-head h2')?.focus({ preventScroll: true });
     } catch (err) { fail(err); }
   });
   if (signup) drawSignedUp(signup); else drawForm();
