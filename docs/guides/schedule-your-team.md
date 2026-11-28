@@ -28,7 +28,9 @@ phone. **Nobody hears anything until you tap Send requests**, so you can take yo
 2. Pick your team in the **Team** box, or leave **All teams**.
 3. Tap **Schedule someone** next to an open position and pick a person. Labels warn you if someone
    is away, already serving at that time, or doesn't usually serve at this campus; you'll be asked
-   before you **Schedule anyway**.
+   before you **Schedule anyway**. If the message says "{Campus} isn't one of {name}'s serving
+   campuses", staff and admins also see **Add {Campus} for them**: it adds that campus to the
+   person's serving campuses and schedules them in one tap. Leaders see **Schedule anyway** only.
 4. Short on time? **Fill open spots** beside a team fills that team's gaps.
 5. People you add show **Not asked yet**. Tap **Send N requests**, check the list, then send.
 
@@ -71,6 +73,8 @@ email and from **My schedule**.
   team**, or **Someone not on the team…**, or tick people for the position on the team's page.
 - **"No one available to fill the open spots":** check who's on the team, who's away, and who
   serves at this campus.
-- **Someone serves at both campuses but isn't offered:** ask an admin to add their serving campuses.
+- **Someone serves at both campuses but isn't offered:** staff and admins can tap **Add {Campus} for
+  them** when you schedule them, or ask the office. To set a whole group at once, the office opens
+  **People**, taps **Select**, ticks the people and chooses **Set serving campuses…**.
 - **The month grid lets you place people on Sundays that have already passed.** Check the date at
   the top of the column before you place someone.

@@ -152,7 +152,7 @@ test('new guests: new family, child into a family on the roll, name-only duplica
   // duplicate: name only
   const dup = await api('att', 'POST', `/services/${S.recent}/roll/guest`, { first_name: 'MIA', last_name: 'reed' });
   assert.equal(dup.status, 409);
-  assert.deepEqual(Object.keys(dup.data.duplicate).sort(), ['first_name', 'id', 'last_name']);
+  assert.deepEqual(Object.keys(dup.data.duplicate).sort(), ['campus', 'first_name', 'id', 'last_name']);
   assert.ok(!JSON.stringify(dup.data).includes('555-0100') && !JSON.stringify(dup.data).includes('@example.com'));
   assert.equal((await api('att', 'POST', `/services/${S.recent}/roll/guest`, { first_name: 'Mia', last_name: 'Reed', force: true })).status, 201);
 

@@ -1,6 +1,6 @@
 // People directory: search, filter by status, add someone.
 import { get, post, patch, html, raw, mount, icon, avatar, displayName, debounce, fail, toast, dialog, options, familyName, STATUS_LABEL } from '../lib.js';
-import { state, can, setTitle, go, campusName } from '../app.js';
+import { state, can, setTitle, go, campusName, visibleCampuses } from '../app.js';
 import { personDialog } from './person.js';
 
 const STATUS = { member: 'good', regular: 'info', guest: 'warn', inactive: '' };
@@ -38,6 +38,7 @@ export default async function people(el) {
     ${can('staff') ? html`<button class="btn small select-fab" data-select-mode data-fab>${icon('check')} Select</button>` : ''}
     <div class="bulk-bar hidden" data-bulk><b data-bulk-count></b><span class="spacer"></span>
       <button class="btn small" data-bulk-status>Set status</button><button class="btn small" data-bulk-family>${icon('people')} Put in one family</button>
+      <button class="btn small" data-bulk-serving>Set serving campuses…</button>
       <button class="btn small ghost" data-bulk-cancel>Done</button></div>
     <div class="row end" style="margin-top:10px"><button class="btn small hidden" data-more>Show more</button></div>
   </div>`);
@@ -130,7 +131,7 @@ export default async function people(el) {
     const bar = el.querySelector('[data-bulk]');
     bar.classList.toggle('hidden', !selecting);
     el.querySelector('[data-bulk-count]').textContent = picked.size ? `${picked.size} selected` : 'Tap people to select them';
-    bar.querySelectorAll('[data-bulk-status], [data-bulk-family]').forEach((b) => { b.disabled = !picked.size; });
+    bar.querySelectorAll('[data-bulk-status], [data-bulk-family], [data-bulk-serving]').forEach((b) => { b.disabled = !picked.size; });
     el.querySelectorAll('[data-select-mode]').forEach((m) => { m.classList.toggle('on', selecting); m.setAttribute('aria-pressed', selecting); });
     // The floating Select button, for starting from anywhere down the list.
     el.querySelector('[data-fab]')?.classList.toggle('hidden', selecting);
@@ -159,6 +160,28 @@ export default async function people(el) {
     if (!ok) return;
     for (const p of people) if (p.status !== status) await patch(`/people/${p.id}`, { status });
     return finish(`${people.length} ${people.length === 1 ? 'person is' : 'people are'} now ${status === 'regular' ? 'regular attenders' : LABEL[status].toLowerCase() + (status === 'inactive' ? '' : 's')}.`, people.map((p) => p.id), { status });
+  }
+
+  // The same serving campuses for everyone picked (replacing what each has now). Campuses a person
+  // serves at that this account can't reach stay as they are; the server checks every person and campus.
+  async function bulkServing() {
+    const people = chosen();
+    const camps = visibleCampuses();
+    let ids;
+    const ok = await dialog({
+      title: `Set serving campuses for ${people.length} ${people.length === 1 ? 'person' : 'people'}`, submit: 'Save',
+      body: html`<p class="muted small" style="margin-top:0">Pick the campuses these people can be scheduled at. This replaces what each person has now. Leave all unticked for each person’s home campus only.</p>
+        ${camps.map((c) => html`<label class="check"><input type="checkbox" data-serve="${c.id}"> ${c.name}</label>`)}
+        <p class="muted small">${people.map(displayName).join(', ')}</p>`,
+      onSubmit: async (f) => {
+        const chosenIds = [...f.querySelectorAll('[data-serve]:checked')].map((c) => Number(c.dataset.serve));
+        await post('/people/bulk/serving-campuses', { person_ids: people.map((p) => p.id), campus_ids: chosenIds });
+        ids = chosenIds;
+      },
+    });
+    if (!ok) return;
+    const names = ids.map(campusName).join(' and ');
+    return finish(`${people.length} ${people.length === 1 ? 'person' : 'people'} now ${ids.length ? `serve at ${names}` : 'serve at their home campus only'}.`, people.map((p) => p.id), {});
   }
 
   // Everyone picked shares one family: one they're already in, or a new one. Before anything
@@ -223,6 +246,7 @@ export default async function people(el) {
     if (e.target.closest('[data-bulk-cancel]')) { selecting = false; picked.clear(); return keepPlace(redraw); }
     if (e.target.closest('[data-bulk-status]')) return bulkStatus().catch(fail);
     if (e.target.closest('[data-bulk-family]')) return bulkFamily().catch(fail);
+    if (e.target.closest('[data-bulk-serving]')) return bulkServing().catch(fail);
     const nameLink = e.target.closest('.prow-link');
     if (nameLink && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); return open(nameLink.closest('.prow').dataset.id); }
     if (e.target.closest('a, select')) return; // the call link, the status picker
