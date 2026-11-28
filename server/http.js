@@ -88,3 +88,12 @@ export function localNow(timeZone, at = new Date()) {
   );
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
 }
+
+// The campus's own clock as { date, time, stamp } where stamp is YYYY-MM-DDTHH:MM, the same shape as
+// services.starts_at (local time), so "has it started?" is a plain string comparison.
+export function campusNow(db, campusId, at = new Date()) {
+  const tz = db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(campusId)?.timezone || 'UTC';
+  let n;
+  try { n = localNow(tz, at); } catch { n = localNow('UTC', at); }
+  return { ...n, stamp: `${n.date}T${n.time}` };
+}

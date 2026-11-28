@@ -232,7 +232,7 @@ test('connect cards: 21 cards from 21 /64s of one /48 are accepted; one /64 is r
   await new Promise((r) => server.once('listening', r));
   const send = (ip, n) => fetch(`http://127.0.0.1:${server.address().port}/api/public/connect`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1', 'x-forwarded-for': ip },
-    body: JSON.stringify({ first_name: `Guest${n}`, email: `guest${n}@example.com` }),
+    body: JSON.stringify({ first_name: `Guest${n}`, email: `guest${n}@example.com`, phone: '555-123-4567' }),
   });
   try {
     for (let i = 1; i <= 21; i++) assert.equal((await send(`2001:db8:5:${i.toString(16)}::1`, i)).status, 201, `card ${i}`);

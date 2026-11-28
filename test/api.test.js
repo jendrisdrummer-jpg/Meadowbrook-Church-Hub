@@ -477,7 +477,7 @@ test('member app: public config, App Builder rules, connect cards', async () => 
 
   await api('admin', 'POST', '/notifications/read', {});
   assert.equal((await api(null, 'POST', '/public/connect', { first_name: 'Gus' })).status, 400);
-  const sent = await api(null, 'POST', '/public/connect', { first_name: 'Gus', last_name: 'Guest', email: 'gus@example.com', campus_id: 1, first_time: true, interests: ['Baptism', 'Not a real choice'], message: 'Pray for my mom' });
+  const sent = await api(null, 'POST', '/public/connect', { first_name: 'Gus', last_name: 'Guest', email: 'gus@example.com', phone: '555-123-4567', campus_id: 1, first_time: true, interests: ['Baptism', 'Not a real choice'], message: 'Pray for my mom' });
   assert.equal(sent.status, 201);
   const cards = (await api('admin', 'GET', '/connect-cards')).data;
   const card = cards.find((c) => c.id === sent.data.id);
@@ -854,7 +854,7 @@ test('kids check-in is for staff, stations and authorised accounts; card message
 
   // Connect cards: leaders see who and what they ticked, never the message; staff see it.
   const sent = await fetch(base + '/api/public/connect', { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' },
-    body: JSON.stringify({ first_name: 'Casey', email: 'casey@visit.org', campus_id: 1, message: 'PRAYER-CANARY please pray for my family' }) });
+    body: JSON.stringify({ first_name: 'Casey', email: 'casey@visit.org', phone: '555-123-4567', campus_id: 1, message: 'PRAYER-CANARY please pray for my family' }) });
   assert.equal(sent.status, 201);
   const forLeader = (await api('gwen', 'GET', '/connect-cards')).data.find((c) => c.first_name === 'Casey');
   assert.equal(forLeader.has_message, true);

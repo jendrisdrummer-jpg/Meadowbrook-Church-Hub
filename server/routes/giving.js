@@ -236,7 +236,8 @@ export default function givingRoutes(db) {
     });
   });
 
-  function giftList(req) {
+  // The on-screen list stops at 2,000 rows; the CSV passes limit = -1 (no limit) so it holds every gift in the range.
+  function giftList(req, limit = 2000) {
     const { from, to } = range(req.query);
     const args = [from, to];
     let extra = '';
@@ -244,14 +245,15 @@ export default function givingRoutes(db) {
     if (req.query.status) { extra += ' AND g.status = ?'; args.push(String(req.query.status)); }
     const q = str(req.query.q, 100).toLowerCase();
     if (q) { extra += " AND (lower(COALESCE(p.first_name || ' ' || p.last_name, '')) LIKE ? OR lower(g.name) LIKE ? OR lower(g.email) LIKE ?)"; args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-    return db.prepare(`${GIFT} WHERE g.given_on BETWEEN ? AND ?${extra} ORDER BY g.given_on DESC, g.id DESC LIMIT 2000`).all(...args).map(giftRow);
+    return db.prepare(`${GIFT} WHERE g.given_on BETWEEN ? AND ?${extra} ORDER BY g.given_on DESC, g.id DESC LIMIT ?`).all(...args, limit).map(giftRow);
   }
   r.get('/finance/gifts', requireFinance, (req, res) => res.json(giftList(req)));
   r.get('/finance/gifts.csv', requireFinance, (req, res) => {
-    const rows = giftList(req).map((g) => [g.given_on, g.giver, g.email, g.fund, (g.amount_cents / 100).toFixed(2), (g.fee_cents / 100).toFixed(2), g.method, g.source, g.status, g.campus || '', g.check_number]);
+    const list = giftList(req, -1);
+    const rows = list.map((g) => [g.given_on, g.giver, g.email, g.fund, (g.amount_cents / 100).toFixed(2), (g.fee_cents / 100).toFixed(2), g.method, g.source, g.status, g.campus || '', g.check_number]);
     res.setHeader('Content-Disposition', `attachment; filename="gifts-${range(req.query).from}-to-${range(req.query).to}.csv"`);
     res.type('text/csv').send(toCsv([['Date', 'Giver', 'Email', 'Fund', 'Amount', 'Fee covered', 'Method', 'Source', 'Status', 'Campus', 'Check #'], ...rows]));
-    audit(db, req, 'finance.export', range(req.query));
+    audit(db, req, 'finance.export', { ...range(req.query), rows: list.length });
   });
 
   r.get('/finance/donors', requireFinance, (req, res) => {

@@ -152,7 +152,7 @@ test('push notices for connect cards and office requests carry generic text; the
   assert.ok(sub.status < 300, `subscribed (${sub.status})`);
   const waitFor = async (n) => { for (let i = 0; i < 100 && pushes.length < n; i++) await new Promise((r) => setTimeout(r, 20)); assert.ok(pushes.length >= n, 'a push arrived'); };
 
-  const card = await fetch(`${base}/api/public/connect`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify({ first_name: 'Gus', email: 'gus@example.com', message: 'SECRET-PRAYER-TEXT' }) });
+  const card = await fetch(`${base}/api/public/connect`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mb': '1' }, body: JSON.stringify({ first_name: 'Gus', email: 'gus@example.com', phone: '555-123-4567', message: 'SECRET-PRAYER-TEXT' }) });
   assert.equal(card.status, 201);
   await waitFor(1);
   const p1 = decryptPush(pushes[0], ua, authSecret);

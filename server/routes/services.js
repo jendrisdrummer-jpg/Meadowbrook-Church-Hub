@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, lengthMin, audit, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, lengthMin, audit, localNow, campusNow, HttpError } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
@@ -10,7 +10,7 @@ import { campusEligibility } from '../eligibility.js';
 import { ledTeamIds, seesTeamDetail, ledPositionsClause } from '../team-scope.js';
 import { notifyScheduled, notifyResponse, remindPending, notifyUnscheduled, assignmentRow, unreachableReasons } from '../notify.js';
 
-export default function serviceRoutes(db) {
+export default function serviceRoutes(db, { now = () => new Date() } = {}) {
   const r = Router();
   const getService = (id) => db.prepare('SELECT * FROM services WHERE id = ?').get(id);
 
@@ -187,6 +187,8 @@ export default function serviceRoutes(db) {
 
   r.delete('/services/:id', requireRole('staff'), (req, res) => {
     const s = service(req, req.params.id);
+    // A service that has started (on its campus's clock) is history: its attendance and serving record stay.
+    if (s.starts_at < campusNow(db, s.campus_id, now()).stamp) throw new HttpError(409, 'This service has already happened, so it can’t be deleted. Its attendance and history are kept.');
     tx(db, () => {
       // Remember the skipped date so the series doesn't create this service again.
       if (s.service_type_id) db.prepare('INSERT OR IGNORE INTO service_skips (service_type_id, day) VALUES (?, ?)').run(s.service_type_id, s.starts_at.slice(0, 10));
