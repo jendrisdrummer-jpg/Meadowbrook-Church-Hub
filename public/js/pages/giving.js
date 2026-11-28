@@ -62,7 +62,7 @@ async function overview(panel, q) {
         ${s.by_fund.filter((f) => f.section === sec).map((f) => html`<div class="giving-bar"><span class="grow">${f.name}</span><b>${money(f.total)}</b>
           <span class="meter"><span style="width:${(100 * f.total) / max}%"></span></span></div>`)}`)}</div>
       <div class="stack" style="gap:14px">
-        <div class="card"><h2>How people gave</h2>${s.by_method.length ? s.by_method.map((m) => html`<div class="give-row"><span class="grow">${METHOD[m.method] || m.method}</span><span class="muted small">${m.gifts} gifts</span><b>${money(m.total)}</b></div>`) : html`<p class="muted small">No gifts in this range.</p>`}
+        <div class="card"><h2>How people gave</h2>${s.by_method.length ? s.by_method.map((m) => html`<div class="give-row"><span class="grow">${METHOD[m.method] || m.method}</span><span class="muted small">${m.gifts} ${m.gifts === 1 ? 'gift' : 'gifts'}</span><b>${money(m.total)}</b></div>`) : html`<p class="muted small">No gifts in this range.</p>`}
           ${s.fees ? html`<p class="muted small" style="margin:8px 0 0">Givers added ${money(s.fees)} to cover processing fees.</p>` : ''}</div>
         ${s.by_campus.length > 1 ? html`<div class="card"><h2>By campus</h2>${s.by_campus.map((c) => html`<div class="give-row"><span class="grow">${c.campus}</span><b>${money(c.total)}</b></div>`)}</div>` : ''}
         <div class="card"><div class="card-head"><h2>By week</h2><a class="btn small ghost" href="#/giving/week">Weekly breakdown</a></div>${s.by_week.length ? s.by_week.slice(-10).reverse().map((w) => html`<a class="give-row link-row" href="#/giving/week" data-week="${w.week}"><span class="grow">Week of ${fmtDate(w.week)}</span><b>${money(w.total)}</b></a>`) : html`<p class="muted small">No gifts in this range.</p>`}</div>
@@ -152,7 +152,7 @@ async function gifts(panel, q, filter = {}) {
   panel.onclick = async (e) => {
     const b = e.target.closest('[data-link]');
     if (!b) return;
-    const p = await pickPerson('Who gave this?');
+    const p = await pickPerson('Who gave this?', { endpoint: '/finance/people' });
     if (!p) return;
     try { await patch(`/finance/gifts/${b.dataset.link}`, { person_id: p.id }); toast(`Linked to ${displayName(p)}, with their other gifts from that email.`); gifts(panel, q, filter); } catch (err) { fail(err); }
   };
@@ -260,7 +260,7 @@ async function batchEditor(panel, batch = null) {
       <div class="form"><label class="field">Date given<input type="date" name="given_on" value="${b.given_on}" required></label>
         <label class="field">Label<input type="text" name="label" value="${b.label}" maxlength="120"></label>
         ${state.campuses.length > 1 ? html`<label class="field">Campus<select name="campus_id">${state.campuses.map((c) => html`<option value="${c.id}" ${c.id === b.campus_id ? 'selected' : ''}>${c.name}</option>`)}</select></label>` : ''}</div>
-      <table class="list batch-rows"><thead><tr><th scope="col">Giver</th><th scope="col">Fund</th><th scope="col">How</th><th scope="col">Check #</th><th scope="col" style="text-align:right">Amount</th><th scope="col"></th></tr></thead><tbody>
+      <div class="batch-scroll"><table class="list batch-rows"><thead><tr><th scope="col">Giver</th><th scope="col">Fund</th><th scope="col">How</th><th scope="col">Check #</th><th scope="col" style="text-align:right">Amount</th><th scope="col"></th></tr></thead><tbody>
       ${rows.map((r, i) => html`<tr data-i="${i}">
         <td>${r.person ? html`<span class="row nowrap" style="gap:4px"><b>${displayName(r.person)}</b><button type="button" class="icon-btn" data-unperson="${i}" title="Remove">${icon('x')}</button></span>`
           : html`<span class="row nowrap" style="gap:4px"><input type="text" data-f="name" value="${r.name}" aria-label="Name" placeholder="Loose cash / no name"><button type="button" class="btn small ghost" data-person="${i}">${icon('search')} Person</button></span>`}</td>
@@ -268,7 +268,7 @@ async function batchEditor(panel, batch = null) {
         <td><select data-f="method" aria-label="How it was given"><option value="check" ${r.method === 'check' ? 'selected' : ''}>Check</option><option value="cash" ${r.method === 'cash' ? 'selected' : ''}>Cash</option><option value="other" ${r.method === 'other' ? 'selected' : ''}>Other</option></select></td>
         <td><input type="text" data-f="check_number" aria-label="Check number" value="${r.check_number}" ${r.method === 'check' ? '' : 'disabled'} style="width:90px"></td>
         <td><input type="text" inputmode="decimal" data-f="amount" value="${r.amount}" aria-label="Amount" placeholder="0.00" style="width:110px;text-align:right"></td>
-        <td><button type="button" class="icon-btn" data-remove="${i}" title="Remove line">${icon('trash')}</button></td></tr>`)}</tbody></table>
+        <td><button type="button" class="icon-btn" data-remove="${i}" title="Remove line">${icon('trash')}</button></td></tr>`)}</tbody></table></div>
       <div class="row"><button type="button" class="btn small" data-add-row>${icon('plus')} Add line</button><span class="muted small">Tip: press Enter in an amount to add the next line.</span>
         <span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon('check')} Save batch</button></div></form>`);
     box.scrollIntoView({ block: 'nearest' });
@@ -294,7 +294,7 @@ async function batchEditor(panel, batch = null) {
     if (t.dataset.remove) { rows.splice(Number(t.dataset.remove), 1); if (!rows.length) rows.push({ person: null, name: '', fund_id: def.id, method: 'check', check_number: '', amount: '' }); return draw(); }
     if (t.dataset.unperson) { rows[t.dataset.unperson].person = null; return draw(); }
     if (t.dataset.person) {
-      const p = await pickPerson('Who gave this?');
+      const p = await pickPerson('Who gave this?', { endpoint: '/finance/people' });
       if (p) { rows[t.dataset.person].person = p; rows[t.dataset.person].name = ''; draw(Number(t.dataset.person)); }
     }
   };
@@ -326,7 +326,7 @@ async function statements(panel, _q, year) {
       <td>${x.gifts}</td><td style="text-align:right"><b>${money(x.total)}</b></td><td class="small muted nowrap">${x.sent_at ? fmtDate(x.sent_at.slice(0, 10)) : ''}</td>
       <td style="text-align:right" class="nowrap"><a class="btn small ghost" href="/api/finance/statements/${encodeURIComponent(x.key)}?year=${d.year}" target="_blank" rel="noopener">${icon('printer')} View</a>
         ${x.email && d.mail ? html`<button class="btn small ghost" data-send="${x.key}">${x.sent_at ? 'Resend' : 'Send'}</button>` : ''}</td></tr>`)}
-    ${d.donors.length ? '' : html`<tr><td colspan="6" class="muted">No gifts with a name in ${d.year}.</td></tr>`}</tbody></table></div>
+    ${d.donors.length ? '' : html`<tr><td colspan="6" class="muted">No gifts linked to a person in ${d.year}. Link each gift’s giver to a person in People (or add their email) to include them in a statement.</td></tr>`}</tbody></table></div>
     <form class="card stack" data-info style="max-width:720px"><h2 style="margin:0">On every statement</h2>
       <div class="form"><label class="field">Church’s legal name<input type="text" name="org" value="${i.org}" maxlength="120"></label>
         <label class="field">EIN<input type="text" name="ein" value="${i.ein}" maxlength="20" placeholder="12-3456789"></label>

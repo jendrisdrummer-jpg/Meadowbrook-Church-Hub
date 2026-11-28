@@ -378,7 +378,7 @@ document.addEventListener('click', (e) => {
 
 // Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
 // hold; this just shows the normal refusal instead of a form or an error).
-const PAGE_RULES = { studies: (me) => me.studies || can('staff'), 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
+const PAGE_RULES = { studies: (me) => me.studies || can('staff'), 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, media: () => can('staff'), 'media-item': () => can('staff'), settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
 
 let renderSeq = 0;
 async function route() {

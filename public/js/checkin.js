@@ -4,6 +4,9 @@
 import { html, mount, avatar, displayName, dialog, options, toast, fail, esc, familyName } from './lib.js';
 import { roomFor, securityCode, ageLabel, gradeLabel, digitsOnly, CHECKIN_APP_VERSION } from './checkin-rules.js';
 
+// "Liam", "Liam & Ethan", "Liam, Ethan & Noah".
+const joinNames = (n) => (n.length < 3 ? n.join(' & ') : `${n.slice(0, -1).join(', ')} & ${n.at(-1)}`);
+
 const KEY = {
   station: 'mb.checkin.station',
   token: 'mb.checkin.token', // a paired iPad's sign-in (from the hub’s Check-in iPads page)
@@ -332,7 +335,7 @@ function checkIn(h, chosen, serviceId) {
   sync();
   if (state.station.print) printLabels(h, chosen, code);
   mount($main, html`<div class="card" style="text-align:center;max-width:520px;margin:30px auto">
-    <h1>${chosen.map((c) => c.kid.nickname || c.kid.first_name).join(' & ')} ${chosen.length > 1 ? 'are' : 'is'} checked in</h1>
+    <h1>${joinNames(chosen.map((c) => c.kid.nickname || c.kid.first_name))} ${chosen.length > 1 ? 'are' : 'is'} checked in</h1>
     <p class="muted">Pickup code</p><div class="k-code">${code}</div>
     ${chosen.map((c) => html`<div>${c.kid.nickname || c.kid.first_name}: <b>${c.room?.name || 'room to be assigned'}</b></div>`)}
     <div class="row" style="justify-content:center;margin-top:20px">
@@ -443,7 +446,7 @@ function showMatch(code) {
       }
       const ids = new Set(kids.map((k) => k.id));
       saveToday(todays().map((c) => (ids.has(c.id) ? { ...c, checked_out_at: now } : c)));
-      toast(`Checked out ${kids.map((k) => k.nickname || k.first_name).join(' & ')}.`);
+      toast(`Checked out ${joinNames(kids.map((k) => k.nickname || k.first_name))}.`);
       drawCheckout();
     } catch (e) { fail(e); }
   };

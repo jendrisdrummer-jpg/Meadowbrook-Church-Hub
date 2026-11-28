@@ -324,7 +324,8 @@ export function debounce(fn, ms = 250) {
 }
 
 // Search-as-you-type person picker. Resolves to the chosen person or undefined.
-export function pickPerson(title = 'Choose a person', { filter } = {}) {
+// `endpoint` swaps the search URL (the giving pages use /finance/people, which a Finance-only account can reach).
+export function pickPerson(title = 'Choose a person', { filter, endpoint = '/people' } = {}) {
   let chosen;
   return dialog({
     title,
@@ -335,7 +336,12 @@ export function pickPerson(title = 'Choose a person', { filter } = {}) {
       let rows = [];
       const run = debounce(async (q) => {
         if (q.trim().length < 2) return;
-        rows = (await get(`/people?q=${encodeURIComponent(q)}&limit=25`)).rows.filter((p) => !filter || filter(p));
+        try {
+          rows = (await get(`${endpoint}?q=${encodeURIComponent(q)}&limit=25`)).rows.filter((p) => !filter || filter(p));
+        } catch (err) {
+          rows = [];
+          return mount(list, html`<div class="muted small">${err.message || 'Couldn’t search just now.'}</div>`);
+        }
         mount(list, rows.length ? rows.map((p, i) => html`<button type="button" data-i="${i}">${avatar(p)}<span>${displayName(p)}<br><small class="muted">${p.email || p.phone || familyName(p.household_name)}</small></span></button>`) : html`<div class="muted small">No one found.</div>`);
       });
       $('[data-q]', d).addEventListener('input', (e) => run(e.target.value));
