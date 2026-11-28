@@ -36,7 +36,7 @@ the most recent Sunday.)
 ## Find things
 
 - **On a computer:** the menu is down the left side, in groups (People, Services, Church app, More).
-  **Help** (the ⓘ icon) and **Feedback** (the speech-bubble icon) sit beside your name at the bottom.
+  **Settings** (admins only), **Help** and **Feedback** sit in a row under your name at the bottom.
 - **On a phone:** the bar along the bottom has **Home**, **Schedule**, **Chat** and **People**. Tap
   **More** for everything else, plus **Help**, **Feedback**, **Sign out** and light or dark mode.
 - **Search:** the **Search** box at the top (or the magnifying glass on a phone) finds people, pages

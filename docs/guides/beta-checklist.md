@@ -29,7 +29,7 @@ Practise scheduling on yourself or a test service, not on volunteers.
 
 ## How to tell us
 
-**In the hub:** open **Feedback** (on a computer, the speech-bubble icon beside your name; on a
+**In the hub:** open **Feedback** (on a computer, at the bottom left under your name; on a
 phone, **More** → **Feedback**). **In the app:** **More** → **Send feedback**.
 
 1. Choose **What kind** (for example "Something isn't working" or "It works, but it's hard or
