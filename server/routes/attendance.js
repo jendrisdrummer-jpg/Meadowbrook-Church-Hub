@@ -71,7 +71,11 @@ export default function attendanceRoutes(db) {
       ORDER BY recent DESC, p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(since, s.starts_at, s.campus_id, s.id);
     const present = db.prepare('SELECT person_id FROM attendance WHERE service_id = ?').all(s.id).map((x) => x.person_id);
     const kids = db.prepare('SELECT DISTINCT person_id FROM checkins WHERE service_id = ?').all(s.id).map((x) => x.person_id);
-    res.json({ people, present, checked_in: kids });
+    // People from other campuses (marked through the church-wide search) show as a name only: no photo,
+    // status, family or recent count, since the account may not see those people otherwise.
+    res.json({ people: people.map((p) => (canCampus(req.user, p.campus_id) ? p
+      : { id: p.id, first_name: p.first_name, last_name: p.last_name, nickname: p.nickname, campus_id: p.campus_id,
+        photo: null, status: null, household_role: null, household_id: null, household_name: null, recent: 0 })), present, checked_in: kids });
   });
 
   // Body: { person_ids: [..], present: true|false } – one person or a whole family at once.
@@ -102,8 +106,8 @@ export default function attendanceRoutes(db) {
   // campus on this roll. Names and a campus label only: no photo, contact details, family, notes or age.
   r.get('/services/:id/roll/search', requireAttendance, (req, res) => {
     service(req, req.params.id);
-    const words = str(req.query.q, 80).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
-    if (words.join('').length < 2) return res.json({ people: [] });
+    const words = str(req.query.q, 80).toLowerCase().split(/\s+/).filter((w) => w.length >= 2).slice(0, 4);
+    if (!words.length) return res.json({ people: [] });
     if (!limits.hit(`rollsearch:${req.user.id}`, SEARCHES, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of searches. Please wait a few minutes.');
     // Every word has to appear in the first name, nickname or last name; a typed % or _ matches itself.
     const clause = words.map(() => "lower(p.first_name || ' ' || p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\'").join(' AND ');
@@ -120,9 +124,10 @@ export default function attendanceRoutes(db) {
   r.post('/services/:id/roll/church', requireAttendance, (req, res) => {
     const s = service(req, req.params.id);
     const pid = int(req.body?.person_id, 'Person');
+    // Counted before the lookup, so guessing ids is limited too.
+    if (!limits.hit(`rollchurch:${req.user.id}`, PICKS, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of changes. Please wait a few minutes.');
     const p = pid && db.prepare('SELECT id, campus_id, archived, status FROM people WHERE id = ?').get(pid);
     if (!p || p.archived || p.status === 'inactive') throw notFound('Person');
-    if (!limits.hit(`rollchurch:${req.user.id}`, PICKS, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of changes. Please wait a few minutes.');
     db.prepare('INSERT OR IGNORE INTO attendance (service_id, person_id, marked_by) VALUES (?, ?, ?)').run(s.id, p.id, req.user.id);
     audit(db, req, 'attendance.church_wide', { service_id: s.id, person_id: p.id, home_campus_id: p.campus_id, late: isCorrection(req, s) });
     res.json({ present: db.prepare('SELECT COUNT(*) n FROM attendance WHERE service_id = ?').get(s.id).n });
@@ -148,10 +153,12 @@ export default function attendanceRoutes(db) {
     const used = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'attendance.guest' AND user_id = ? AND at >= datetime('now', '-1 day')").get(req.user.id).n;
     if (used >= GUESTS_PER_DAY) return res.status(429).json({ error: `You’ve added ${GUESTS_PER_DAY} new guests today. Ask a staff member to add anyone else.` });
     if (!req.body?.force) {
+      // The church-wide check is a name lookup too, so it shares the search limit.
+      if (!limits.hit(`rollsearch:${req.user.id}`, SEARCHES, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of searches. Please wait a few minutes.');
       // Church-wide on purpose (a regular from the other campus is the usual duplicate), so it answers
       // with names and a campus label only. Someone at this service's campus is preferred.
       const dup = db.prepare(`SELECT p.id, p.first_name, p.last_name, c.short_name campus_short, c.name campus_name FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
-        WHERE p.archived = 0 AND lower(p.first_name) = lower(?) AND lower(p.last_name) = lower(?)
+        WHERE p.archived = 0 AND p.status != 'inactive' AND lower(p.first_name) = lower(?) AND lower(p.last_name) = lower(?)
         ORDER BY p.campus_id IS ? DESC, p.id LIMIT 1`).get(first, last, s.campus_id);
       if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: { id: dup.id, first_name: dup.first_name, last_name: dup.last_name, campus: campusLabel(dup) } });
     }

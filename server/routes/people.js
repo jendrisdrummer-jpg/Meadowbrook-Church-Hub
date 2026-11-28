@@ -302,7 +302,7 @@ export default function peopleRoutes(db, { uploadDir }) {
     });
     tx(db, () => { for (const { p, final } of plans) writeServing(p, final); });
     const changed = plans.filter((x) => x.changed.length).length;
-    audit(db, req, 'person.serving_campuses_bulk', { person_ids: ids, to: wanted, changed });
+    audit(db, req, 'person.serving_campuses_bulk', { person_ids: ids, to: wanted, changed, from: Object.fromEntries(plans.filter((x) => x.changed.length).map((x) => [x.p.id, x.current])) });
     res.json({ updated: ids.length, changed, serving_campuses: wanted });
   });
 

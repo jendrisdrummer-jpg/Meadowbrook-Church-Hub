@@ -36,7 +36,7 @@ before(async () => {
   service('howard', 1, '2025-03-02T09:00');
   service('lux', 2, '2025-03-02T13:00');
   for (const [key, role, campuses, flag] of [['admin', 'admin', null, 0], ['staff', 'staff', null, 0], ['luxstaff', 'staff', '[2]', 0], ['howstaff', 'staff', '[1]', 0],
-    ['leader', 'leader', null, 0], ['vol', 'volunteer', null, 0], ['luxspot', 'volunteer', '[2]', 1], ['luxlead', 'leader', '[2]', 0]]) {
+    ['leader', 'leader', null, 0], ['vol', 'volunteer', null, 0], ['luxspot', 'volunteer', '[2]', 1], ['luxlead', 'leader', '[2]', 0], ['spot2', 'volunteer', '[2]', 1], ['spot3', 'volunteer', '[2]', 1], ['spot4', 'volunteer', '[2]', 1]]) {
     const id = Number(db.prepare('INSERT INTO users (email, role, campus_ids, attendance) VALUES (?, ?, ?, ?)').run(`${key}@mb.org`, role, campuses, flag).lastInsertRowid);
     startSession(db, { secure: false }, { setHeader: (_k, v) => { cookies[key] = v.split(';')[0]; } }, id);
   }
@@ -60,7 +60,7 @@ test('bulk serving campuses: staff and admins set the same list for everyone, au
   assert.deepEqual([serving(P.sarah), serving(P.tom)], [[1, 2], [1, 2]]);
   const a = audits('person.serving_campuses_bulk');
   assert.equal(a.length, 1);
-  assert.deepEqual(JSON.parse(a[0].detail), { person_ids: ids, to: [1, 2], changed: 2 });
+  assert.deepEqual(JSON.parse(a[0].detail), { person_ids: ids, to: [1, 2], changed: 2, from: { [P.sarah]: [], [P.tom]: [] } }, 'the audit keeps each previous list');
   // empty list = back to the home campus only
   assert.equal((await api('admin', 'POST', '/people/bulk/serving-campuses', { person_ids: ids, campus_ids: [] })).status, 200);
   assert.deepEqual([serving(P.sarah), serving(P.tom)], [[], []]);
@@ -273,4 +273,49 @@ test('the missed list counts a Howard person marked at Luxemburg as here', () =>
     assert.ok(!names.includes('Traveller'), `Traveller is not missing for ${JSON.stringify(user.campusIds)}`);
     if (user.campusIds?.[0] !== 2) assert.ok(names.includes('Stayaway'), 'someone who really stayed away still is');
   }
+});
+
+test('the roll shows people from other campuses as a name only', async () => {
+  const hh = Number(db.prepare("INSERT INTO households (name, campus_id) VALUES ('Miller Household', 1)").run().lastInsertRowid);
+  db.prepare("UPDATE people SET photo = 'sarah.jpg', household_id = ?, household_role = 'adult' WHERE id = ?").run(hh, P.sarah);
+  assert.equal((await api('luxspot', 'POST', `/services/${S.lux}/roll/church`, { person_id: P.sarah })).status, 200);
+  const row = (await api('luxspot', 'GET', `/services/${S.lux}/roll`)).data.people.find((p) => p.id === P.sarah);
+  assert.deepEqual(row, { id: P.sarah, first_name: 'Sarah', last_name: 'Miller', nickname: 'Sally', campus_id: 1,
+    photo: null, status: null, household_role: null, household_id: null, household_name: null, recent: 0 });
+  assert.ok(!JSON.stringify(row).includes('Miller Household') && !JSON.stringify(row).includes('sarah.jpg'));
+  // an unrestricted leader still gets the full row
+  const full = (await api('leader', 'GET', `/services/${S.lux}/roll`)).data.people.find((p) => p.id === P.sarah);
+  assert.equal(full.household_name, 'Miller Household');
+  assert.equal(full.photo, 'sarah.jpg');
+  assert.equal(full.status, 'regular');
+  // people at the account's own campus keep their full rows
+  const own = (await api('luxspot', 'GET', `/services/${S.lux}/roll`)).data.people.find((p) => p.id === P.lux);
+  assert.equal(own.status, 'regular');
+  db.prepare('DELETE FROM attendance WHERE service_id = ? AND person_id = ?').run(S.lux, P.sarah);
+  db.prepare('UPDATE people SET photo = NULL, household_id = NULL WHERE id = ?').run(P.sarah);
+});
+
+test('marking is counted before the person lookup, so guessing ids is limited', async () => {
+  let last;
+  for (let i = 0; i < 120; i++) last = await api('spot2', 'POST', `/services/${S.lux}/roll/church`, { person_id: P.free });
+  assert.equal(last.status, 200);
+  assert.equal((await api('spot2', 'POST', `/services/${S.lux}/roll/church`, { person_id: 999999 })).status, 429, 'not 404');
+  db.prepare('DELETE FROM attendance WHERE service_id = ? AND person_id = ?').run(S.lux, P.free);
+});
+
+test('the new-guest duplicate check leaves out inactive people and is rate limited with the search', async () => {
+  const guest = (body) => api('spot3', 'POST', `/services/${S.lux}/roll/guest`, body);
+  assert.equal((await guest({ first_name: 'Sarah', last_name: 'Idle' })).status, 201, 'an inactive person is not offered as a duplicate');
+  let last;
+  for (let i = 0; i < 70; i++) last = await guest({ first_name: 'Tom', last_name: 'Howard-Reg' });
+  assert.equal(last.status, 429);
+  assert.equal((await guest({ first_name: 'Tom', last_name: 'Howard-Reg', force: true })).status, 201, 'adding anyway is not a lookup');
+});
+
+test('one-letter words are dropped from a search and a search with none is not counted', async () => {
+  const q = (term) => api('spot4', 'GET', `/services/${S.lux}/roll/search?q=${term}`);
+  for (const term of ['a%20b', 'a', 'a%20b%20c']) assert.deepEqual((await q(term)).data.people, [], term);
+  assert.equal((await q('a%20tom')).data.people.length >= 1, true, 'one-letter words are ignored, the rest still match');
+  for (let i = 0; i < 59; i++) assert.equal((await q('tom')).status, 200);
+  assert.equal((await q('tom')).status, 429, 'only the 60 real searches counted');
 });
