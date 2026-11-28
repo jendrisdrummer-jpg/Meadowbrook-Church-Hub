@@ -27,7 +27,7 @@ import backupRoutes from './routes/backups.js';
 import checkRoutes from './routes/checks.js';
 import mediaRoutes from './routes/media.js';
 import { syncMedia, checkLive } from './media.js';
-import { muxTick } from './mux.js';
+import { muxTick, archiveOldMux } from './mux.js';
 import { podcastSettings, podcastXml } from './podcast.js';
 import { maybeNightly } from './backup.js';
 import { isOffline, enableOffline, listenHost } from './offline.js';
@@ -275,5 +275,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     setInterval(() => checkLive(db).catch((e) => console.error('Live check failed:', e.message)), 2 * 60e3).unref();
     // Streaming through Mux: live or not, finished recordings and trimmed copies, every minute.
     setInterval(() => muxTick(db).catch((e) => console.error('Mux check failed:', e.message)), 60e3).unref();
+    // Keep services in Mux for N months (Media → Setup; off by default): once a day, old services move to their YouTube copy.
+    const muxArchive = () => archiveOldMux(db).catch((e) => console.error('Mux archive failed:', e.message));
+    setTimeout(muxArchive, 10 * 60e3).unref();
+    setInterval(muxArchive, 24 * 3600e3).unref();
   }
 }

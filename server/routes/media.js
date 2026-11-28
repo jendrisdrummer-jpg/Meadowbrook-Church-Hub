@@ -1,19 +1,21 @@
 // Media: the library of past services the app's Watch tab shows. Videos come in on their own
 // from the church's YouTube channel or messages playlist (see ../media.js); staff give each one the
 // app's own title, trim, speaker, series, scripture and topics. Watch is public, like the rest of
-// the app. Mux (our own video host) and the podcast are dormant: their routes below still work for
-// anything already set up, but nothing in the staff screens offers them.
+// the app. A service streamed to Mux and YouTube together is one item (see "Same service as…" and
+// the message start and end marks below). Uploads to Mux and the podcast are dormant: their routes
+// still work for anything already set up, but nothing in the staff screens offers them.
 import { Router } from 'express';
-import { requireRole, requireAllCampuses } from '../auth.js';
+import { requireRole, requireAllCampuses, canCampus } from '../auth.js';
 import { setSetting } from '../db.js';
 import crypto from 'node:crypto';
 import { bad, notFound, int, str, audit } from '../http.js';
 import { isAppImage } from '../../public/js/app-widgets.js';
 import {
   mediaSettings, mediaStatus, liveNow, muxStreaming, syncMedia, resolveChannel, resolvePlaylist, playlistMembers, fetchVideo, describeVideo, insertMedia, fromService, sameSeries, hasApiKey, TITLE_FORMATS,
+  KEEP_MUX_CHOICES, youtubeIdOf, studioUrl, linkItems, unlinkItem,
 } from '../media.js';
 import { podcastSettings, savePodcast, audioSource } from '../podcast.js';
-import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, thumb, RTMP_SERVER } from '../mux.js';
+import { muxTick, muxConfigured, muxSettings, ensureLiveStream, startUpload, resetStreamKey, setYouTubeForward, showLive, makeClip, archiveStatus, thumb, RTMP_SERVER } from '../mux.js';
 
 const topicsOf = (m) => { try { return JSON.parse(m.topics || '[]'); } catch { return []; } };
 
@@ -27,13 +29,21 @@ function playback(m) {
   return { source: 'mux', playback_id: m.playback_id, start: m.start_sec, end: m.end_sec };
 }
 
+// The picture from the video itself (not a picture staff uploaded). Once Mux has cut the message and
+// dropped the full recording, that recording's picture is gone, so it comes from the cut copy.
+const videoPicture = (m) => {
+  if (m.source !== 'mux') return m.thumbnail;
+  if (m.raw_deleted) return m.clip_playback_id ? thumb(m.clip_playback_id, 60) : m.thumbnail;
+  return m.playback_id ? thumb(m.playback_id, (m.start_sec || 0) + 90) : m.thumbnail;
+};
+
 const publicItem = (m) => ({
   id: m.id,
   video_id: m.source === 'mux' ? null : m.video_id,
   ...playback(m),
   title: m.title,
   description: m.description,
-  picture: m.image || (m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : m.thumbnail),
+  picture: m.image || videoPicture(m),
   length: m.duration != null || m.end_sec != null ? Math.max(0, (m.end_sec ?? m.duration) - m.start_sec) : null,
   day: m.day,
   speaker: m.speaker,
@@ -85,7 +95,7 @@ export default function mediaRoutes(db) {
   r.get('/media', requireRole('staff'), (req, res) => {
     const only = STATUSES.includes(req.query.status) ? req.query.status : null;
     const items = db.prepare(`${LIST} ${only ? 'WHERE m.status = ?' : ''} ORDER BY m.day DESC, m.recorded_at DESC LIMIT 1500`).all(...(only ? [only] : []))
-      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, reason: why(m), yt_title: m.yt_title, duration: m.duration, source: m.source, video_id: m.video_id, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at) }));
+      .map((m) => ({ ...publicItem(m), status: m.status, skip_reason: m.skip_reason, reason: why(m), yt_title: m.yt_title, duration: m.duration, source: m.source, video_id: m.video_id, was_live: Boolean(m.was_live), edited: Boolean(m.edited_at), linked: Boolean(m.yt_video_id) }));
     const counts = Object.fromEntries(db.prepare('SELECT status, COUNT(*) n FROM media GROUP BY status').all().map((x) => [x.status, x.n]));
     const all = db.prepare("SELECT speaker, series FROM media WHERE status != 'skipped'").all();
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -100,8 +110,9 @@ export default function mediaRoutes(db) {
 
   // Mux has no settings screen any more, so its settings and the old "own player only" switch stay out of what the screens get.
   const uiSettings = () => { const { keep_full_days, ...s } = mediaSettings(db); return s; };
+  // "Keep services in Mux" (setting keep_mux_months) is the one Mux setting with a screen: the church streams to Mux and YouTube together.
   r.get('/media/setup', requireRole('staff'), (_req, res) => {
-    res.json({ settings: uiSettings(), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey() });
+    res.json({ settings: uiSettings(), status: mediaStatus(db), formats: TITLE_FORMATS, api_key: hasApiKey(), keep_choices: KEEP_MUX_CHOICES, mux_ready: muxConfigured(), archive: archiveStatus(db) });
   });
 
   // Mux (dormant): make the stream key (once), reset it, and optionally forward the stream to YouTube.
@@ -161,10 +172,16 @@ export default function mediaRoutes(db) {
     if (b.min_minutes !== undefined) cfg.min_minutes = Math.min(180, Math.max(1, Math.round(Number(b.min_minutes) || 20)));
     if (typeof b.notify_new === 'boolean') cfg.notify_new = b.notify_new;
     if (typeof b.notify_live === 'boolean') cfg.notify_live = b.notify_live;
+    if (b.keep_mux_months !== undefined) {
+      const n = Number(b.keep_mux_months);
+      if (n !== 0 && !KEEP_MUX_CHOICES.includes(n)) throw bad('Choose 6, 12 or 24 months, or leave it off.');
+      cfg.keep_mux_months = n;
+    }
     delete cfg.own_player_only; // an old switch that could hide everything on YouTube; gone
+    delete cfg.keep_full_days; // the full recording now goes as soon as the message is cut
     setSetting(db, 'media', cfg);
-    audit(db, req, 'media.setup', { channel: cfg.channel_id, playlist: cfg.playlist_id });
-    res.json({ settings: uiSettings(), status: mediaStatus(db) });
+    audit(db, req, 'media.setup', { channel: cfg.channel_id, playlist: cfg.playlist_id, keep_mux_months: cfg.keep_mux_months });
+    res.json({ settings: uiSettings(), status: mediaStatus(db), archive: archiveStatus(db) });
   });
 
   // Videos in the app that aren't in the messages playlist (for the one-time "Hide N videos" action
@@ -204,7 +221,7 @@ export default function mediaRoutes(db) {
     let r = { added: 0, skipped: 0, review: 0 };
     try {
       r = await syncMedia(db, { deep: Boolean(req.body?.deep) });
-    } catch (e) { throw bad(`Couldn’t reach YouTube: ${e.message}`); }
+    } catch (e) { if (!streaming) throw bad(`Couldn’t reach YouTube: ${e.message}`); } // with Mux the recordings are in already; the error shows under Setup
     res.json({ ...r, added: Math.max(r.added, db.prepare("SELECT COUNT(*) n FROM media WHERE status = 'published'").get().n - before) });
   });
 
@@ -212,7 +229,7 @@ export default function mediaRoutes(db) {
   r.post('/media', requireRole('staff'), async (req, res) => {
     let v;
     try { v = await fetchVideo(req.body?.url); } catch (e) { throw bad(e.message); }
-    const existing = db.prepare('SELECT id, status FROM media WHERE video_id = ?').get(v.video_id);
+    const existing = db.prepare('SELECT id, status FROM media WHERE video_id = ? OR yt_video_id = ?').get(v.video_id, v.video_id);
     if (existing) {
       if (existing.status !== 'published') db.prepare("UPDATE media SET status = 'published', skip_reason = '' WHERE id = ?").run(existing.id);
       return res.json({ id: existing.id, existed: true });
@@ -297,10 +314,29 @@ export default function mediaRoutes(db) {
     const service = m.service_id ? db.prepare('SELECT s.id, s.title, s.series, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE s.id = ?').get(m.service_id) : null;
     // Services that day, to link it to another one.
     const services = db.prepare('SELECT s.id, s.title, s.starts_at, c.short_name campus FROM services s JOIN campuses c ON c.id = s.campus_id WHERE substr(s.starts_at, 1, 10) = ? ORDER BY s.starts_at').all(m.day);
+    const ytId = youtubeIdOf(m);
     res.json({ ...publicItem(m), source: m.source, video_id: m.source === 'mux' ? null : m.video_id, status: m.status, skip_reason: m.skip_reason, reason: why(m), yt_title: m.yt_title, duration: m.duration, image: m.image, thumbnail: m.thumbnail,
-      raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null,
-      campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live) });
+      raw_playback_id: m.raw_deleted ? null : m.playback_id, raw_deleted: Boolean(m.raw_deleted), clip_status: m.clip_status, mux_thumb: m.source === 'mux' && m.playback_id && !m.raw_deleted ? thumb(m.playback_id, (m.start_sec || 0) + 90) : null, video_picture: videoPicture(m),
+      campus_id: m.campus_id, service_id: m.service_id, service, services, recorded_at: m.recorded_at, was_live: Boolean(m.was_live),
+      // The message marks, always in the full recording's own timeline (what `start`/`end` mean depends on which copy plays).
+      mark_start: m.start_sec || 0, mark_end: m.end_sec ?? null, clip_error: m.clip_status === 'failed',
+      yt_id: ytId, yt_url: ytId ? `https://www.youtube.com/watch?v=${ytId}` : '', studio_url: ytId ? studioUrl(ytId) : '',
+      mux_kept: m.source === 'mux' && Boolean(m.mux_asset_id),
+      linked: Boolean(m.yt_video_id), linked_by: m.linked_by, link_candidates: linkCandidates(m) });
   });
+
+  // Other videos from the same weekend that this one could be the same service as: a Mux
+  // recording lists YouTube videos, a YouTube video lists Mux recordings (never already linked).
+  const linkCandidates = (m) => {
+    const wantMux = m.source !== 'mux';
+    if (!wantMux && (m.yt_video_id || youtubeIdOf(m))) return [];
+    const rows = db.prepare(`SELECT id, title, source, day, recorded_at, status FROM media WHERE id != ? AND ${wantMux
+      ? "source = 'mux' AND mux_asset_id IS NOT NULL AND video_id LIKE 'mux:%' AND yt_video_id IS NULL"
+      : "source = 'youtube'"} AND day BETWEEN date(?, '-3 days') AND date(?, '+3 days') LIMIT 60`).all(m.id, m.day, m.day);
+    const at = Date.parse(`${m.recorded_at.replace(' ', 'T')}Z`);
+    return rows.sort((a, b) => Math.abs(Date.parse(`${a.recorded_at.replace(' ', 'T')}Z`) - at) - Math.abs(Date.parse(`${b.recorded_at.replace(' ', 'T')}Z`) - at)).slice(0, 20)
+      .map((x) => ({ id: x.id, title: x.title, day: x.day, recorded_at: x.recorded_at, kind: x.source === 'mux' ? 'Mux recording' : 'YouTube video', status: x.status }));
+  };
 
   // What the order of service says for a service (to fill in the details again).
   r.get('/media/from-service/:id', requireRole('staff'), (req, res) => {
@@ -336,7 +372,7 @@ export default function mediaRoutes(db) {
     if (end != null && end <= start) throw bad('The end has to come after the start.');
     if (m.duration && start >= m.duration) throw bad('The start is past the end of the video.');
     const trimChanged = (b.start !== undefined && start !== m.start_sec) || (b.end !== undefined && (end ?? null) !== (m.end_sec ?? null));
-    if (trimChanged && m.raw_deleted) throw bad('The full recording has been removed to save storage, so this one can’t be trimmed again.');
+    if (trimChanged && m.raw_deleted) throw bad('The full recording was removed from Mux to save storage once the message was cut, so the start and end can’t change again.');
     if (b.start !== undefined) set.start_sec = start;
     if (b.end !== undefined) set.end_sec = end != null && m.duration && end >= m.duration ? null : end;
     if (typeof b.podcast === 'boolean') set.podcast = b.podcast ? 1 : 0;
@@ -352,8 +388,36 @@ export default function mediaRoutes(db) {
     }
     // Streamed through Mux: a new trim makes a new trimmed copy.
     if (trimChanged && m.source === 'mux') {
-      try { await makeClip(db, m.id); } catch (e) { return res.json({ ok: true, clip_error: e.message }); }
+      try { await makeClip(db, m.id, req); } catch (e) { return res.json({ ok: true, clip_error: e.message }); }
     }
+    res.json({ ok: true });
+  });
+
+  // "Same service as…": one item for a service that is on both Mux and YouTube. Staff, like the
+  // rest of the library. A campus-limited account can only touch items of its own campuses.
+  const itemFor = (req) => {
+    const m = db.prepare('SELECT * FROM media WHERE id = ?').get(int(req.params.id));
+    if (!m) throw notFound('That video');
+    if (!canCampus(req.user, m.campus_id)) throw notFound('That video');
+    return m;
+  };
+  r.post('/media/:id/link', requireRole('staff'), (req, res) => {
+    const m = itemFor(req);
+    const other = db.prepare('SELECT * FROM media WHERE id = ?').get(int(req.body?.with));
+    if (!other || !canCampus(req.user, other.campus_id)) throw notFound('That video');
+    const [mux, yt] = m.source === 'mux' ? [m, other] : [other, m];
+    try { res.json({ id: linkItems(db, mux.id, yt.id, { by: 'hand', req }).id }); } catch (e) { throw bad(e.message); }
+  });
+  r.post('/media/:id/unlink', requireRole('staff'), (req, res) => {
+    const m = itemFor(req);
+    try { res.json(unlinkItem(db, m.id, { req })); } catch (e) { throw bad(e.message); }
+  });
+  // Try the cut again after it failed (Mux couldn't make it).
+  r.post('/media/:id/clip', requireRole('staff'), async (req, res) => {
+    const m = itemFor(req);
+    if (m.source !== 'mux' || !m.mux_asset_id) throw bad('Only a video streamed through Mux can be cut here.');
+    if (m.raw_deleted) throw bad('The full recording has been removed, so it can’t be cut again.');
+    try { await makeClip(db, m.id, req); } catch (e) { throw bad(e.message); }
     res.json({ ok: true });
   });
 

@@ -121,7 +121,7 @@ leaders, staff and admins in. Leader access can also come **automatically** from
 | Start chat groups; schedule their teams; edit orders of service and songs | | ✓ | ✓ | ✓ |
 | Edit people, households, services, rooms, templates; schedule any team | | | ✓ | ✓ |
 | Events, Forms, Media, check-in stations | | | ✓ | ✓ |
-| Media → Setup (channel, messages playlist, skip rules, hide videos not in the playlist): church-wide, so only an admin who covers every campus changes it; staff can read it | | | | ✓ (every campus) |
+| Media → Setup (channel, messages playlist, skip rules, hide videos not in the playlist, **keep services in Mux for N months**): church-wide, so only an admin who covers every campus changes it; staff can read it | | | | ✓ (every campus) |
 | Bible studies: the Bible studies page, every study, the request queue, materials, a person's Bible studies card, and starting, matching and editing studies | Only with the **Bible studies coordinator** flag (any role) | | ✓ (at their campuses) | ✓ |
 | Their own Bible studies in the app (as a student or a teacher), and asking for one | ✓ (needs a linked person) | ✓ | ✓ | ✓ |
 | A teacher updating **their own** study (lesson, sessions, status, meeting time, material) and marking their students finished | ✓ (a teacher with an account, on that study only) | ✓ | ✓ | ✓ |
@@ -201,6 +201,8 @@ doesn't show any giving amounts, so it doesn't need the Finance flag.
 | `GET /backups`, `POST /backups/run`, `GET /backups/:id/download`, `DELETE /backups/drive`, Google Drive sign-in | Church-wide (a backup holds every campus) | 403 |
 | `POST /import/preview`, `POST /import/people` | Church-wide (can create and update people at any campus) | 403 |
 | `POST /media/mux/reset-key` | Church-wide (the live-stream key) | 403 |
+| `PUT /media/setup` `keep_mux_months` | Church-wide (it decides when Mux recordings are deleted for good) | 403 |
+| `POST /media/:id/link`, `/unlink`, `/clip` | Staff; items of the account’s own campuses (others 404) | 404 |
 | `GET /users`, `POST`, `PATCH`, `DELETE /users/:id` | Accounts | Accounts in reach only, rules above |
 | `POST /people/:id/merge` | Campus-scoped | Both people in their campuses, and the duplicate's account in reach |
 | `PATCH /feedback/:id` | Campus-scoped | Own campuses and feedback with no campus |

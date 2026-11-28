@@ -57,6 +57,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 11 | Give online (one-time, recurring) and record a cash batch | Guest / Finance | Gift recorded; statements; non-Finance accounts see nothing |
 | 12 | App Builder: change home widgets and tabs | Admin, or staff with Edit the app | Member app shows the change; guests too |
 | 13 | Media: new video arrives, edit title/trim, watch in app | Staff → member | Trimmed playback; library filters |
+| 13b | Media with Mux and YouTube together: stream to both, one item appears, set Message starts/ends here, watch the clip play | Staff → member | One listing; clip plays only the message. Needs real Mux and YouTube keys (the automated tests use stand-ins) |
 | 14 | Sign in by Google / email code / password; sign out | Anyone | Correct role and campuses; policy respected |
 | 15 | Permissions sweep | Volunteer, campus staff | Staff-only pages refused; other campus invisible (`npm run test:ui` covers page level) |
 | 16a | Bible studies: a coordinator adds a material, starts a study for a request, a teacher updates lesson and marks a student finished, the coordinator undoes it, history is added on a profile and imported from a CSV | Admin, coordinator, teacher, student | Every role's edges, contact consent, completions outliving a study, notices without names (`test/studies.test.js`; `npm run test:ui` covers `/studies`, its tabs and the person card) |

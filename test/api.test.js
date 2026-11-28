@@ -2283,20 +2283,15 @@ test('streaming through Mux: one stream key, live in the app during services, re
   assert.equal(state.made[0].video_quality, 'basic');
   let item = (await api(null, 'GET', `/watch/${rec.id}`)).data;
   assert.deepEqual([item.playback_id, item.start, item.end, item.length], ['rec1-pb', 900, 4800, 3900]);
-  state.clips.clip1 = 'ready';
-  await muxTick(db);
-  item = (await api(null, 'GET', `/watch/${rec.id}`)).data;
-  assert.deepEqual([item.playback_id, item.start, item.end, item.length], ['clip1-pb', 0, null, 3900]);
 
-  // A new trim replaces the old copy.
+  // A new trim before the first copy is ready replaces it.
   await api('admin', 'PATCH', `/media/${rec.id}`, { start: '16:00' });
   assert.ok(state.deleted.includes('clip1'));
   assert.equal(state.made[1].input[0].start_time, 960);
+  assert.ok(!state.deleted.includes('rec1'), 'the full recording stays while no copy is ready');
 
-  // After the set time, the full recording goes and the trim can't change any more.
+  // The moment the cut copy is ready (and Mux says it plays), the full recording goes to save storage and the trim can't change any more.
   state.clips.clip2 = 'ready';
-  await muxTick(db);
-  db.prepare("UPDATE media SET clip_ready_at = datetime('now', '-31 days') WHERE id = ?").run(rec.id);
   await muxTick(db);
   assert.ok(state.deleted.includes('rec1'));
   item = (await api(null, 'GET', `/watch/${rec.id}`)).data;

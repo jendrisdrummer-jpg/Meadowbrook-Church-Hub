@@ -1,11 +1,13 @@
 // Streaming through Mux, the church's own video host: one stream key that never changes (put in
-// vMix once), live in the app with our own player, each recording in the media library, and
-// trims made as real trimmed copies. Set MUX_TOKEN_ID and MUX_TOKEN_SECRET (Mux → Settings →
+// vMix once), live in the app with our own player, each recording in the media library, the
+// message cut out of it as a real clipped copy, and (if the church chooses) old services moved to
+// their YouTube copy so Mux storage stays small. Set MUX_TOKEN_ID and MUX_TOKEN_SECRET (Mux → Settings →
 // Access Tokens, Mux Video read + write). The hub checks Mux every minute, so no webhook is needed.
-import { getSetting, setSetting } from './db.js';
-import { localNow } from './http.js';
+import { getSetting, setSetting, tx } from './db.js';
+import { localNow, audit } from './http.js';
+import { notify } from './notify.js';
 import { podcastAudio } from './podcast.js';
-import { mediaSettings, liveNow, describeVideo, insertMedia, fromService, announce, announceLive, utc, churchTz } from './media.js';
+import { mediaSettings, liveNow, describeVideo, insertMedia, fromService, announce, announceLive, utc, churchTz, autoLink, youtubeIdOf, youtubeCopies, KEEP_MUX_CHOICES } from './media.js';
 
 const API = () => (process.env.MB_MUX_API || 'https://api.mux.com').replace(/\/+$/, '');
 export const muxConfigured = () => Boolean(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET);
@@ -35,6 +37,14 @@ async function mux(method, path, body) {
     throw e;
   }
   return data;
+}
+
+// Deleting from Mux is permanent. A 404 means it is already gone. Every deletion is audited
+// (no signed-in person for the background jobs, so the log shows the hub itself). `why` says which
+// rule asked for it.
+async function removeAsset(db, { asset, mediaId, kind, why }, req = {}) {
+  try { await mux('DELETE', `/video/v1/assets/${asset}`); } catch (e) { if (e.status !== 404) throw e; }
+  audit(db, req, 'media.mux_asset_deleted', { media_id: mediaId, asset, kind, why });
 }
 
 // ---------------------------------------------------------------- the stream key
@@ -125,7 +135,10 @@ function importRecording(db, a) {
   const why = duration != null && duration < cfg.min_minutes * 60 ? `Under ${cfg.min_minutes} minutes`
     : !row.service_id ? 'Streamed outside service times' : '';
   const id = insertMedia(db, row, why ? { status: 'skipped', skip: why } : {});
-  if (id && !why && cfg.notify_new) {
+  // The YouTube copy of this service may already be in the library: one item, not two. (If that
+  // copy was in the app already, people were told about it then.)
+  const merged = id ? autoLink(db).find((l) => l.id === id) : null;
+  if (id && !why && cfg.notify_new && !(merged && merged.absorbed.status === 'published')) {
     announce(db, { title: `New message: ${row.title}`, body: [row.speaker, row.series].filter(Boolean).join(' · ') || 'Watch it in the app.', app_url: `/app/#/watch/${id}`, tag: `media-${id}` });
   }
   return id;
@@ -133,7 +146,7 @@ function importRecording(db, a) {
 
 // A trimmed copy of a recording, made by Mux (a few minutes). Until it's ready the app plays the
 // full recording between the same points.
-export async function makeClip(db, mediaId) {
+export async function makeClip(db, mediaId, req = {}) {
   const m = db.prepare('SELECT * FROM media WHERE id = ?').get(mediaId);
   if (!m || m.source !== 'mux' || !m.mux_asset_id) return;
   const want = { start: m.start_sec || 0, end: m.end_sec ?? null };
@@ -143,6 +156,7 @@ export async function makeClip(db, mediaId) {
   if (!want.start && want.end == null) {
     db.prepare("UPDATE media SET clip_asset_id = NULL, clip_playback_id = NULL, clip_start = NULL, clip_end = NULL, clip_status = '', clip_ready_at = NULL WHERE id = ?").run(m.id);
   } else {
+    // Mux clips a recording by making a new asset whose input is the source asset with start and end times.
     const { data } = await mux('POST', '/video/v1/assets', {
       input: [{ url: `mux://assets/${m.mux_asset_id}`, start_time: want.start, ...(want.end != null ? { end_time: want.end } : {}) }],
       playback_policy: ['public'],
@@ -150,8 +164,9 @@ export async function makeClip(db, mediaId) {
     });
     db.prepare("UPDATE media SET clip_asset_id = ?, clip_playback_id = ?, clip_start = ?, clip_end = ?, clip_status = 'making', clip_ready_at = NULL WHERE id = ?")
       .run(data.id, data.playback_ids?.[0]?.id || null, want.start, want.end, m.id);
+    audit(db, req, 'media.clip.start', { id: m.id, source: m.mux_asset_id, clip: data.id, start: want.start, end: want.end });
   }
-  if (old) await mux('DELETE', `/video/v1/assets/${old}`).catch(() => {});
+  if (old) await removeAsset(db, { asset: old, mediaId: m.id, kind: 'clip', why: 'replaced by a new cut' }, req).catch(() => {});
 }
 
 // ---------------------------------------------------------------- uploads from the hub
@@ -175,7 +190,7 @@ async function finishUpload(db, row, a) {
   db.prepare(`UPDATE media SET source = 'mux', mux_asset_id = ?, playback_id = ?, duration = COALESCE(?, duration), upload_status = '', upload_id = NULL,
       clip_asset_id = NULL, clip_playback_id = NULL, clip_start = NULL, clip_end = NULL, clip_status = '', clip_ready_at = NULL, raw_deleted = 0
     WHERE id = ?`).run(a.id, pid, a.duration != null ? Math.round(a.duration) : null, row.id);
-  if (old) await mux('DELETE', `/video/v1/assets/${old}`).catch(() => {});
+  if (old) await removeAsset(db, { asset: old, mediaId: row.id, kind: 'full', why: 'replaced by an upload' }).catch(() => {});
   if (row.start_sec || row.end_sec != null) await makeClip(db, row.id).catch(() => {});
 }
 
@@ -229,29 +244,148 @@ async function tick(db) {
   return { active };
 }
 
-// Trimmed copies being made, full recordings that can go, and the podcast's audio files.
+// Is the clip really there and playable? Asked of Mux itself, right before the original goes.
+async function clipPlayable(row) {
+  try {
+    const { data: c } = await mux('GET', `/video/v1/assets/${row.clip_asset_id}`);
+    return c.status === 'ready' && Boolean(c.playback_ids?.length);
+  } catch { return false; }
+}
+
+// Cut copies being made, full recordings that can go, and the podcast's audio files.
 async function clipsAndCleanup(db) {
   await podcastAudio(db, mux).catch((e) => console.error('Podcast audio:', e.message));
   // Trimmed copies being made.
   for (const row of db.prepare("SELECT id, clip_asset_id FROM media WHERE clip_status = 'making'").all()) {
     try {
       const { data: c } = await mux('GET', `/video/v1/assets/${row.clip_asset_id}`);
-      if (c.status === 'ready') db.prepare("UPDATE media SET clip_status = 'ready', clip_playback_id = COALESCE(?, clip_playback_id), clip_ready_at = datetime('now') WHERE id = ? AND clip_asset_id = ?").run(c.playback_ids?.[0]?.id || null, row.id, row.clip_asset_id);
-      if (c.status === 'errored') db.prepare("UPDATE media SET clip_status = 'failed' WHERE id = ? AND clip_asset_id = ?").run(row.id, row.clip_asset_id);
+      if (c.status === 'ready' && c.playback_ids?.length) {
+        db.prepare("UPDATE media SET clip_status = 'ready', clip_playback_id = ?, clip_ready_at = datetime('now') WHERE id = ? AND clip_asset_id = ?").run(c.playback_ids[0].id, row.id, row.clip_asset_id);
+        audit(db, {}, 'media.clip.ready', { id: row.id, clip: row.clip_asset_id });
+      }
+      if (c.status === 'errored') {
+        // The full recording stays: nothing is deleted for a clip that didn't work.
+        db.prepare("UPDATE media SET clip_status = 'failed' WHERE id = ? AND clip_asset_id = ?").run(row.id, row.clip_asset_id);
+        audit(db, {}, 'media.clip.failed', { id: row.id, clip: row.clip_asset_id });
+      }
     } catch (e) {
       if (e.status === 404) db.prepare("UPDATE media SET clip_status = 'failed' WHERE id = ?").run(row.id);
     }
   }
 
-  // Once a trimmed copy has been ready for a while, the full recording goes (saves storage).
-  const days = mediaSettings(db).keep_full_days ?? 30;
-  if (days > 0) {
-    const old = db.prepare(`SELECT id, mux_asset_id FROM media WHERE source = 'mux' AND clip_status = 'ready' AND raw_deleted = 0 AND clip_ready_at <= datetime('now', ?)`).all(`-${days} days`);
-    for (const row of old) {
-      try {
-        await mux('DELETE', `/video/v1/assets/${row.mux_asset_id}`);
-      } catch (e) { if (e.status !== 404) continue; }
-      db.prepare('UPDATE media SET raw_deleted = 1 WHERE id = ?').run(row.id);
+  // Once the cut copy is ready and playable (the item already plays it), the full recording goes
+  // to save storage. Never before: a clip that is still being made or failed leaves it alone.
+  // The cut has to be of the marks as they are now.
+  const done = db.prepare(`SELECT id, mux_asset_id, clip_asset_id FROM media WHERE source = 'mux' AND clip_status = 'ready' AND clip_playback_id IS NOT NULL AND clip_asset_id IS NOT NULL
+    AND raw_deleted = 0 AND clip_start = start_sec AND clip_end IS end_sec AND mux_asset_id != clip_asset_id`).all();
+  for (const row of done) {
+    if (!(await clipPlayable(row))) continue;
+    try {
+      await removeAsset(db, { asset: row.mux_asset_id, mediaId: row.id, kind: 'full', why: 'the cut copy is ready' });
+    } catch { continue; }
+    db.prepare('UPDATE media SET raw_deleted = 1 WHERE id = ?').run(row.id);
+  }
+}
+
+// ---------------------------------------------------------------- keep services in Mux for N months
+// Once a day. Mux storage costs money and YouTube keeps the copy free, so (when the church turns it on in
+// Media → Setup) a service older than 6, 12 or 24 months moves to its YouTube copy and its Mux
+// assets are deleted. THE DELETE IS PERMANENT; the YouTube copy is what remains. A service moves
+// only when it is linked to a YouTube video that the YouTube API confirms is still there; if
+// YouTube can't be asked (no key, error, quota) nothing at all is deleted that run. Safe to run
+// twice: a moved item is no longer a Mux item, and a Mux deletion that failed is retried from
+// `pending`. `now` is injectable for tests.
+const archiveState = (db) => getSetting(db, 'media_archive', {});
+const saveArchive = (db, changes) => setSetting(db, 'media_archive', { ...archiveState(db), ...changes });
+export const archiveStatus = (db) => { const { last_run, moved, kept = [], error = '', pending = [] } = archiveState(db); return { last_run: last_run || null, moved: moved || 0, kept, error, pending: pending.length }; };
+
+let archiving = null;
+export function archiveOldMux(db, opts = {}) {
+  archiving ||= runArchive(db, opts).finally(() => { archiving = null; });
+  return archiving;
+}
+
+const WEEK = 7 * 86400e3;
+const ytThumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+
+async function runArchive(db, { now = Date.now() } = {}) {
+  const months = mediaSettings(db).keep_mux_months;
+  if (!KEEP_MUX_CHOICES.includes(months)) return { ran: false, why: 'off' };
+  if (!muxConfigured()) return { ran: false, why: 'mux' };
+  const today = new Date(`${localNow(churchTz(db), new Date(now)).date}T12:00:00Z`);
+  today.setUTCMonth(today.getUTCMonth() - months);
+  const cutoff = today.toISOString().slice(0, 10); // older than this day
+  const out = { ran: true, moved: 0, kept: [], failed: 0, error: '' };
+  const st = archiveState(db);
+
+  // Finish what an earlier run started: items already on YouTube whose Mux assets are still there.
+  let pending = st.pending || [];
+  const still = [];
+  for (const a of pending) {
+    try { await removeAsset(db, { asset: a.asset, mediaId: a.media_id, kind: a.kind, why: `kept ${months} months, retried` }); } catch { still.push(a); }
+  }
+  pending = still;
+
+  const rows = db.prepare(`SELECT * FROM media WHERE source = 'mux' AND mux_asset_id IS NOT NULL AND day < ? AND upload_status = '' AND clip_status != 'making'
+    ORDER BY day LIMIT 200`).all(cutoff);
+  const keep = (m, reason) => { if (m.status !== 'skipped') out.kept.push({ id: m.id, title: m.title, day: m.day, reason }); };
+  const withCopy = [];
+  for (const m of rows) { if (youtubeIdOf(m)) withCopy.push(m); else keep(m, 'No YouTube copy is linked'); }
+
+  let found = new Map();
+  if (withCopy.length) {
+    try { found = await youtubeCopies(withCopy.map(youtubeIdOf)); } catch (e) {
+      // Can't confirm anything: delete nothing this run, and say so.
+      out.error = e.message;
+      saveArchive(db, { last_run: utc(now), moved: 0, kept: out.kept, error: e.message, pending });
+      return out;
     }
   }
+  for (const m of withCopy) {
+    const yid = youtubeIdOf(m);
+    const copy = found.get(yid);
+    if (!copy) { keep(m, 'The YouTube copy is gone or not playable'); continue; }
+    if (copy.duration != null && m.end_sec != null && copy.duration < m.end_sec) { keep(m, 'The YouTube copy is shorter than the message'); continue; }
+    if (db.prepare('SELECT 1 FROM media WHERE video_id = ? AND id != ?').get(yid, m.id)) { keep(m, 'The YouTube video is already listed on its own'); continue; }
+    // Hand the item to YouTube first, and remember the assets to delete in the same step: a
+    // crash between the two leaves an item that plays YouTube and assets to clear, never an
+    // item pointing at assets that are gone.
+    const assets = [...new Set([m.raw_deleted ? null : m.mux_asset_id, m.clip_asset_id].filter(Boolean))].map((asset) => ({ asset, media_id: m.id, kind: asset === m.clip_asset_id ? 'clip' : 'full' }));
+    tx(db, () => {
+      db.prepare(`UPDATE media SET source = 'youtube', video_id = ?, yt_video_id = NULL, yt_snapshot = NULL, linked_by = '', mux_asset_id = NULL, playback_id = NULL, thumbnail = ?,
+        clip_asset_id = NULL, clip_playback_id = NULL, clip_start = NULL, clip_end = NULL, clip_status = '', clip_ready_at = NULL, raw_deleted = 0,
+        audio_asset_id = NULL, audio_playback_id = NULL, audio_status = '', audio_size = NULL WHERE id = ?`).run(yid, ytThumb(yid), m.id);
+      pending = [...pending, ...assets];
+      saveArchive(db, { pending });
+      audit(db, {}, 'media.mux_archive', { id: m.id, title: m.title, day: m.day, youtube: yid, assets: assets.map((a) => a.asset), months });
+    });
+    out.moved++;
+    const left = [];
+    for (const a of pending.filter((x) => x.media_id === m.id)) {
+      try { await removeAsset(db, { asset: a.asset, mediaId: m.id, kind: a.kind, why: `kept ${months} months` }); } catch { left.push(a); out.failed++; }
+    }
+    pending = [...pending.filter((x) => x.media_id !== m.id), ...left];
+    saveArchive(db, { pending });
+  }
+
+  // A short note for admins about once a week (not every day), and always when something needs them.
+  const since = (st.since_moved || 0) + out.moved;
+  const due = !st.notice_at || now - st.notice_at >= WEEK;
+  const worth = since || out.kept.length || pending.length;
+  let notice_at = st.notice_at || null;
+  let since_moved = since;
+  if (due && worth) {
+    const admins = db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin' AND campus_ids IS NULL").all().map((u) => u.id);
+    const n = out.kept.length;
+    const bits = [
+      since ? `${since} ${since === 1 ? 'service' : 'services'} moved to YouTube and cleared from Mux.` : '',
+      n ? `${n} ${n === 1 ? 'service' : 'services'} couldn’t move to YouTube: ${out.kept.slice(0, 3).map((k) => k.title).join(', ')}${n > 3 ? ` and ${n - 3} more` : ''}. They’re still in Mux.` : '',
+      pending.length ? `${pending.length} Mux ${pending.length === 1 ? 'file' : 'files'} will be tried again tomorrow.` : '',
+    ].filter(Boolean);
+    notify(db, admins, { kind: 'media', title: 'Mux storage summary', body: bits.join(' '), url: '/#/media/setup' });
+    notice_at = now;
+    since_moved = 0;
+  }
+  saveArchive(db, { last_run: utc(now), moved: out.moved, kept: out.kept, error: '', pending, notice_at, since_moved });
+  return out;
 }

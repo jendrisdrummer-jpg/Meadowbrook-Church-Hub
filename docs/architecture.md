@@ -45,7 +45,7 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 | `notify.js` / `push.js` / `mail.js` | Inbox notifications, Web Push (own VAPID keys, no paid service), SMTP email. |
 | `stripe.js` | Stripe calls (giving, event payments) and webhook verification. |
 | `daily.js` / `live.js` | Video calls in chats (Daily), live chat updates (server-sent events). |
-| `media.js` / `mux.js` / `podcast.js` | YouTube sync (channel or messages playlist; each new video placed In the app / Not in the app / Needs a look) and live detection. `mux.js` and `podcast.js` are dormant (the church doesn’t use Mux; no staff screen). |
+| `media.js` / `mux.js` / `podcast.js` | YouTube sync (channel or messages playlist; each new video placed In the app / Not in the app / Needs a look) and live detection. `mux.js` (the church streams to Mux and YouTube together: one linked item per service, the message cut out as a Mux clip, and the daily “keep services in Mux for N months” clean-up) is held for review; uploads and `podcast.js` stay dormant (no staff screen). |
 | `backup.js` | Encrypted nightly backups to the disk and Google Drive. |
 | `csv.js` | CSV parsing/writing for imports and exports. |
 | `checkin-events.js` | The kids' check-in record: `recordEvent` (closed `ACTIONS` list, actor taken from the request, detail capped), called inside the same `tx()` as the change it records. |
@@ -78,7 +78,8 @@ header, `html`/`mount`, icons, dialogs, toasts, dates, `chips`, `pickPerson`), `
 | 15 min | Volunteer serving reminders, task reminders |
 | 1 min | Video-call housekeeping, scheduled announcements, Mux check (live state, recordings, uploads, trims, podcast audio) |
 | 2 min | YouTube live check (around service times) |
-| 1 hour | YouTube channel sync |
+| 1 hour | YouTube channel sync (also links a YouTube copy to the Mux recording of the same service) |
+| 1 day | Keep services in Mux (`archiveOldMux`; does nothing unless Media → Setup turns it on) |
 | 10 min | Nightly backup check (runs once a day after 3 a.m. church time) |
 
 Jobs are idempotent and guarded so overlapping runs don't double up (`running ||= …`). Tests
