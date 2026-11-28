@@ -33,7 +33,7 @@ stack for the sans, so layouts survive a missing file.
 
 | Font | Files | Used for |
 |---|---|---|
-| **Fraunces** (variable weight 400-600, plus italic 400), `--serif` | `fraunces-roman.woff2` 66 KB, `fraunces-italic.woff2` 41 KB | Page titles (`h1`, 30px; 26px on phones), card and section headings (`h2`, 18px), big numbers (`.stat b`, widget `.w-big`), the avatar initials on a profile, the brand mark letter, the dashboard greeting (44px, the name in italic). Never body text, buttons, table cells or fields. |
+| **Fraunces** (variable weight 400-600, plus italic 400), `--serif` | `fraunces-roman.woff2` 66 KB, `fraunces-italic.woff2` 41 KB | Page titles (`h1`, 30px; 26px on phones), card and section headings (`h2`, 18px), big numbers (`.stat b`, widget `.w-big`), the avatar initials on a profile, the brand mark letter (shown only when no app icon is uploaded; with one, the sidebar corner shows the church's logo from Settings → Church), the dashboard greeting (44px, the name in italic). Never body text, buttons, table cells or fields. |
 | **Inter** (variable weight 400-700), `--font` | `inter.woff2` 47 KB | Everything you read and click: 14px body (15px on phones), 13px small text, controls at weight 550. |
 
 Total 158 KB (154 KiB), cached for the check-in tablet by the service worker so it looks the

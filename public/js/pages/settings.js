@@ -1,6 +1,6 @@
 // Admin settings: church, campuses, check-in & attendance, sign-in & accounts, and the people import.
 import { api, get, post, patch, put, del, html, mount, icon, dialog, formData, exclusiveCampusBoxes, options, toast, fail, displayName, pickPerson, chips, confirm, fmtUtcDate } from '../lib.js';
-import { state, setTitle, go, campusName, applyTheme } from '../app.js';
+import { state, setTitle, go, campusName, applyTheme, drawBrandMark } from '../app.js';
 import { gradeLabel } from '../checkin-rules.js';
 import { backups } from './settings-backups.js';
 import { brandWarnings, suggestShade } from '../contrast.js';
@@ -87,11 +87,12 @@ async function church(panel) {
     try {
       for (const size of [512, 192, 180]) await api('POST', `/app-icon/${size}`, await squarePng(file, size));
       toast('App icon updated. Installed apps pick it up the next time they update.');
+      await refreshLogo();
       church(panel);
     } catch (err) { fail(err); }
   };
   app.querySelector('[data-icon-reset]')?.addEventListener('click', async () => {
-    try { await del('/app-icon'); church(panel); } catch (err) { fail(err); }
+    try { await del('/app-icon'); await refreshLogo(); church(panel); } catch (err) { fail(err); }
   });
   const form = panel.querySelector('form');
   const preview = () => {
@@ -574,4 +575,11 @@ async function checks(panel) {
     };
   };
   draw();
+}
+
+// After the icon changes, the sidebar corner shows the new one straight away.
+async function refreshLogo() {
+  const fresh = await get('/settings');
+  Object.assign(state.settings, { custom_app_icon: fresh.custom_app_icon, app_icon_version: fresh.app_icon_version });
+  drawBrandMark();
 }
