@@ -2,6 +2,7 @@
 import { get, post, put, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, debounce, familyName, confirm } from './lib.js';
 import { state, can } from './app.js';
 import { duplicateOf, personLabel } from './guards.js';
+import { searchChurch } from './rollcall-church.js';
 
 // opts.mode is the campus's attendance mode: 'names' (roll only), 'headcount' (headcount first, roll
 // folded away) or 'both' (today's screen). Accounts below leader have no People page, so their new
@@ -78,7 +79,7 @@ export async function drawRollCall(panel, s, opts = {}) {
         <span class="roll-name">${displayName(p)}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}${p.status === 'guest' ? html` <span class="pill warn">New</span>` : ''}</span>
         ${kids.has(p.id) ? html`<span class="muted small">Checked in</span>` : ''}
       </button>`)}</div>`)
-      : html`<div class="empty">${q ? 'No one by that name. Add them as a new guest.' : 'No one here yet.'}</div>`);
+      : html`<div class="empty">${q ? html`No one by that name. Add them as a new guest, or <button type="button" class="btn small" data-church-search>Search the whole church</button>` : 'No one here yet.'}</div>`);
   }
 
   async function mark(ids, on) {
@@ -118,7 +119,7 @@ export async function drawRollCall(panel, s, opts = {}) {
     let answer = null;
     await dialog({
       title: 'Is this the same person?', submit: null, cancel: 'Back',
-      body: html`<p>We already have <b>${personLabel(m)}</b>${m.phone || m.email ? html` (${[m.phone, m.email].filter(Boolean).join(' · ')})` : ''}. Is this who you mean?</p>
+      body: html`<p>${m.campus ? html`There’s already a <b>${personLabel(m)}</b> at ${m.campus}` : html`We already have <b>${personLabel(m)}</b>`}${m.phone || m.email ? html` (${[m.phone, m.email].filter(Boolean).join(' · ')})` : ''}. Is this who you mean?</p>
         <div class="stack"><button type="button" class="btn primary" data-same>Yes, that’s them</button>
         <button type="button" class="btn" data-new>No, add someone new</button></div>`,
       onOpen: (d, close) => {
@@ -157,13 +158,21 @@ export async function drawRollCall(panel, s, opts = {}) {
       },
     });
     if (!person) return;
-    await post(`/services/${s.id}/roll`, { person_ids: [person.id], present: true });
+    // Someone found by the duplicate check may be at another campus, which the church-wide route allows.
+    await (existing ? post(`/services/${s.id}/roll/church`, { person_id: person.id }) : post(`/services/${s.id}/roll`, { person_ids: [person.id], present: true }));
     toast(`${displayName(person)} ${existing ? 'marked here' : 'added'}.`);
     data = await get(`/services/${s.id}/roll`);
     present = new Set(data.present);
     draw();
   }
   panel.querySelector('[data-guest]').onclick = () => addGuest();
+  list.addEventListener('click', async (e) => {
+    if (!e.target.closest('[data-church-search]')) return;
+    if (!(await searchChurch(s, panel.querySelector('[data-q]').value.trim()))) return;
+    data = await get(`/services/${s.id}/roll`);
+    present = new Set(data.present);
+    draw();
+  });
   list.addEventListener('click', (e) => {
     const b = e.target.closest('[data-add-child]');
     if (b) addGuest({ householdId: Number(b.dataset.addChild) });

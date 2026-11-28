@@ -10,6 +10,7 @@ import { closeStreams } from '../live.js';
 import { syncLeaderAccessFor } from './teams.js';
 import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError, NOT_LINKED } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
+import { eligibleCampuses } from '../eligibility.js';
 import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
 
@@ -232,22 +233,77 @@ export default function peopleRoutes(db, { uploadDir }) {
 
   const servingList = (id) => db.prepare('SELECT campus_id FROM serving_campuses WHERE person_id = ? ORDER BY campus_id').all(id).map((x) => x.campus_id);
 
-  // Sets the campuses someone can serve at. Campus-limited staff can only add or remove campuses
-  // they can access; anything else already on the list stays as it is.
-  r.put('/people/:id/serving-campuses', requireRole('staff'), (req, res) => {
-    const p = visiblePerson(req, req.params.id);
-    if (!Array.isArray(req.body?.campus_ids)) throw bad('Choose which campuses this person serves at.');
-    const wanted = [...new Set(req.body.campus_ids.map((x) => int(x, 'Campus')).filter((x) => x != null))];
-    for (const id of wanted) if (!db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(id)) throw bad('One of those campuses doesn’t exist.');
+  // Shared by the single, bulk and one-tap routes: cleans a campus id list, then checks who may change
+  // what. Campus-limited staff can only add or remove campuses they can access; anything else already
+  // on a list stays as it is. Nothing is written by the checks, so a bulk request can check everyone first.
+  const campusIdList = (v) => {
+    if (!Array.isArray(v)) throw bad('Choose which campuses this person serves at.');
+    const ids = [...new Set(v.map((x) => int(x, 'Campus')).filter((x) => x != null))];
+    for (const id of ids) if (!db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(id)) throw bad('One of those campuses doesn’t exist.');
+    return ids;
+  };
+  function planServing(req, p, wanted) {
     const current = servingList(p.id);
     const changed = [...wanted.filter((x) => !current.includes(x)), ...current.filter((x) => !wanted.includes(x))];
     if (changed.some((id) => !canCampus(req.user, id))) throw forbidden();
-    tx(db, () => {
-      db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(p.id);
-      for (const id of wanted) db.prepare('INSERT INTO serving_campuses (person_id, campus_id) VALUES (?, ?)').run(p.id, id);
-    });
+    return { current, changed };
+  }
+  function writeServing(p, wanted) {
+    db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(p.id);
+    for (const id of wanted) db.prepare('INSERT INTO serving_campuses (person_id, campus_id) VALUES (?, ?)').run(p.id, id);
+  }
+
+  // Sets the campuses someone can serve at.
+  r.put('/people/:id/serving-campuses', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    const wanted = campusIdList(req.body?.campus_ids);
+    const { current } = planServing(req, p, wanted);
+    tx(db, () => writeServing(p, wanted));
     audit(db, req, 'person.serving_campuses', { id: p.id, from: current, to: wanted });
     res.json({ serving_campuses: wanted });
+  });
+
+  // Adds one campus to someone's serving campuses (the one-tap fix while scheduling). With no list yet
+  // their home campus is what counts, so it is written down too, instead of being lost when the list starts.
+  r.post('/people/:id/serving-campuses/add', requireRole('staff'), (req, res) => {
+    const p = visiblePerson(req, req.params.id);
+    const campusId = int(req.body?.campus_id, 'Campus');
+    if (campusId == null) throw bad('Choose a campus to add.');
+    const [add] = campusIdList([campusId]);
+    const base = eligibleCampuses(db, p.id);
+    // No list and no home campus: they can already serve anywhere, so there is nothing to add.
+    if (base === null) return res.json({ serving_campuses: [] });
+    const wanted = [...new Set([...base, add])].sort((a, b) => a - b);
+    const { current } = planServing(req, p, wanted);
+    tx(db, () => writeServing(p, wanted));
+    audit(db, req, 'person.serving_campuses', { id: p.id, from: current, to: wanted, added: add });
+    res.json({ serving_campuses: wanted });
+  });
+
+  // Sets the same serving campuses for many people at once (People → Select). Every person and campus
+  // is checked first, so one that isn't allowed refuses the whole request and nothing changes.
+  const BULK_MAX = 500;
+  r.post('/people/bulk/serving-campuses', requireRole('staff'), (req, res) => {
+    if (!Array.isArray(req.body?.person_ids) || !req.body.person_ids.length) throw bad('Choose at least one person.');
+    if (req.body.person_ids.length > BULK_MAX) throw bad(`Choose up to ${BULK_MAX} people at a time.`);
+    const ids = [...new Set(req.body.person_ids.map((x) => {
+      const n = int(x, 'Person');
+      if (n == null) throw bad('One of those people couldn’t be found.');
+      return n;
+    }))];
+    const wanted = campusIdList(req.body.campus_ids);
+    // Campuses already on someone's list that this account can't reach stay as they are (as the
+    // single route does); choosing a campus outside their reach is refused (403) for everyone.
+    const plans = ids.map((id) => {
+      const p = visiblePerson(req, id);
+      const kept = servingList(p.id).filter((c) => !canCampus(req.user, c) && !wanted.includes(c));
+      const final = [...wanted, ...kept].sort((x, y) => x - y);
+      return { p, final, ...planServing(req, p, final) };
+    });
+    tx(db, () => { for (const { p, final } of plans) writeServing(p, final); });
+    const changed = plans.filter((x) => x.changed.length).length;
+    audit(db, req, 'person.serving_campuses_bulk', { person_ids: ids, to: wanted, changed, from: Object.fromEntries(plans.filter((x) => x.changed.length).map((x) => [x.p.id, x.current])) });
+    res.json({ updated: ids.length, changed, serving_campuses: wanted });
   });
 
   r.patch('/people/:id', requireRole('staff'), (req, res) => {

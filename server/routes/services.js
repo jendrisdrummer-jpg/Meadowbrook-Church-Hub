@@ -402,7 +402,11 @@ export default function serviceRoutes(db, { now = () => new Date() } = {}) {
     // The override is for staff and up, or someone with no campus limit; a campus-limited leader can't use it.
     const mayOverride = rank(req.user.role) >= rank('staff') || !req.user.campusIds;
     if (!elig.eligible && !(req.body?.allow_other_campus && mayOverride)) {
-      return res.status(409).json({ error: elig.eligibility_reason, other_campus: true });
+      // Staff who can manage this person (their campus is in reach) may fix the list in one tap.
+      const person = db.prepare('SELECT campus_id FROM people WHERE id = ?').get(personId);
+      const camp = db.prepare('SELECT name, short_name FROM campuses WHERE id = ?').get(s.campus_id);
+      return res.status(409).json({ error: elig.eligibility_reason, other_campus: true, campus_id: s.campus_id, campus_name: camp ? (camp.short_name || camp.name) : '',
+        can_add_campus: isStaff(req) && canCampus(req.user, person.campus_id) && canCampus(req.user, s.campus_id) });
     }
     const conflicts = conflictsFor(personId, s, positionId);
     if (conflicts.some((c) => c.level === 'block') && !req.body?.force) {

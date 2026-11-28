@@ -13,10 +13,35 @@ export async function scheduleOne(serviceId, positionId, person) {
     } catch (e) {
       if (e.status !== 409) throw e;
       const campus = Boolean(e.data?.other_campus);
-      if (!(await confirm(campus ? 'Not usually at this campus' : 'Schedule anyway?', `${displayName(person)}: ${e.message}${campus ? '. Schedule them here anyway?' : ''}`, 'Schedule anyway'))) return false;
-      if (campus) body.allow_other_campus = true; else body.force = true;
+      if (campus) {
+        const pick = await askOtherCampus(person, e.data);
+        if (!pick) return false;
+        // Staff who can manage this person fix their list first; after that the server no longer asks.
+        if (pick === 'add') await post(`/people/${person.id}/serving-campuses/add`, { campus_id: e.data.campus_id });
+        else body.allow_other_campus = true;
+        continue;
+      }
+      if (!(await confirm('Schedule anyway?', `${displayName(person)}: ${e.message}`, 'Schedule anyway'))) return false;
+      body.force = true;
     }
   }
+}
+
+// "{Campus} isn't one of {name}'s serving campuses." Resolves to 'add' (staff who can manage them
+// only), 'anyway', or null when they back out.
+function askOtherCampus(person, info) {
+  const campus = info.campus_name || 'This campus';
+  let answer = null;
+  return dialog({
+    title: 'Not usually at this campus', submit: null, cancel: 'Cancel',
+    body: html`<p>${campus} isn’t one of ${displayName(person)}’s serving campuses.</p>
+      <div class="stack">${info.can_add_campus ? html`<button type="button" class="btn primary" data-add>Add ${campus} for them</button>` : ''}
+        <button type="button" class="btn ${info.can_add_campus ? '' : 'primary'}" data-anyway>Schedule anyway</button></div>`,
+    onOpen: (d, close) => {
+      d.querySelector('[data-add]')?.addEventListener('click', () => { answer = 'add'; close(); });
+      d.querySelector('[data-anyway]').addEventListener('click', () => { answer = 'anyway'; close(); });
+    },
+  }).then(() => answer);
 }
 
 // Picks someone for one position at one service: people who play that position first, best

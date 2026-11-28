@@ -6,6 +6,7 @@ import { tx } from '../db.js';
 import { bad, notFound, forbidden, int, str, isDate, audit, localNow, HttpError } from '../http.js';
 import { ensureServices } from './series.js';
 import { missingPeople } from '../attendance-missing.js';
+import { createLimiter } from '../ratelimit.js';
 
 // "Was here" = marked on the roll, or a child checked in to that service.
 const PRESENT_SQL = `SELECT service_id, person_id FROM attendance
@@ -29,6 +30,11 @@ export default function attendanceRoutes(db) {
     return localNow(tz).date > s.starts_at.slice(0, 10);
   };
   const GUESTS_PER_DAY = 30;
+  // Church-wide name lookups and marks, per account, so the names can't be combed through. One
+  // limiter per app, so a test (or a restart) starts clean.
+  const limits = createLimiter();
+  const SEARCHES = 60, SEARCH_WINDOW = 10 * 60e3, PICKS = 120;
+  const campusLabel = (c) => c.campus_short || c.campus_name || '';
 
   // The services an attendance account can take attendance for: by default the last two weeks and
   // tomorrow; ?from= (and ?to=) pick any other dates (up to 62 days at a time) for older services.
@@ -65,7 +71,11 @@ export default function attendanceRoutes(db) {
       ORDER BY recent DESC, p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE`).all(since, s.starts_at, s.campus_id, s.id);
     const present = db.prepare('SELECT person_id FROM attendance WHERE service_id = ?').all(s.id).map((x) => x.person_id);
     const kids = db.prepare('SELECT DISTINCT person_id FROM checkins WHERE service_id = ?').all(s.id).map((x) => x.person_id);
-    res.json({ people, present, checked_in: kids });
+    // People from other campuses (marked through the church-wide search) show as a name only: no photo,
+    // status, family or recent count, since the account may not see those people otherwise.
+    res.json({ people: people.map((p) => (canCampus(req.user, p.campus_id) ? p
+      : { id: p.id, first_name: p.first_name, last_name: p.last_name, nickname: p.nickname, campus_id: p.campus_id,
+        photo: null, status: null, household_role: null, household_id: null, household_name: null, recent: 0 })), present, checked_in: kids });
   });
 
   // Body: { person_ids: [..], present: true|false } – one person or a whole family at once.
@@ -92,6 +102,37 @@ export default function attendanceRoutes(db) {
     res.json({ present: db.prepare('SELECT COUNT(*) n FROM attendance WHERE service_id = ?').get(s.id).n });
   });
 
+  // Finds someone from any campus by name, for the spotter who can't find a regular from the other
+  // campus on this roll. Names and a campus label only: no photo, contact details, family, notes or age.
+  r.get('/services/:id/roll/search', requireAttendance, (req, res) => {
+    service(req, req.params.id);
+    const words = str(req.query.q, 80).toLowerCase().split(/\s+/).filter((w) => w.length >= 2).slice(0, 4);
+    if (!words.length) return res.json({ people: [] });
+    if (!limits.hit(`rollsearch:${req.user.id}`, SEARCHES, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of searches. Please wait a few minutes.');
+    // Every word has to appear in the first name, nickname or last name; a typed % or _ matches itself.
+    const clause = words.map(() => "lower(p.first_name || ' ' || p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\'").join(' AND ');
+    const rows = db.prepare(`SELECT p.id, p.first_name, p.last_name, p.nickname, c.short_name campus_short, c.name campus_name
+      FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
+      WHERE p.archived = 0 AND p.status != 'inactive' AND ${clause}
+      ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE LIMIT 20`).all(...words.map((w) => `%${w.replace(/[\\%_]/g, '\\$&')}%`));
+    res.json({ people: rows.map((p) => ({ id: p.id, first_name: p.first_name, last_name: p.last_name, nickname: p.nickname, campus: campusLabel(p) })) });
+  });
+
+  // Marks one person from the church-wide search present, exactly like the roll does. Separate from
+  // POST /roll (which keeps refusing people at campuses the account can't reach) so this can only
+  // ever mark one active person at a time. Audited, because it reaches beyond the account's campuses.
+  r.post('/services/:id/roll/church', requireAttendance, (req, res) => {
+    const s = service(req, req.params.id);
+    const pid = int(req.body?.person_id, 'Person');
+    // Counted before the lookup, so guessing ids is limited too.
+    if (!limits.hit(`rollchurch:${req.user.id}`, PICKS, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of changes. Please wait a few minutes.');
+    const p = pid && db.prepare('SELECT id, campus_id, archived, status FROM people WHERE id = ?').get(pid);
+    if (!p || p.archived || p.status === 'inactive') throw notFound('Person');
+    db.prepare('INSERT OR IGNORE INTO attendance (service_id, person_id, marked_by) VALUES (?, ?, ?)').run(s.id, p.id, req.user.id);
+    audit(db, req, 'attendance.church_wide', { service_id: s.id, person_id: p.id, home_campus_id: p.campus_id, late: isCorrection(req, s) });
+    res.json({ present: db.prepare('SELECT COUNT(*) n FROM attendance WHERE service_id = ?').get(s.id).n });
+  });
+
   // A new guest for a service, for attendance-only accounts (who can't use People): a new family, or
   // a child added to a family already on this roll (never an adult: every adult in a family counts as
   // an approved pickup, which only staff may grant). Marked present at once. The duplicate check
@@ -112,9 +153,14 @@ export default function attendanceRoutes(db) {
     const used = db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'attendance.guest' AND user_id = ? AND at >= datetime('now', '-1 day')").get(req.user.id).n;
     if (used >= GUESTS_PER_DAY) return res.status(429).json({ error: `You’ve added ${GUESTS_PER_DAY} new guests today. Ask a staff member to add anyone else.` });
     if (!req.body?.force) {
-      const cf = campusFilter(req.user, 'campus_id');
-      const dup = db.prepare(`SELECT id, first_name, last_name FROM people WHERE archived = 0 AND lower(first_name) = lower(?) AND lower(last_name) = lower(?) AND ${cf.sql} LIMIT 1`).get(first, last, ...cf.args);
-      if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: dup });
+      // The church-wide check is a name lookup too, so it shares the search limit.
+      if (!limits.hit(`rollsearch:${req.user.id}`, SEARCHES, SEARCH_WINDOW)) throw new HttpError(429, 'That’s a lot of searches. Please wait a few minutes.');
+      // Church-wide on purpose (a regular from the other campus is the usual duplicate), so it answers
+      // with names and a campus label only. Someone at this service's campus is preferred.
+      const dup = db.prepare(`SELECT p.id, p.first_name, p.last_name, c.short_name campus_short, c.name campus_name FROM people p LEFT JOIN campuses c ON c.id = p.campus_id
+        WHERE p.archived = 0 AND p.status != 'inactive' AND lower(p.first_name) = lower(?) AND lower(p.last_name) = lower(?)
+        ORDER BY p.campus_id IS ? DESC, p.id LIMIT 1`).get(first, last, s.campus_id);
+      if (dup) return res.status(409).json({ error: 'This might be someone already in the system.', duplicate: { id: dup.id, first_name: dup.first_name, last_name: dup.last_name, campus: campusLabel(dup) } });
     }
     const id = tx(db, () => {
       const hid = householdId ?? Number(db.prepare('INSERT INTO households (name, campus_id) VALUES (?, ?)').run(`${last || first} Household`, s.campus_id).lastInsertRowid);

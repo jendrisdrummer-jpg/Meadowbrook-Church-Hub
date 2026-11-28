@@ -21,6 +21,21 @@ phone in the room; works on any device. Everything saves as you tap; there's no 
 3. **Find someone** searches by name. **Everyone**, **Here** and **Not yet** filter the list.
 4. Children checked in at kids' check-in show **Checked in** and are already counted.
 
+## Someone from the other campus
+
+A regular from the other campus won't be on your list. Before adding them as a new guest:
+
+1. Type their name in **Find someone**. If it says **No one by that name**, tap **Search the
+   whole church**.
+2. Type at least two letters of their first name, nickname or last name. You'll see names with
+a small campus label (for example **Howard**), and nothing else about them.
+3. Tap the right person. They're marked here for this service, and they stay a member of their
+   own campus.
+
+If you add a **New guest** whose name is already in the system at either campus, you'll see
+"There's already a Sarah Miller at Howard" and can choose **Yes, that's them** instead of making
+a duplicate.
+
 ## New guests
 
 1. Tap **New guest** (beside the filters).
@@ -61,6 +76,8 @@ Open **Attendance** to see:
 - **You tapped the wrong person:** tap them again to untick.
 - **A tap didn't stick (weak signal):** the tick is taken back and you'll see a message. Try again
   when you have a connection.
+- **Someone from the other campus isn't on the list:** use **Search the whole church** (see above)
+  rather than adding them as a new guest. If the search is busy, wait a few minutes.
 - **The same person appears twice:** mark one, and tell the office so they can merge the records.
 - **Headcount is hard to find:** it's folded at the very bottom, below every family. Scroll all the
   way down.
