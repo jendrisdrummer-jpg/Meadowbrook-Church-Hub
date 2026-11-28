@@ -1118,6 +1118,11 @@ const MIGRATIONS = [
   CREATE UNIQUE INDEX study_completions_once ON study_completions(study_id, person_id) WHERE study_id IS NOT NULL AND revoked_at IS NULL;
   ALTER TABLE users ADD COLUMN studies INTEGER NOT NULL DEFAULT 0;
   `,
+  // 42: indexes for the check-in history of a person and for ending all of a user's sessions.
+  `
+  CREATE INDEX IF NOT EXISTS checkins_person ON checkins(person_id);
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
@@ -1183,6 +1188,15 @@ function linkIndexStep(db, log) {
 
 // Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
 export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
+
+// Daily tidy-up: sessions past their end, and sign-in codes more than a day old (they last 15 minutes).
+// The newest code row always stays: ids aren't reused, and the sign-in cap compares code ids (capMarks in auth.js).
+export function purgeStale(db, now = new Date()) {
+  const sessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now.toISOString()).changes;
+  const dayAgo = new Date(now.getTime() - 864e5).toISOString().slice(0, 19).replace('T', ' '); // the format datetime('now') stores
+  const codes = db.prepare('DELETE FROM login_codes WHERE created_at < ? AND id < (SELECT MAX(id) FROM login_codes)').run(dayAgo).changes;
+  return { sessions, codes };
+}
 
 // One-off conversion for sessions made before tokens were hashed: any token that isn't a 64-char
 // hex hash is replaced by its hash. Real tokens are 43-char base64url, so the shape can't be

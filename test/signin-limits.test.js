@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import express from 'express';
-import { openDb, setSetting } from '../server/db.js';
+import { openDb, setSetting, purgeStale } from '../server/db.js';
 import { authRoutes, hashPassword } from '../server/auth.js';
 import { createApp, trustProxy } from '../server/index.js';
 import { outbox } from '../server/mail.js';
@@ -521,5 +521,32 @@ test('after the daily cap: a newly requested code works on its first try only; a
     const c = await newCode(400);
     const ok = await raw('pat@example.com', c, { password: 'a long enough password' });
     assert.equal(ok[0], 200);
+  } finally { t.close(); mock.timers.reset(); }
+});
+
+test('after the daily cap and a clean-up of old codes, a newly requested code still counts as newer', async () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 });
+  const db = openDb(':memory:');
+  setSetting(db, 'sign_in_policy', 'directory');
+  db.prepare("INSERT INTO people (first_name, last_name, email) VALUES ('Pat', 'Member', 'pat@example.com')").run();
+  const t = await authApp(db);
+  const raw = async (code, extra = {}) => {
+    const res = await fetch(`http://127.0.0.1:${t.port}/auth/code/verify`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.5' }, body: JSON.stringify({ email: 'pat@example.com', code, ...extra }) });
+    return res.status;
+  };
+  try {
+    mock.timers.setTime(T0);
+    await t.post('/auth/code', { email: 'pat@example.com' });
+    const first = outbox.filter((m) => m.to === 'pat@example.com').at(-1).subject.slice(0, 6);
+    const wrong = first === '111111' ? '222222' : '111111';
+    for (let i = 0; i < 20; i++) { mock.timers.setTime(T0 + i * 16 * 60e3); await raw(wrong); }
+    assert.equal(await raw(first), 429, 'capped');
+    // The clean-up runs while the cap still holds, and every code row looks old to it.
+    mock.timers.setTime(T0 + 330 * 60e3);
+    db.prepare("UPDATE login_codes SET created_at = '2000-01-01 00:00:00'").run();
+    purgeStale(db, new Date(Date.now() + 2 * 864e5));
+    await t.post('/auth/code', { email: 'pat@example.com' });
+    const fresh = outbox.filter((m) => m.to === 'pat@example.com').at(-1).subject.slice(0, 6);
+    assert.equal(await raw(fresh, { password: 'a long enough password' }), 200, 'first correct try of a new code signs in');
   } finally { t.close(); mock.timers.reset(); }
 });

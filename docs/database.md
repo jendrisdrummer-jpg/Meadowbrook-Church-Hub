@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (41 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (42 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -37,8 +37,8 @@ Arrows show the main references.
 | `people` → households, campuses | Everyone in the directory (names up to 100 characters; birthdate a real past date; email shaped like `x@y.z`): contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. Only `people.household_id` (set null) and this table (cascade) point at `households`; the empty-families tool (Settings → Checks) reads the foreign keys from the schema, so it never removes a household anything still uses. |
 | `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `attendance` (migration 36: may take attendance at its campuses), `studies` (migration 41: the Bible studies coordinator flag), `home_layout` (migration 39: JSON `{order:[cardId], hidden:[cardId]}`, one person's Customise Home choice; NULL = the standard Home), `app_editor` (migration 38: may open the App Builder and save the app; admins always can; off for everyone at first), `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme` (`light`, `dark` or `device`; new accounts start as `device`, and migration 37 moved accounts still on the old `light` default to `device`), `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
-| `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. |
-| `login_codes` | Hashed one-time email sign-in codes. |
+| `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. Index `sessions_user` on `user_id` (migration 42). Expired rows are deleted once a day (`purgeStale` in `db.js`). |
+| `login_codes` | Hashed one-time email sign-in codes. Rows older than a day are deleted by the same daily job, except the newest row, so ids never go back (the sign-in cap compares them). |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
 | `audit_log` → users | Who changed what (`audit()` in `http.js`). |
 | `feedback` → users, campuses | Feedback from staff and leaders: category, severity, text, page, status, an admin-only note, and `done_note` (what was done, shown to everyone as "You said, we did"). |
@@ -64,7 +64,7 @@ Arrows show the main references.
 | `attendance` → services, people | Roll call (marked by the attendance team). |
 | `headcounts` → services | Counts per area. |
 | `rooms` → campuses | Kids' rooms by age/grade. |
-| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. |
+| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Indexes: `checkins_day`, `checkins_code`, and `checkins_person` on `person_id` (migration 42). |
 | `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
 | `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
 

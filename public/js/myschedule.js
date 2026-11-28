@@ -54,8 +54,8 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
     </div>
     <div class="stack">
       <div class="card"><div class="card-head"><h2>Dates I’m away</h2><button class="btn small" data-away>${icon('plus')} I’ll be away…</button></div>
-        ${d.blockouts.length ? html`<table class="list"><tbody>${d.blockouts.map((b) => html`<tr>
-          <td>${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td><td class="muted">${b.reason}</td>
+        ${d.blockouts.length ? html`<table class="list away-list"><tbody>${d.blockouts.map((b) => html`<tr>
+          <td>${fmtDate(b.start_date)}${b.end_date !== b.start_date ? ` – ${fmtDate(b.end_date)}` : ''}</td><td class="muted away-why">${b.reason}</td>
           <td style="text-align:right"><button class="icon-btn" data-remove-away="${b.id}" title="Remove" aria-label="Remove ${fmtDate(b.start_date)}">${icon('trash')}</button></td></tr>`)}</tbody></table>`
           : html`<p class="muted">Let your team leaders know when you’re out of town, and you won’t be scheduled.</p>`}
       </div>

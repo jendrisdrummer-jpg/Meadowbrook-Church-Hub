@@ -35,7 +35,7 @@ export default async function attendance(el) {
     <div class="grid two" style="margin-bottom:14px">
       <div class="card" data-missing-card><div class="card-head"><h2>We’ve missed…</h2>
           <div class="seg" data-missing-weeks role="group" aria-label="Missed at least">${[2, 3, 4].map((n) => html`<button type="button" data-w="${n}" class="${n === 2 ? 'on' : ''}">${n}+ weeks</button>`)}</div></div>
-        <p class="muted small" style="margin-top:-4px">Regulars (here at least 3 times in the last 12 weeks) who missed recent Sundays when attendance was taken.A good list for a call or a note.</p>
+        <p class="muted small" style="margin-top:-4px">Regulars (here at least 3 times in the last 12 weeks) who missed recent Sundays when attendance was taken. A good list for a call or a note.</p>
         <div data-missing-list><p class="muted">Loading…</p></div></div>
       <div class="card"><h2>First-time guests this month</h2>
         ${follow.first_time.length ? follow.first_time.map((p) => personRow(p, `First visit ${fmtDate(p.first_at.slice(0, 10))}`)) : html`<p class="muted">No first-time visits marked this month.</p>`}</div>

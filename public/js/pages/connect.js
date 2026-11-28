@@ -38,7 +38,7 @@ export default async function connect(el) {
             : html`<button class="btn small primary" data-done="${c.id}">${icon('check')} Followed up</button>`}
           ${can('staff') ? html`<button class="icon-btn danger" data-del="${c.id}" title="Delete">${icon('trash')}</button>` : ''}
         </div></div>`)}</div>`
-      : html`<div class="card empty">${status === 'open' ? html`No connect cards waiting. Guests fill them in from the <b>Connect</b> tab of the church app.` : 'Nothing marked done yet.'}</div>`);
+      : html`<div class="card empty">${status === 'open' ? html`No connect cards waiting. Guests fill them in from the church app’s connect card, which opens from a button or link on the home screen. You can add or change it in App Builder.` : 'Nothing marked done yet.'}</div>`);
 
     el.onclick = async (e) => {
       const b = e.target.closest('button');

@@ -208,7 +208,7 @@ Names only, never values. Render → the service → **Environment**.
 | `MB_SMTP_USER`, `MB_SMTP_PASS` | Yes (email codes, schedule emails) | Gmail address and app password |
 | `MB_SMTP_HOST`, `MB_SMTP_PORT`, `MB_MAIL_FROM` | Optional | Other email providers; sender name |
 | `MB_BACKUP_PASSWORD` | Yes | Long passphrase, kept by two people outside the hub |
-| `MB_ADMIN_EMAILS` | Optional | Comma-separated emails that are always admins |
+| `MB_ADMIN_EMAILS` | Optional | Comma-separated emails that become admins when their account is created (first sign-in) |
 | `MB_APP_URL` | Optional | The member app's own address |
 | `YOUTUBE_API_KEY` | Recommended for Media (without it the hub sees only the channel’s latest 15 videos and some need a look) | Google Cloud → APIs & Services → enable **YouTube Data API v3** → Credentials → API key, restricted to that API. Then in Media → Setup the key shows **On**. The Sunday messages playlist is set in Media → Setup (no env var): make a public or unlisted playlist on YouTube, paste its link under “Only bring in videos from this playlist” |
 | `MB_DAILY_API_KEY`, `STRIPE_*` | Only for video calls and giving | From each service |

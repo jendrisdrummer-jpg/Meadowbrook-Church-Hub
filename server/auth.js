@@ -13,6 +13,7 @@ import { closeStreams } from './live.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
+import { devLoginAllowed } from './devlogin.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -26,7 +27,9 @@ export function parseCookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    // A value that isn't valid %-encoding counts as no cookie, not a crash.
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* ignore */ }
   }
   return out;
 }
@@ -217,7 +220,7 @@ function signUpRole(db, email) {
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
   const inDomain = Boolean(domain) && email.endsWith('@' + domain.toLowerCase());
-  const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
+  const firstAdmin = noUsers && !adminEmails.length && (inDomain || devLoginAllowed());
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
   else if (canJoin(policy, { inDomain, inDirectory })) role = 'volunteer';
@@ -258,6 +261,8 @@ export function userForEmail(db, email, profile = {}) {
       title: `New app sign-up: ${first} ${String(profile.last_name || '').trim()}`.trim(),
       body: `${email} created an account and was added to People. Say hello!`,
       url: '/#/connect?tab=signups',
+      push_title: 'New app sign-up',
+      push_body: 'Someone created an account in the app. Open the Hub to say hello.',
       app_url: `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}/#/connect?tab=signups`,
     });
   }
@@ -315,7 +320,7 @@ export function authRoutes(app, db) {
   const verifyLimits = createLimiter(); // verify:<email> and codetry:<id>, apart from the password keys
   let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
   let capWarnedAt = 0;
-  const devLogin = process.env.MB_DEV_LOGIN === '1';
+  const devLogin = devLoginAllowed();
   const google = () => ({
     // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
     id: (process.env.GOOGLE_CLIENT_ID || '').trim(),
@@ -396,9 +401,10 @@ export function authRoutes(app, db) {
   }
 
   app.get('/auth/google/callback', async (req, res) => {
-    const fail = (msg) => res.redirect(`/login?error=${encodeURIComponent(msg)}`);
+    // The login page shows a fixed message for each code (public/login.html); details go to the log.
+    const fail = (code) => res.redirect(`/login?error=${code}`);
     if (req.query.state && req.query.state === parseCookies(req).mb_drive) return finishDrive(req, res).catch(() => res.redirect('/#/settings/backups?drive_error=Connecting%20failed.'));
-    if (!req.query.state || req.query.state !== parseCookies(req).mb_oauth) return fail('Sign-in expired. Please try again.');
+    if (!req.query.state || req.query.state !== parseCookies(req).mb_oauth) return fail('expired');
     const g = google();
     try {
       const r = await fetch('https://oauth2.googleapis.com/token', {
@@ -415,24 +421,22 @@ export function authRoutes(app, db) {
       const tokens = await r.json();
       if (!r.ok || !tokens.id_token) {
         // Google's error code (e.g. invalid_client, redirect_uri_mismatch) says what to fix; it holds no secrets.
-        console.error('Google token exchange failed:', r.status, tokens.error, tokens.error_description, 'redirect_uri =', callbackUrl(req));
-        return fail(`Google sign-in failed (${tokens.error || r.status}). ${SIGN_IN_HINTS[tokens.error] || ''}`.trim());
+        console.error('Google token exchange failed:', r.status, tokens.error, tokens.error_description, 'redirect_uri =', callbackUrl(req), SIGN_IN_HINTS[tokens.error] || '');
+        return fail('google_failed');
       }
       // The ID token came straight from Google over TLS, so its claims can be trusted
       // without checking the signature (Google's OpenID Connect guidance).
       const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());
-      if (claims.aud !== g.id || !claims.email_verified) return fail('Google could not verify that email address.');
+      if (claims.aud !== g.id || !claims.email_verified) return fail('unverified');
       const user = userForEmail(db, claims.email, { first_name: claims.given_name || claims.name || claims.email.split('@')[0], last_name: claims.family_name || '' });
       if (!user || user.needsName) {
-        return fail(g.domain && g.domainOnly
-          ? `Please sign in with your @${g.domain} account.`
-          : 'Your account isn’t set up yet. Ask a church admin to add you.');
+        return fail(g.domain && g.domainOnly ? 'wrong_domain' : 'not_set_up');
       }
       startSession(db, req, res, user.id);
       res.redirect(safeNext(parseCookies(req).mb_next));
     } catch (e) {
       console.error('Google sign-in error', e);
-      fail('Google sign-in failed.');
+      fail('google_failed');
     }
   });
 

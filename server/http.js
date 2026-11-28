@@ -16,6 +16,9 @@ export function errorHandler(err, _req, res, _next) {
   if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON.' });
   if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'That’s too big to upload.' });
+  // Errors that carry a client status (a missing upload is a 404, a bad range a 416) pass through quietly.
+  const code = err?.status ?? err?.statusCode;
+  if (Number.isInteger(code) && code >= 400 && code < 500) return res.status(code).json({ error: code === 404 ? 'That wasn’t found.' : 'That request couldn’t be handled.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on the server.' });
 }
