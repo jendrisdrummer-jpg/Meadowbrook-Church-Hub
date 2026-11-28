@@ -15,12 +15,12 @@
 .k-family { text-align: left; border: 1px solid var(--line-2); background: var(--panel); border-radius: 14px; padding: 16px; cursor: pointer; font-size: 17px; }
 .k-family:hover { border-color: var(--accent); }
 .k-family b { display: block; font-size: 19px; }
-.k-kids { display: grid; gap: 10px; margin: 14px 0; }
-.k-kid { display: flex; align-items: center; gap: 14px; padding: 14px; border: 2px solid var(--line); border-radius: 14px; background: var(--panel); cursor: pointer; }
+.k-kids { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 14px 0; }
+.k-kid { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; min-width: 0; padding: 14px; border: 2px solid var(--line); border-radius: 14px; background: var(--panel); cursor: pointer; }
 .k-kid.on { border-color: var(--accent); background: var(--accent-soft); }
 .k-kid input { width: 26px; height: 26px; accent-color: var(--accent); }
 .k-kid .avatar { width: 52px; height: 52px; font-size: 18px; }
-.k-kid .info { flex: 1; }
+.k-kid .info { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .k-kid .info b { font-size: 19px; }
 .k-kid .room { font-weight: 700; }
 .k-kid .room.none { color: var(--bad); }

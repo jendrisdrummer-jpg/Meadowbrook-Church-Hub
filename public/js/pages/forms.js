@@ -143,7 +143,7 @@ async function responses(el, f) {
   function draw() {
     const shown = rows.filter((x) => (status === 'new' ? x.status === 'new' : x.status === 'done'));
     mount(el, html`<div class="tabs"><button class="${status === 'new' ? 'on' : ''}" data-status="new">To follow up (${rows.filter((x) => x.status === 'new').length})</button><button class="${status === 'done' ? 'on' : ''}" data-status="done">Done</button></div>
-      ${shown.length ? html`<div class="grid two">${shown.map((x) => html`<div class="card stack" style="gap:8px">
+      ${shown.length ? html`<div class="grid two">${shown.map((x) => html`<div class="card stack resp" style="gap:8px">
         <div class="row"><b style="font-size:16px">${x.name || (x.person_first ? `${x.person_first} ${x.person_last}` : 'Someone')}</b><span class="spacer"></span><span class="muted small">${fmtDate(x.created_at.slice(0, 10))}</span></div>
         <div class="row small">${x.email ? html`<a href="mailto:${x.email}">${x.email}</a>` : ''}${x.phone ? html`<a href="tel:${x.phone}">${x.phone}</a>` : ''}${x.person_id ? html`<a href="#/people/${x.person_id}">${icon('user')} ${x.person_first} ${x.person_last}</a>` : ''}</div>
         ${form.questions.filter((q) => Object.hasOwn(x.answers, q.id)).map((q) => html`<div><div class="muted small">${q.label}</div><div style="white-space:pre-line">${answer(q, x.answers[q.id])}</div></div>`)}

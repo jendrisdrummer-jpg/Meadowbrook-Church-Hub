@@ -13,6 +13,7 @@ import { closeStreams } from './live.js';
 import { notify } from './notify.js';
 import { sendMail, canSendMail } from './mail.js';
 import { connectDrive, DRIVE_SCOPE } from './backup.js';
+import { devLoginAllowed } from './devlogin.js';
 
 export const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 const SESSION_DAYS = 30;
@@ -219,7 +220,7 @@ function signUpRole(db, email) {
   // On a brand-new install with no admin emails configured, the first church-domain account
   // (or anyone, in local test mode) becomes the admin, so a stranger can't claim a public server.
   const inDomain = Boolean(domain) && email.endsWith('@' + domain.toLowerCase());
-  const firstAdmin = noUsers && !adminEmails.length && (inDomain || process.env.MB_DEV_LOGIN === '1');
+  const firstAdmin = noUsers && !adminEmails.length && (inDomain || devLoginAllowed());
   let role = null;
   if (adminEmails.includes(email) || firstAdmin) role = 'admin';
   else if (canJoin(policy, { inDomain, inDirectory })) role = 'volunteer';
@@ -319,7 +320,7 @@ export function authRoutes(app, db) {
   const verifyLimits = createLimiter(); // verify:<email> and codetry:<id>, apart from the password keys
   let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
   let capWarnedAt = 0;
-  const devLogin = process.env.MB_DEV_LOGIN === '1';
+  const devLogin = devLoginAllowed();
   const google = () => ({
     // Trimmed, because values pasted into a host's settings page often pick up stray spaces.
     id: (process.env.GOOGLE_CLIENT_ID || '').trim(),

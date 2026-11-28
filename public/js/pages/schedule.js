@@ -50,6 +50,12 @@ export default async function schedule(el) {
   }
 
   // ---------------------------------------------------------------- drawing
+  // Services dated before today (in the campus's own time zone) are history: read-only here.
+  const dayAt = (cid) => {
+    const tz = state.campuses?.find((c) => c.id === cid)?.timezone;
+    try { return new Date().toLocaleDateString('en-CA', { timeZone: tz || undefined }); } catch { return today(); }
+  };
+  const isPast = (s) => s.starts_at.slice(0, 10) < dayAt(s.campus_id);
   const live = (cell) => (cell?.assignments || []).filter((a) => a.status !== 'declined');
   const isAway = (m, day) => m.away.some((b) => b.start_date <= day && b.end_date >= day);
   const serving = (personId, serviceId) => Object.entries(grid.cells).some(([k, c]) => k.startsWith(`${serviceId}:`) && live(c).some((a) => a.person_id === personId));
@@ -68,7 +74,7 @@ export default async function schedule(el) {
   function draw() {
     const { services, positions, cells, members } = grid;
     // Drafts this person can send, across the services and team shown.
-    const drafts = services.flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
+    const drafts = services.filter((sv) => !isPast(sv)).flatMap((sv) => positions.filter((p) => sv.can_schedule[p.team_id])
       .flatMap((p) => (cells[`${sv.id}:${p.id}`]?.assignments || []).filter((a) => statusOf(a) === 'draft'))).length;
     const fillBtn = document.querySelector('[data-actions] [data-fill]');
     if (fillBtn) {
@@ -96,7 +102,7 @@ export default async function schedule(el) {
     // isn't obvious (no campus picked), instead of tagging every team "(all campuses)".
     const teamCampus = (t) => (t.campus_id && !state.campusId && !t.name.includes(campusName(t.campus_id)) ? ` · ${campusName(t.campus_id)}` : '');
     const sel = members.find((m) => m.id === picked);
-    const openIn = (s) => positions.reduce((a, p) => a + Math.max(0, (cells[`${s.id}:${p.id}`]?.needed || 0) - live(cells[`${s.id}:${p.id}`]).length), 0);
+    const openIn = (s) => isPast(s) ? 0 : positions.reduce((a, p) => a + Math.max(0, (cells[`${s.id}:${p.id}`]?.needed || 0) - live(cells[`${s.id}:${p.id}`]).length), 0);
     const totalOpen = services.reduce((a, s) => a + openIn(s), 0);
 
     mount(el, html`<div class="card sched-filters">
@@ -131,7 +137,7 @@ export default async function schedule(el) {
                   const note = sel ? (isAway(sel, day) ? html`<span class="pill bad">Away</span>` : serving(sel.id, s.id) ? html`<span class="pill info">Serving</span>` : '') : '';
                   return html`<th scope="col" class="${sel && isAway(sel, day) ? 'away' : ''}"><a href="#/services/${s.id}" class="sched-day">
                     <b>${fmtDate(s.starts_at)}</b><span class="muted small">${fmtTime(s.starts_at)}${multiCampus ? ` · ${s.campus_short || s.campus_name}` : ''}</span></a>
-                    <div class="sched-th-flags">${open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good" title="All positions filled">${icon('check')}<span class="sr-only">All positions filled</span></span>`}${s.locked ? html`<span title="Locked">${icon('lock', 'ic small-ic')}</span>` : ''}${note}</div></th>`;
+                    <div class="sched-th-flags">${isPast(s) ? html`<span class="muted small">Past</span>` : open ? html`<span class="cal-flag warn">${open}</span>` : html`<span class="cal-flag good" title="All positions filled">${icon('check')}<span class="sr-only">All positions filled</span></span>`}${s.locked ? html`<span title="Locked">${icon('lock', 'ic small-ic')}</span>` : ''}${note}</div></th>`;
                 })}</tr></thead>
               <tbody>${byTeam.map((g) => html`
                 ${byTeam.length > 1 || !teamId ? html`<tr class="team-row"><th scope="row" colspan="${services.length + 1}"><span class="dot" style="background:${g.color}"></span> ${g.name}</th></tr>` : ''}
@@ -145,10 +151,10 @@ export default async function schedule(el) {
   }
 
   function cell(s, p, c, sel) {
-    const can = s.can_schedule[p.team_id];
+    const can = s.can_schedule[p.team_id] && !isPast(s);
     const needed = c?.needed || 0;
     const list = c?.assignments || [];
-    const open = Math.max(0, needed - live(c).length);
+    const open = isPast(s) ? 0 : Math.max(0, needed - live(c).length);
     const day = s.starts_at.slice(0, 10);
     // With someone picked, open spots they can take (their position, not away, not already serving then) offer them.
     const ready = sel && sel.position_ids.includes(p.id) && !isAway(sel, day) && !serving(sel.id, s.id);
@@ -194,7 +200,7 @@ export default async function schedule(el) {
     const s = grid.services.find((x) => x.id === serviceId);
     const a = Object.values(grid.cells).flatMap((c) => c.assignments).find((x) => x.id === id);
     const pos = grid.positions.find((p) => p.id === a.position_id);
-    const can = s.can_schedule[pos.team_id];
+    const can = s.can_schedule[pos.team_id] && !isPast(s);
     const r = await dialog({
       title: displayName(a), submit: can ? 'Remove from this service' : null, danger: true, cancel: 'Close',
       body: html`<p>${pos.name} · ${fmtDate(s.starts_at, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(s.starts_at)}</p>
@@ -257,7 +263,7 @@ export default async function schedule(el) {
   };
 
   sendBtn.addEventListener('click', async () => {
-    try { if (await sendRequests(grid.services.map((sv) => sv.id), teamId)) await load(); } catch (err) { fail(err); }
+    try { if (await sendRequests(grid.services.filter((sv) => !isPast(sv)).map((sv) => sv.id), teamId)) await load(); } catch (err) { fail(err); }
   });
 
   // Remind one team across the month: the same reminder as on a service, once per upcoming service.

@@ -18,14 +18,14 @@ const NOTE_MAX = 280;
 // A person's name, linked to their page only for people who can open People (leaders and up).
 const who = (p) => (can('leader') ? html`<a href="#/people/${p.id}">${p.name}</a>` : html`${p.name}`);
 
-// Teachers should have an account so they can update their own study. This asks the coordinator to
-// invite them; setting one up is an admin's job (Settings or the person's page), so others are pointed to an admin.
+// Teachers do best with an account so they can update their own study. Setting one up is an admin's
+// job, so only admins are offered the action; everyone else just gets the plain facts.
 function invite(list) {
   if (!list?.length) return '';
-  return html`<div class="alert" style="margin-top:12px"><b>${list.map((t) => t.name).join(', ')}</b> ${list.length === 1 ? 'doesn’t' : 'don’t'} have an account yet.
-    Teachers do best with one, so they can update their own study. ${can('admin')
-      ? html`Open ${list.length === 1 ? 'their page' : 'their pages'} and choose “Give more access” to invite them: ${list.map((t) => html`<a href="#/people/${t.id}">${t.name}</a> `)}`
-      : 'Ask an admin to set one up. Until then you can keep their study up to date for them.'}</div>`;
+  const one = list.length === 1;
+  return html`<div class="alert" style="margin-top:12px"><b>${list.map((t) => t.name).join(', ')}</b> ${can('admin') ? html`${one ? 'doesn’t' : 'don’t'} have an account yet. Teachers do best with one, so they can update their own study.
+      Open ${one ? 'their page' : 'their pages'} and choose “Give more access” to invite them: ${list.map((t) => html`<a href="#/people/${t.id}">${t.name}</a> `)}`
+      : `${one ? 'doesn’t' : 'don’t'} have an account yet. An admin can set one up from ${one ? 'their profile' : 'their profiles'}.`}</div>`;
 }
 
 export default async function studies(el) {
@@ -47,7 +47,7 @@ export default async function studies(el) {
     mount(el, html`<div class="stats">
         ${tile(summary.active, 'Active studies', 'studies:active')}${tile(summary.paused, 'Paused', 'studies:paused')}
         ${tile(summary.finished_this_year, 'Finished this year', 'studies:finished')}${tile(summary.waiting, 'Waiting for a match', 'waiting')}</div>
-      <div class="tabs" role="tablist">${TABS.map(([k, label]) => html`<button type="button" role="tab" aria-selected="${tab === k}" class="${tab === k ? 'on' : ''}" data-tab="${k}">${label}${k === 'waiting' && summary.waiting ? html` <span class="pill info">${summary.waiting}</span>` : ''}</button>`)}</div>
+      <div class="tabs wrap" role="tablist">${TABS.map(([k, label]) => html`<button type="button" role="tab" aria-selected="${tab === k}" class="${tab === k ? 'on' : ''}" data-tab="${k}">${label}${k === 'waiting' && summary.waiting ? html` <span class="pill info">${summary.waiting}</span>` : ''}</button>`)}</div>
       <div data-panel><div class="muted">Loading…</div></div>`);
     el.onclick = (e) => {
       const t = e.target.closest('[data-tab]');
@@ -76,7 +76,7 @@ export default async function studies(el) {
         <p class="muted small" style="margin:6px 0 0">${q.share_contact ? 'Happy for their teacher to have their phone and email.' : 'Please make the introduction: they haven’t shared their contact details with a teacher.'}</p>
         <div class="row" style="margin-top:12px"><button class="btn small primary" data-start="${q.id}">Start a study</button><button class="btn small" data-add-to="${q.id}">Add to an existing study</button>
           <span class="spacer"></span><button class="btn small ghost" data-close="${q.id}">Close</button></div></div>`)}</div>`
-      : html`<div class="card empty">Nobody is waiting. When someone taps “I’d like to do a Bible study” in the church app, they’ll show up here and you’ll get a notice.</div>`);
+      : html`<div class="card empty">Nobody is waiting. Requests from the church app are coming soon. For now, start a study with New study.</div>`);
     panel.onclick = async (e) => {
       const b = e.target.closest('button');
       if (!b) return;

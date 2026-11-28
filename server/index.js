@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { openDb, getSetting, SCHEMA_VERSION, purgeStale } from './db.js';
 import { authRoutes, loadUser, requireAppHeader, requireRole } from './auth.js';
 import { errorHandler } from './http.js';
+import { devLoginAllowed, devLoginRequested } from './devlogin.js';
 import setupRoutes from './routes/setup.js';
 import peopleRoutes from './routes/people.js';
 import teamRoutes from './routes/teams.js';
@@ -233,7 +234,10 @@ export function trustProxy(v) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const port = Number(process.env.PORT) || 8090;
   const db = openDb();
-  if (!process.env.GOOGLE_CLIENT_ID && process.env.MB_DEV_LOGIN !== '1') {
+  if (devLoginRequested() && !devLoginAllowed()) {
+    console.warn('WARNING: MB_DEV_LOGIN=1 is set but IGNORED, because this server looks live (RENDER or NODE_ENV=production). Test sign-in stays off. Remove MB_DEV_LOGIN from the environment settings.');
+  }
+  if (!process.env.GOOGLE_CLIENT_ID && !devLoginAllowed()) {
     console.warn('Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (see README), or MB_DEV_LOGIN=1 for local testing.');
   }
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });

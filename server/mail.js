@@ -8,10 +8,11 @@
 import tls from 'node:tls';
 import crypto from 'node:crypto';
 import { isOffline } from './offline.js';
+import { devLoginAllowed } from './devlogin.js';
 
 export const outbox = [];
 export const mailConfigured = () => Boolean(process.env.MB_SMTP_USER && process.env.MB_SMTP_PASS);
-export const canSendMail = () => mailConfigured() || process.env.MB_DEV_LOGIN === '1' || process.env.NODE_TEST_CONTEXT !== undefined;
+export const canSendMail = () => mailConfigured() || devLoginAllowed() || process.env.NODE_TEST_CONTEXT !== undefined;
 
 // Header-safe text: no line breaks, non-ASCII encoded (RFC 2047).
 const header = (s) => {
