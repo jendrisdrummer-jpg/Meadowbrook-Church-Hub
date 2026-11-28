@@ -67,4 +67,11 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **Deployed 27 November 2026, about 10:10 PM CT:** PR #150. It carried #147 (hardening from the independent reviews: `/healthz` checks the database, uploads are private and chat and song files are blocked, baseline security headers, a formula guard on the giving CSV, generic push text, fixed login error messages, stale-session clean-up, migration 42 with two indexes) and #149 (polish from the live regression; test sign-in refused in production; privacy page corrected), plus #146 (the demo guide) and #148 (the database-engineer agent). The owner merged it after a fresh backup and set up UptimeRobot on `/healthz`. Rollback: none so far.
 
+**Deployed 27 November 2026, about 11:40 PM CT:** PR #155. It held the fixes from the full system audit:
+- #152: phone layout. Repeating services and long tables are stacked on phones, and Settings moved beside the name.
+- #153: server fixes. Migration 43 adds four indexes. The reply-link clock, re-scheduling, strict dates and amounts, friendlier errors and the phone check on My info are fixed.
+- #154: screen and accessibility fixes, plus the changes the owner approved: merge moves everything, the full gifts CSV, past services can't be deleted, read notifications are cleared after 90 days, and the connect card requires a phone and a campus.
+
+The owner merged it after a fresh backup, and Checks were clean. Rollback: none so far. Follow-up: Feedback was hidden by the new sidebar icons, which #156 fixes in the next deploy. The held child-safety migrations now renumber to 44–48.
+
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).
