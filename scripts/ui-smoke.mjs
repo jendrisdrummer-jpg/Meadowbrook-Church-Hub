@@ -51,7 +51,7 @@ const NAV_WANT = {
   coordinator: [...EVERYDAY, 'Groups', 'Bible studies', 'Services'],
   leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
   staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Bible studies', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
-  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Bible studies', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
+  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Bible studies', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads'],
 };
 let smokeStudyPerson = 0; // a teacher with studies, to open their page
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
@@ -149,7 +149,8 @@ async function main() {
           const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.getAttribute('aria-label')));
           const want = NAV_WANT[who];
           if (seen.join('|') !== want.join('|')) problems.push(`menu shows [${seen.join(', ')}] but should show [${want.join(', ')}]`);
-          if (links.join('|') !== 'Help|Send feedback') problems.push(`Help and Feedback beside the name: saw [${links.join(', ')}]`);
+          const wantLinks = who === 'admin' ? 'Settings|Help|Send feedback' : 'Help|Send feedback';
+          if (links.join('|') !== wantLinks) problems.push(`links beside the name: saw [${links.join(', ')}], want [${wantLinks}]`);
           if (!(await page.locator('.side [data-campus]').count()) || (await page.locator('.side [data-nav]').evaluate((n) => n.previousElementSibling?.matches('.side-campus')) !== true)) problems.push('campus picker is not at the top of the sidebar');
           if (who === 'admin') {
             const tag = page.locator('[data-campus-tag]');

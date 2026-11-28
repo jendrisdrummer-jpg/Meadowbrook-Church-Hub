@@ -5,7 +5,7 @@ import { initSearch, searchButton, openSearch } from './search.js';
 const RANK = { volunteer: 0, leader: 1, staff: 2, admin: 3 };
 
 // Sidebar sections: five, and nothing hidden below the fold. New areas slot into the group they belong to.
-// Help and Feedback live beside the user's name (HELP_LINKS), not in a group. `badge` keys that nothing
+// Settings, Help and Feedback live beside the user's name (HELP_LINKS), not in a group. `badge` keys that nothing
 // fills yet ('connect', 'forms') stay hidden until a count is sent to setBadge().
 const NAV = [
   { group: '', items: [
@@ -42,11 +42,12 @@ const NAV = [
     { path: '/giving', label: 'Giving', icon: 'heart', min: 'volunteer', finance: true },
     { path: '/checkin', label: 'Kids Check-in', short: 'Check-in', icon: 'checkin', min: 'leader', external: true },
     { path: '/stations', label: 'Check-in iPads', icon: 'tablet', min: 'staff' },
-    { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
   ] },
 ];
 // Beside the user's name in the sidebar, and in the footer of the phone More sheet. Still found by search.
 const HELP_LINKS = [
+  // Settings sits here (not in a group) so it's always visible beside the name, even on short laptop screens.
+  { path: '/settings', label: 'Settings', icon: 'settings', min: 'admin' },
   { path: '/help', label: 'Help', icon: 'info', min: 'volunteer' },
   { path: '/feedback', label: 'Feedback', tip: 'Send feedback', icon: 'bulb', min: 'volunteer' },
 ];
@@ -298,6 +299,7 @@ function openMore() {
     <div class="sheet-group">Appearance</div>
     <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([v, label]) => html`<button type="button" data-theme-pick="${v}" aria-pressed="${String(state.me.theme === v)}" class="${state.me.theme === v ? 'on' : ''}">${label}</button>`)}</div>
     <div class="sheet-foot">
+      ${can('admin') ? html`<a href="#/settings">${icon('settings')} Settings</a>` : ''}
       <a href="#/help">${icon('info')} Help</a>
       <a href="#/feedback">${icon('bulb')} Feedback</a>
       <button type="button" data-logout>${icon('logout')} Sign out</button>
