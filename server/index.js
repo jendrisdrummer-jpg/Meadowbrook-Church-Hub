@@ -103,7 +103,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(fieldRoutes(db));
   api.use(templateRoutes(db));
   api.use(notificationRoutes(db));
-  api.use(appRoutes(db, { uploadDir }));
+  api.use(appRoutes(db, { uploadDir, now }));
   api.use(eventRoutes(db));
   api.use(searchRoutes(db));
   api.use(backupRoutes(db, { uploadDir }));

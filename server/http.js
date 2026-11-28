@@ -45,12 +45,33 @@ export function oneOf(v, options, fallback) {
   return options.includes(v) ? v : fallback;
 }
 
+// Said to a signed-in person whose account isn’t tied to a person record yet.
+export const NOT_LINKED = 'Your account isn’t connected to your record in the church directory yet. Please ask the office to link it.';
+
+// Calendar-exact: 2026-02-30 is not a date, and 25:00 is not a time.
 export function isDate(v) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+  const m = typeof v === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+// HH:MM on a 24-hour clock (00:00 to 23:59).
+export function isTime(v) {
+  return typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 }
 
 export function isDateTime(v) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+  return typeof v === 'string' && /^.{10}T.{5}$/.test(v) && isDate(v.slice(0, 10)) && isTime(v.slice(11));
+}
+
+// A length in minutes: the fallback when left blank, otherwise a whole number above 0.
+export function lengthMin(v, fallback) {
+  const n = int(v, 'Length');
+  if (n == null) return fallback;
+  if (n <= 0) throw bad('Length needs to be more than 0 minutes.');
+  return n;
 }
 
 export function audit(db, req, action, detail = '') {

@@ -106,7 +106,7 @@ export const appConfig = (db) => {
   return cfg;
 };
 
-export default function appRoutes(db, { uploadDir } = {}) {
+export default function appRoutes(db, { uploadDir, now = () => new Date() } = {}) {
   const r = Router();
   // A per-address limit so the public connect card can't be used to flood the inbox. One per app,
   // so a test (or a restart) starts clean. IPv6 counts per /64 and /48 (server/ratelimit.js).
@@ -171,7 +171,7 @@ export default function appRoutes(db, { uploadDir } = {}) {
   // ---------------------------------------------------------------- email reply links
   // Accept or decline from the link in a "you're scheduled" email, without signing in.
   const signed = (req) => {
-    const a = db.prepare(`SELECT a.*, s.starts_at, s.title, ps.name position, t.name team, c.name campus, c.address, p.first_name, p.nickname
+    const a = db.prepare(`SELECT a.*, s.starts_at, s.title, ps.name position, t.name team, c.name campus, c.address, c.timezone, p.first_name, p.nickname
       FROM assignments a JOIN services s ON s.id = a.service_id JOIN positions ps ON ps.id = a.position_id JOIN teams t ON t.id = ps.team_id
       JOIN campuses c ON c.id = s.campus_id JOIN people p ON p.id = a.person_id WHERE a.id = ?`).get(int(req.params.id));
     const want = a ? assignmentSig(db, a.id, a.person_id) : 'x'.repeat(24);
@@ -179,8 +179,14 @@ export default function appRoutes(db, { uploadDir } = {}) {
     if (!a || !a.sent_at || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(got))) throw notFound('That request');
     return a;
   };
+  // "Past" is judged on the campus's own clock: a service's time is local, not UTC.
+  const isPast = (a) => {
+    let n;
+    try { n = localNow(a.timezone || 'UTC', now()); } catch { n = localNow('UTC', now()); }
+    return a.starts_at < `${n.date}T${n.time}`;
+  };
   const view = (a) => ({ church_name: getSetting(db, 'church_name', 'Church'), brand_color: getSetting(db, 'brand_color', '#135fd1'), first_name: a.nickname || a.first_name,
-    position: a.position, team: a.team, campus: a.campus, address: a.address, starts_at: a.starts_at, title: a.title, status: a.status, past: a.starts_at < new Date().toISOString().slice(0, 16) });
+    position: a.position, team: a.team, campus: a.campus, address: a.address, starts_at: a.starts_at, title: a.title, status: a.status, past: isPast(a) });
 
   r.get('/public/assignments/:id/:sig', (req, res) => res.json(view(signed(req))));
   r.post('/public/assignments/:id/:sig', (req, res) => {
