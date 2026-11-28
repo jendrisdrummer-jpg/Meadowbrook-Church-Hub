@@ -256,7 +256,7 @@ function drawChrome() {
   fillCampusSelect(sel);
   sel.closest('label').classList.toggle('hidden', visibleCampuses().length < 2);
   sel.onchange = () => pickCampus(sel.value);
-  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a class="icon-btn" href="#${n.path}" data-path="${n.path}" title="${n.tip || n.label}" aria-label="${n.tip || n.label}">${icon(n.icon)}</a>`));
+  mount($('[data-side-links]'), HELP_LINKS.filter((n) => can(n.min)).map((n) => html`<a href="#${n.path}" data-path="${n.path}" title="${n.tip || n.label}">${icon(n.icon)}<span>${n.label}</span></a>`));
   drawCampusTag();
   drawMe();
 }
