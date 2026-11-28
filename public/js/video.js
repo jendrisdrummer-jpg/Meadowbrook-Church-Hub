@@ -12,6 +12,14 @@ export function hms(sec) {
   return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 }
 
+// 3723 → "1:02:03", 610 → "0:10:10": always hours, minutes, seconds (the message start and end marks)
+export function hmsFull(sec) {
+  if (sec == null || Number.isNaN(sec)) return '';
+  const s = Math.max(0, Math.round(sec));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
 // "1:02:03" → 3723 (null when blank, NaN when it can't be read)
 export function parseHms(v) {
   const t = String(v ?? '').trim();
@@ -111,14 +119,14 @@ export async function mountPlayer(box, { videoId, playbackId, start = 0, end = n
   const player = new YT.Player(slot, {
     videoId,
     host: 'https://www.youtube-nocookie.com',
-    playerVars: { rel: 0, playsinline: 1, modestbranding: 1, iv_load_policy: 3, start: start || 0, autoplay: autoplay ? 1 : 0, origin: location.origin },
+    playerVars: { rel: 0, playsinline: 1, modestbranding: 1, iv_load_policy: 3, start: start || 0, ...(end ? { end } : {}), autoplay: autoplay ? 1 : 0, origin: location.origin },
     events: {
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED && !ended) { ended = true; onEnd?.(); }
       },
     },
   });
-  // YouTube's own "end" is ignored after seeking, so the trim's end is watched here.
+  // YouTube's own "end" is ignored after seeking, so the end mark is watched here too.
   if (end) {
     timer = setInterval(() => {
       const t = player.getCurrentTime?.();

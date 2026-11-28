@@ -1131,6 +1131,16 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS message_files_message ON message_files(message_id);
   CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(user_id);
   `,
+  // 44: one media item for a service streamed to Mux and YouTube together. The item keeps the Mux
+  // recording and points at its YouTube copy (yt_video_id); the separate YouTube row it absorbed
+  // is kept as JSON so "Unlink" can give it back. linked_by: auto | hand | unlinked (an admin
+  // split it, so the automatic matching leaves that recording alone).
+  `
+  ALTER TABLE media ADD COLUMN yt_video_id TEXT;
+  ALTER TABLE media ADD COLUMN yt_snapshot TEXT;
+  ALTER TABLE media ADD COLUMN linked_by TEXT NOT NULL DEFAULT '';
+  CREATE UNIQUE INDEX media_yt_video ON media (yt_video_id) WHERE yt_video_id IS NOT NULL;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

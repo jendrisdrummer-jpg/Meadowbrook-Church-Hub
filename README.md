@@ -417,10 +417,41 @@ How it works:
   **Show it in the app**.
 - **About a minute after the stream ends,** the recording lands in the library, filled in from
   the service.
-- **Trimming** makes a real trimmed copy. After a while (30 days by default), the full recording
-  is deleted to save storage.
+- **Message start and end** (Media → the item) make a real clipped copy. As soon as it is ready
+  and plays, the full recording is deleted from Mux to save storage (permanent).
 - **YouTube:** to keep streaming there too, add YouTube as a second destination in vMix, which is
-  free. Or let Mux forward the stream, at about 2¢ a minute.
+  free (see the next section). Or let Mux forward the stream, at about 2¢ a minute.
+
+##### Streaming to Mux and YouTube together (vMix two outputs)
+
+The church streams every Sunday to **both** Mux and YouTube at the same time, using two outputs in
+vMix: Output 1 to Mux (Custom RTMP Server, the URL and key from **Media → Setup**) and Output 2 to
+YouTube (YouTube Live, free). No Mux forwarding is needed.
+
+- **One listing per service.** The Mux recording and the YouTube video of the same stream become
+  one item. The hub links them on its own when both were live streams that started within 3 hours
+  of each other (and of the service's start). If it can't tell which goes with which, it leaves
+  both and you link them by hand: Media → the item → **Same service as…**. For this it reads your
+  YouTube channel every hour (with the optional `YOUTUBE_API_KEY` it also finds the stream when
+  it isn't in your messages playlist).
+- **Plays from Mux first.** Recent services play from Mux in the Hub and app, in a clean player.
+  YouTube is the free, permanent archive and plays when there is no Mux copy.
+- **Message starts here / ends here.** On the item, mark where the message starts and where it
+  ends (the altar call plays out to the end). On Mux the hub asks Mux for a clip of just that
+  part, switches the item to it when it is ready, then **deletes the full-length recording from
+  Mux** to save storage. On YouTube the app plays only the marked part. YouTube can't be trimmed
+  from the hub, so the item shows the same times (for example 0:42:10 to 1:18:30) and a link to
+  YouTube Studio if you want to trim the video there too.
+- **Keep services in Mux for N months** (Media → Setup; off by default; 6, 12 or 24 months). Once
+  a day the hub looks for services older than that. A service moves to YouTube **only if** it is
+  linked to a YouTube video that YouTube confirms is still there (this needs `YOUTUBE_API_KEY`);
+  then its Mux copy is deleted. A service with no YouTube copy stays in Mux, and Setup lists it
+  ("2 services couldn't move to YouTube"). If YouTube can't be checked, nothing is deleted.
+  Admins get a summary notification about once a week.
+
+**Deleting from Mux is permanent.** Once the clip is ready, or the retention setting moves a
+service to YouTube, that Mux recording is gone for good; YouTube keeps the copy. Every deletion is
+recorded in the audit log.
 
 **Past services in our own player:** to move a past service off the YouTube player, download
 it from YouTube Studio: go to **Content**, click **⋮** next to the video and choose **Download**.

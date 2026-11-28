@@ -4,7 +4,7 @@
 // sheet on a phone); its address, #/media/12, still opens that panel.
 import { api, get, post, put, patch, html, mount, icon, dialog, toast, fail, fmtDate, fmtTime, options, debounce, confirm, shrinkImage, chips, trapTab } from '../lib.js';
 import { setTitle, go, state, refreshAttentionBadges } from '../app.js';
-import { hms, parseHms, mountPlayer } from '../video.js';
+import { hms, hmsFull, parseHms, mountPlayer } from '../video.js';
 
 // The three places a video can be, with the chip that shows each.
 const GROUPS = [['app', 'In the app'], ['out', 'Not in the app'], ['look', 'Needs a look']];
@@ -72,6 +72,7 @@ export default async function media(el, tab, opts = {}) {
       <span class="md-body"><b>${m.title}</b>
         <span class="muted small">${when(m)}</span>
         ${m.series || m.speaker ? html`<span class="muted small">${[m.series, m.speaker].filter(Boolean).join(' · ')}</span>` : ''}
+        ${m.linked ? html`<span class="muted small">Mux recording + YouTube copy</span>` : ''}
         <span class="md-status">${g === 'app' ? html`<span class="pill good">${icon('check')} In the app</span>` : g === 'look' ? html`<span class="pill warn">Needs a look</span>` : html`<span class="pill">Not in the app</span>`}</span>
         ${m.reason ? html`<span class="md-why small">${m.reason}</span>` : ''}</span></button>`;
   };
@@ -125,9 +126,12 @@ async function openPanel(id, ctx) {
   let image = m.image;
   let player = null;
   let dirty = false;
-  const trimmed = Boolean(m.start || m.end) && !m.raw_deleted;
+  // The message marks (where the message starts and ends) are in the full recording's own timeline.
+  // Once Mux has cut the message out and dropped the full recording, they can't change again.
+  const locked = Boolean(m.raw_deleted);
+  const marked = Boolean(m.mark_start || m.mark_end);
   const group = groupOf(m);
-  const yt = m.source !== 'mux' && m.video_id ? `https://www.youtube.com/watch?v=${m.video_id}` : '';
+  const yt = m.yt_url || '';
 
   const dlg = document.createElement('dialog');
   dlg.className = 'md-panel';
@@ -137,7 +141,7 @@ async function openPanel(id, ctx) {
     <div class="md-panel-body">
       ${group === 'look' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app yet. Choose <b>Show in app</b> or <b>Hide from the app</b>.</div>`
         : group === 'out' ? html`<div class="alert">${m.reason ? `${m.reason}. ` : ''}It isn’t in the app. Choose <b>Show in app</b> to add it.</div>` : ''}
-      <div class="md-pic md-pic-big" data-pic style="background-image:url('${m.image || m.mux_thumb || m.thumbnail || m.picture}')"></div>
+      <div class="md-pic md-pic-big" data-pic style="background-image:url('${m.image || m.video_picture}')"></div>
       <label class="field">Title in the app<input type="text" name="title" value="${m.title}" maxlength="200" required>
         ${yt ? html`<span class="muted small">On YouTube: ${m.yt_title || '—'}</span>` : ''}</label>
       <div class="form">
@@ -150,17 +154,34 @@ async function openPanel(id, ctx) {
       <datalist id="md-series">${lib.series.map((x) => html`<option value="${x}">`)}</datalist>
       <datalist id="md-speakers">${lib.speakers.map((x) => html`<option value="${x}">`)}</datalist>
       <label class="field">Notes under the video<textarea name="description" rows="4" maxlength="4000" placeholder="Sermon notes, a link to the series, next steps…">${m.description}</textarea></label>
-      <details class="md-more" ${trimmed ? 'open' : ''} data-trim-box><summary>Trim the start and end</summary>
+      <details class="md-more" ${marked ? 'open' : ''} data-trim-box><summary>Message starts here / ends here</summary>
         <div class="md-more-body">
           <div class="m-video md-player" data-player></div>
-          <div class="md-trim-row"><label class="field">Starts at<input type="text" name="start" value="${m.raw_deleted ? '' : m.start ? hms(m.start) : ''}" placeholder="0:00" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
-            <button type="button" class="btn small" data-mark="start">${icon('clock')} Set to now</button>
+          <p class="muted small" style="margin:0">Play to where the message begins, pause, and choose <b>Message starts here</b>. Do the same where it ends; let the altar call play out first. The app plays only this part.</p>
+          <div class="md-trim-row"><label class="field">Message starts<input type="text" name="start" value="${m.mark_start ? hmsFull(m.mark_start) : ''}" placeholder="0:00:00" inputmode="numeric" ${locked ? 'disabled' : ''}></label>
+            <button type="button" class="btn small" data-mark="start" ${locked ? 'disabled' : ''}>${icon('clock')} Message starts here</button>
             <button type="button" class="btn small ghost" data-jump="start">${icon('play')} Play from here</button></div>
-          <div class="md-trim-row"><label class="field">Ends at<input type="text" name="end" value="${m.raw_deleted ? '' : m.end ? hms(m.end) : ''}" placeholder="${m.duration ? hms(m.duration) : 'The end'}" inputmode="numeric" ${m.raw_deleted ? 'disabled' : ''}></label>
-            <button type="button" class="btn small" data-mark="end">${icon('clock')} Set to now</button>
+          <div class="md-trim-row"><label class="field">Message ends<input type="text" name="end" value="${m.mark_end ? hmsFull(m.mark_end) : ''}" placeholder="${m.duration ? hmsFull(m.duration) : 'The end'}" inputmode="numeric" ${locked ? 'disabled' : ''}></label>
+            <button type="button" class="btn small" data-mark="end" ${locked ? 'disabled' : ''}>${icon('clock')} Message ends here</button>
             <button type="button" class="btn small ghost" data-jump="end">${icon('play')} Play the last 10 s</button></div>
           <p class="muted small" data-plays style="margin:0"></p>
-          <p class="muted small" style="margin:0">Skip the pre-service and announcements: play to where it should start, pause, and choose <b>Set to now</b>. The app plays only this part. The video on YouTube doesn’t change.</p>
+          ${locked ? html`<p class="alert" style="margin:0">Mux made a copy with just the message and removed the full recording to save storage, so the start and end can’t change again.</p>` : ''}
+          ${m.source === 'mux' && m.clip_status === 'making' ? html`<p class="muted small" style="margin:0">Mux is making the copy with just the message. The full recording stays until it’s ready, and the app plays between your marks meanwhile.</p>` : ''}
+          ${m.source === 'mux' && m.clip_status === 'ready' && !locked ? html`<p class="muted small" style="margin:0">The copy with just the message is ready.</p>` : ''}
+          ${m.clip_error ? html`<div class="alert bad" style="margin:0"><span class="grow">Mux couldn’t make the copy with just the message. The full recording is still safe.</span><button type="button" class="btn small" data-reclip>Try again</button></div>` : ''}
+          ${m.yt_id ? html`<p class="small" data-yt-trim style="margin:0" hidden>Trim on YouTube too (optional): <b data-yt-from></b> to <b data-yt-to></b>
+            <a class="btn small ghost" href="${m.studio_url}" target="_blank" rel="noopener">${icon('external')} Open in YouTube Studio</a><br>
+            <span class="muted">The app plays only the message either way. YouTube can’t be trimmed from here, so do it in Studio (Editor → Trim) if you want the YouTube video itself to start and end there.</span></p>` : ''}
+        </div></details>
+      <details class="md-more" ${m.linked ? 'open' : ''}><summary>Same service as…</summary>
+        <div class="md-more-body">
+          ${m.linked ? html`<p class="small" style="margin:0">One item for both. It plays the Mux recording while Mux keeps it, then the YouTube copy (the free, permanent archive). ${m.linked_by === 'auto' ? 'Linked automatically, by when the stream started.' : 'Linked by hand.'}</p>
+              <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn small" data-unlink>Unlink them</button>
+                <a class="btn small ghost" href="${yt}" target="_blank" rel="noopener">${icon('external')} YouTube copy</a></div>`
+            : m.link_candidates.length ? html`<label class="field">This is the same service as<select name="link_with">${options(m.link_candidates.map((c) => ({ value: c.id, label: `${c.kind} · ${c.title} · ${fmtDate(c.day, { month: 'short', day: 'numeric' })} ${fmtTime(`${c.recorded_at.replace(' ', 'T')}Z`)}` })), '', { blank: 'Choose one…' })}</select></label>
+              <div class="row" style="gap:8px"><button type="button" class="btn small" data-link disabled>Link them</button></div>
+              <span class="muted small">For when the hub couldn’t tell which recording goes with which. They become one item: no more listing the same service twice. “Unlink them” undoes it.</span>`
+              : html`<p class="muted small" style="margin:0">No ${m.source === 'mux' ? 'YouTube video' : 'Mux recording'} from the same few days is waiting to be linked. When a service is streamed to Mux and YouTube together, the hub links them on its own.</p>`}
         </div></details>
       <details class="md-more"><summary>Topics, picture and service</summary>
         <div class="md-more-body">
@@ -190,8 +211,15 @@ async function openPanel(id, ctx) {
   const plays = () => {
     const s = parseHms(startIn.value) || 0;
     const e = parseHms(endIn.value) ?? m.duration;
-    dlg.querySelector('[data-plays]').textContent = Number.isNaN(s) || Number.isNaN(e) ? 'Use minutes and seconds, like 12:30 or 1:05:00.'
-      : e ? `The app plays ${hms(Math.max(0, e - s))}${m.duration ? ` of ${hms(m.duration)}` : ''}.` : '';
+    dlg.querySelector('[data-plays]').textContent = Number.isNaN(s) || Number.isNaN(e) ? 'Use hours, minutes and seconds, like 0:42:10.'
+      : e ? `The app plays ${hmsFull(Math.max(0, e - s))}${m.duration ? ` of ${hmsFull(m.duration)}` : ''}.` : '';
+    // The YouTube API can't trim a video, so the same marks are shown for doing it in YouTube Studio.
+    const box = dlg.querySelector('[data-yt-trim]');
+    if (box) {
+      const ok = !Number.isNaN(s) && !Number.isNaN(e);
+      box.hidden = !ok || !(s || parseHms(endIn.value));
+      if (ok) { box.querySelector('[data-yt-from]').textContent = hmsFull(s); box.querySelector('[data-yt-to]').textContent = e ? hmsFull(e) : 'the end'; }
+    }
   };
   startIn.oninput = plays;
   endIn.oninput = plays;
@@ -204,7 +232,7 @@ async function openPanel(id, ctx) {
     mounted = true;
     const src = m.source === 'mux' ? { playbackId: m.raw_playback_id || m.playback_id, poster: m.mux_thumb || m.picture } : { videoId: m.video_id };
     if (m.source === 'mux' && !src.playbackId) dlg.querySelector('[data-player]').innerHTML = '<div class="md-wait">This video isn’t ready to play here yet.</div>';
-    else mountPlayer(dlg.querySelector('[data-player]'), { ...src, start: m.raw_deleted ? 0 : m.start || 0 }).then((p) => { player = p; });
+    else mountPlayer(dlg.querySelector('[data-player]'), { ...src, start: locked ? 0 : m.mark_start || 0 }).then((p) => { player = p; });
   };
   box.addEventListener('toggle', mountIt);
   mountIt();
@@ -212,7 +240,7 @@ async function openPanel(id, ctx) {
   const body = () => ({
     title: f.title.value, speaker: f.speaker.value, series: f.series.value, scripture: f.scripture.value, day: f.day.value,
     service_id: f.service_id.value || null, campus_id: f.campus_id.value || null, description: f.description.value,
-    topics, image, start: startIn.value.trim() || 0, end: endIn.value.trim() || null,
+    topics, image, ...(locked ? {} : { start: startIn.value.trim() || 0, end: endIn.value.trim() || null }),
   });
   // A series typed in another case joins the one already in the library.
   f.series.onchange = () => { const hit = lib.series.find((x) => x.toLowerCase() === f.series.value.trim().toLowerCase()); if (hit) f.series.value = hit; };
@@ -238,7 +266,7 @@ async function openPanel(id, ctx) {
     if (b.dataset.mark) {
       const t = player?.time();
       if (t == null) return toast('Play the video first, or type the time.');
-      (b.dataset.mark === 'start' ? startIn : endIn).value = hms(t);
+      (b.dataset.mark === 'start' ? startIn : endIn).value = hmsFull(t);
       dirty = true;
       plays();
     }
@@ -260,7 +288,33 @@ async function openPanel(id, ctx) {
         toast(s.title || s.speaker ? 'Filled in. Save to keep it.' : 'That order of service doesn’t name a message or speaker yet.');
       } catch (err) { fail(err); }
     }
-    if (b.matches('[data-yt-pic]')) { image = ''; dirty = true; dlg.querySelector('[data-pic]').style.backgroundImage = `url('${m.mux_thumb || m.thumbnail}')`; b.hidden = true; }
+    if (b.matches('[data-yt-pic]')) { image = ''; dirty = true; dlg.querySelector('[data-pic]').style.backgroundImage = `url('${m.video_picture}')`; b.hidden = true; }
+    if (b.matches('[data-link]')) {
+      if (dirty) return toast('Save your changes first, then link.');
+      b.disabled = true;
+      try {
+        const r = await post(`/media/${m.id}/link`, { with: Number(f.link_with.value) });
+        toast('Linked. It’s one item now.');
+        finish();
+        await ctx.reload();
+        openPanel(r.id, ctx);
+      } catch (err) { fail(err); b.disabled = false; }
+    }
+    if (b.matches('[data-unlink]')) {
+      if (dirty) return toast('Save your changes first, then unlink.');
+      if (!(await confirm('Unlink these two?', 'The Mux recording and the YouTube video go back to being separate items, and the hub won’t link this recording again on its own.', 'Unlink', { danger: false }))) return;
+      try {
+        await post(`/media/${m.id}/unlink`, {});
+        toast('Unlinked.');
+        finish();
+        await ctx.reload();
+        openPanel(m.id, ctx);
+      } catch (err) { fail(err); }
+    }
+    if (b.matches('[data-reclip]')) {
+      b.disabled = true;
+      try { await post(`/media/${m.id}/clip`, {}); toast('Asked Mux to make it again.'); finish(); ctx.reload(); } catch (err) { fail(err); b.disabled = false; }
+    }
     if (b.dataset.status) {
       const status = b.dataset.status;
       b.disabled = true;
@@ -273,6 +327,7 @@ async function openPanel(id, ctx) {
     }
   });
   f.service_id.onchange = () => { dlg.querySelector('[data-refill]').disabled = !f.service_id.value; };
+  if (f.link_with) f.link_with.onchange = () => { dlg.querySelector('[data-link]').disabled = !f.link_with.value; };
   dlg.querySelector('[data-upload]').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -316,7 +371,7 @@ async function offerHide(count) {
 async function drawSetup(el) {
   const setup = await get('/media/setup');
   const extras = setup.settings.playlist_id ? await get('/media/playlist-extras').catch((e) => ({ count: 0, error: e.message })) : { count: 0 };
-  const { settings: s, status, formats, api_key: hasKey } = setup;
+  const { settings: s, status, formats, api_key: hasKey, archive, mux_ready: muxReady, keep_choices: keep } = setup;
   setTitle('Media setup', html`<a class="btn ghost" href="#/media">${icon('back')} Library</a>`);
   mount(el, html`<div class="md-setup-col stack">
     <form class="card stack" data-form>
@@ -341,6 +396,14 @@ async function drawSetup(el) {
         <span class="muted small">Separate words with commas; capital letters don’t matter. A backup for things like kids’ ministry videos. Skipped videos are kept under Not in the app, so you can still add one by hand.</span></label>
       <label class="field">How your video titles are written<select name="title_format">${options(Object.entries(formats).map(([value, label]) => ({ value, label })), s.title_format)}</select>
         <span class="muted small">Used when the order of service doesn’t name the message. With “Series | Title”, a video called <i>Unshakable | Standing Firm</i> becomes “Standing Firm” in the series “Unshakable”.</span></label>
+
+      <h2 style="margin:10px 0 0">Keep services in Mux ${s.keep_mux_months ? html`<span class="pill good">${icon('check')} ${s.keep_mux_months} months</span>` : html`<span class="pill">Off</span>`}</h2>
+      <label class="field">Keep each service in Mux for<select name="keep_mux_months">${options([{ value: 0, label: 'Off: keep everything in Mux' }, ...keep.map((n) => ({ value: n, label: `${n} months` }))], s.keep_mux_months)}</select>
+        <span class="muted small">Mux charges for storage; YouTube keeps a copy for free. After this long, a service plays from YouTube instead (same title, date and message start and end) and its Mux copy is deleted. <b>Deleting from Mux is permanent. YouTube keeps the copy.</b> A service only moves if the hub has linked it to its YouTube video and YouTube confirms that video is still there${hasKey ? '' : ' (this needs the YouTube API key, see below)'}; otherwise it stays in Mux.${muxReady ? '' : ' Mux isn’t set up on this hub yet, so there’s nothing to keep.'}</span></label>
+      ${archive.error ? html`<div class="alert bad">The last check couldn’t confirm the YouTube copies, so nothing was deleted: ${archive.error}</div>` : ''}
+      ${archive.kept.length ? html`<div class="alert"><span class="grow"><b>${archive.kept.length} ${archive.kept.length === 1 ? 'service' : 'services'} couldn’t move to YouTube.</b> ${archive.kept.length === 1 ? 'It’s' : 'They’re'} still in Mux.
+        <ul style="margin:6px 0 0;padding-left:18px">${archive.kept.slice(0, 8).map((k) => html`<li><a href="#/media/${k.id}">${k.title}</a> · ${k.reason}</li>`)}</ul></span></div>` : ''}
+      ${archive.last_run ? html`<span class="muted small" style="margin-top:-6px">Checked daily. Last run ${ago(archive.last_run)}${archive.moved ? `: moved ${archive.moved} to YouTube` : ''}.</span>` : ''}
 
       <h2 style="margin:10px 0 0">Notices</h2>
       <label class="check"><input type="checkbox" name="notify_live" ${s.notify_live ? 'checked' : ''}> Tell the app when we go live</label>
@@ -381,7 +444,7 @@ async function drawSetup(el) {
     const b = f.querySelector('button.primary');
     b.disabled = true;
     try {
-      const r = await put('/media/setup', { channel: f.channel.value, playlist: f.playlist.value, skip_words: f.skip_words.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked });
+      const r = await put('/media/setup', { channel: f.channel.value, playlist: f.playlist.value, skip_words: f.skip_words.value, title_format: f.title_format.value, min_minutes: Number(f.min_minutes.value), notify_live: f.notify_live.checked, notify_new: f.notify_new.checked, keep_mux_months: Number(f.keep_mux_months.value) });
       const first = r.settings.channel_id && !s.channel_id;
       if (first || r.settings.playlist_id !== s.playlist_id) {
         toast(first ? `Connected to ${r.settings.channel_title || 'your channel'}. Looking for videos…` : 'Saved. Looking for videos…');

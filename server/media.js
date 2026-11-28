@@ -13,8 +13,8 @@
 // With YOUTUBE_API_KEY (a free key from Google Cloud) the hub sees every video, with its exact
 // length and whether it's live. Without one it reads the public feed (the latest 15 videos) and
 // each new video's page.
-import { getSetting, setSetting } from './db.js';
-import { localNow } from './http.js';
+import { getSetting, setSetting, tx } from './db.js';
+import { localNow, audit } from './http.js';
 import { notify, pushGuests } from './notify.js';
 
 const API = () => (process.env.MB_YOUTUBE_API || 'https://www.googleapis.com/youtube/v3').replace(/\/+$/, '');
@@ -29,8 +29,9 @@ export const TITLE_FORMATS = {
   title_series: 'Title | Series',
 };
 
-// keep_full_days belongs to Mux (dormant: the church doesn't use it), so it has no screen any more.
-export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', playlist_id: '', playlist_input: '', playlist_title: '', skip_words: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_full_days: 30 };
+// keep_mux_months: how long services stay in Mux before moving to YouTube only (0 = off, else 6, 12 or 24).
+export const KEEP_MUX_CHOICES = [6, 12, 24];
+export const DEFAULTS = { channel_id: '', channel_title: '', channel_input: '', playlist_id: '', playlist_input: '', playlist_title: '', skip_words: '', title_format: 'plain', min_minutes: 20, notify_new: false, notify_live: true, keep_mux_months: 0 };
 export const mediaSettings = (db) => ({ ...DEFAULTS, ...getSetting(db, 'media', {}) });
 const status = (db) => getSetting(db, 'media_status', {});
 const setStatus = (db, changes) => setSetting(db, 'media_status', { ...status(db), ...changes });
@@ -234,6 +235,24 @@ export async function fetchVideo(urlOrId) {
   return { video_id: id, title: html.title || 'Video', description: '', thumbnail: html.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, published: page.started || new Date().toISOString(), short: false, ...page };
 }
 
+// Which of these YouTube videos are still there and playable (public or unlisted, processed):
+// Map of id -> { duration }. Anything that stops YouTube being asked (no key, quota, network,
+// a reply that isn't a video list) throws, so callers never take "no answer" for "it's gone".
+export async function youtubeCopies(ids) {
+  if (!hasApiKey()) throw new Error('The YouTube API key isn’t set, so the hub can’t confirm the YouTube copies.');
+  const found = new Map();
+  const want = [...new Set(ids)];
+  for (let i = 0; i < want.length; i += 50) {
+    const r = await api('videos', { part: 'snippet,contentDetails,status', id: want.slice(i, i + 50).join(','), maxResults: 50 });
+    if (!Array.isArray(r?.items)) throw new Error('YouTube’s answer wasn’t a list of videos.');
+    for (const v of r.items) {
+      const there = v.status?.uploadStatus === 'processed' && ['public', 'unlisted'].includes(v.status?.privacyStatus) && (v.snippet?.liveBroadcastContent || 'none') === 'none';
+      if (there) found.set(v.id, { duration: isoSeconds(v.contentDetails?.duration) });
+    }
+  }
+  return found;
+}
+
 // ---------------------------------------------------------------- filling in the details
 const GENERIC = /^(the )?(message|sermon|preaching|the word|word|teaching|preacher)$/i;
 const person = (r) => (r?.first_name ? `${r.nickname || r.first_name} ${r.last_name}`.trim() : '');
@@ -343,6 +362,144 @@ export function insertMedia(db, row, { status = 'published', skip = '' } = {}) {
 
 export { describe as describeVideo };
 
+// ---------------------------------------------------------------- one item per service
+// A service streamed to Mux and YouTube together has two recordings. They are one item: it keeps
+// the Mux recording (which plays while it exists) and points at its YouTube copy (yt_video_id,
+// which plays once the Mux recording is gone). The YouTube row it absorbed is kept as JSON so an
+// admin can split them again.
+export const LINK_WINDOW_MIN = 180;
+const WINDOW_MS = LINK_WINDOW_MIN * 60e3;
+// A YouTube id is 11 characters; "mux:…" and "upload:…" are ours. (A recording uploaded to Mux
+// onto a YouTube video keeps that video's id as its own.)
+export const youtubeIdOf = (m) => m.yt_video_id || (/^[\w-]{11}$/.test(m.video_id || '') ? m.video_id : null);
+export const studioUrl = (id) => `https://studio.youtube.com/video/${id}/editor`;
+const stamp = (utcText) => Date.parse(`${String(utcText).replace(' ', 'T')}Z`);
+// The church's wall clock for an instant, as ms, to compare with a service's starts_at (also wall clock).
+const wallMs = (db, ms) => { const l = localNow(churchTz(db), new Date(ms)); return Date.parse(`${l.date}T${l.time}:00Z`); };
+
+// Could these be the same service? a: a Mux recording row, b: a YouTube row. Both stream start
+// times within 3 hours of each other, and of the service's start when either knows its service.
+function sameService(db, a, b) {
+  if (!a.recorded_at || !b.recorded_at) return false;
+  if (Math.abs(stamp(a.recorded_at) - stamp(b.recorded_at)) > WINDOW_MS) return false;
+  if (a.service_id && b.service_id && a.service_id !== b.service_id) return false;
+  if (a.campus_id && b.campus_id && a.campus_id !== b.campus_id) return false;
+  const sid = a.service_id || b.service_id;
+  const svc = sid ? db.prepare('SELECT starts_at FROM services WHERE id = ?').get(sid) : null;
+  if (svc) {
+    const start = Date.parse(`${svc.starts_at}:00Z`);
+    if ([a, b].some((x) => Math.abs(wallMs(db, stamp(x.recorded_at)) - start) > WINDOW_MS)) return false;
+  }
+  return true;
+}
+
+// Streams only (a Mux recording of a live stream, a YouTube video that was live), never an older
+// upload that happens to share a day. Clear matches only: a recording with one candidate that has
+// no other candidate. Anything else is `ambiguous`: both stay, and an admin links by hand.
+export function linkPlan(db) {
+  const mux = db.prepare("SELECT * FROM media WHERE source = 'mux' AND mux_asset_id IS NOT NULL AND video_id LIKE 'mux:%' AND yt_video_id IS NULL AND linked_by != 'unlinked' AND was_live = 1").all();
+  const yt = db.prepare("SELECT * FROM media WHERE source = 'youtube' AND was_live = 1").all();
+  const pairs = [];
+  let ambiguous = 0;
+  for (const a of mux) {
+    const cands = yt.filter((b) => sameService(db, a, b));
+    if (!cands.length) continue;
+    if (cands.length === 1 && mux.filter((x) => sameService(db, x, cands[0])).length === 1) pairs.push([a, cands[0]]);
+    else ambiguous++;
+  }
+  return { pairs, ambiguous };
+}
+
+const STATUS_RANK = { hidden: 3, published: 2, review: 1, skipped: 0 };
+const blank = (v) => v == null || v === '' || v === '[]';
+const COLUMNS = (db) => db.prepare('PRAGMA table_info(media)').all().map((c) => c.name);
+
+// Make one item of a Mux recording row and a YouTube row. The Mux row stays (it plays); the
+// YouTube row is folded into it. What staff typed wins; otherwise the Mux row's details, with
+// blanks filled from the YouTube row. By hand or automatic, one audited step.
+export function linkItems(db, muxId, ytRowId, { by = 'hand', req = {} } = {}) {
+  return tx(db, () => {
+    const a = db.prepare('SELECT * FROM media WHERE id = ?').get(muxId);
+    const b = db.prepare('SELECT * FROM media WHERE id = ?').get(ytRowId);
+    if (!a || !b || a.id === b.id) throw new Error('Pick two different videos.');
+    if (a.source !== 'mux' || !a.mux_asset_id || youtubeIdOf(a)) throw new Error('One of them has to be a Mux recording that isn’t linked to a YouTube video yet.');
+    if (b.source !== 'youtube') throw new Error('The other one has to be a video from YouTube.');
+    const winner = !a.edited_at && b.edited_at ? b : a;
+    const other = winner === a ? b : a;
+    const set = {};
+    for (const f of ['title', 'description', 'speaker', 'series', 'scripture', 'topics', 'image', 'campus_id', 'service_id']) set[f] = blank(winner[f]) ? other[f] : winner[f];
+    if (!a.edited_at && !b.edited_at && !a.service_id && b.service_id) set.title = b.title; // the order of service names the message
+    set.day = winner.day;
+    if (!a.start_sec && a.end_sec == null) { set.start_sec = b.start_sec; set.end_sec = b.end_sec; } // marks made on either copy
+    const top = (STATUS_RANK[a.status] ?? 0) >= (STATUS_RANK[b.status] ?? 0) ? a : b;
+    set.status = top.status;
+    set.skip_reason = top.status === 'published' ? '' : top.skip_reason;
+    set.yt_video_id = b.video_id;
+    set.yt_title = b.yt_title || a.yt_title;
+    set.yt_snapshot = JSON.stringify(Object.fromEntries(Object.entries(b).filter(([k]) => k !== 'id')));
+    set.linked_by = by;
+    const keys = Object.keys(set);
+    db.prepare('DELETE FROM media WHERE id = ?').run(b.id);
+    db.prepare(`UPDATE media SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), a.id);
+    audit(db, req, 'media.link', { id: a.id, mux: a.mux_asset_id, youtube: b.video_id, by, absorbed: b.id });
+    return { id: a.id, absorbed: b };
+  });
+}
+
+// Undo a link: the item goes back to the Mux recording alone, and the YouTube video comes back as
+// its own row (as it was) when it had one. The automatic matching leaves this recording alone after.
+export function unlinkItem(db, id, { req = {} } = {}) {
+  return tx(db, () => {
+    const a = db.prepare('SELECT * FROM media WHERE id = ?').get(id);
+    if (!a?.yt_video_id) throw new Error('That item isn’t linked to a YouTube video.');
+    const snap = a.yt_snapshot ? JSON.parse(a.yt_snapshot) : null;
+    db.prepare("UPDATE media SET yt_video_id = NULL, yt_snapshot = NULL, linked_by = 'unlinked' WHERE id = ?").run(a.id);
+    let restored = null;
+    if (snap && !db.prepare('SELECT 1 FROM media WHERE video_id = ?').get(snap.video_id)) {
+      const cols = COLUMNS(db);
+      const keys = Object.keys(snap).filter((k) => k !== 'id' && cols.includes(k));
+      restored = Number(db.prepare(`INSERT INTO media (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...keys.map((k) => snap[k])).lastInsertRowid);
+    }
+    audit(db, req, 'media.unlink', { id: a.id, youtube: a.yt_video_id, restored });
+    return { id: a.id, restored };
+  });
+}
+
+// Runs after every sync and every new recording: link what is clearly one service, leave the rest.
+// Returns [{ id, absorbed }] for each link made.
+export function autoLink(db) {
+  const made = [];
+  for (const [a, b] of linkPlan(db).pairs) {
+    try { made.push(linkItems(db, a.id, b.id, { by: 'auto' })); } catch (e) { console.error('Linking failed:', e.message); }
+  }
+  return made;
+}
+
+// The messages playlist may not hold the Sunday stream itself, so a Mux recording with no YouTube
+// row looks at the channel's latest uploads for the stream that went with it, by the same rules.
+// Needs the API key and a playlist (without one, every upload is already a row to match). Sets
+// yt_video_id with no row to absorb. `now` is injectable for tests.
+export async function linkFromChannel(db, { now = Date.now() } = {}) {
+  const cfg = mediaSettings(db);
+  if (!hasApiKey() || !cfg.channel_id || !cfg.playlist_id) return 0;
+  const since = utc(now - 21 * 86400e3);
+  const open = db.prepare("SELECT * FROM media WHERE source = 'mux' AND mux_asset_id IS NOT NULL AND video_id LIKE 'mux:%' AND yt_video_id IS NULL AND linked_by != 'unlinked' AND was_live = 1 AND recorded_at >= ?").all(since);
+  if (!open.length) return 0;
+  const taken = new Set(db.prepare('SELECT video_id FROM media UNION SELECT yt_video_id FROM media WHERE yt_video_id IS NOT NULL').all().map((r) => r.video_id));
+  const ids = (await playlistVideoIds(`UU${cfg.channel_id.slice(2)}`, 1)).filter((id) => !taken.has(id));
+  const streams = (await videoDetails(ids)).filter((v) => v.state === 'none' && v.was_live && v.started)
+    .map((v) => ({ video_id: v.video_id, title: v.title, recorded_at: utc(v.started), service_id: null, campus_id: null }));
+  let linked = 0;
+  for (const a of open) {
+    const cands = streams.filter((c) => sameService(db, a, c));
+    if (cands.length !== 1 || open.filter((x) => sameService(db, x, cands[0])).length !== 1) continue;
+    db.prepare("UPDATE media SET yt_video_id = ?, yt_title = ?, linked_by = 'auto' WHERE id = ? AND yt_video_id IS NULL").run(cands[0].video_id, cands[0].title, a.id);
+    audit(db, {}, 'media.link', { id: a.id, mux: a.mux_asset_id, youtube: cands[0].video_id, by: 'auto', from: 'channel' });
+    linked++;
+  }
+  return linked;
+}
+
 // ---------------------------------------------------------------- notices
 const everyone = (db) => db.prepare('SELECT id FROM users WHERE active = 1').all().map((u) => u.id);
 
@@ -390,12 +547,15 @@ export function syncMedia(db, opts = {}) {
   return running;
 }
 
-async function doSync(db, { deep = false } = {}) {
+async function doSync(db, { deep = false, now = Date.now() } = {}) {
   const cfg = mediaSettings(db);
-  // Streaming through Mux: recordings come from there, and YouTube only for older videos.
-  if (!cfg.channel_id || (muxStreaming(db) && !deep)) return { added: 0, skipped: 0, review: 0 };
+  if (!cfg.channel_id) return { added: 0, skipped: 0, review: 0 };
+  // Streaming through Mux too: recordings come from there and live comes from Mux. YouTube still
+  // comes in (older videos, and the copy of each Sunday), but a copy of a service already here is
+  // linked to it, never listed a second time.
+  const mx = muxStreaming(db);
   const first = !db.prepare('SELECT 1 FROM media LIMIT 1').get();
-  const knownIds = new Set(db.prepare('SELECT video_id FROM media').all().map((r) => r.video_id));
+  const knownIds = new Set(db.prepare('SELECT video_id FROM media UNION SELECT yt_video_id FROM media WHERE yt_video_id IS NOT NULL').all().map((r) => r.video_id));
   let videos;
   try {
     videos = await latestVideos(db, cfg, { deep, knownIds });
@@ -407,8 +567,8 @@ async function doSync(db, { deep = false } = {}) {
   let skipped = 0;
   let review = 0;
   const fresh = [];
-  const live = videos.find((v) => v.state === 'live');
-  const liveId = liveNow(db)?.video_id;
+  const live = mx ? null : videos.find((v) => v.state === 'live'); // with Mux, Mux says when we're live
+  const liveId = mx ? null : liveNow(db)?.video_id;
   // Upcoming and live ones come in once they're over (a page that couldn't be read doesn't say
   // the stream on now is over).
   for (const v of videos.filter((x) => x.state === 'none' && !(x.unread && x.video_id === liveId)).reverse()) {
@@ -437,13 +597,17 @@ async function doSync(db, { deep = false } = {}) {
       }
     }
   }
+  // A YouTube copy of a service already here joins it (before any notice goes out about it).
+  const merged = new Set(autoLink(db).map((l) => l.absorbed.video_id));
+  await linkFromChannel(db, { now }).catch((e) => console.error('Linking from the channel failed:', e.message));
+  for (let i = fresh.length - 1; i >= 0; i--) if (merged.has(fresh[i].video_id)) { fresh.splice(i, 1); added--; }
   // Live now: set it. It's only over when the live check says so, or when that video itself now
   // reads as finished.
   if (live) setLive(db, cfg, live);
   else if (liveId && videos.some((v) => v.video_id === liveId && v.state === 'none' && !v.unread)) setLive(db, cfg, null);
   setStatus(db, { last_sync: utc(Date.now()), last_error: '', deep_done: deep || status(db).deep_done || false });
   // Only brand-new messages (not a first import or a look back) get a notice.
-  const recent = fresh.filter((m) => Date.now() - new Date(`${m.recorded_at.replace(' ', 'T')}Z`) < 3 * 86400e3);
+  const recent = fresh.filter((m) => now - new Date(`${m.recorded_at.replace(' ', 'T')}Z`) < 3 * 86400e3);
   if (cfg.notify_new && !first && !deep && recent.length) {
     const m = recent.at(-1);
     announce(db, { title: `New message: ${m.title}`, body: [m.speaker, m.series].filter(Boolean).join(' · ') || 'Watch it in the app.', app_url: `/app/#/watch/${m.id}`, tag: `media-${m.id}` });
