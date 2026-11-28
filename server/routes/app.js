@@ -218,6 +218,8 @@ export default function appRoutes(db, { uploadDir } = {}) {
       kind: 'connect',
       title: `New connect card: ${first} ${str(b.last_name, 60)}`.trim(),
       body: [b.first_time ? 'First time here' : '', interests.join(', '), str(b.message, 120)].filter(Boolean).join(' · ') || 'Tap to follow up.',
+      push_title: 'New connect card',
+      push_body: 'A new connect card is waiting in the Hub.', // a stranger's words stay out of lock-screen pushes
       url: '/#/connect',
       app_url: `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}/#/connect`,
     });

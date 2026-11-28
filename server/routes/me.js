@@ -113,6 +113,8 @@ export default function meRoutes(db) {
       kind: 'account',
       title: `${name}: ${TOPICS[topic]}`,
       body: message,
+      push_title: 'New message to the office',
+      push_body: 'Someone sent a message to the office.',
       url: `/#/people/${p.id}`,
     });
     audit(db, req, 'me.office_request', { id: p.id, topic, notified: made.length });

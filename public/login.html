@@ -106,7 +106,15 @@
     const show = (el, msg) => { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); };
     const error = (msg) => { show($('#error'), msg); if (msg) show($('#info'), ''); };
     const info = (msg) => { show($('#info'), msg); if (msg) show($('#error'), ''); };
-    if (q.get('error')) error(q.get('error'));
+    // Only fixed messages are ever shown, never text from the address.
+    const ERRORS = { // keep in step with the ?error= codes in server/auth.js
+      expired: 'Sign-in expired. Please try again.',
+      google_failed: 'Google sign-in didn’t work. Please try again, or use email instead.',
+      unverified: 'Google couldn’t verify that email address.',
+      wrong_domain: 'Please sign in with your church Google account.',
+      not_set_up: 'Your account isn’t set up yet. Ask a church admin to add you.',
+    };
+    if (q.has('error')) error((Object.hasOwn(ERRORS, q.get('error')) && ERRORS[q.get('error')]) || 'Sign-in didn’t work. Please try again.');
 
     let email = '';
     let names = { first_name: '', last_name: '' };

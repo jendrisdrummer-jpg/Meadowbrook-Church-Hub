@@ -8,6 +8,7 @@ import { getSetting, setSetting, tx } from '../db.js';
 import { HttpError, bad, notFound, forbidden, int, str, required, isDate, audit, localNow } from '../http.js';
 import { stripe, stripeConfigured, publishableKey, verifyWebhook, coverFee } from '../stripe.js';
 import { sendMail, canSendMail } from '../mail.js';
+import { toCsv } from '../csv.js';
 import { hooks as eventHooks } from './events.js';
 
 export const EVERY = { week: { interval: 'week', interval_count: 1, label: 'every week' }, '2week': { interval: 'week', interval_count: 2, label: 'every 2 weeks' }, month: { interval: 'month', interval_count: 1, label: 'every month' } };
@@ -247,10 +248,9 @@ export default function givingRoutes(db) {
   }
   r.get('/finance/gifts', requireFinance, (req, res) => res.json(giftList(req)));
   r.get('/finance/gifts.csv', requireFinance, (req, res) => {
-    const cell = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-    const rows = giftList(req).map((g) => [g.given_on, g.giver, g.email, g.fund, (g.amount_cents / 100).toFixed(2), (g.fee_cents / 100).toFixed(2), g.method, g.source, g.status, g.campus || '', g.check_number].map(cell).join(','));
+    const rows = giftList(req).map((g) => [g.given_on, g.giver, g.email, g.fund, (g.amount_cents / 100).toFixed(2), (g.fee_cents / 100).toFixed(2), g.method, g.source, g.status, g.campus || '', g.check_number]);
     res.setHeader('Content-Disposition', `attachment; filename="gifts-${range(req.query).from}-to-${range(req.query).to}.csv"`);
-    res.type('text/csv').send(['Date,Giver,Email,Fund,Amount,Fee covered,Method,Source,Status,Campus,Check #', ...rows].join('\n'));
+    res.type('text/csv').send(toCsv([['Date', 'Giver', 'Email', 'Fund', 'Amount', 'Fee covered', 'Method', 'Source', 'Status', 'Campus', 'Check #'], ...rows]));
     audit(db, req, 'finance.export', range(req.query));
   });
 

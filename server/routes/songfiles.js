@@ -85,7 +85,8 @@ export default function songFileRoutes(db, { uploadDir }) {
     const disp = req.query.download ? 'attachment' : 'inline';
     res.setHeader('Content-Disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.sendFile(path.join(dir, f.file), { headers: { 'Content-Type': f.mime }, maxAge: '1d' });
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(path.join(dir, f.file), { headers: { 'Content-Type': f.mime }, cacheControl: false });
   });
 
   return r;
