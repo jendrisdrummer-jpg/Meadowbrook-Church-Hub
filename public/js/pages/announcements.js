@@ -57,7 +57,7 @@ export default async function announcements(el) {
         <div class="card"><h2>Reaching more people</h2><p class="small" style="margin:0">Anyone can turn on announcements from the app’s <b>More</b> tab, even without an account. On iPhones, the app has to be added to the home screen first.</p></div>
       </div></div>
     <div class="card" style="margin-top:14px"><h2>Sent and scheduled</h2>
-      ${list.length ? html`<table class="list"><thead><tr><th scope="col">Announcement</th><th scope="col">To</th><th scope="col">When</th><th scope="col">Reached</th><th scope="col"></th></tr></thead><tbody>
+      ${list.length ? html`<table class="list stack-sm"><thead><tr><th scope="col">Announcement</th><th scope="col">To</th><th scope="col">When</th><th scope="col">Reached</th><th scope="col"></th></tr></thead><tbody>
         ${list.map((a) => html`<tr class="${a.status === 'canceled' ? 'muted' : ''}"><td><b>${a.title}</b>${a.body ? html`<div class="muted small ann-body">${a.body}</div>` : ''}</td>
           <td class="small">${a.audience_label}</td><td class="nowrap small">${whenLabel(a.sent_at || a.send_at)}<br>${STATUS[a.status]}</td>
           <td class="small">${a.status === 'sent' ? html`${a.people} ${a.people === 1 ? 'person' : 'people'}<br><span class="muted">${a.devices} ${a.devices === 1 ? 'phone' : 'phones'}</span>` : html`<span class="muted">—</span>`}</td>

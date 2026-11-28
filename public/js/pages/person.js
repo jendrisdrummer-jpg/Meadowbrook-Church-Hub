@@ -83,7 +83,7 @@ export default async function person(el, id) {
           ${p.teams.length ? p.teams.map((t) => html`<a class="row" href="#/teams/${t.id}" style="padding:4px 0;color:inherit"><span class="dot" style="background:${t.color}"></span>${t.name}
             ${t.position ? html`<span class="muted">· ${t.position}</span>` : ''}${t.is_leader ? html`<span class="pill info">Leader</span>` : ''}</a>`) : html`<p class="muted">Not on a team.</p>`}
           <h3 style="margin-top:12px">Scheduled to serve</h3>
-          ${p.upcoming.length ? html`<table class="list"><tbody>${p.upcoming.map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
+          ${p.upcoming.length ? html`<table class="list stack-sm"><tbody>${p.upcoming.map((a) => html`<tr class="click" data-href="#/services/${a.service_id}">
             <td>${fmtDate(a.starts_at)} <span class="muted small">${fmtTime(a.starts_at)} ${a.campus}</span></td><td>${a.position}</td>
             <td><span class="pill ${a.status === 'accepted' ? 'good' : a.status === 'declined' ? 'bad' : ''}">${a.status}</span></td></tr>`)}</tbody></table>`
             : html`<p class="muted" style="margin:0">Nothing upcoming.</p>`}

@@ -205,7 +205,16 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - No horizontal scroll at 390px wide (`npm run test:ui` checks every main page).
 - Fixed bottom bars leave room for the iPhone home indicator (`env(safe-area-inset-bottom)`).
 - Inputs use the right `type`/`inputmode` so phones show the right keyboard.
-- Long tables collapse or scroll inside their card, never the page.
+- Long tables collapse or scroll inside their card, never the page. A card holding a `table.list`
+  scrolls it sideways on phones as a safety net. Add `stack-sm` to the table (`table.list.stack-sm`) when
+  rows carry long text: on a phone each row becomes a small card (first cell is the title line, the rest wrap
+  after it, `data-label="Key"` on a cell shows a label before its value, empty cells hide). Desktop is
+  unchanged. Repeating services (`series-list`) use the same idea with a fixed title / rhythm / campus ·
+  positions · next-date order and 44px edit and delete buttons. Never use `overflow-wrap: anywhere` on table
+  cells: it lets a column shrink to one letter wide.
+- `npm run test:ui` seeds long names, titles, emails and repeating services (`scripts/ui-smoke-seed.mjs`) and
+  fails a phone page where text under 40px wide runs past 3 lines (the letter-by-letter symptom). Add new
+  list screens' long-content rows to that seed.
 - Member app, on touch screens (`@media (pointer: coarse)` in `member.css`): fields are 16px so iPhones
   don't zoom on focus, and buttons, chips, tabs and calendar arrows are at least 44px tall. Login does the same.
   The staff hub does the same for buttons, icon buttons, the bell and fields on touch screens (end of `app.css`).
