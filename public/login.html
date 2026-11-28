@@ -25,6 +25,8 @@
     .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
     .links { display: grid; gap: 8px; text-align: center; font-size: 0.9375rem; margin-top: 4px; }
     .links button { background: none; border: 0; color: var(--accent-text); font: inherit; cursor: pointer; padding: 2px; }
+    .login .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+    #error:focus { outline: none; }
     .code-input { font-size: 1.625rem; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; }
     .names { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; }
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -44,22 +46,24 @@
       <h1 id="name">Sign in</h1>
       <p class="muted" id="sub">Church Hub</p>
     </div>
-    <div id="error" class="alert bad hidden" role="alert"></div>
+    <div id="error" class="alert bad hidden" role="alert" tabindex="-1"></div>
     <div id="info" class="alert info hidden" role="status"></div>
 
     <!-- Sign in: Google, or email + password -->
     <div class="view" data-view="signin">
-      <a id="google" class="btn primary wide hidden" href="/auth/google">Sign in with Google</a>
-      <div class="or hidden" id="or">or</div>
       <form id="password" class="hidden" autocomplete="on">
         <label class="field">Email<input type="email" name="email" required autocomplete="email"></label>
         <label class="field">Password<input type="password" name="password" required autocomplete="current-password"></label>
-        <button class="btn wide">Sign in</button>
+        <label class="check"><input type="checkbox" id="show-pw"> Show password</label>
+        <button class="btn primary wide">Sign in</button>
+        <p class="muted small" style="margin:4px 0 -4px;text-align:center">First time, or forgot your password?</p>
+        <button type="button" class="btn wide" data-go="code">Email me a code instead</button>
         <div class="links">
-          <button type="button" data-go="code">First time, or forgot your password? Email me a code</button>
           <button type="button" data-go="create" id="create-link" class="hidden">New here? Create an account</button>
         </div>
       </form>
+      <div class="or hidden" id="or">or</div>
+      <a id="google" class="btn wide hidden" href="/auth/google">Sign in with Google</a>
     </div>
 
     <!-- Get a code (first time / forgot password / new account) -->
@@ -142,6 +146,7 @@
     // Google refuses sign-in inside an app's embedded web view, so the phone app shell (Capacitor) uses email only.
     const google = opts.google && !window.Capacitor?.isNativePlatform?.();
     $('#google').classList.toggle('hidden', !google);
+    $('#google').classList.toggle('primary', !opts.email); // the only way in, so make it the main button
     $('#password').classList.toggle('hidden', !opts.email);
     $('#or').classList.toggle('hidden', !(google && opts.email));
     $('#create-link').classList.toggle('hidden', !opts.signups);
@@ -168,9 +173,14 @@
       e.preventDefault();
       const f = e.target;
       const r = await post('/auth/password', { email: f.email.value, password: f.password.value });
-      if (r.ok) location.href = next;
-      else error(r.data.error);
+      if (r.ok) { location.href = next; return; }
+      error(r.data.error);
+      for (const input of [f.email, f.password]) { input.setAttribute('aria-invalid', 'true'); input.setAttribute('aria-describedby', 'error'); }
+      $('#error').focus();
     });
+    // Once they start fixing it, the red marks go away.
+    $('#password').addEventListener('input', (e) => { e.target.removeAttribute('aria-invalid'); e.target.removeAttribute('aria-describedby'); });
+    $('#show-pw').addEventListener('change', (e) => { $('#password').password.type = e.target.checked ? 'text' : 'password'; });
 
     async function sendCode() {
       const r = await post('/auth/code', { email });

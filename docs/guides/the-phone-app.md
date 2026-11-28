@@ -28,7 +28,7 @@
 Tabs along the bottom: **Home**, **Serve**, **Watch**, **Give** and **More**. (The church can change
 these in the App Builder.)
 
-- **Home**: a **Please reply** banner when someone has asked you to serve, then **This week at …**:
+- **Home**: a **Please reply** banner when someone has asked you to serve (tap **Accept** or **Can't make it** right on it), then **This week at …**:
   the **Next service**, where **You're serving** (with **Needs a reply** or **Accepted**), and
   events you're going to. Below that, the church's own cards, such as service times.
 - **Serve**: your schedule. **Accept** or **Can't make it**, **Order of service**, **I'll be

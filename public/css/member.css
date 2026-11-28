@@ -266,6 +266,10 @@ a.w:hover { text-decoration: none; }
 .m-reply { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 14px; border-radius: 16px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn); text-decoration: none; min-height: 44px; }
 .m-reply .grow { color: var(--text); font-size: 0.875rem; }
 .m-reply b { display: block; color: var(--warn); font-size: 0.9375rem; }
+.m-reply-card { flex-wrap: wrap; }
+.m-reply-card .grow { color: var(--text); text-decoration: none; min-width: 0; }
+.m-reply-actions { display: flex; gap: 8px; width: 100%; }
+.m-reply-actions .btn { flex: 1; min-height: 44px; justify-content: center; }
 .m-reply .tap { font-weight: 650; color: var(--warn); white-space: nowrap; }
 
 /* More: the list of notification choices is one tappable row until opened. */
