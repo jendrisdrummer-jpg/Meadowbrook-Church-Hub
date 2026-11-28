@@ -9,10 +9,10 @@ export default async function songs(el) {
   let rows = [];
   const load = async () => {
     rows = await get(`/songs?q=${encodeURIComponent(el.querySelector('[data-q]').value)}`);
-    mount(el.querySelector('[data-list]'), rows.length ? html`<table class="list"><thead><tr><th scope="col">Title</th><th scope="col">Key</th><th scope="col">Files</th><th scope="col">CCLI #</th><th scope="col">Last used</th><th scope="col">Past year</th></tr></thead>
-      <tbody>${rows.map((s, i) => html`<tr class="click" data-i="${i}"><td><b>${s.title}</b><div class="muted small">${s.author}</div></td><td>${s.default_key}</td>
+    mount(el.querySelector('[data-list]'), rows.length ? html`<table class="list stack-sm"><thead><tr><th scope="col">Title</th><th scope="col">Key</th><th scope="col">Files</th><th scope="col">CCLI #</th><th scope="col">Last used</th><th scope="col">Past year</th></tr></thead>
+      <tbody>${rows.map((s, i) => html`<tr class="click" data-i="${i}"><td><b>${s.title}</b><div class="muted small">${s.author}</div></td><td data-label="Key">${s.default_key}</td>
         <td>${s.file_count ? html`<span class="pill info">${icon('file', 'ic small-ic')} ${s.file_count}</span>` : html`<span class="muted">—</span>`}</td>
-        <td class="muted">${s.ccli}</td><td class="muted small">${s.last_used ? fmtDate(s.last_used.slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}</td><td class="num">${s.uses_year}×</td></tr>`)}</tbody></table>`
+        <td class="muted" data-label="CCLI">${s.ccli}</td><td class="muted small" data-label="Last used">${s.last_used ? fmtDate(s.last_used.slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}</td><td class="num" data-label="Past year">${s.uses_year}×</td></tr>`)}</tbody></table>`
       : html`<div class="empty">No songs yet.</div>`);
   };
   const edit = async (s = {}) => {

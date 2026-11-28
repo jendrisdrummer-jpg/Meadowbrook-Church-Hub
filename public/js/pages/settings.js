@@ -368,7 +368,7 @@ async function accounts(panel, q = '') {
     <div class="card-head"><h2>Accounts with more access</h2><button class="btn primary" data-add>${icon('plus')} Add account</button></div>
     <p class="muted small">Whoever the sign-in option above allows can sign in as a volunteer: no account needed. ${list.volunteers} volunteer accounts so far. A new account is never linked to a person automatically; you link it below. Add someone here to give them more access, even before their first sign-in, or search to find any account.</p>
     <form class="row" data-search style="margin-bottom:8px"><input type="search" aria-label="Search all accounts by name or email" name="q" value="${q}" placeholder="Search all accounts by name or email" style="flex:1"><button class="btn">Search</button>${q ? html`<button type="button" class="btn ghost" data-clear>Clear</button>` : ''}</form>
-    <div class="table-wrap"><table class="list"><thead><tr><th scope="col">Email</th><th scope="col">Person</th><th scope="col">Access</th><th scope="col">Campuses</th><th scope="col">Last sign-in</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="list stack-sm"><thead><tr><th scope="col">Email</th><th scope="col">Person</th><th scope="col">Access</th><th scope="col">Campuses</th><th scope="col">Last sign-in</th></tr></thead><tbody>
     ${users.length ? '' : html`<tr><td colspan="5" class="muted">${q ? 'No accounts match.' : 'No one has more than volunteer access yet.'}</td></tr>`}
     ${users.map((u) => html`<tr class="click" data-id="${u.id}"><td>${u.email}${u.active ? '' : html` <span class="pill bad">Disabled</span>`}</td>
       <td>${u.first_name ? `${u.first_name} ${u.last_name}` : html`<span class="pill warn">Not linked</span>`}</td>
@@ -542,7 +542,7 @@ async function checks(panel) {
     <h2 style="margin:0">Checks</h2>
     <p class="muted small" style="margin:0">${c.hosted ? 'This server is hosted, so these are the settings for real use.' : 'This isn’t the hosted server, so some checks are for information only.'} Settings marked “No” must be fixed before staff use the hub.</p>
     ${c.ready ? html`<div class="alert good small">Nothing here blocks real use.</div>` : html`<div class="alert bad small">Some checks say “No”. Fix those first.</div>`}
-    <table class="list"><tbody>${c.checks.map((x) => html`<tr>
+    <table class="list stack-sm"><tbody>${c.checks.map((x) => html`<tr>
       <td style="width:5.5em"><span class="pill ${pill[x.status][0]}">${pill[x.status][1]}</span></td>
       <td><b>${x.label}</b><div class="muted small">${x.detail}</div></td></tr>`)}
       <tr>

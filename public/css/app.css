@@ -266,13 +266,51 @@ table.list tr.click:hover td { background: var(--hover); }
 .person-cell > span { min-width: 0; overflow-wrap: anywhere; }
 /* "Dates I'm away": give the note room and break between words, not inside them. */
 @media (max-width: 520px) { table.list.away-list td.away-why { overflow-wrap: normal; min-width: 96px; } }
-@media (max-width: 520px) { table.list td { overflow-wrap: anywhere; } table.list td:first-child { min-width: 150px; max-width: 220px; } }
+@media (max-width: 520px) { table.list td { overflow-wrap: break-word; } table.list td:first-child { min-width: 150px; max-width: 220px; } }
+/* Safety net on phones: a card holding a list table scrolls the table sideways inside the card rather than
+   letting it spill past the edge, and buttons in a cell never wrap their label letter by letter. */
+@media (max-width: 640px) {
+  .card:has(table.list) { overflow-x: auto; }
+  table.list td .btn { white-space: nowrap; }
+  table.att-services td:first-child { min-width: 0; }
+}
+/* table.list.stack-sm: on a phone each row becomes a small card. First cell is the title on its own line;
+   the other cells follow, wrapping, with an optional data-label ("Key") shown before the value. Desktop is unchanged. */
+@media (max-width: 640px) {
+  table.stack-sm, table.stack-sm tbody { display: block; }
+  table.stack-sm thead { display: none; }
+  table.stack-sm tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  table.stack-sm tr:last-child { border-bottom: 0; }
+  table.stack-sm td, table.stack-sm td:first-child { display: block; padding: 0; border: 0; min-width: 0; max-width: none; overflow-wrap: break-word; }
+  table.stack-sm td:first-child { flex: 1 1 100%; }
+  table.stack-sm td:empty { display: none; }
+  table.stack-sm td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 0.8125rem; }
+  table.stack-sm tr.click:hover td { background: none; }
+}
+/* Repeating services on a phone: each row becomes a card. Title, then rhythm (inside the title cell),
+   then campus · positions · next date. The edit/delete buttons sit top right, 44px tall. */
+@media (max-width: 640px) {
+  table.series-list, table.series-list tbody { display: block; }
+  table.series-list tr { display: flex; flex-wrap: wrap; align-items: center; position: relative; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  table.series-list tr:last-child { border-bottom: 0; }
+  table.series-list td, table.series-list td:first-child { display: block; padding: 0; border: 0; min-width: 0; max-width: none; overflow-wrap: break-word; }
+  table.series-list td.s-title { order: 1; flex: 1 1 100%; margin-bottom: 4px; }
+  table.series-list.has-act td.s-title { padding-right: 96px; }
+  table.series-list td.s-campus { order: 2; }
+  table.series-list td.s-pos { order: 3; }
+  table.series-list td.s-next { order: 4; }
+  table.series-list td.s-pos::before, table.series-list td.s-next::before { content: "·"; margin: 0 8px; color: var(--muted); }
+  table.series-list td.s-next:empty { display: none; }
+  table.series-list td.s-act { position: absolute; top: 0; right: -8px; display: flex; }
+  table.series-list td.s-act .icon-btn { width: 44px; height: 44px; }
+}
 
 .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line); white-space: nowrap; }
 .pill.good { background: var(--good-soft); color: var(--good); border-color: transparent; }
 .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .pill.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
 .pill.info { background: var(--panel-2); color: var(--accent-text); border-color: var(--line-2); }
+@media (max-width: 640px) { .pill { max-width: 100%; white-space: normal; } } /* a long team or position name wraps inside its pill, not off the card */
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .campus-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--text-2); }
 
@@ -961,7 +999,7 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .w-add-btn { display: grid; justify-items: center; gap: 4px; padding: 10px 6px; border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--text-2); font: inherit; font-size: 0.7812rem; font-weight: 600; cursor: pointer; text-align: center; }
 .w-add-btn:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .w-add-btn .ic { width: 20px; height: 20px; }
-.w-rows { display: grid; gap: 6px; }
+.w-rows { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .w-row { border: 1px solid var(--line); border-radius: 12px; }
 .w-row.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .w-row-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }

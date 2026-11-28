@@ -2,7 +2,9 @@
 // port, and visits every main page of the hub and the member app as an admin, a campus staffer
 // and a volunteer, at desktop and phone sizes. For each page it records script errors, server
 // errors (5xx), "Something went wrong" screens and sideways scrolling on phones, and saves a
-// screenshot. Exit code 1 if anything failed.
+// screenshot. It also fails a phone page where text is squeezed under 40px wide and runs past 3 lines
+// (the letter-by-letter symptom), and seeds long names and repeating services (ui-smoke-seed.mjs).
+// Exit code 1 if anything failed.
 //
 //   npm run test:ui                  # screenshots and report in data/ui-smoke/
 //   npm run test:ui -- --only=app    # just the member app (or --only=hub)
@@ -17,6 +19,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedLongContent } from './ui-smoke-seed.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const only = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7);
@@ -88,6 +91,8 @@ async function main() {
     smokeStudyPerson = ppl[0];
     // A paired check-in iPad, so the Stations page is checked with a real row (its table once ran off phones).
     db.prepare("INSERT INTO checkin_devices (name, campus_id, token_hash, device) VALUES ('Kids hallway iPad', (SELECT MIN(id) FROM campuses), 'ui-smoke-token-hash', 'iPad (10th generation)')").run();
+    // Long names, titles and emails, and repeating services: layouts that only broke on real phones.
+    seedLongContent(db);
     db.close();
   }
   const port = await freePort();
@@ -132,10 +137,18 @@ async function main() {
             title: document.title,
             // Measure against the real phone width: on a phone, window.innerWidth grows to fit wide content, so it would hide the overflow.
             overflow: document.documentElement.scrollWidth - vw,
+            // The letter-stacking symptom: a text element squeezed under 40px wide that runs to more than 3 lines.
+            squeezed: [...document.querySelectorAll('body *')].filter((e) => {
+              const r = e.getBoundingClientRect();
+              if (!r.width || r.width >= 40 || e.textContent.trim().length < 4 || e.closest('svg, [hidden], dialog:not([open]), details:not([open]) > :not(summary)')) return false;
+              if ([...e.children].some((c) => c.getBoundingClientRect().width && c.textContent.trim())) return false; // report the innermost element only
+              return r.height / (parseFloat(getComputedStyle(e).lineHeight) || 18) > 3;
+            }).slice(0, 3).map((e) => `${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? `.${e.className.split(' ')[0]}` : ''} “${e.textContent.trim().slice(0, 24)}”`),
           }), viewport.width);
           // A page this account isn't allowed to open: the server refused (403), which is right.
           if (state.broken && !denied) problems.push(`error screen: ${state.title}`);
           if (size === 'phone' && state.overflow > 2) problems.push(`scrolls sideways by ${state.overflow}px on a phone`);
+          if (size === 'phone' && state.squeezed.length) problems.push(`text squeezed to a sliver and stacked letter by letter: ${state.squeezed.join(', ')}`);
           const name = `${area}-${who}-${size}${p.replace(/\//g, '_') || '_'}.png`;
           await page.screenshot({ path: path.join(out, name), fullPage: true });
           results.push({ area, page: p, who, size, ok: !problems.length, denied: state.broken && denied, problems, screenshot: name });

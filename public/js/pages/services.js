@@ -73,12 +73,12 @@ export default async function services(el) {
       ${staff ? html`<p class="muted small" style="margin:10px 0 0">Click an empty part of a day to add a service. Numbers show open volunteer spots; ${icon('edit', 'ic small-ic')} means parts of the plan still need filling in.</p>` : ''}
     </div>
     ${leader ? html`<div class="card"><div class="card-head"><h2>Repeating services</h2>${staff ? html`<button class="btn small" data-new-series>${icon('plus')} Add repeating service</button>` : ''}</div>
-      ${shownSeries.length ? html`<div class="table-wrap"><table class="list"><tbody>${shownSeries.map((t) => html`<tr class="${t.next_at ? 'click' : ''}" data-next="${t.next_at ? t.next_at : ''}">
-        <td><span class="campus-tag"><span class="dot" style="background:${t.campus_color}"></span>${t.campus_short || t.campus_name}</span></td>
-        <td><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}${t.template_name ? ` · from “${t.template_name}”` : ''}</div></td>
-        <td class="small">${t.needs.length ? `${t.needs.reduce((a, n) => a + n.count, 0)} positions` : html`<span class="muted">No positions</span>`}</td>
-        <td class="muted small nowrap">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td>
-        ${staff ? html`<td class="nowrap" style="text-align:right"><button class="icon-btn" data-edit-series="${t.id}" title="Edit repeating service">${icon('edit')}</button><button class="icon-btn danger" data-del-series="${t.id}" title="Delete repeating service">${icon('trash')}</button></td>` : ''}</tr>`)}</tbody></table></div>`
+      ${shownSeries.length ? html`<div class="table-wrap"><table class="list series-list ${staff ? 'has-act' : ''}"><tbody>${shownSeries.map((t) => html`<tr class="${t.next_at ? 'click' : ''}" data-next="${t.next_at ? t.next_at : ''}">
+        <td class="s-campus"><span class="campus-tag"><span class="dot" style="background:${t.campus_color}"></span>${t.campus_short || t.campus_name}</span></td>
+        <td class="s-title"><b>${t.default_title || t.name}</b><div class="muted small">${repeatLabel(t)}${t.template_name ? ` · from “${t.template_name}”` : ''}</div></td>
+        <td class="small s-pos">${t.needs.length ? `${t.needs.reduce((a, n) => a + n.count, 0)} position${t.needs.reduce((a, n) => a + n.count, 0) === 1 ? "" : "s"}` : html`<span class="muted">No positions</span>`}</td>
+        <td class="muted small nowrap s-next">${t.next_at ? `Next: ${fmtDate(t.next_at)}` : ''}</td>
+        ${staff ? html`<td class="nowrap s-act" style="text-align:right"><button class="icon-btn" data-edit-series="${t.id}" title="Edit repeating service">${icon('edit')}</button><button class="icon-btn danger" data-del-series="${t.id}" title="Delete repeating service">${icon('trash')}</button></td>` : ''}</tr>`)}</tbody></table></div>`
         : html`<div class="empty">No repeating services yet. Add your Sunday services once and they fill the calendar automatically.</div>`}
     </div>` : ''}`);
   }
