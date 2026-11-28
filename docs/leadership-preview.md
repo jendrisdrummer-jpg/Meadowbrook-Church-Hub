@@ -5,9 +5,12 @@ leadership in 30–45 minutes. This is the current milestone, **"Personal Testin
 Preview"** ([master roadmap](master-product-roadmap.md)). Status of every module:
 [features.md](features.md). Stage gates: [beta-readiness.md](beta-readiness.md).
 
-Every menu name and button below is taken from the code on `milestone-1` (26 November 2026). Until
-the deploy, the live site still runs the older `main` code, so some of these (Settings → Checks,
-Feedback, Groups, Forms, the new look) only appear after the deploy.
+**Refreshed 28 November 2026 for the leadership presentation on Tuesday 1 December 2026.** It
+matches what is **live now**: `main` at `b7ae33e`, which includes deploys #119, #124, #129, #135 and
+#144 ([merge-log.md](merge-log.md)). Menu names and buttons were checked against that code on a
+made-up demo copy, on a computer and at phone size. Anything built but **held back** (kids'
+check-in safety parts 2–7, Classes, the Bible studies screens in the member app, the App Store
+build) is shown only as "coming" and is **not** demonstrated. Don't describe it as live.
 
 **Contents:** [a. How you'll test](#a-how-youll-test) ·
 [b. Personal testing checklist](#b-personal-testing-checklist) ·
@@ -21,9 +24,8 @@ Feedback, Groups, Forms, the new look) only appear after the deploy.
 
 ## a. How you'll test
 
-**Where.** On the existing live Church Hub (the same Render service, database and accounts), once
-you have approved the deploy of `milestone-1` and it has gone live
-([deploy-runbook.md](deploy-runbook.md)). There is no separate test site or demo environment: you
+**Where.** On the existing live Church Hub (the same Render service, database and accounts). The
+deploys are done ([deploy-runbook.md](deploy-runbook.md) if you need it again). There is no separate test site or demo environment: you
 decided to keep everything in the one Church Hub. Developers test on their own laptops with
 temporary made-up people (`npm run demo`), never with church data.
 
@@ -212,7 +214,7 @@ Mark only yourself on the test service, so real attendance stays accurate. Delet
 removes it.
 
 ### 15. Kids' check-in permissions
-Kids' check-in itself **stays on Subsplash for the beta**. Here you only check who could open it.
+Kids' check-in itself **stays on Subsplash**. Here you only check who could open it.
 
 | Do | Expect | Problem if | Account |
 |---|---|---|---|
@@ -253,6 +255,19 @@ Don't check real children in or out on the live site.
 
 The sign-in page follows your device's dark mode until you choose a theme.
 
+### 20. What's new since the first deploy
+Try these on your own account before Tuesday. None of them reaches other people unless you press
+**Save changes** in App Builder, so don't do that.
+
+| Do | Expect | Problem if | Account |
+|---|---|---|---|
+| **Home** → **Customise** (top right of the cards) | A list of cards with show/hide and up/down buttons, **Reset to default**; **Save** changes your Home only | It changes anyone else's Home | You (admin) |
+| In the app: **More → My info** | Your phone, birthday and home address; **Tell the office** for email or family changes | A field won't save | You, phone |
+| **App Builder**: open it, change nothing, look at **Me** and **A guest** in the preview. Press **Discard changes** if you touched anything | A phone preview of the church app | You pressed **Save changes** by accident (the app changes for everyone) | You (admin) |
+| **Media** | If the YouTube channel is connected: videos under **In the app**, **Not in the app** and **Needs a look**, "Last checked …" under the chips. If not: a message that points to **Setup** | A real video shows the wrong title or is missing from the app | You (admin) |
+| **Bible studies** (needs the Bible studies coordinator switch on your account or the coordinator's) | Four tiles and the tabs Waiting, Studies, Teachers, Materials and People | "You don't have access" (an admin switches it on in **Settings → Sign-in & accounts**) | You (admin) |
+| App **Give** tab: look, don't give | The church's giving page opens | An error page | You, phone |
+
 ### Reporting an issue
 Use the hub's **Feedback** page (or **More → Send feedback** in the app): choose what kind, how much
 it matters ("Blocks Sunday" for anything that would stop a service), and say what happened. It
@@ -263,164 +278,377 @@ records the page you were on. Or tell the developer the **page**, the **steps** 
 
 ## c. Leadership demo guide (30–45 minutes)
 
+**Goal for the room:** leaders leave knowing that the Church Hub is already running part of the
+church, that it is meant to replace **Faith Teams, Subsplash and Google Chat** one step at a time,
+that the church owns the data, and that nothing risky (kids' check-in) is switched until it has been
+proved safe.
+
 ### Before the demo
-- **Decision 15 (real member information).** Until you decide, assume leadership should see as
-  little private detail as possible:
-  - Do the scheduling, chat, announcement, groups and forms parts on your **test team and test
-    service**.
-  - Open **your own** People record, not someone else's; never open medical notes, allergies,
-    private notes or pickups.
-  - Don't open **Kids Check-in** (it lists children and allergies), **Roll call** on a real
-    service, or **Connect cards** with real prayer requests. Use your own test card.
-  - The People list shows names and photos; scroll past it rather than reading it.
-  - Turn off notifications on the presenting computer, so a real chat message doesn't pop up.
-- Get ready the day before: test team and service with you scheduled and a request sent (so
-  **Please reply** shows on your phone), a test form, a test group, a test connect card, the app
-  installed on your phone.
-- Present from a computer; mirror your phone for section 8 if you can.
-- **Be honest.** What's verified, what needs more testing and what's planned are in the
-  [one-page overview](#e-one-page-feature-overview). If a question touches something unfinished,
-  say so.
+A short checklist for the owner. Do it the day before, then again 15 minutes ahead.
 
-All sections use **your admin account** unless they say otherwise.
+**1. Backup**
+- [ ] **Settings → Backups → Back up now**. The top row says today's date and OK, and Google Drive is
+  connected. If it doesn't, don't present on live until it does.
+- [ ] Press **Download** and keep the file on your own computer, not a shared drive.
 
-| # | Section | Where to go, what to click | What to show | What leadership should understand | Time |
-|---|---|---|---|---|---|
-| 1 | Why we're building it | No screen, or **Home** | One sentence per tool: Faith Teams (people, scheduling), Google Chat (team chat), Subsplash (app, kids' check-in, media) | One system the church owns, built around how Meadowbrook works, replacing three paid tools step by step | 3 min |
-| 2 | Admin dashboard | **Home** | The greeting, the four numbers (People, Members, New guests, Open volunteer spots), "This week's services" with open spots, "Away this week" | A leader sees the week at a glance: who's missing, what's open | 3 min |
-| 3 | People and households | **People** → search your own name → your page | Search, filters, your household, "Can serve at", Teams, Scheduled to serve. Mention **Merge duplicate** and **Export** | One directory for every campus; families kept together; leaders don't see health or private notes | 4 min |
-| 4 | Teams and volunteers | **Teams** → your test team | Positions, the roster ticks, the Leader tick, **Message team** | Leaders manage their own teams; leader access follows the roster | 3 min |
-| 5 | Service scheduling | **Services** (Month) → test service → **Order of service**, then **Who's serving**; then **Schedule** with the test team | Plan items, **Fill open spots**, **Send requests** (show the list with only you), **Remind … who haven't replied**; the month grid. On your phone, the email's **Accept** button | Volunteers answer from an email or the app, no account needed for email links; leaders hear declines; no double-booking; campus rules respected | 6 min |
-| 6 | Communication and announcements | **Chat** → test team chat; **Announcements** | A message arriving on your phone; the announcement form with **A team** → test team, the "reaches 1 person" line, **Later**, then **Cancel** | Team chat replaces Google Chat; announcements go to the people chosen, with the count shown before sending | 4 min |
-| 7 | Small groups | **Groups** → test group | Roster, **Make leader**, **Group chat**; "My groups" in the app | Basic groups now: roster and a private chat. Meeting attendance, finder and join requests come later | 2 min |
-| 8 | Member app | Your phone: the installed app (or `/app/`) | **Home**, **Serve** (Please reply, Accept, Dates I'm away), **More** (Help, Send feedback, Appearance). Tab names may differ if they were changed in App Builder | Installs from the browser like an app, no app store; free; push notifications on iPhone and Android | 5 min |
-| 9 | Connect cards and forms | **Connect cards** (your test card only); **Forms** → test form → **Copy link**, open on the phone | A card arriving, **Followed up**; a form filled in on a phone without an account; **Responses** | First-time guests and sign-ups land in one place for follow-up; prayer messages stay with staff | 3 min |
-| 10 | Attendance and kids' check-in | **Attendance**; test service → **Attendance** tab; **Settings → Sign-in & accounts** (the Check-in badges); **Check-in stations** | Weekly numbers, roll call on your test service, who may use check-in. Don't open Kids Check-in | Attendance is in the hub now. Kids' check-in is built but **stays on Subsplash** until a separate safety release (unique pickup codes, custody alerts, full audit) is finished, piloted and approved | 3 min |
-| 11 | Security, permissions and campuses | **Settings → Sign-in & accounts**, **Settings → Checks**, **Settings → Backups** | Roles (Volunteer, Leader, Staff, Admin), campus limits, the Finance flag, the Checks list, nightly encrypted backups | Each person sees only what their role and campus allow; giving is visible only to Finance; backups are locked and copied off-site | 4 min |
-| 12 | Future opportunities | [Roadmap](master-product-roadmap.md) §7 and §12 | The beta dates; Stage 2 ideas (member directory, adult messages, church-wide email, swaps, attendance trends) | Leaders' feedback shapes what comes next; nothing is built that isn't needed | 3 min |
+**2. Test team and test service (see [section a](#a-how-youll-test))**
+- [ ] A team named "TEST – please ignore" with only you on it, and a service dated this week with only
+  that team, set to **Does not repeat**.
+- [ ] You're scheduled and a request has been sent, so **Please reply** shows on your phone.
+- [ ] Tell staff in advance. Everything you send in the demo reaches **real people** if the test team
+  has anyone else on it.
+- [ ] A test announcement ready to type (**A team** → test team only). Never choose **Everyone**.
 
-**Short version (30 minutes):** shorten sections 3, 4, 7 and 9 to a minute each.
+**3. Which account to present from**
+- [ ] Your **own admin account**, in a private or clean browser window so no old tabs show.
+- [ ] Giving shows only to accounts with the **Finance** flag, even admins. Presenting from an
+  account without it is fine and is a good thing to point out: the **Giving** page says "No access".
+- [ ] Don't present from someone else's account. If you want to show a volunteer's or a leader's
+  view, use a test account ([section a](#a-how-youll-test), decision 16) or just talk about it.
 
-**State it plainly:**
-- **Works today (verified with test data):** people and households, campuses, teams, services and
-  orders of service, scheduling with email and app replies, reminders, team chat, announcements,
-  basic small groups, forms, connect cards, attendance, accounts and campus limits, Checks.
-- **Needs more testing:** push notifications and installing on real phones, email in real inboxes,
-  the real Faith Teams import, the dashboard and Help, name-tag printers, iPad stations.
-- **Planned, not built:** the kids' check-in safety release, member directory and member tier,
-  adult direct messages, church-wide email, SMS, recurring availability, swaps, attendance trends.
-- **Built but needs outside accounts, not in the beta:** online giving (Stripe), media and
-  streaming (YouTube, Mux), video calls (Daily).
+**4. Hide real member data on the projector**
+- [ ] Turn off notifications on the presenting computer (chat messages can pop up).
+- [ ] Set the **Campus** picker (bottom of the left menu) to your own campus.
+- [ ] **People:** open **your own** record. The list shows names and photos, so scroll past it
+  quickly or search for your own name first. Never open medical notes, allergies, private notes or
+  pickups.
+- [ ] Don't open **Kids Check-in**, **Connect cards** with real prayer requests, **Roll call** on a real
+  service, or **Settings → Sign-in & accounts** if the account list would show names. If you want to
+  show roles, show the roles section but not the full account table, or talk through it.
+- [ ] **Bible studies:** these are private and personal. Show the empty tiles and tabs, or a test
+  study you made, not real ones.
+- [ ] **Chat:** open only the test team's chat.
+- [ ] Zoom the browser to 110–125% so the back row can read it.
+- [ ] There is no "hide names" button in the Church Hub. If something shows by surprise, click away
+  without comment.
+
+**5. Phone app ready**
+- [ ] The church app is on your phone's home screen and you're signed in
+  ([the phone app guide](guides/the-phone-app.md)). The **iPhone app is not on the App Store yet**:
+  show the home-screen version.
+- [ ] **Please reply** shows on the app's **Home**. Mirror or plug in your phone. Put it in **Do Not
+  Disturb** so personal messages don't appear.
+- [ ] Have the app's address ready to show on a slide or say aloud.
+
+**6. Last look**
+- [ ] **Settings → Checks** says "Nothing here blocks real use".
+- [ ] Wi-Fi works in the room. A backup plan: the screenshots from your last run, or this guide.
+- [ ] Printed copies of the [one-page overview](#e-one-page-feature-overview).
+
+### Plain-language tips
+- Say what the church can **do** with it ("find who hasn't replied"), not how it's built.
+- If someone asks about something that is built but not live, say so: "That's built and being
+  checked. We'll turn it on when it's safe."
+- If something fails on screen, say "That's why we test with a small group first", then move on.
+- **Be honest.** Say what is live (in this guide), what needs more testing, and what is coming.
+
+### Running order
+
+Total about **45 minutes** with questions on top. For 30 minutes, use the cut list underneath. All
+steps use **your admin account** unless they say otherwise.
+
+| # | Step | Time |
+|---|---|---|
+| 1 | Why we built it | 2 min |
+| 2 | Home: the week at a glance | 3 min |
+| 3 | People and families | 3 min |
+| 4 | Scheduling volunteers | 7 min |
+| 5 | Chat and announcements | 4 min |
+| 6 | Attendance | 3 min |
+| 7 | The church app on a phone | 5 min |
+| 8 | App Builder: the church changes its own app | 3 min |
+| 9 | Media: Sunday videos | 3 min |
+| 10 | Bible studies | 2 min |
+| 11 | Connect cards and forms | 2 min |
+| 12 | Safe by design: roles, Checks, backups | 3 min |
+| 13 | Kids' check-in: what's coming | 2 min |
+| 14 | Coming next, and what we need | 3 min |
+
+#### 1. Why we built it (2 min)
+- **Click:** nothing, or stay on **Home**.
+- **Say:** "Today we pay for three tools: Faith Teams for people and scheduling, Google Chat for
+  talking, and Subsplash for the app, videos and kids' check-in. The Church Hub is one place built
+  around how Meadowbrook works. It's already live and some of us are using it."
+- **Why it matters:** one login, one list of people, no copying between systems, and the church owns
+  its data. It's also how we save money, one retired tool at a time ([question on cost](#d-likely-leadership-questions)).
+
+#### 2. Home: the week at a glance (3 min)
+- **Click:** **Home**. Point at **Needs your attention**, **This week's services** and **Your next time
+  serving**. Then press **Customise** and show the show/hide and up/down buttons, then **Cancel**.
+- **Say:** "A leader opens this and sees what needs them: open spots, people who haven't replied.
+  Each person can arrange their own Home. It changes only their view."
+- **Why it matters:** replaces checking several apps and chasing people by text. Faith Teams has no
+  single "what needs me today" page.
+
+#### 3. People and families (3 min)
+- **Click:** **People** → search **your own name** → open your page.
+- **Say:** "Everyone in every campus is in one list, with families kept together. Leaders see what they
+  need and not health or private notes."
+- **Show:** search and the filters, your **Family** card, **Teams and serving**. Mention **Select**
+  (change several people at once), **Export** and **Merge duplicate**. Don't open anyone else.
+- **Why it matters:** this is the Faith Teams people list. The real Faith Teams import is still to be
+  rehearsed on a copy first ([known issues](#f-known-issues-and-limitations)).
+
+#### 4. Scheduling volunteers (7 min)
+- **Click:** **Services** → your test service → **Order of service** (a quick look) → **Who's serving**.
+  Press **Fill open spots**, then **Send requests** (the list shows only you), then **Send to 1
+  person**.
+- **On your phone:** the app's **Home** shows **Please reply** → **Accept**. Back on the computer,
+  refresh: the row says **Accepted**.
+- **Then:** **Volunteer schedule** → pick the test team to show the month grid. Mention **Remind N
+  who haven't replied** and **Find a replacement**.
+- **Say:** "The leader fills the spots, sends one request, and each volunteer answers from the app or
+  from an email link with no account. Leaders hear about declines. Nobody is double-booked."
+- **Why it matters:** this is the heart of Faith Teams, and the part volunteers feel every week.
+
+#### 5. Chat and announcements (4 min)
+- **Click:** **Chat** → the test team's chat: send a message and show it arriving on your phone. Then
+  **Announcements** → title "Demo", **Send to: A team**, test team only. Show the line that says how
+  many people it reaches. Choose **When: Later**, **Schedule**, then **Cancel**.
+- **Say:** "Team chat lives with the team list, so when someone joins a team they're in the chat. An
+  announcement shows how many people it will reach before you send it."
+- **Why it matters:** replaces Google Chat for teams, and the Subsplash push notice, without a
+  separate list to keep up to date.
+
+#### 6. Attendance (3 min)
+- **Click:** **Attendance**. Show the weekly chart, the **Average per Sunday** numbers, and the
+  **Each service** table. Mention **Take attendance** on a phone and **Download CSV**.
+- **Say:** "Numbers come from roll call and headcounts. We can see trends against last year and who
+  has been missing."
+- **Why it matters:** attendance reporting leaves a spreadsheet. (The numbers in a demo copy are made
+  up; on live they're the church's own, so mention they're real.)
+
+#### 7. The church app on a phone (5 min)
+- **On your phone:** the app **Home**: **This week at …** (next service, what you're serving, events),
+  then **Serve**, **Watch** and **More → My info**, **Help** and **Send feedback**.
+- **Say:** "This is what a member sees. It works like an app and installs from the web address.
+  Members can update their own phone and address, and tell the office about changes."
+- **Don't say** that it's on the App Store. It isn't yet; the iPhone version is being tested.
+- **Why it matters:** this replaces the Subsplash member app and its monthly cost, and the church
+  decides how it looks.
+
+#### 8. App Builder: the church changes its own app (3 min)
+- **Click:** **App Builder** (under Church app). Show the tab list, the phone preview, **Me** and **A
+  guest**, then a widget such as **Announcement** or **Link list**. **Don't press Save changes.**
+  Leave with **Discard changes** if you changed anything.
+- **Say:** "Staff with the **Edit the app** switch can rearrange tabs and add a banner or a list of
+  links. A preview shows it first. Nothing goes to members until someone saves."
+- **Why it matters:** with Subsplash, changes mean emailing a vendor or learning their tool. Here
+  it's ours.
+
+#### 9. Media: Sunday videos (3 min)
+- **Click:** **Media**. Show the three chips (**In the app**, **Not in the app**, **Needs a look**), open
+  one video to show the **edit panel**, then **Setup** (don't change anything).
+- **Say:** "Videos come in from our YouTube channel on their own. Staff only look at the few the
+  Church Hub isn't sure about. Nothing changes on YouTube."
+- **If the channel isn't connected yet** on live: say "this is the Library after we connect the
+  channel" and show **Setup** instead. Check this beforehand.
+- **Why it matters:** replaces the Subsplash media library. Live streaming and uploads are not part
+  of this.
+
+#### 10. Bible studies (2 min)
+- **Click:** **Bible studies**: the tiles and tabs (**Waiting**, **Studies**, **Teachers**,
+  **Materials**, **People**).
+- **Say:** "Our coordinators can keep track of personal studies: who's teaching, who's studying,
+  which material and who finished. Later, members will be able to ask for a study from the app. That
+  part is next; today it's the office side."
+- **Why it matters:** replaces a spreadsheet and the memory of whoever coordinates.
+
+#### 11. Connect cards and forms (2 min)
+- **Click:** **Connect cards** (your test card only, **To follow up** and **Followed up**). Then
+  **Forms** → your test form → **Copy link** and open it on the phone.
+- **Say:** "Guests fill in a card or a form on their phone. It lands in one list for follow-up.
+  Prayer messages go to staff only."
+- **Why it matters:** replaces paper cards and separate sign-up tools.
+
+#### 12. Safe by design: roles, Checks, backups (3 min)
+- **Click:** **Settings → Sign-in & accounts** (the roles box and the "Who can sign in" setting; hide
+  the account list), **Settings → Checks**, **Settings → Backups**.
+- **Say:** "Four roles: volunteer, leader, staff and admin, plus campus limits. Giving is visible only
+  to people with a Finance switch, even admins. Every night an encrypted backup goes to the server
+  and to Google Drive."
+- **Why it matters:** the first question leaders ask is whether their people's information is safe.
+
+#### 13. Kids' check-in: what's coming (2 min)
+- **Click:** nothing. **Don't open Kids Check-in** (it lists children and allergies).
+- **Say:** "Kids' check-in stays on Subsplash for now. It's the most serious part of the move, so we
+  are building it as a separate project. Much of it is built and being checked: a guard on
+  check-out, a protected history of every check-in and check-out, a switch for who may use
+  check-in, new pickup codes, levels for medical notes, holds on a pickup, and check-in settings
+  for each campus, including letting a family check in at any campus. None of it is turned on at
+  the desk. We'll practise at one campus first."
+- **Why it matters:** kids' safety comes first, and this is the last piece before Subsplash can go.
+- **Accurate wording:** these are **built but held**, not switched on. The part that is live is a
+  behind-the-scenes record of check-ins, and a way to see which check-in iPads are up to date.
+
+#### 14. Coming next, and what we need (3 min)
+- **Say:** the list below, then "From staff we need about 30 minutes to be shown, a few weeks of
+  using it, and honest feedback."
+
+| Next | In plain words | When |
+|---|---|---|
+| Staff beta | About 8 staff use chat, tasks, planning, People and announcements | Mid-December |
+| Pause | No new people onboarded over Christmas | 19 December to 3 January |
+| Bible studies in the app | Members ask for a study and see their own | Next release |
+| Classes | Training with videos and quizzes; built, held back | January |
+| Worship and production | Scheduling, plans, songs, team chat | Late January |
+| Other ministries | Their teams, small groups, forms | February to early March, more after Easter |
+| Kids' check-in pilot | The held safety parts switched on at one campus first | From about 21 February |
+| iPhone app on the App Store | Tested through Apple's TestFlight first; needs the church's Apple account | After the Apple account is ready |
+| Subsplash check-in off | Only after the pilot and a safe cutover | About mid-June 2027 |
+
+These dates are expected, not promised. They move with real Sundays and review time.
+
+**If you have 30 minutes:** shorten steps 3, 6, 10 and 11 to a minute each, or skip 9 and 11.
+
+**State it plainly at the end (works today vs not yet):**
+- **Live and working with made-up data in testing:** people and families, campuses, teams, services
+  and orders of service, scheduling with email and app replies, reminders, team chat, announcements,
+  small groups, forms, connect cards, attendance, accounts and campus limits, Checks, the member
+  app, My info, Customise Home, App Builder, Media (YouTube-first), Bible studies (office side),
+  accessibility improvements, and the check-in record.
+- **Needs more testing with real people:** push notifications on real phones, email in real inboxes,
+  the real Faith Teams import, name-tag printers and iPads, the iPhone app on a real iPhone.
+- **Built, held back, not live:** kids' check-in safety parts 2–7, Classes, Bible studies in the
+  app, and the App Store build.
+- **Not built:** member directory, adult direct messages, church-wide email, text messages,
+  recurring availability, swaps.
 
 ---
 
 ## d. Likely leadership questions
 
+Honest answers. Where something is the owner's decision, it says so.
+
 | Question | Answer |
 |---|---|
-| **What does it cost?** | The hub runs on one small server at Render, the hosting the live site already uses (the README estimates $6–25 a month for a server this size). Google sign-in, Google Drive backups and the automated tests on GitHub use free tiers. Development uses the owner's existing Claude subscription, with no extra billing. No new paid service is added without the owner's approval. Optional later costs: Stripe keeps a small part of each online gift, Mux video is about $15–55 a month, and SMS would need a paid provider. Savings come as Faith Teams, Google Chat and Subsplash are retired. |
-| **Who owns the data?** | The church. Everything is in one database on the church's own server disk, not in a vendor's system. People can be exported to a spreadsheet at any time, and the code is in a repository the owner controls. |
-| **What about backups?** | Every night after 3 a.m. the hub makes a copy, locked with a password only the church holds (AES-256), and sends it to a Google Drive folder. It keeps the last 14 nightly copies plus one a month for a year. Admins can press **Back up now**. A restore drill proves a copy really opens before the first deploy. |
-| **Is it private? What about children?** | Each role sees only what it needs; leaders don't see medical notes, private notes or pickup lists; campus-limited accounts see only their campus; giving needs a separate Finance flag, even for admins; connect-card prayer requests are staff only. Small groups are adults only, and minors won't have accounts in Stage 1 (recommended; decision 8). Kids' check-in stays on Subsplash until a separate safety release with unique pickup codes, custody alerts and a full audit is built, piloted and approved. |
-| **What happens to Faith Teams and Subsplash?** | They keep running alongside. Each ministry leaves Faith Teams only when its own work runs in the hub, one full cycle has run in parallel, nothing "blocks Sunday", and its leader agrees. Google Chat retires team by team after 4+ weeks in the hub. Subsplash check-in goes off around mid-June 2027 after a pilot; Subsplash media stays until Stage 3. |
-| **What's the timeline?** | Staff beta from mid-December (after the deploy is approved), a freeze from 19 December to 3 January, worship and production in late January, other ministries February to early March and after Easter. Kids' check-in pilot from about 21 February. These are expected dates; they move with review time and real Sundays, not coding. |
-| **Who maintains it?** | The owner, working with an AI-assisted development team (Claude Code) that writes, tests and reviews changes. Nothing reaches the live site without the owner's approval. It is plain JavaScript with one outside library and a written knowledge base, so another developer could take it on. Being a small team is a real risk; backups, tests and the docs are how we reduce it. |
-| **Does it handle several campuses?** | Yes. Campuses, campus-specific services and rooms, campus-limited staff and admins, and per-volunteer serving campuses for teams shared across campuses. Running it for other churches is a later idea, only by owner decision. |
-| **Does it work on phones?** | Yes. The member app installs from the browser onto the home screen (no app store), with push notifications on Android and on iPhone (iOS 16.4+, once added to the home screen). Volunteers can also just use the email links. Testing on real phones is part of the staff beta. |
-| **What about giving?** | Online giving is built (card, bank, Apple/Google Pay, recurring, statements) but needs a Stripe account and has never taken a live payment. It isn't part of the beta; giving stays where it is for now. |
-| **Can it send text messages?** | Not yet. SMS would need a paid provider, which is an open owner decision. Today it's push notifications, the in-app inbox and email. |
+| **What does it cost?** | The Church Hub runs on one small server at Render (the README estimates $6–25 a month for a server this size). Google sign-in, Google Drive backups and automated testing on GitHub use free tiers. The development team's tools are covered by the owner's existing subscription. No new paid service starts without the owner's approval. Later, possible costs: Stripe keeps a small part of each online gift; text messages would need a paid provider; Apple charges a yearly fee (about $99) and Google a one-time fee (about $25) to be in their app stores, which is not yet decided. **Saving comes as Faith Teams, Google Chat and Subsplash are retired.** Bring the real yearly figures for those three so leaders can compare. This guide doesn't hold them. |
+| **Is our data safe? What about backups?** | The data sits in one database on the church's own server disk, not in a vendor's system. Every night after 3 a.m. a copy is made, locked with a password only the church holds, and sent to Google Drive. The last 14 nightly copies and one a month for a year are kept. An admin can press **Back up now**. A restore drill, opening a real backup on a spare computer, was done before the deploy of attendance access (see [restore-drill.md](restore-drill.md)). Check **Settings → Backups** shows today's date before you present. People can be exported to a spreadsheet at any time. |
+| **Who can see what?** | Four roles: volunteer, leader, staff, admin. Volunteers see their own schedule and the services they serve at. Leaders see their own teams and don't see medical notes, private notes or pickup lists. Staff and admins can be limited to a campus. Giving is shown only to accounts with the **Finance** switch, even admins. Connect-card prayer messages are staff only. Small groups are adults only. Bible-study student contact details reach the teacher only if the student agreed. Admins decide who can sign in, and today only accounts an admin adds can. |
+| **What about kids' safety?** | Kids' check-in is **not** moving yet. It stays on Subsplash. Much of the safety work is built but held back and switched on later: a guard on check-out, a protected history, a switch for who may use check-in, new pickup codes, medical-note levels, holds on a pickup, and settings per campus (including any-campus check-in). We'll pilot at one campus first and move others after Easter. The part that is live is a behind-the-scenes record and a check that shows which iPads are up to date. No child's information is shown to people who don't need it. |
+| **What happens to Subsplash and Faith Teams?** | They keep running until the Church Hub does the same job well enough. A ministry leaves Faith Teams only after one full cycle in parallel, nothing that "blocks Sunday", and its leader agrees. Google Chat retires team by team after four or more weeks. Subsplash check-in goes last, about mid-June 2027 after the pilot. The Subsplash app and media stay until the church app and Media are accepted. Nothing is switched off without leadership's say. |
+| **Will it be in the App Store?** | Not yet. Today members use the church app from the web address and add it to their home screen. An iPhone app is built and being tested; the next step is Apple's TestFlight, which needs the church's Apple developer account, and the person who holds it hasn't been confirmed. Until then, please don't tell members to look for it. App Store review and the yearly Apple fee are still to be decided by the owner. |
+| **What's needed from staff?** | A 30-minute walkthrough, an account an admin adds and links to their person, then using it for real work for a few weeks: replying to requests, chatting, taking attendance on a phone. Say what's confusing on the **Feedback** page. No one is asked to move their whole ministry before they're ready, and no one loses Faith Teams on a date we pick for them. |
+| **What's the timeline?** | Staff beta from mid-December, a pause from 19 December to 3 January, worship and production in late January, other ministries February to early March (more after Easter), a kids' check-in pilot from about 21 February, and Subsplash check-in off about mid-June 2027. Classes in January. These are targets. They move with real Sundays and review time, not typing speed. |
+| **Who looks after it?** | The owner, working with an AI-assisted development team that writes, tests and reviews changes. Nothing reaches the live site without the owner's approval. It's built with plain tools and written documents, so another developer could take it on. A small team is a real risk. Backups, automated tests and the written guides are how we reduce it. |
+| **Does it work across campuses?** | Yes: each campus has its own services, rooms and staff limits, and a volunteer can serve at more than one campus if an admin allows it. |
+| **What about giving?** | Online giving is live with Stripe. One real card gift and its refund were tested on 26 November. Bank transfers, Apple and Google Pay, repeating gifts and gifts from guests are built but not yet tried live. Only people with the **Finance** switch see giving. We don't show it in the demo. |
+| **Can it send text messages?** | Not yet. It needs a paid provider, which is an owner decision. Today it's app notices, the in-app inbox, and email. |
+| **Is it easy enough for our older members and volunteers?** | We have tried to make it so: large tap areas, readable text, a Help page, and Accept by email link with no account needed. We'll keep asking for feedback from volunteers of every age. The accessibility pass is done on the member app and the staff pages, but nothing replaces real people trying it. |
 
 ---
 
 ## e. One-page feature overview
 
-Keep this beside you during the demo. Full detail: [features.md](features.md).
+*A page to hand out. Plain words, no jargon.*
 
-| Area | Status | In the beta? |
-|---|---|---|
-| People, households, profile fields, search | Verified (real Faith Teams import still to rehearse) | Yes |
-| Campuses and campus limits | Verified | Yes |
-| Accounts and permissions | Verified | Yes |
-| Teams, positions, leaders | Verified | Yes |
-| Services, orders of service, templates, songs | Verified | Yes |
-| Scheduling, requests, email and app replies, reminders | Verified (push on real phones: needs more testing) | Yes |
-| Team chat and tasks | Verified | Yes |
-| Announcements | Verified (real pushes need phones) | Yes |
-| Small groups (basic) | Verified | Yes, adults only |
-| Forms | Verified | Yes |
-| Connect cards | Verified | Yes |
-| Attendance and roll call | Verified (trends not built) | Yes |
-| Feedback and Help | Verified / needs more testing | Yes |
-| Member app on phones | Verified at phone size; install and push need real phones | Yes |
-| Settings → Checks | Verified | Yes |
-| Backups | Needs outside setup (password, Google Drive) | Before the deploy |
-| Kids' check-in | Flow verified; safety release not built | No, stays on Subsplash |
-| Events | Verified (paid sign-ups need Stripe) | Not a focus |
-| Giving | Needs outside setup (Stripe) | No |
-| Media, streaming, podcast | Needs outside setup (YouTube, Mux) | No |
-| Video calls | Needs outside setup (Daily) | No |
-| Member directory, adult messages, church-wide email, SMS | Not built | Stage 2 or later |
+### Meadowbrook Church Hub: where we are
+
+**What it is.** One place for our people, scheduling, chat, attendance and the church app. It is meant
+to replace Faith Teams, Google Chat and Subsplash, one step at a time, with the church owning its
+own information.
+
+**Working now (live)**
+
+| What | What it does for us |
+|---|---|
+| People and families | One list for every campus, families together |
+| Teams and scheduling | Leaders schedule, volunteers accept or decline by app or email, reminders go out |
+| Services and orders of service | Plans, songs and templates |
+| Chat and announcements | Team chats; notices to chosen groups |
+| Small groups, forms and connect cards | Guests and members sign up; staff follow up |
+| Attendance | Roll call and headcounts on a phone, with weekly trends |
+| Church app | **Home**, **Serve**, **Watch**, **Give**, **More**; **My info**; installs from the web address |
+| App Builder | Staff with permission change tabs and cards in the app |
+| Media | Sunday videos come in from YouTube; staff tidy the few that need it |
+| Bible studies (office side) | Coordinators track studies, teachers and materials |
+| Customise Home | Each person arranges their own Home page |
+| Safety | Roles, campus limits, nightly encrypted backups, a check-in record |
+
+**Still being tested.** Notifications on real phones, email in real inboxes, the move of our Faith
+Teams list, name-tag printers and iPads.
+
+**Built, not switched on yet**
+
+| What | Why we're waiting |
+|---|---|
+| Kids' check-in safety features | Child safety comes first. A pilot at one campus before any move; Subsplash stays until then |
+| Classes | Planned for January |
+| Bible studies in the app | Next |
+| iPhone app in the App Store | Needs the church's Apple account |
+
+**Not built.** Member directory, adult direct messages, church-wide email, text messages.
+
+**What happens next.** Staff try it from mid-December. A pause from 19 December to 3 January. Worship
+and production in late January. Other ministries from February. A kids' check-in pilot from about
+21 February. Dates are targets.
+
+**Who sees what.** Volunteers see their own schedule. Leaders see their teams. Staff and admins see
+more, limited by campus when needed. Giving and children's medical notes are shown only to people
+who need them.
+
+**How you can help.** Try it. Tell us what's confusing: **Feedback** in the hub, or **More → Send
+feedback** in the app.
 
 ---
 
 ## f. Known issues and limitations
 
-**Not being fixed now** (documented; tell testers):
+**Be ready to say these out loud:**
+- **Nothing here has been tried with every real phone, email inbox and printer.** Push notifications
+  on real phones, email in real inboxes, the iPhone app on a real iPhone, name-tag printers and iPad
+  pairing are all untested by QA.
+- **The real Faith Teams people export hasn't been imported.** A rehearsal on a copy comes first
+  ([beta-readiness.md](beta-readiness.md) §C).
+- **Media** shows videos only once the YouTube channel is set up in **Media → Setup**. Without the
+  optional YouTube key it sees only the latest 15 videos.
+- **App Builder** is only open to admins and accounts with the **Edit the app** switch, and
+  **Save changes** goes straight to every member. Staff who could open it before the last deploy need
+  the switch turned on.
+- **The Bible studies page** says "…or wait for requests from the church app" when empty. The app
+  screens aren't built yet, so nobody can send a request. Say "coming".
+- **Giving:** the live gift test was one card payment. Other methods aren't tried live.
 - **Campus-limited admins can send announcements to the whole church** (QA-6). Existing behaviour;
-  an open owner decision ([permissions.md → Campus-limited admins](permissions.md#campus-limited-admins),
-  roadmap decision 13).
-- **Duplicate services aren't warned about** (QA-7): two services at the same time and campus can be
-  created. Check the calendar first.
-- **A new service starts on "Every week"** (QA-10). Choose **Does not repeat** for a one-off.
-- **Dark mode follows each person's saved choice**, not the phone's setting, unless they pick
-  **Match my device**.
-- Account management is easier on a laptop; on a phone the **Settings → Accounts** table scrolls
-  sideways inside its card.
+  an open owner decision ([permissions.md](permissions.md#campus-limited-admins)).
+- **The Kids Check-in page is still in the hub's menu** for people who have the check-in switch.
+  It's the older version, and Subsplash is still the real check-in. Don't open it in the demo.
+- **The check-in record** has no screen for staff yet. It records behind the scenes.
+- Account management is easier on a computer. On a phone, **Settings → Accounts** scrolls sideways
+  inside its card.
+- **Settings → Checks** on a computer running a demo says "No" for test sign-in. On the live site it
+  should say "Nothing here blocks real use".
 
-**Fixed before this preview** (found by QA and the security review, merged into `milestone-1`, #76):
-- Child safety: campus checks on the kids' pickup-person routes and on moving people between
-  households; below staff, someone can join an existing family only as a child, so nobody can be
-  added as a pickup adult without staff; household and pickup changes are audited.
-- The access dialog no longer allows "All campuses" plus a campus at once.
-- Settings, App Builder, Giving and Announcements show "You don't have access to this page" to
-  people without access; check-in setup lists only campuses you can use.
-- Validation of dates, email and name length; clearer "Fill the month" messages; phone layout
-  touches; dark mode on the sign-in page.
+**Fixed since the last version of this guide:** two services at the same time and campus now give a
+warning; **New service** no longer starts on "Every week"; accounts on the old Light default now
+**Match my device**; the sign-in page no longer tells anyone whether an email has an account.
 
-**Your decisions** (safe defaults are in place; see [roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)):
-whether leaders and the check-in desk may add children to existing families (allowed today);
-whether pickups should be listed explicitly instead of every adult in the family; whether
-campus-limited staff may create families with no campus (they show at every campus).
+**Your decisions** ([roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation)):
+whether leaders and the check-in desk may add children to existing families (allowed today); whether
+pickups should be listed explicitly; whether campus-limited staff may create families with no campus;
+real member information on screen during demos; test accounts on live; the Apple developer account.
 
-**Not built or needs outside setup:** see the last rows of the [overview](#e-one-page-feature-overview).
-Also never tried for real: email in real inboxes, push on real phones, Google sign-in on the live
-server, Google Drive backups, name-tag printing, iPad station pairing, Stripe payments, Mux,
-App Builder editing, event sign-ups, and a scheduled announcement actually going out.
+**Not built or needs outside setup:** see the [one-page overview](#e-one-page-feature-overview).
 
 ---
 
 ## g. Recommended next steps after leadership reviews it
 
-These follow the beta stages in [beta-readiness.md](beta-readiness.md) and
+These follow the stages in [beta-readiness.md](beta-readiness.md) and
 [roadmap §7](master-product-roadmap.md#7-beta-plan). The owner decides each one.
 
 1. **Record leadership's feedback** on the Feedback page or in [feedback.md](feedback.md), each
    marked Blocks Sunday, Slows me down or Nice to have. The Product Manager sorts it into now,
    next and not now.
-2. **Decide 15 and 16** (real information in demos; test accounts on live), plus 8 (no minors with
-   accounts) and 9 (the staff beta group, a feedback triage person, a Sunday contact).
-3. **Finish the deploy gate** ([beta-readiness §1](beta-readiness.md#1-required-before-deployment)):
-   the restore drill, the account review, and your
-   written approval of a deploy window outside 19 December – 3 January, not a Saturday evening or
-   Sunday.
-4. **Staff beta (about 8 staff), mid-December:** accounts added and linked, a 30-minute
-   walkthrough, real-phone and email checks ([§A](beta-readiness.md#a-real-device-checks),
-   [§B](beta-readiness.md#b-email-delivery)). Tell staff what isn't in the beta: kids' check-in,
-   giving and media.
-5. **Freeze, 19 December – 3 January:** nothing new.
-6. **Worship and production, late January:** after two weeks of staff use with nothing open that
-   blocks Sunday, the Faith Teams import rehearsal, and leader permission checks.
-7. **Other ministries, February to early March, then after Easter**, one champion per ministry,
-   leaving Faith Teams one workflow at a time.
-8. **Kids' check-in:** a separate decision on the child-safety release (decision 10), then a pilot
-   campus from about 21 February.
+2. **Turn on what each person needs:** the **Edit the app** switch for anyone who edits the app, the
+   **Bible studies coordinator** switch for the coordinator, and the Check-in switch only where
+   needed.
+3. **Staff beta (about 8 staff), mid-December:** accounts added and linked, a 30-minute walkthrough,
+   real-phone and email checks ([§A](beta-readiness.md#a-real-device-checks),
+   [§B](beta-readiness.md#b-email-delivery)). Tell staff what isn't in the beta: kids' check-in and
+   Classes.
+4. **Pause, 19 December – 3 January:** nothing new.
+5. **Worship and production, late January**, then **other ministries, February to early March, then
+   after Easter**, one champion per ministry, leaving Faith Teams one workflow at a time.
+6. **Kids' check-in:** a separate go/no-go on the held safety parts, then a pilot campus from about
+   21 February.
+7. **iPhone app:** confirm who holds the church's Apple account, then TestFlight with staff.
