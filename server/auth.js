@@ -80,6 +80,7 @@ function toUser(row) {
     photo: row.photo || null,
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
+    studies: Boolean(row.studies),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
     homeLayout: parseLayout(row.home_layout),
@@ -129,6 +130,17 @@ export function requireAttendance(req, res, next) {
   if (!canTakeAttendance(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
   next();
 }
+// Bible studies: staff and admins, plus any account an admin gave the Bible studies coordinator switch
+// (users.studies), whatever its role. Leaders and volunteers get nothing extra. Studies belong to the
+// whole church, so the switch is not campus-limited; lists still follow campusFilter on a study's
+// optional campus (a study with no campus is open to everyone who passes this guard). Teachers and
+// students reach only their own studies, by their linked person, inside the routes themselves.
+export const canStudies = (user) => Boolean(user) && (rank(user.role) >= rank('staff') || Boolean(user.studies));
+export function requireStudies(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+  if (!canStudies(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
+  next();
+}
 // Is this campus one the account may take attendance at? Leaders: as canCampus. A switch-only
 // account must have a campus list when the church has more than one campus (the account dialog
 // requires one); with no list on a multi-campus church it fails closed rather than meaning "all".
@@ -161,8 +173,8 @@ export function requireAllCampuses(req, res, next) {
 export function accountInReach(user, t) {
   if (!user.campusIds) return true;
   if (t.id === user.id || t.role === 'admin') return false;
-  // Finance and Announcements are church-wide, so accounts holding them are for unrestricted admins.
-  if (t.finance || t.announce || t.app_editor) return false;
+  // Finance, Announcements, Edit the app and Bible studies are church-wide, so accounts holding them are for unrestricted admins.
+  if (t.finance || t.announce || t.app_editor || t.studies) return false;
   // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
   // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
   // A volunteer's own campus list, if set (e.g. staff who stepped down), must also sit inside theirs.
@@ -269,6 +281,10 @@ export function checkPassword(pw, stored) {
   return crypto.timingSafeEqual(want, got);
 }
 
+// Checked against when an email has no account or no password, so the answer takes as long as a
+// real check and timing can't show which emails have accounts. Made once at start-up.
+const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
+
 const codeHash = (email, code) => crypto.createHash('sha256').update(`${email.toLowerCase()}:${code}`).digest('hex');
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
 
@@ -291,6 +307,12 @@ export function authRoutes(app, db) {
   const limits = createLimiter();
   const emailLimits = createLimiter();
   const codeCeiling = createLimiter({ cap: 10 });
+  // Daily wrong-code counts have their own table so a flood of them can't push out the pw:/verify: keys.
+  const dayLimits = createLimiter({ cap: 20000 });
+  const DAY = 24 * 60 * 60e3;
+  const CAP_MESSAGE = 'Too many tries for this email today. Sign in with your password or Google, or ask the church office.';
+  const capMarks = new Map(); // email -> newest code row id when its daily cap was reached
+  const verifyLimits = createLimiter(); // verify:<email> and codetry:<id>, apart from the password keys
   let capHitAt = 0; // when the new-account code ceiling last refused (Settings → Checks shows it)
   let capWarnedAt = 0;
   const devLogin = process.env.MB_DEV_LOGIN === '1';
@@ -437,7 +459,9 @@ export function authRoutes(app, db) {
       return res.status(429).json({ error: 'Too many tries. Wait a few minutes, or use “Email me a code”.' });
     }
     const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
-    if (!user?.password_hash || !checkPassword(req.body?.password || '', user.password_hash)) return mismatch();
+    // Always one scrypt check, whether or not there is an account or a password.
+    const matches = checkPassword(req.body?.password || '', user?.password_hash || DUMMY_HASH);
+    if (!user?.password_hash || !matches) return mismatch();
     startSession(db, req, res, user.id);
     res.json({ ok: true });
   });
@@ -493,13 +517,38 @@ export function authRoutes(app, db) {
   app.post('/auth/code/verify', (req, res) => {
     const b = req.body || {};
     const email = String(b.email || '').trim().toLowerCase();
+    // Wrong guesses are refused the same way whether or not this email was sent a code, so the
+    // answers can't show who is in People. The address first, then the email (no new keys when refused).
+    if (!ipAllowed(limits, 'verifyip', req.ip, 60, 15 * 60e3, { wide: 8 })) return res.status(429).json({ error: 'Too many tries. Wait a few minutes, then try again or send a new code.' });
+    const dayKey = `verifyday:${email.slice(0, 200)}`;
+    const capped = !dayLimits.allowed(dayKey, 20, DAY);
     const row = db.prepare("SELECT * FROM login_codes WHERE email = ? AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(email);
-    if (!row || row.attempts >= 5) return res.status(400).json({ error: 'That code has expired. Send a new one.' });
+    // Tries per code are counted in memory (a database write only when a code exists would show in
+    // the timing); codes last 15 minutes, so losing the count on a restart is fine.
+    const tryKey = row && `codetry:${row.id}`;
+    // Under the daily cap only a code asked for after the cap was reached, on its very first try,
+    // can still sign in (a wrong first try burns it). Otherwise guessers could lock people out.
+    const live = row && (capped ? row.id > (capMarks.get(email) ?? Infinity) && verifyLimits.allowed(tryKey, 1, 15 * 60e3) : verifyLimits.allowed(tryKey, 5, 15 * 60e3));
     const given = String(b.code || '').replace(/\D/g, '');
-    const ok = given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row.code_hash));
+    // The hash is compared against something either way, so a missing code costs the same time.
+    const ok = given.length === 6 && crypto.timingSafeEqual(Buffer.from(codeHash(email, given)), Buffer.from(row?.code_hash || codeHash(email, 'x'))) && live;
     if (!ok) {
-      db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
-      return res.status(400).json({ error: row.attempts >= 4 ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right. Check the email and try again.' });
+      if (row) verifyLimits.record(tryKey, 5, 15 * 60e3);
+      dayLimits.record(dayKey, 20, DAY);
+      if (!dayLimits.allowed(dayKey, 20, DAY)) {
+        // The cap is reached: remember the newest code row so later ones count as newly requested.
+        if (!capped || !capMarks.has(email)) {
+          if (capMarks.size > 5000) capMarks.delete(capMarks.keys().next().value);
+          capMarks.set(email, db.prepare('SELECT COALESCE(MAX(id), 0) n FROM login_codes').get().n);
+        }
+      } else capMarks.delete(email);
+      if (capped) return res.status(429).json({ error: CAP_MESSAGE });
+      // Counted per email whether or not a code row exists: the 5th wrong try says "too many",
+      // later ones the usual wording.
+      const k = `verify:${email.slice(0, 200)}`;
+      const counted = verifyLimits.hit(k, 5, 15 * 60e3);
+      const fifth = counted && !verifyLimits.allowed(k, 5, 15 * 60e3);
+      return res.status(400).json({ error: fifth ? 'Too many wrong codes. Send a new one.' : 'That code isn’t right, or it has expired. Check the email or send a new one.' });
     }
     const user = userForEmail(db, email, { first_name: b.first_name, last_name: b.last_name });
     if (user?.needsName) return res.status(400).json({ need_name: true, error: 'Welcome! Tell us your name to create your account.' });
@@ -523,7 +572,7 @@ export function authRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  return { limits, emailLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
+  return { limits, emailLimits, dayLimits, verifyLimits, codeCapHitAt: () => capHitAt }; // handed back for tests and Settings → Checks
 }
 
 const SIGN_IN_HINTS = {

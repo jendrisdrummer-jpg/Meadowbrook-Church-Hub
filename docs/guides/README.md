@@ -9,6 +9,7 @@ the work you do.
 | [Getting started](getting-started.md) | Everyone | Signing in, the Home page, the menu, notifications, getting help |
 | [Schedule your team](schedule-your-team.md) | Anyone who schedules volunteers | Volunteer schedule, Who's serving, sending requests, replacements |
 | [Take attendance](take-attendance.md) | Anyone who counts on a Sunday | Roll call on a phone, families, new guests, headcounts, "We've missed…" |
+| [Look after Bible studies](bible-studies.md) | The Bible studies coordinator and staff | Materials, matching requests, starting and updating studies, undoing a finish, past history, CSV |
 | [Media and the app](media-and-the-app.md) | Staff who look after the Sunday videos | The Media library, editing a video, Setup, what members see on Watch |
 | [The phone app](the-phone-app.md) | Everyone | The member app, how it differs from the hub, how to tell members to get it |
 | [Launch drafts](launch/README.md) | The owner | Drafts for the church-wide move: app announcement, FAQ, volunteer and staff welcomes, help desk replies |

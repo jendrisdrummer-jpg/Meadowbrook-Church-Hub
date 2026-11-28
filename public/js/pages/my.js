@@ -10,6 +10,6 @@ export default async function my(el) {
   await drawSchedule(el, {
     planHref: (a) => `#/services/${a.service_id}`,
     decline,
-    notifyCard: { ui: 'hub', role: state.me.role, appLink: state.settings.app_url?.startsWith('http') ? state.settings.app_url : new URL(state.settings.app_url || '/app/', location.origin).href },
+    notifyCard: { ui: 'hub', role: state.me.role, studies: Boolean(state.me.studies), appLink: state.settings.app_url?.startsWith('http') ? state.settings.app_url : new URL(state.settings.app_url || '/app/', location.origin).href },
   });
 }

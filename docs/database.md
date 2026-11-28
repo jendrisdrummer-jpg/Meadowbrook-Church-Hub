@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (40 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (41 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -36,7 +36,7 @@ Arrows show the main references.
 | `households` → campuses | Families: address, phone, notes. |
 | `people` → households, campuses | Everyone in the directory (names up to 100 characters; birthdate a real past date; email shaped like `x@y.z`): contact, birthdate, grade, status, photo, **allergies, medical notes**, sign-up/welcome dates. |
 | `household_pickups` → households | Who may pick up the kids. Only `people.household_id` (set null) and this table (cascade) point at `households`; the empty-families tool (Settings → Checks) reads the foreign keys from the schema, so it never removes a household anything still uses. |
-| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `attendance` (migration 36: may take attendance at its campuses), `home_layout` (migration 39: JSON `{order:[cardId], hidden:[cardId]}`, one person's Customise Home choice; NULL = the standard Home), `app_editor` (migration 38: may open the App Builder and save the app; admins always can; off for everyone at first), `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme` (`light`, `dark` or `device`; new accounts start as `device`, and migration 37 moved accounts still on the old `light` default to `device`), `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
+| `users` → people | Sign-in accounts: `role`, `campus_ids` (JSON or NULL = all), `finance`, `announce`, `attendance` (migration 36: may take attendance at its campuses), `studies` (migration 41: the Bible studies coordinator flag), `home_layout` (migration 39: JSON `{order:[cardId], hidden:[cardId]}`, one person's Customise Home choice; NULL = the standard Home), `app_editor` (migration 38: may open the App Builder and save the app; admins always can; off for everyone at first), `role_auto` (leader via team), `password_hash`, `notify` prefs, `theme` (`light`, `dark` or `device`; new accounts start as `device`, and migration 37 moved accounts still on the old `light` default to `device`), `link_requested_at` (an unlinked account last asked the office to link it). One account per person: index `users_person_unique` (unique where `person_id` is set) is created at startup by `ensureAccountLinkIndex` in `db.js` only when no duplicates exist, not by a migration (see [account-links.md](account-links.md)). |
 | `sessions` → users | Sign-in sessions. `token` is the sha256 hex of the cookie value (never the cookie itself); rows from before hashing are converted on startup. |
 | `login_codes` | Hashed one-time email sign-in codes. |
 | `profile_fields`, `profile_values` → people | Custom profile fields (milestones, spiritual journey, classes) with a `visibility` of leader or staff. |
@@ -67,6 +67,20 @@ Arrows show the main references.
 | `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. |
 | `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
 | `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
+
+### Bible studies (migration 41)
+Personal studies, mostly one-on-one. Their own small module: nothing here is a small group, and no chat or roster is shared with groups. Studies belong to the whole church; a campus is optional and only for reporting. Every lesson number is optional.
+
+| Table | Purpose |
+|---|---|
+| `study_materials` | The approved list: `title`, `author`, `lessons` (optional), `teacher_notes`, `active` (retiring keeps history; **never deleted**, `RESTRICT` from completions and studies). Church-wide; no built-in titles |
+| `studies` → study_materials, campuses | One study: `material_id` (NULL until a teacher or coordinator picks one), `campus_id` (NULL = church-wide), `status` (`active`, `paused`, `finished`), `started_on`, `finished_on`, `rhythm` (≤ 120), `planned_lessons`, `lesson`, `sessions` (all optional), `coordinator_note` (≤ 280, coordinators and staff only), `request_id`, and groundwork columns for studies a teacher reports without approval (unused so far): `source` (`coordinator` default, or `self`), `reviewed_at`, `material_text` (a material typed in until a coordinator approves it). Never hard-deleted in the app except by an admin for a mistake with nothing finished |
+| `study_people` → studies, people | Who teaches and who studies: `role`, `share_contact` (a student agreed to share their phone and email with their teachers), `added_at`, `removed_at` (leaving is soft, so "studies taught" stays). Primary key `(study_id, person_id)`: one role per person per study |
+| `study_pending_people` → studies | Groundwork for the member-app PR (no route uses it yet): a student or teacher listed by `display_name` only, not yet linked to a person; `person_id` is set when a coordinator links them |
+| `study_completions` → people, study_materials | What profiles read; **outlives the study** (`study_id` is `SET NULL`). `material_title`, `teacher_names` and `teacher_ids` (JSON) are snapshots; `source` (`teacher`, `coordinator`, `profile`, `import`); `revoked_at` / `revoked_by` make an undo soft and audited. A partial unique index allows one live completion per `(study_id, person_id)` |
+| `study_requests` → people | The interest queue from the app: always the signed-in person's own record, `format`, `material_id` or `topic`, `times`, `share_contact`, `status` (`waiting`, `matched`, `closed`), `close_reason` (a short list), `study_id`, `handled_by`, `handled_at` |
+
+Merging two people moves their `study_people`, `study_completions` (and the teacher ids inside them) and `study_requests`.
 
 ### Communication
 | Table | Purpose |
@@ -129,7 +143,7 @@ Where the sensitive data lives, so reviews know where to look (standards in
 |---|---|
 | Children's medical and safety | `people.allergies`, `people.medical_notes`, `household_pickups`, `checkins.security_code`. `checkin_events` holds ids, codes and name snapshots only: **never allergies, medical notes, phone numbers, addresses or birthdates** (the recorder truncates an oversized `detail` rather than failing, and accepts free text only as `by_claimed` ≤ 100 and `station_label` ≤ 60 characters, and `audit_log` gets ids and actions only for check-in events) |
 | Contact details | `people`, `households`, `connect_cards`, `event_signups`, `form_responses` (typed name, email, phone) |
-| Pastoral / spiritual | `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
+| Pastoral / spiritual | `studies`, `study_people`, `study_requests` and `study_completions` (who studies with whom, and what they finished; coordinators and staff only, plus each person's own), `profile_values` (staff-visibility fields), `households.notes`, `connect_cards.message`, `form_responses.answers` (free text; may be pastoral or medical, staff-only) |
 | Giving | `gifts`, `recurring_gifts`, `giving_customers`, `statement_sends` |
 | Private communication | `messages`, `message_files`, `task_comments`, `notifications` |
 | Credentials | `users.password_hash`, `sessions` (hashed), `login_codes`, `checkin_devices.token_hash`, Drive refresh token in `settings` |

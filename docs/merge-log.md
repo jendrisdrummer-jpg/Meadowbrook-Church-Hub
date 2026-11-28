@@ -61,4 +61,6 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **Deployed 27 November 2026, about 12:50 AM CT:** PR #129 (#128: member-app accessibility pass, child-safety V1 release 1 "check-in record" (migration 40), brand colour check, staff guides, UI consistency fixes; #125: Media setup for admins with every campus, three new agents). Merged by the owner. Rollback: none so far.
 
+**Deployed 27 November 2026, about 10:53 AM CT:** PR #135 (#133: hub accessibility polish, the iPhone app's in-app file viewer and permission wording, launch communication drafts, merge log; #134: QA fixes from the #129 regression, the Stations table on phones and long emails wrapping). Merged by the owner. No migrations. Rollback: none so far.
+
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).

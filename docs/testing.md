@@ -9,7 +9,7 @@ what was run, as whom, at what size, and what was seen. "Should work" is not a r
 
 | Layer | Tool | Command | What it covers |
 |---|---|---|---|
-| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test) |
+| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test), `test/studies.test.js` (Bible studies, with a fixed clock) |
 | Shared rules | `node:test` | `npm test` | Check-in room rules (`test/rules.test.js`), service worker (`test/sw.test.js`) |
 | Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page (including Help, `#/help`, in both) as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
 | Workflow checks | Playwright scripts or by hand | — | The workflows below, for features that changed |
@@ -59,6 +59,7 @@ Run the affected ones for every change, and all of them before a significant rel
 | 13 | Media: new video arrives, edit title/trim, watch in app | Staff → member | Trimmed playback; library filters |
 | 14 | Sign in by Google / email code / password; sign out | Anyone | Correct role and campuses; policy respected |
 | 15 | Permissions sweep | Volunteer, campus staff | Staff-only pages refused; other campus invisible (`npm run test:ui` covers page level) |
+| 16a | Bible studies: a coordinator adds a material, starts a study for a request, a teacher updates lesson and marks a student finished, the coordinator undoes it, history is added on a profile and imported from a CSV | Admin, coordinator, teacher, student | Every role's edges, contact consent, completions outliving a study, notices without names (`test/studies.test.js`; `npm run test:ui` covers `/studies`, its tabs and the person card) |
 | 16 | Set up a form (questions, campus, who's told), copy its link, fill it in on a phone as a guest, read and finish the response, export CSV | Staff → guest | Response listed with answers; notice has no answer text; CSV opens with formulas defused; a signed-in form asks a guest to sign in; campus-limited staff don't see other campuses' responses (`test/forms.test.js`; `npm run test:ui` covers `/forms` pages and `/app/#/form/volunteer-interest` on a phone) |
 
 `test/qa-pass.test.js` (pre-demo QA pass) covers team-leader access following the roster, campus-limited admins, email reply links, reminder timing, small-group chat privacy and campus edges. It also covers the fixed QA findings (household campus checks, account campus choices, person validation, check-in setup campuses, month autofill in a fixed far-future month). A test marked `todo` asserts the safe behaviour for a known open bug: it fails without failing the run, so turn `todo` off when the bug is fixed. None are open now.

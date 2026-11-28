@@ -105,7 +105,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
 // Installing the app and turning notifications on for this phone or computer.
 // ui: 'app' (member app) or 'hub' (dashboard). appLink: where the member app lives, shown in
 // the dashboard instead of install steps.
-export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appLink = '', compact = false } = {}) {
+export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appLink = '', compact = false, studies = false } = {}) {
   const [info, sub] = await Promise.all([get('/me/notify'), currentSubscription().catch(() => null)]);
   const installed = isInstalled();
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
@@ -115,10 +115,10 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
     announcement: 'Announcements from the church', media: 'When we go live, and new messages',
     scheduled: 'When I’m scheduled', reminder: 'Reminders before I serve',
     declined: 'When someone I scheduled or lead can’t make it', accepted: 'When someone I scheduled or lead accepts',
-    connect: 'New connect cards from guests', form: 'New responses to my forms', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', account: 'Account links and notes from members to the office', email: 'Also send me emails',
+    connect: 'New connect cards from guests', form: 'New responses to my forms', chat: 'New chat messages', task: 'Tasks: given to me, due soon, comments', call: 'Calls and meetings in my chats', account: 'Account links and notes from members to the office', study: 'New Bible study requests', email: 'Also send me emails',
   };
   const atLeast = (r) => ROLES.indexOf(role) >= ROLES.indexOf(r);
-  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : ['connect', 'form', 'account'].includes(k) ? atLeast('staff') : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
+  const kinds = Object.keys(labels).filter((k) => (['declined', 'accepted'].includes(k) ? atLeast('leader') : ['connect', 'form', 'account'].includes(k) ? atLeast('staff') : k === 'study' ? (atLeast('staff') || studies) : true) || (k === 'accepted' ? info.prefs[k] : info.prefs[k] === false));
 
   let install = '';
   if (ui === 'hub' && appLink) {
@@ -147,7 +147,7 @@ export async function drawNotifyCard(box, { ui = 'hub', role = 'volunteer', appL
   }
 
   // Compact (My schedule in the dashboard): one line saying where things stand, options folded away.
-  const again = () => drawNotifyCard(box, { ui, role, appLink, compact });
+  const again = () => drawNotifyCard(box, { ui, role, appLink, compact, studies });
   if (compact) {
     const state = !pushSupported() || perm === 'denied' ? push
       : on ? html`<div class="notify-line"><span><b>Notifications</b> are on for this device</span><span class="row"><button class="btn small ghost" data-test>Send a test</button><button class="btn small ghost" data-off>Turn off</button></span></div>`
