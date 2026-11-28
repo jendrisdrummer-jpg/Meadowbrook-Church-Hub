@@ -1197,12 +1197,15 @@ function linkIndexStep(db, log) {
 // Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
 export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
-// Daily tidy-up: sessions past their end, and sign-in codes more than a day old (they last 15 minutes).
+// Daily tidy-up: sessions past their end, sign-in codes more than a day old (they last 15 minutes), and
+// notifications that were read more than 90 days ago (unread ones are never deleted).
 // The newest code row always stays: ids aren't reused, and the sign-in cap compares code ids (capMarks in auth.js).
 export function purgeStale(db, now = new Date()) {
   const sessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now.toISOString()).changes;
   const dayAgo = new Date(now.getTime() - 864e5).toISOString().slice(0, 19).replace('T', ' '); // the format datetime('now') stores
   const codes = db.prepare('DELETE FROM login_codes WHERE created_at < ? AND id < (SELECT MAX(id) FROM login_codes)').run(dayAgo).changes;
+  const ninetyAgo = new Date(now.getTime() - 90 * 864e5).toISOString().slice(0, 19).replace('T', ' ');
+  db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?').run(ninetyAgo);
   return { sessions, codes };
 }
 

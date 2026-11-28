@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { tx } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, isDate, isTime, lengthMin, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, isDate, isTime, lengthMin, audit, campusNow } from '../http.js';
 import { applyTemplate } from './templates.js';
 
 const AHEAD_DAYS = 120;
@@ -62,7 +62,7 @@ export function ensureServices(db, until = addDays(today(), AHEAD_DAYS)) {
   return created;
 }
 
-export default function seriesRoutes(db) {
+export default function seriesRoutes(db, { now = () => new Date() } = {}) {
   const r = Router();
   const getSeries = (id) => db.prepare('SELECT * FROM service_types WHERE id = ?').get(id);
 
@@ -195,8 +195,9 @@ export default function seriesRoutes(db) {
         }
       }
       // Ending the series earlier removes its services after the new last date.
+      // Only services that haven't started (campus clock) go; past ones stay even if they fall after the new end date.
       const ends = b.ends_on !== undefined ? b.ends_on : t.ends_on;
-      if (ends) db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) > ?').run(t.id, ends);
+      if (ends) db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) > ? AND starts_at >= ?').run(t.id, ends, campusNow(db, t.campus_id, now()).stamp);
     });
     ensureServices(db);
     res.json({ ok: true });
@@ -205,18 +206,22 @@ export default function seriesRoutes(db) {
   // Stops a series from `from` on, deleting those services (with their plans and schedules).
   r.delete('/series/:id', requireRole('staff'), (req, res) => {
     const t = series(req, req.params.id);
-    const from = isDate(req.query.from) ? req.query.from : today();
+    // Only upcoming services can be removed. A `from` in the past is moved up to today (on the campus clock)
+    // rather than refused: "stop it from last month" still means "no more from now on", and nothing past is touched.
+    const local = campusNow(db, t.campus_id, now());
+    const from = isDate(req.query.from) && req.query.from > local.date ? req.query.from : local.date;
     const removed = tx(db, () => {
       db.prepare('UPDATE service_types SET ends_on = ? WHERE id = ?').run(addDays(from, -1), t.id);
-      const n = Number(db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').run(t.id, from).changes);
+      // A service today that has already started stays.
+      const n = Number(db.prepare('DELETE FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ? AND starts_at >= ?').run(t.id, from, local.stamp).changes);
       // With nothing upcoming left, it leaves the list of repeating services. Past services stay.
-      if (!db.prepare('SELECT 1 FROM services WHERE service_type_id = ? AND substr(starts_at, 1, 10) >= ?').get(t.id, today())) {
+      if (!db.prepare('SELECT 1 FROM services WHERE service_type_id = ? AND starts_at >= ?').get(t.id, local.stamp)) {
         db.prepare('UPDATE service_types SET archived = 1 WHERE id = ?').run(t.id);
       }
       return n;
     });
     audit(db, req, 'series.stop', `${t.name} from ${from}`);
-    res.json({ removed });
+    res.json({ removed, from });
   });
 
   return r;

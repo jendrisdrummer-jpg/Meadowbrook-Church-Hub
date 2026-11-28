@@ -288,6 +288,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       const hh = getHousehold(dup.household_id);
       if (hh && !canCampus(req.user, hh.campus_id)) throw new HttpError(403, 'The duplicate belongs to a family at a campus you don’t cover, so it can’t be merged here. Ask an admin who covers that campus to merge them.');
     }
+    let keptCustomer = false; // both had a Stripe customer: the duplicate's stays where it is
     const movedUsers = []; // accounts whose linked person changes: their live chat reconnects
     tx(db, () => {
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
@@ -296,7 +297,22 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('UPDATE OR IGNORE team_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('UPDATE OR IGNORE attendance SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
+      // Profile answers: the kept person's answer wins; the duplicate's moves only where there was none.
       db.prepare('UPDATE OR IGNORE profile_values SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM profile_values WHERE person_id = ?').run(dup.id);
+      // Giving, tasks, cards, forms, sign-ups and plan templates follow the person they were about.
+      for (const [table, col] of [['gifts', 'person_id'], ['recurring_gifts', 'person_id'], ['tasks', 'assignee_id'], ['connect_cards', 'person_id'],
+        ['form_responses', 'person_id'], ['event_signups', 'person_id'], ['study_pending_people', 'person_id'], ['template_items', 'person_id']]) {
+        db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
+      }
+      // Group chats: a chat both were in keeps the kept person's membership.
+      db.prepare('UPDATE OR IGNORE chat_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM chat_members WHERE person_id = ?').run(dup.id);
+      // One Stripe customer per person (person_id is the key): move theirs only if the kept person has none.
+      if (db.prepare('SELECT 1 FROM giving_customers WHERE person_id = ?').get(dup.id)) {
+        if (db.prepare('SELECT 1 FROM giving_customers WHERE person_id = ?').get(keep.id)) keptCustomer = true;
+        else db.prepare('UPDATE giving_customers SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      }
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
       // Small groups: the kept person leads if either of them did. Same for serving campuses.
       db.prepare(`UPDATE group_members SET is_leader = 1 WHERE person_id = ? AND is_leader = 0
@@ -331,9 +347,12 @@ export default function peopleRoutes(db, { uploadDir }) {
       }
       updateFields(db, 'people', keep.id, fill, Object.keys(fill));
       db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || CAST(? AS INTEGER) || ')') WHERE id = ?").run(keep.id, dup.id);
+      // The duplicate's notes aren't lost: they're added to the kept person's notes.
+      const dupNotes = String(dup.notes ?? '').trim();
+      if (dupNotes) db.prepare("UPDATE people SET notes = trim(coalesce(notes, '') || CASE WHEN trim(coalesce(notes, '')) = '' THEN '' ELSE char(10) END || ?) WHERE id = ?").run(`From merged record: ${dupNotes}`, keep.id);
     });
     for (const id of movedUsers) closeStreams({ userId: id });
-    audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
+    audit(db, req, 'person.merge', `${dup.id} → ${keep.id}${keptCustomer ? ' (both had a giving customer; the duplicate’s was left in place)' : ''}`);
     if (!keep.household_id && dup.household_id) audit(db, req, 'household.member_add', { person_id: keep.id, household_id: dup.household_id, role: getPerson(keep.id).household_role, via: 'merge' });
     // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
     for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });

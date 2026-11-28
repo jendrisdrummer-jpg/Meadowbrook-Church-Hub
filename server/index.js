@@ -93,9 +93,9 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(setupRoutes(db, { uploadDir }));
   api.use(peopleRoutes(db, { uploadDir }));
   api.use(teamRoutes(db));
-  api.use(serviceRoutes(db));
+  api.use(serviceRoutes(db, { now }));
   api.use(songFileRoutes(db, { uploadDir }));
-  api.use(seriesRoutes(db));
+  api.use(seriesRoutes(db, { now }));
   api.use(stationRoutes(db));
   api.use(checkinRoutes(db));
   api.use(attendanceRoutes(db));
