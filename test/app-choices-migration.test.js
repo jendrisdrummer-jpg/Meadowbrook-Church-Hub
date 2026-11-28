@@ -16,7 +16,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     db.prepare("INSERT INTO users (email, role, theme) VALUES ('a@t.test', 'staff', 'light'), ('b@t.test', 'staff', 'dark'), ('c@t.test', 'volunteer', 'light')").run();
     const saved = { tabs: [{ id: 'home', type: 'home' }], home: [{ id: 'welcome', type: 'welcome', size: 'F' }, { id: 'times', type: 'times', size: 'F' }] };
     db.prepare("INSERT INTO settings (key, value) VALUES ('app_config', ?)").run(JSON.stringify(saved));
-    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at; DROP TABLE study_pending_people; DROP TABLE study_completions; DROP TABLE study_people; DROP TABLE studies; DROP TABLE study_requests; DROP TABLE study_materials; ALTER TABLE users DROP COLUMN studies; PRAGMA user_version = 36'); // also undo migrations 38 to 42, which run again with 37
+    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at; DROP TABLE study_pending_people; DROP TABLE study_completions; DROP TABLE study_people; DROP TABLE studies; DROP TABLE study_requests; DROP TABLE study_materials; ALTER TABLE users DROP COLUMN studies; DROP INDEX IF EXISTS checkins_service; DROP INDEX IF EXISTS messages_reply; DROP INDEX IF EXISTS message_files_message; DROP INDEX IF EXISTS push_subscriptions_user; PRAGMA user_version = 36'); // also undo migrations 38 to 43, which run again with 37
     db.close();
 
     db = openDb(file); // runs 37
@@ -28,7 +28,7 @@ test('migration 37: themes move to device, saved layouts get This week first, on
     assert.deepEqual(cfg.tabs, saved.tabs);
 
     // Running it again (e.g. a layout that already has the card) adds nothing.
-    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at; DROP TABLE study_pending_people; DROP TABLE study_completions; DROP TABLE study_people; DROP TABLE studies; DROP TABLE study_requests; DROP TABLE study_materials; ALTER TABLE users DROP COLUMN studies; PRAGMA user_version = 36'); // also undo migrations 38 to 42, which run again with 37
+    db.exec('ALTER TABLE users DROP COLUMN app_editor; ALTER TABLE users DROP COLUMN home_layout; DROP TABLE checkin_events; ALTER TABLE checkin_devices DROP COLUMN app_version; ALTER TABLE checkin_devices DROP COLUMN app_version_at; DROP TABLE study_pending_people; DROP TABLE study_completions; DROP TABLE study_people; DROP TABLE studies; DROP TABLE study_requests; DROP TABLE study_materials; ALTER TABLE users DROP COLUMN studies; DROP INDEX IF EXISTS checkins_service; DROP INDEX IF EXISTS messages_reply; DROP INDEX IF EXISTS message_files_message; DROP INDEX IF EXISTS push_subscriptions_user; PRAGMA user_version = 36'); // also undo migrations 38 to 43, which run again with 37
     db.close();
     db = openDb(file);
     assert.deepEqual(getSetting(db, 'app_config').home.map((w) => w.type), ['thisweek', 'welcome', 'times']);

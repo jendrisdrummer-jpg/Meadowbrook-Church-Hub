@@ -8,7 +8,7 @@ import { requireRole, requireAllCampuses, accountInReach, canCampus, campusFilte
 import { updateFields, tx } from '../db.js';
 import { closeStreams } from '../live.js';
 import { syncLeaderAccessFor } from './teams.js';
-import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, oneOf, isDate, audit, HttpError, NOT_LINKED } from '../http.js';
 import { csvRecords, toCsv } from '../csv.js';
 import { ledPositionsClause, seesTeamDetail } from '../team-scope.js';
 import { visibleFields, valueFromText, setValues } from './fields.js';
@@ -21,8 +21,6 @@ const HOUSEHOLD_FIELDS = ['name', 'campus_id', 'address', 'city', 'state', 'zip'
 const PRIVATE_PERSON_FIELDS = ['allergies', 'medical_notes', 'notes'];
 const NAME_MAX = 100;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// isDate plus a real calendar day (2026-02-30 is not one).
-const isRealDate = (v) => isDate(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
 const withoutKeys = (row, keys) => Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 
 export function digits(s) {
@@ -43,7 +41,7 @@ export function personFields(b, partial) {
   }
   if (b.phone !== undefined) out.phone = str(b.phone, 40);
   if (b.birthdate !== undefined) {
-    if (b.birthdate && !isRealDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
+    if (b.birthdate && !isDate(b.birthdate)) throw bad('Birthdate must be a real date, like 2015-04-30.');
     if (b.birthdate && b.birthdate > new Date().toISOString().slice(0, 10)) throw bad('Birthdate can’t be in the future.');
     out.birthdate = b.birthdate || null;
   }
@@ -105,8 +103,9 @@ export default function peopleRoutes(db, { uploadDir }) {
     const q = str(req.query.q, 100);
     if (q) {
       const d = digits(q);
-      const like = `%${q.toLowerCase()}%`;
-      where.push(`(lower(p.first_name || ' ' || p.last_name) LIKE ? OR lower(p.nickname || ' ' || p.last_name) LIKE ? OR lower(p.email) LIKE ?${d.length >= 3 ? ' OR replace(replace(replace(replace(p.phone,\'-\',\'\'),\' \',\'\'),\'(\',\'\'),\')\',\'\') LIKE ?' : ''})`);
+      // % and _ in what was typed are ordinary characters, not wildcards.
+      const like = `%${q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
+      where.push(`(lower(p.first_name || ' ' || p.last_name) LIKE ? ESCAPE '\\' OR lower(p.nickname || ' ' || p.last_name) LIKE ? ESCAPE '\\' OR lower(p.email) LIKE ? ESCAPE '\\'${d.length >= 3 ? ' OR replace(replace(replace(replace(p.phone,\'-\',\'\'),\' \',\'\'),\'(\',\'\'),\')\',\'\') LIKE ?' : ''})`);
       args.push(like, like, like);
       if (d.length >= 3) args.push(`%${d}%`);
     }
@@ -192,6 +191,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       const hh = f.household_id ? db.prepare('SELECT campus_id FROM households WHERE id = ?').get(f.household_id) : null;
       if (f.household_id && (!hh || (hh.campus_id != null && hh.campus_id !== f.campus_id))) throw forbidden();
     }
+    if (f.campus_id != null && !db.prepare('SELECT 1 FROM campuses WHERE id = ?').get(f.campus_id)) throw bad('Please pick a campus from the list.');
     if (!canCampus(req.user, f.campus_id)) throw forbidden();
     // Below staff (leaders, check-in stations) may add a child to a family, never an adult: check-in
     // treats every adult in a household as an approved pickup, which only staff may grant (audited).
@@ -288,6 +288,7 @@ export default function peopleRoutes(db, { uploadDir }) {
       const hh = getHousehold(dup.household_id);
       if (hh && !canCampus(req.user, hh.campus_id)) throw new HttpError(403, 'The duplicate belongs to a family at a campus you don’t cover, so it can’t be merged here. Ask an admin who covers that campus to merge them.');
     }
+    let keptCustomer = false; // both had a Stripe customer: the duplicate's stays where it is
     const movedUsers = []; // accounts whose linked person changes: their live chat reconnects
     tx(db, () => {
       for (const [table, col] of [['assignments', 'person_id'], ['checkins', 'person_id'], ['blockouts', 'person_id'], ['plan_items', 'person_id']]) {
@@ -296,7 +297,22 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('UPDATE OR IGNORE team_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('UPDATE OR IGNORE attendance SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM attendance WHERE person_id = ?').run(dup.id);
+      // Profile answers: the kept person's answer wins; the duplicate's moves only where there was none.
       db.prepare('UPDATE OR IGNORE profile_values SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM profile_values WHERE person_id = ?').run(dup.id);
+      // Giving, tasks, cards, forms, sign-ups and plan templates follow the person they were about.
+      for (const [table, col] of [['gifts', 'person_id'], ['recurring_gifts', 'person_id'], ['tasks', 'assignee_id'], ['connect_cards', 'person_id'],
+        ['form_responses', 'person_id'], ['event_signups', 'person_id'], ['study_pending_people', 'person_id'], ['template_items', 'person_id']]) {
+        db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, dup.id);
+      }
+      // Group chats: a chat both were in keeps the kept person's membership.
+      db.prepare('UPDATE OR IGNORE chat_members SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM chat_members WHERE person_id = ?').run(dup.id);
+      // One Stripe customer per person (person_id is the key): move theirs only if the kept person has none.
+      if (db.prepare('SELECT 1 FROM giving_customers WHERE person_id = ?').get(dup.id)) {
+        if (db.prepare('SELECT 1 FROM giving_customers WHERE person_id = ?').get(keep.id)) keptCustomer = true;
+        else db.prepare('UPDATE giving_customers SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      }
       db.prepare('DELETE FROM team_members WHERE person_id = ?').run(dup.id);
       // Small groups: the kept person leads if either of them did. Same for serving campuses.
       db.prepare(`UPDATE group_members SET is_leader = 1 WHERE person_id = ? AND is_leader = 0
@@ -330,10 +346,13 @@ export default function peopleRoutes(db, { uploadDir }) {
         if ((keep[k] == null || keep[k] === '') && dup[k] != null && dup[k] !== '') fill[k] = dup[k];
       }
       updateFields(db, 'people', keep.id, fill, Object.keys(fill));
-      db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || ? || ')') WHERE id = ?").run(keep.id, dup.id);
+      db.prepare("UPDATE people SET archived = 1, notes = trim(notes || ' (merged into #' || CAST(? AS INTEGER) || ')') WHERE id = ?").run(keep.id, dup.id);
+      // The duplicate's notes aren't lost: they're added to the kept person's notes.
+      const dupNotes = String(dup.notes ?? '').trim();
+      if (dupNotes) db.prepare("UPDATE people SET notes = trim(coalesce(notes, '') || CASE WHEN trim(coalesce(notes, '')) = '' THEN '' ELSE char(10) END || ?) WHERE id = ?").run(`From merged record: ${dupNotes}`, keep.id);
     });
     for (const id of movedUsers) closeStreams({ userId: id });
-    audit(db, req, 'person.merge', `${dup.id} → ${keep.id}`);
+    audit(db, req, 'person.merge', `${dup.id} → ${keep.id}${keptCustomer ? ' (both had a giving customer; the duplicate’s was left in place)' : ''}`);
     if (!keep.household_id && dup.household_id) audit(db, req, 'household.member_add', { person_id: keep.id, household_id: dup.household_id, role: getPerson(keep.id).household_role, via: 'merge' });
     // The duplicate's existing account moves with the merge (it was already linked; nobody new is linked).
     for (const x of dupUsers) audit(db, req, 'user.link', { user_id: x.id, person_id: keep.id, from_person_id: dup.id, via: 'merge' });
@@ -464,8 +483,10 @@ export default function peopleRoutes(db, { uploadDir }) {
 
   r.post('/blockouts', requireRole('volunteer'), (req, res) => {
     const b = req.body || {};
-    const p = blockoutPerson(req, int(b.person_id) ?? req.user.personId);
-    if (!isRealDate(b.start_date) || !isRealDate(b.end_date || b.start_date)) throw bad('Pick the dates you’re away.');
+    const who = int(b.person_id) ?? req.user.personId;
+    if (who == null) throw new HttpError(409, NOT_LINKED);
+    const p = blockoutPerson(req, who);
+    if (!isDate(b.start_date) || !isDate(b.end_date || b.start_date)) throw bad('Pick the dates you’re away.');
     const end = b.end_date || b.start_date;
     if (end < b.start_date) throw bad('The last day can’t be before the first day.');
     const info = db.prepare('INSERT INTO blockouts (person_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)')

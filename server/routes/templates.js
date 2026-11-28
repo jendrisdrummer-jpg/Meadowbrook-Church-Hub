@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { tx, updateFields } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, oneOf, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, oneOf, isTime, audit } from '../http.js';
 
 const ITEM_COLS = ['kind', 'category', 'title', 'song_id', 'song_key', 'length_sec', 'person_id', 'info', 'notes', 'is_start', 'placeholder'];
 
@@ -108,7 +108,7 @@ export default function templateRoutes(db) {
       b.campus_id = int(b.campus_id);
       if (!canCampus(req.user, b.campus_id)) throw forbidden();
     }
-    if (b.start_time !== undefined && !/^\d{2}:\d{2}$/.test(b.start_time)) throw bad('Times look like 09:30.');
+    if (b.start_time !== undefined && !isTime(b.start_time)) throw bad('Times look like 09:30.');
     updateFields(db, 'service_templates', t.id, b, ['name', 'campus_id', 'description', 'start_time', 'archived']);
     if (b.archived) db.prepare('UPDATE service_types SET template_id = NULL WHERE template_id = ?').run(t.id);
     res.json(db.prepare('SELECT * FROM service_templates WHERE id = ?').get(t.id));

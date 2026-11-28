@@ -61,6 +61,7 @@ device's local time and the person's first name. `home.js` adds `.greeting` to t
 | `--line`, `--line-2`, `--line-input` | `#e2d9ca`, `#d0c5b2`, `#8a7f6e` / `#383128`, `#4d463c`, `#8a8070` | Hairlines; button borders; input and checkbox borders (3:1) |
 | `--text`, `--text-2`, `--muted` | `#1e1a16`, `#4a433a`, `#6b6256` / `#f1eadf`, `#c9c0b2`, `#a39a8b` | Main, secondary, quiet text (muted is at least 4.5:1 on every surface) |
 | `--good` / `--warn` / `--bad` (+ `-soft`) | `#3f5c3b` on `#e3ebdb`; `#7a5200` on `#f7ebc4`; `#b3342a` on `#f8e3dd` / `#a5c29c` on `#26302a`; `#e3b057` on `#33291a`; `#f08278` on `#3a211e` | Status text and tints (pills, alerts). Fills for bars: `--good-fill` (sage), `--warn-fill` (amber) |
+| `--on-bad` | `#fff` / `#1a1512` | Text on a solid `--bad` fill (error toast, bell count); white on dark-mode `--bad` is only 2.6:1 |
 | `--kids` | sage | Kids series in charts |
 | `--radius` 16px, `--r-ctl` 10px | | Cards; controls |
 | `--shadow`, `--shadow-pop` | warm brown, soft / none in dark | Cards; menus |
@@ -205,7 +206,16 @@ four-column grid, styles card/soft/accent/color. `SIZES[x].plain` has each size 
 - No horizontal scroll at 390px wide (`npm run test:ui` checks every main page).
 - Fixed bottom bars leave room for the iPhone home indicator (`env(safe-area-inset-bottom)`).
 - Inputs use the right `type`/`inputmode` so phones show the right keyboard.
-- Long tables collapse or scroll inside their card, never the page.
+- Long tables collapse or scroll inside their card, never the page. A card holding a `table.list`
+  scrolls it sideways on phones as a safety net. Add `stack-sm` to the table (`table.list.stack-sm`) when
+  rows carry long text: on a phone each row becomes a small card (first cell is the title line, the rest wrap
+  after it, `data-label="Key"` on a cell shows a label before its value, empty cells hide). Desktop is
+  unchanged. Repeating services (`series-list`) use the same idea with a fixed title / rhythm / campus ·
+  positions · next-date order and 44px edit and delete buttons. Never use `overflow-wrap: anywhere` on table
+  cells: it lets a column shrink to one letter wide.
+- `npm run test:ui` seeds long names, titles, emails and repeating services (`scripts/ui-smoke-seed.mjs`) and
+  fails a phone page where text under 40px wide runs past 3 lines (the letter-by-letter symptom). Add new
+  list screens' long-content rows to that seed.
 - Member app, on touch screens (`@media (pointer: coarse)` in `member.css`): fields are 16px so iPhones
   don't zoom on focus, and buttons, chips, tabs and calendar arrows are at least 44px tall. Login does the same.
   The staff hub does the same for buttons, icon buttons, the bell and fields on touch screens (end of `app.css`).

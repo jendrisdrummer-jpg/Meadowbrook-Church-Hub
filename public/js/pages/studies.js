@@ -259,6 +259,7 @@ async function studyForm({ request } = {}) {
       <label class="field wide">When and where they meet (optional)<input type="text" name="rhythm" maxlength="120" placeholder="Tuesdays, coffee shop"></label>
       <label class="field">Planned lessons (optional)<input type="number" name="planned_lessons" min="0" max="500"></label>
       <label class="field">Campus (for reporting, optional)<select name="campus_id">${options(visibleCampuses().map((c) => ({ value: c.id, label: c.name })), request?.campus_id ?? '', { blank: 'Choose from the first student' })}</select></label>
+      <p class="muted small wide" style="margin:0">Only the coordinator, the teacher, and church staff and admins can see who is studying.</p>
       <label class="field wide">Note for coordinators (optional)<textarea name="coordinator_note" maxlength="${NOTE_MAX}" rows="2"></textarea>
         <small class="muted">Practical notes only, like “prefers mornings”. Keep personal matters out of the Hub. Only coordinators and staff see this.</small></label></div>`,
     onOpen: (d) => {

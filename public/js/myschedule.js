@@ -1,6 +1,6 @@
 // The signed-in person's own schedule (accept/decline, dates away) and their notification
 // settings. Shared by the dashboard's My schedule page and the member app's Serve tab.
-import { get, post, patch, del, html, raw, mount, icon, fmtDate, fmtTime, dialog, formData, toast, fail, today } from './lib.js';
+import { get, post, patch, del, html, raw, mount, icon, fmtDate, fmtTime, dialog, formData, toast, toastAction, fail, today } from './lib.js';
 import { isIOS, isMobile, isInstalled, inShell, pushSupported, canPromptInstall, promptInstall, currentSubscription, enablePush, disablePush } from './push.js';
 
 const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
@@ -9,7 +9,7 @@ const ROLES = ['volunteer', 'leader', 'staff', 'admin'];
 export function declineAssignment(id) {
   return dialog({
     title: 'Can’t make it?', submit: 'Let my leader know',
-    body: html`<label class="field">Reason (optional)<input type="text" name="reason" placeholder="Out of town"></label>`,
+    body: html`<label class="field">Reason (optional)<input type="text" name="reason" placeholder="Out of town"><span class="muted small">Your team leader will see this.</span></label>`,
     onSubmit: (f) => patch(`/assignments/${id}`, { status: 'declined', reason: formData(f).reason }),
   });
 }
@@ -83,7 +83,12 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
     try {
       if (t.dataset.accept) { await patch(`/assignments/${t.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); reload(`[data-assignment="${t.dataset.accept}"]`); }
       if (t.dataset.decline) await decline(t.dataset.decline);
-      if (t.dataset.removeAway) { await del(`/blockouts/${t.dataset.removeAway}`); reload('[data-away]'); }
+      if (t.dataset.removeAway) {
+        const b = d.blockouts.find((x) => String(x.id) === t.dataset.removeAway);
+        await del(`/blockouts/${t.dataset.removeAway}`);
+        reload('[data-away]');
+        if (b) toastAction('Date removed.', 'Undo', () => post('/blockouts', { start_date: b.start_date, end_date: b.end_date, reason: b.reason || '' }).then(() => reload('[data-away]')).catch(fail));
+      }
       if (t.matches('[data-away]')) await away();
     } catch (err) { fail(err); }
   };
@@ -92,7 +97,7 @@ export async function drawSchedule(el, { planHref, decline: askDecline, notifyCa
       title: 'I’ll be away', submit: 'Save',
       body: html`<div class="form"><label class="field">First day<input type="date" name="start_date" required min="${today()}"></label>
         <label class="field">Last day<input type="date" name="end_date"></label>
-        <label class="field wide">Reason (optional)<input type="text" name="reason" placeholder="Vacation"></label></div>`,
+        <label class="field wide">Reason (optional)<input type="text" name="reason" placeholder="Vacation"><span class="muted small">Your team leader will see this.</span></label></div>`,
       onSubmit: (f) => post('/blockouts', formData(f)),
     });
     if (ok) reload('[data-away]');
