@@ -102,6 +102,18 @@ const ROUTES = [
 
 export const state = { me: null, campuses: [], settings: {}, campusId: null, lastPath: '' };
 
+// The church's own logo (the app icon from Settings → Church) in the sidebar corner; the first letter
+// of the church name on the brand colour when no icon has been uploaded.
+export function drawBrandMark() {
+  const mark = $('.brand-mark');
+  if (!mark) return;
+  const s = state.settings;
+  mark.classList.toggle('has-logo', Boolean(s.custom_app_icon));
+  mount(mark, s.custom_app_icon
+    ? html`<img src="/app-icon/192.png?v=${s.app_icon_version}" alt="" width="34" height="34">`
+    : (s.church_name || 'C').trim()[0].toUpperCase());
+}
+
 export const can = (role) => RANK[state.me?.role] >= RANK[role];
 export const go = (path) => { location.hash = '#' + path; };
 export const campusName = (id) => state.campuses.find((c) => c.id === id)?.short_name || state.campuses.find((c) => c.id === id)?.name || '';
@@ -144,7 +156,7 @@ async function boot() {
   const saved = Number(localStorage.getItem('mb.campus')) || null;
   state.campusId = visibleCampuses().some((c) => c.id === saved) ? saved : (visibleCampuses().length === 1 ? visibleCampuses()[0].id : null);
   $('[data-church]').textContent = state.settings.church_name;
-  $('.brand-mark').textContent = (state.settings.church_name || 'C').trim()[0].toUpperCase();
+  drawBrandMark();
   applyTheme(state.me.theme, state.settings.brand_color);
   drawChrome();
   watchPressed();
@@ -366,7 +378,7 @@ document.addEventListener('click', (e) => {
 
 // Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
 // hold; this just shows the normal refusal instead of a form or an error).
-const PAGE_RULES = { studies: (me) => me.studies || can('staff'), 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
+const PAGE_RULES = { studies: (me) => me.studies || can('staff'), 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, media: () => can('staff'), 'media-item': () => can('staff'), settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
 
 let renderSeq = 0;
 async function route() {

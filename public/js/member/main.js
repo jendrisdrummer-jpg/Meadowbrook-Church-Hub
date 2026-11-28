@@ -2,7 +2,7 @@
 // signing in adds the person's serving schedule, service plans and notifications.
 import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options, scrollBehavior, fieldError, clearFieldErrors } from '../lib.js';
 import { timeline } from '../plan.js';
-import { drawSchedule, drawNotifyCard } from '../myschedule.js';
+import { drawSchedule, drawNotifyCard, declineAssignment } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, inShell, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
 import { openChat } from '../chat.js';
 import { taskList, taskPage } from '../tasks.js';
@@ -194,7 +194,8 @@ async function home(el, tab) {
     const waiting = !editing && !preview ? (mine?.assignments || []).filter((a) => a.status === 'pending').sort((a, b) => a.starts_at.localeCompare(b.starts_at)) : [];
     ctx.replyBanner = waiting.length > 0; // widgets skip their own "reply" button when this banner is up
     const serveTab = app.config.tabs.find((t) => t.type === 'serve')?.id || 'serve';
-    const replyCard = waiting.length ? html`<a class="m-reply" href="#/${serveTab}"><span class="grow"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</span><span class="tap">Tap to reply ›</span></a>` : '';
+    const replyCard = waiting.length ? html`<div class="m-reply m-reply-card"><a class="grow" href="#/${serveTab}"><b>Please reply</b>${waiting[0].position} · ${fmtDate(waiting[0].starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}</a>
+      <div class="m-reply-actions"><button class="btn small primary" data-accept="${waiting[0].id}">Accept</button><button class="btn small" data-decline="${waiting[0].id}">Can’t make it</button></div></div>` : '';
     mount(el, html`${installBanner()}${replyCard}${homeGrid(app.config.home, ctx)}${editing && !app.config.home.length ? html`<p class="muted" style="text-align:center">Add a widget from the list on the left.</p>` : ''}`);
     if (editing) editHome(el.querySelector('[data-grid]'), app.config.home, selectedWidget);
   };
@@ -208,6 +209,7 @@ async function home(el, tab) {
     try {
       if (b.dataset.done) { await patch(`/tasks/${b.dataset.done}`, { done: true }); toast('Done!'); refreshChatBadge(); return home(el, tab); }
       if (b.dataset.accept) { await patch(`/assignments/${b.dataset.accept}`, { status: 'accepted' }); toast('Thanks for serving!'); home(el, tab); }
+      if (b.dataset.decline) { if (await declineAssignment(b.dataset.decline)) home(el, tab); }
       if (b.matches('[data-install-now]')) { await promptInstall(); home(el, tab); }
       if (b.matches('[data-hide-banner]')) { localStorage.setItem('mb.app.banner', '1'); home(el, tab); }
     } catch (err) { fail(err); }
@@ -411,8 +413,8 @@ function connect(el, tab) {
       <label class="field">First name<input type="text" name="first_name" required autocomplete="given-name"></label>
       <label class="field">Last name<input type="text" name="last_name" autocomplete="family-name"></label>
       <label class="field">Email<input type="email" name="email" autocomplete="email"></label>
-      <label class="field">Phone<input type="tel" name="phone" autocomplete="tel" required></label>
-      ${camps.length > 1 ? html`<label class="field wide">Campus<select name="campus_id"><option value="">Choose a campus…</option>${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
+      <label class="field">Phone (required)<input type="tel" name="phone" autocomplete="tel" required></label>
+      ${camps.length > 1 ? html`<label class="field wide">Campus (required)<select name="campus_id"><option value="">Choose a campus…</option>${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
     </div>
     <label class="check"><input type="checkbox" name="first_time"> This is my first time here</label>
     ${c.interests.length ? html`<p style="margin:14px 0 0"><b>I’m interested in…</b></p><div class="checks">${c.interests.map((x) => html`<label class="check"><input type="checkbox" name="interest" value="${x}"> ${x}</label>`)}</div>` : ''}

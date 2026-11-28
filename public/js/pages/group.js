@@ -1,6 +1,6 @@
 // One small group: its roster and a link to its chat. Staff and the group's leaders add and
 // remove people; only staff make someone a leader or change the group itself.
-import { get, post, patch, put, del, html, mount, icon, avatar, displayName, dialog, formData, toast, fail, confirm, debounce, options } from '../lib.js';
+import { get, post, patch, put, del, html, mount, icon, avatar, displayName, dialog, formData, toast, toastAction, fail, confirm, debounce, options } from '../lib.js';
 import { state, setTitle, campusName, visibleCampuses } from '../app.js';
 
 export default async function group(el, id) {
@@ -38,6 +38,8 @@ export default async function group(el, id) {
       if (b.matches('[data-remove]')) {
         if (!(await confirm(`Remove ${displayName(m)}?`, 'They’ll leave the group chat too.', 'Remove'))) return;
         await del(`/groups/${g.id}/members/${pid}`);
+        // Undo adds them back the way the add box does (as a leader again if they were one).
+        toastAction(`${displayName(m)} was removed.`, 'Undo', () => put(`/groups/${g.id}/members/${pid}`, m.is_leader ? { is_leader: true } : {}).then(reload).catch(fail));
         reload();
       }
     } catch (err) { fail(err); }

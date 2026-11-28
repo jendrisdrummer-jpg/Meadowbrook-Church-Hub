@@ -130,6 +130,9 @@ h3 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 6px; }
 .side { background: var(--bg); border-right: 1px solid var(--line); padding: 12px 10px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; }
 .brand-mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 500 1.1875rem var(--serif); }
+/* With the church's logo: the image fills the square; a hairline keeps a dark logo visible in dark mode. */
+.brand-mark.has-logo { background: none; overflow: hidden; box-shadow: 0 0 0 1px var(--line); flex: none; }
+.brand-mark.has-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .brand b { display: block; font: 500 1rem/1.15 var(--serif); letter-spacing: -.01em; }
 .brand small { color: var(--muted); font-size: 0.75rem; }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 6px 12px; min-height: 32px; border-radius: var(--r-ctl); color: var(--text-2); font-weight: 500; text-decoration: none; }
@@ -824,7 +827,10 @@ body:not(.chat-open) .chat-composer { padding-bottom: 8px; }
 .chat-members .grow { flex: 1; }
 @media (max-width: 820px) {
   body.chat-open .bottomnav { display: none; }
-  .chat-tools { right: 8px; }
+  .chat-tools { right: 8px; max-width: calc(100vw - 24px); }
+  .chat-tools { flex-wrap: wrap; justify-content: flex-start; }
+  .chat-msg.picking .chat-emoji { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .chat-emoji button { min-width: 44px; min-height: 44px; }
 }
 body.chat-open .m-tabs { display: none; }
 body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { border-radius: 16px; }
@@ -981,6 +987,8 @@ body.member .chat-single .chat-conv, body.member .chat-single > .chat-list { bor
 .batch-rows select { padding-right: 28px; background-position: right 8px center; }
 .batch-rows td { vertical-align: middle; }
 .batch { margin-top: 14px; }
+/* The rows are wider than a phone; scroll them on their own so the date, label and total stay put. */
+.batch-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 0 10px; }
 /* Finance → Giving → Weekly */
 .week-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .week-head h2 { margin: 0; font-size: 1.125rem; }
