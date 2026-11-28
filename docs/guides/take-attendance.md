@@ -8,7 +8,7 @@ phone in the room; works on any device. Everything saves as you tap; there's no 
 1. **Staff and leaders:** open **Attendance** (in **More** on a phone, under Services), then tap
    **Take attendance**. Or, on Home, tap **Attendance** beside a service.
    **Attendance-only accounts:** tap **Attendance** on the bottom bar.
-2. You'll see recent services, newest first, with what's been recorded so far ("12 on the roll",
+2. You'll see recent services (today's first, with the campus in bold and a **Now** label on the one nearest the current time), with what's been recorded so far ("12 on the roll",
    "211 counted" or "Nothing yet").
 3. Tap the service. For an older one, choose **Another date** and tap **Show services**.
 

@@ -1,4 +1,4 @@
-import { get, patch, put, del, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, dialog } from '../lib.js';
+import { get, patch, put, del, html, raw, mount, icon, fmtDate, fmtTime, toast, fail, dialog, today } from '../lib.js';
 import { state, can, setTitle, campusQuery } from '../app.js';
 import { greetingForHour } from '../greeting.js';
 import { sparkline, pctChange, changeText } from '../attendance-chart.js';
@@ -45,11 +45,17 @@ export default async function home(el) {
   const teams = !staff ? d.my_teams : [];
   const one = teams.length === 1 ? teams[0] : null;
   const dayName = (t) => (t ? new Date(`${t.slice(0, 10)}T12:00`).toLocaleDateString(undefined, { weekday: 'long' }) : '');
+  // "this Sunday" only when it is within the next six days; today, tomorrow or "next Sunday" otherwise, so the tile never points at the wrong day.
+  const whenOf = (t) => {
+    if (!t) return '';
+    const day = t.slice(0, 10), now = today(), n = Math.round((new Date(`${day}T12:00:00Z`) - new Date(`${now}T12:00:00Z`)) / 864e5);
+    return n <= 0 ? 'today' : n === 1 ? 'tomorrow' : `${n >= 7 ? 'next' : 'this'} ${dayName(t)}`;
+  };
   const plural = (n, one1, many) => (n === 1 ? one1 : many);
   // Each tile is hidden at zero and links to where it's fixed. Connect cards and app sign-ups show for
   // every leader, the same people the menu badge counts (/attention), so the two always agree.
   const tiles = [
-    a.open_spots && { n: a.open_spots, text: one ? `open ${plural(a.open_spots, 'spot', 'spots')} on ${one.name} this ${dayName(a.open_next || one.next_service)}` : `open volunteer ${plural(a.open_spots, 'spot', 'spots')} this week`, href: '#/schedule', warn: true, team: true },
+    a.open_spots && { n: a.open_spots, text: one ? `open ${plural(a.open_spots, 'spot', 'spots')} on ${one.name} ${whenOf(a.open_next || one.next_service)}` : `open volunteer ${plural(a.open_spots, 'spot', 'spots')} this week`, href: '#/schedule', warn: true, team: true },
     a.not_replied && { n: a.not_replied, text: `${plural(a.not_replied, 'person hasn’t', 'people haven’t')} replied to a request`, href: '#/schedule', team: true },
     a.declines && { n: a.declines, text: `declined ${plural(a.declines, 'spot', 'spots')} to cover${a.declines_next ? ` (${fmtDate(a.declines_next)})` : ''}`,
       // To the soonest affected service's Who's serving tab, where Find a replacement is; the schedule if we don't know which.

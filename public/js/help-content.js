@@ -120,6 +120,43 @@ const SECTIONS = [
     ],
   },
   {
+    id: 'attendance', title: 'Take attendance', min: 'leader', flag: 'attendance',
+    intro: 'Mark who is here and enter headcounts on your phone, in the room. Everything saves as you tap, so there’s no Save button.',
+    hub: [
+      html`Open ${b('Attendance')} (in ${b('More')} on a phone). Leaders and staff then tap ${b('Take attendance')}.`,
+      html`Today’s services are at the top. Each shows its campus in bold, and the service closest to the time now has a ${b('Now')} label. Tap the right one.`,
+      html`Tap each person you see. A tick appears and the count at the top goes up. Tap again to undo. ${b('Mark family')} ticks a whole family at once.`,
+      html`Someone new? Tap ${b('New guest')}, type their name, then tap ${b('Add and mark here')}. They show a ${b('New')} label on the list.`,
+      html`For a headcount, tap ${b('Headcount')}, type the number for each room, and wait for ${b('Headcount saved')}.`,
+      html`Don’t see the service? Choose ${b('Another date')} and tap ${b('Show services')}.`,
+    ],
+    note: 'Tapped the wrong person? Tap them again. If your signal is weak and a tap doesn’t stick, you’ll see a message. Try again when you’re back online.',
+  },
+  {
+    id: 'connect', title: 'Follow up with a guest', min: 'leader',
+    intro: 'When a guest fills in the connect card in the church app, it lands here so no one is missed.',
+    hub: [
+      html`Open ${b('Connect cards')} from the menu. A number beside it shows how many are waiting.`,
+      html`Cards under ${b('To follow up')} show their name, contact details and anything they wrote. ${b('First time')} marks a first visit.`,
+      html`Tap ${b('Add to People')} to make a record for them. If they may already be in People, tap ${b('Already in People…')} and choose them.`,
+      html`Call, text or email them, then tap ${b('Followed up')}. It moves to the ${b('Followed up')} tab.`,
+      html`People who created their own account in the app are on the ${b('App sign-ups')} tab. Say hello, then tap ${b('Followed up')}.`,
+    ],
+    note: 'Marked one by mistake? Open the Followed up tab and tap Reopen.',
+  },
+  {
+    id: 'studies', title: 'Look after Bible studies', min: 'staff', flag: 'studies',
+    intro: 'For the Bible studies coordinator. Studies are personal, so only the coordinator, the teacher and church staff can see who is studying.',
+    hub: [
+      html`Open ${b('Bible studies')} from the menu (in ${b('More')} on a phone).`,
+      html`Tap ${b('New study')}. Add at least one teacher and one student, and a material if you know it. Tap ${b('Start')} when you’re ready.`,
+      html`Someone asked for a study? They appear on ${b('Waiting')}. Tap ${b('Start a study')}, or ${b('Add to an existing study')}.`,
+      html`Tap a study on ${b('Studies')} to edit details, ${b('Pause')} it, or tap ${b('Finish the study')} when it’s done.`,
+      html`Keep the approved list of books and courses under ${b('Materials')}. Tap ${b('Add a material')} to add one.`,
+    ],
+    note: 'Please keep personal matters out of the Hub. Notes are for practical things only, like “prefers mornings”.',
+  },
+  {
     id: 'checkin', title: 'Kids’ check-in', min: 'leader',
     intro: 'Kids’ check-in holds families’ and children’s details, so only some people can use it.',
     hub: [
@@ -145,16 +182,17 @@ const SECTIONS = [
 ];
 
 // Sections this person should see. where: 'hub' | 'app'; role: 'volunteer' | 'leader' | 'staff' | 'admin'.
-export function helpSections(where, role) {
+// flags: the extra switches an account can have, like { attendance: true, studies: true }; a section with a `flag` is also shown to anyone who has it.
+export function helpSections(where, role, flags = {}) {
   const rank = RANK[role] ?? 0;
   return SECTIONS
-    .filter((s) => rank >= RANK[s.min] && (where === 'hub' || s.app || s.appSteps))
+    .filter((s) => (rank >= RANK[s.min] || (s.flag && flags[s.flag])) && (where === 'hub' || s.app || s.appSteps))
     .map((s) => ({ ...s, steps: where === 'app' ? (s.appSteps || s.hub) : s.hub }));
 }
 
 // The collapsible sections, as html. `first` opens the first one so the page never looks empty.
-export function helpList(where, role) {
-  return helpSections(where, role).map((s, i) => html`<details class="card help-sec" id="help-${s.id}" ${i === 0 ? html`open` : ''}>
+export function helpList(where, role, flags = {}) {
+  return helpSections(where, role, flags).map((s, i) => html`<details class="card help-sec" id="help-${s.id}" ${i === 0 ? html`open` : ''}>
     <summary><b>${s.title}</b></summary>
     <p class="muted" style="margin:8px 0 0">${s.intro}</p>
     <ol class="help-steps">${s.steps.map((st) => html`<li>${st}</li>`)}</ol>

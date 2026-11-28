@@ -1,7 +1,7 @@
 // Take attendance: the services an attendance account can record, then the roll call and headcount
 // for one (which screen opens first is the campus's attendance mode). Leaders and above can use it
 // too. It reuses the roll call from the service page, with no links to people.
-import { get, html, mount, fmtDate, fmtTime, fail } from '../lib.js';
+import { get, html, mount, fmtDate, fmtTime, fail, today as todayKey } from '../lib.js';
 import { setTitle, go } from '../app.js';
 import { drawRollCall } from '../rollcall.js';
 
@@ -13,16 +13,22 @@ export default async function takeAttendance(el, id) {
   setTitle('Take attendance');
   const picked = new URLSearchParams(location.hash.split('?')[1] || '').get('date') || '';
   const d = await get(`/attendance/services${picked ? `?from=${picked}&to=${picked}` : ''}`);
-  const days = [...new Set(d.services.map(dayKey))].sort().reverse();
-  const today = new Date().toLocaleDateString('en-CA');
+  const today = todayKey();
+  // Today first, then the other days newest first.
+  const days = [...new Set(d.services.map(dayKey))].sort().reverse().sort((a, b) => (b === today) - (a === today));
+  // The service closest to the current time today gets a "Now" pill, so a spotter opens the right one.
+  const clock = new Date(), nowMin = clock.getHours() * 60 + clock.getMinutes();
+  const minutes = (s) => Number(s.starts_at.slice(11, 13)) * 60 + Number(s.starts_at.slice(14, 16));
+  const todays = d.services.filter((s) => dayKey(s) === today);
+  const nowId = todays.length ? todays.reduce((best, s) => (Math.abs(minutes(s) - nowMin) < Math.abs(minutes(best) - nowMin) ? s : best)).id : null;
   mount(el, html`<div class="stack" style="max-width:640px">
     <form class="card row" data-date style="gap:10px;align-items:end;flex-wrap:wrap">
       <label class="field" style="margin:0;flex:1;min-width:160px">Another date<input type="date" name="date" value="${picked}"></label>
       <button class="btn">Show services</button>${picked ? html`<button type="button" class="btn ghost" data-recent>Back to recent</button>` : ''}
     </form>
     ${d.services.length ? days.map((day) => html`<div><h2 style="margin:8px 0">${day === today ? 'Today' : fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-      ${d.services.filter((s) => dayKey(s) === day).map((s) => html`<a class="card row" href="#/take-attendance/${s.id}" style="color:inherit;gap:12px;margin-bottom:8px">
-        <span style="flex:1"><b>${s.title || 'Service'}</b><span class="muted small" style="display:block">${fmtTime(s.starts_at)} · ${s.campus_short || s.campus_name}</span></span>
+      ${d.services.filter((s) => dayKey(s) === day).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).map((s) => html`<a class="card row" href="#/take-attendance/${s.id}" style="color:inherit;gap:12px;margin-bottom:8px">
+        <span style="flex:1"><b>${s.title || 'Service'}</b>${s.id === nowId ? html` <span class="pill good">Now</span>` : ''}<span class="muted small" style="display:block">${fmtTime(s.starts_at)} · <b style="color:var(--text)">${s.campus_name || s.campus_short}</b></span></span>
         <span class="muted small" style="text-align:right">${s.roll_count ? `${s.roll_count} on the roll` : ''}${s.roll_count && s.headcount_total ? html`<br>` : ''}${s.headcount_total ? `${s.headcount_total} counted` : ''}${!s.roll_count && !s.headcount_total ? 'Nothing yet' : ''}</span></a>`)}</div>`)
       : html`<div class="card empty">${picked ? 'No services on that date.' : 'No recent services at your campuses. Pick another date above.'}</div>`}
     <p class="muted small">Showing the last two weeks and tomorrow. Pick a date to record or correct an older service.</p>

@@ -9,6 +9,6 @@ export default async function help(el) {
   setTitle('Help');
   mount(el, html`<div class="help-page">
     <p class="muted" style="margin-top:0">Quick steps for the things you’ll do most. Tap a heading to open it. Stuck? Ask the church office.</p>
-    ${helpList('hub', state.me.role)}
+    ${helpList('hub', state.me.role, { attendance: state.me.attendance, studies: state.me.studies })}
   </div>`);
 }
