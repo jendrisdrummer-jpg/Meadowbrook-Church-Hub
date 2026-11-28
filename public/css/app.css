@@ -153,14 +153,17 @@ h3 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 6px; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
 .side-foot { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .me { display: flex; align-items: center; gap: 9px; min-width: 0; }
-/* Campus switcher at the top of the sidebar; Help and Feedback sit beside the user's name, which stays in view. */
+/* Campus switcher at the top of the sidebar; Settings, Help and Feedback sit in a row under the user's name, which stays in view. */
 .side-campus { padding: 0 8px 8px; }
 .side-foot { position: sticky; bottom: -12px; padding-bottom: 12px; background: var(--bg); z-index: 2; }
 .side-user { display: flex; align-items: center; gap: 4px; }
 .side-user .me { flex: 1; }
-.side-links { display: flex; gap: 2px; flex: none; }
-.side-links .icon-btn { width: 34px; height: 34px; }
-.side-links .icon-btn.on { background: var(--sel); color: var(--accent-text); }
+/* Settings, Help and Feedback: one row of labelled links under the name, always in view. */
+.side-links { display: flex; gap: 2px; }
+.side-links a { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.75rem; line-height: 1.2; }
+.side-links a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-links a:hover { background: var(--hover); color: var(--text); }
+.side-links a.on { background: var(--sel); color: var(--accent-text); font-weight: 600; }
 /* "North only" beside the page title while a campus filter is on. */
 .page-campus { margin-right: auto; white-space: nowrap; }
 .topbar h1:has(+ .page-campus:not(.hidden)) { margin-right: 0; flex: 0 1 auto; }

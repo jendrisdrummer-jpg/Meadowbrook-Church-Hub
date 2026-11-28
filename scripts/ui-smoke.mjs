@@ -159,10 +159,10 @@ async function main() {
           await page.goto(`${base}/#/`);
           await page.waitForSelector('[data-nav] a');
           const seen = await page.$$eval('[data-nav] a', (as) => as.map((a) => a.querySelector('span').textContent.trim()));
-          const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.getAttribute('aria-label')));
+          const links = await page.$$eval('[data-side-links] a', (as) => as.map((a) => a.textContent.trim()));
           const want = NAV_WANT[who];
           if (seen.join('|') !== want.join('|')) problems.push(`menu shows [${seen.join(', ')}] but should show [${want.join(', ')}]`);
-          const wantLinks = who === 'admin' ? 'Settings|Help|Send feedback' : 'Help|Send feedback';
+          const wantLinks = who === 'admin' ? 'Settings|Help|Feedback' : 'Help|Feedback';
           if (links.join('|') !== wantLinks) problems.push(`links beside the name: saw [${links.join(', ')}], want [${wantLinks}]`);
           if (!(await page.locator('.side [data-campus]').count()) || (await page.locator('.side [data-nav]').evaluate((n) => n.previousElementSibling?.matches('.side-campus')) !== true)) problems.push('campus picker is not at the top of the sidebar');
           if (who === 'admin') {
