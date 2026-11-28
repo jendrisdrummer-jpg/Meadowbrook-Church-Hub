@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { openDb, getSetting } from './db.js';
+import { openDb, getSetting, SCHEMA_VERSION, purgeStale } from './db.js';
 import { authRoutes, loadUser, requireAppHeader, requireRole } from './auth.js';
 import { errorHandler } from './http.js';
 import setupRoutes from './routes/setup.js';
@@ -51,8 +51,14 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   // Behind a cloud load balancer / tunnel, trust its X-Forwarded-Proto so cookies are marked Secure.
   app.set('trust proxy', trustProxy(process.env.MB_TRUST_PROXY));
 
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    // Not a full CSP (scripts are untouched): no plugins, no <base> tricks, and only this site may frame us.
+    res.setHeader('Content-Security-Policy', "object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
+    // Camera, microphone and payment are left out on purpose: Daily's call frame and Stripe's
+    // checkout frame are other sites, and a narrow list here would stop them working.
+    res.setHeader('Permissions-Policy', 'geolocation=()');
     // Other sites see only our address (never a page or link), which YouTube needs to play
     // embedded videos (without it: "Error 153").
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -68,7 +74,16 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use(loadUser(db));
   app.use(requireAppHeader);
 
-  app.get('/healthz', (_req, res) => res.json({ ok: true }));
+  // Public and quick: the database answers and is at the schema this code expects. No details.
+  app.get('/healthz', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      if (db.prepare('PRAGMA user_version').get().user_version !== SCHEMA_VERSION) throw new Error('schema');
+      res.json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false, reason: 'database' });
+    }
+  });
   const auth = authRoutes(app, db);
 
   const api = express.Router();
@@ -110,7 +125,17 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   // Home screen pictures are part of the public app.
   app.use('/uploads/app', express.static(path.join(uploadDir, 'app'), { maxAge: '30d', fallthrough: false }));
   // Photos include children, so they are only served to signed-in users.
-  app.use('/uploads', requireRole('volunteer'), express.static(uploadDir, { maxAge: '7d', fallthrough: false }));
+  // Chat and song files have their own checked routes (/api/chat-files, /api/song-files); never the open folder.
+  // The path is decoded first so %63hat can't slip past.
+  app.use('/uploads', (req, res, next) => {
+    let p = req.path;
+    try { p = decodeURIComponent(p); } catch { return res.status(404).end(); }
+    return /^\/+(chat|songs)(\/|$)/i.test(p) ? res.status(404).end() : next();
+  });
+  app.use('/uploads', requireRole('volunteer'), express.static(uploadDir, {
+    cacheControl: false, fallthrough: false,
+    setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=604800'), // photos of children: never a shared cache
+  }));
 
   // The installable app: its name, colours and icon come from Settings → Church.
   app.get('/manifest.webmanifest', (_req, res) => {
@@ -195,7 +220,8 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   return app;
 }
 
-// MB_TRUST_PROXY: a number of proxy hops ("1" on Render, Railway or Fly), "true", or a list of addresses.
+// MB_TRUST_PROXY: a number of proxy hops ("2" on Render: its Cloudflare edge plus its load balancer;
+// usually "1" on Railway or Fly), "true", or a list of addresses. Settings → Checks accepts 1 or 2.
 export function trustProxy(v) {
   v = String(v ?? '').trim(); // pasted values often pick up stray spaces; the Checks page trims too
   if (!v) return 'loopback, linklocal, uniquelocal';
@@ -231,6 +257,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     // Video calls: meeting reminders, closing empty rooms, the monthly minutes limit.
     setInterval(() => syncCalls(db).catch((e) => console.error('Call sync failed:', e.message)), 60e3).unref();
     setInterval(() => sendDueAnnouncements(db), 60e3).unref();
+    // Expired sessions and old sign-in codes, once a day (and shortly after start-up).
+    const tidy = () => { try { purgeStale(db); } catch (e) { console.error('Clean-up failed:', e.message); } };
+    setTimeout(tidy, 5 * 60e3).unref();
+    setInterval(tidy, 24 * 3600e3).unref();
     // Nightly backup (from 3 a.m. church time; see Settings → Backups).
     setInterval(() => maybeNightly(db, { uploadDir: process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') }), 10 * 60e3).unref();
     // Media: new videos from the YouTube channel every hour; around service times, every two

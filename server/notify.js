@@ -50,6 +50,8 @@ export function notify(db, userIds, msg) {
   return made;
 }
 
+// (A message may carry `push_body`: generic words for the lock screen, while the inbox keeps `body`.)
+
 // A new Bible study request: every coordinator hears, in the app and (unless they turned emails off) by
 // email. Push and email never carry a name; the request itself is in the Hub.
 export function notifyStudyRequest(db, userIds) {
@@ -93,7 +95,7 @@ function pushAll(db, subs, msg) {
   for (const sub of subs) {
     // Taps open the app the device signed up from: the member app or the dashboard.
     const url = sub.ui === 'app' ? msg.app_url || '/app/' : msg.url || '/';
-    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.body || '', url, tag: msg.tag, renotify: msg.renotify, actions: msg.actions, data: msg.data || {} };
+    const payload = { id: msg.id, kind: msg.kind, title: msg.title, body: msg.push_body ?? msg.body ?? '', url, tag: msg.tag, renotify: msg.renotify, actions: msg.actions, data: msg.data || {} };
     sendPush(sub, payload, keys, subject(), { urgency: msg.kind === 'reminder' ? 'high' : 'normal' })
       .then((status) => {
         // The person uninstalled the app or turned notifications off: forget that device.

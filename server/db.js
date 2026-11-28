@@ -1118,6 +1118,11 @@ const MIGRATIONS = [
   CREATE UNIQUE INDEX study_completions_once ON study_completions(study_id, person_id) WHERE study_id IS NOT NULL AND revoked_at IS NULL;
   ALTER TABLE users ADD COLUMN studies INTEGER NOT NULL DEFAULT 0;
   `,
+  // 42: indexes for the check-in history of a person and for ending all of a user's sessions.
+  `
+  CREATE INDEX IF NOT EXISTS checkins_person ON checkins(person_id);
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).
@@ -1192,6 +1197,14 @@ export const hashToken = (token) => crypto.createHash('sha256').update(String(to
 // still holds the raw tokens) stops being usable within 24 hours. BEGIN IMMEDIATE takes the write
 // lock up front, so two servers starting at once can't trip each other. If it fails anyway, the
 // server still starts: unconverted sessions simply don't match any more (those people sign in again).
+// Daily tidy-up: sessions past their end, and sign-in codes more than a day old (they last 15 minutes).
+export function purgeStale(db, now = new Date()) {
+  const sessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now.toISOString()).changes;
+  const dayAgo = new Date(now.getTime() - 864e5).toISOString().slice(0, 19).replace('T', ' '); // the format datetime('now') stores
+  const codes = db.prepare('DELETE FROM login_codes WHERE created_at < ?').run(dayAgo).changes;
+  return { sessions, codes };
+}
+
 export function hashSessionTokens(db, now = new Date()) {
   const cap = new Date(now.getTime() + 24 * 3600e3).toISOString();
   try {

@@ -92,9 +92,9 @@ Question types and answer checking are shared with event sign-ups in `server/que
 | `PATCH /me/studies/:id` | the student | `{share_contact: bool}`: stop or start sharing their phone and email with their teachers. Audited (`study.people`, `by: student`) |
 | `POST /me/study-request` | signed in, linked person | `{format: one_on_one, small_group or either, material_id?, topic (up to 200), times (up to 200), share_contact}`. Always their own record; one waiting request at a time (409); 5 an hour (429). Tells every coordinator (in-app and email, never with a name) |
 
-Outside `/api` (in `index.js`): `/healthz`, `/stripe/webhook` (raw body, signature),
+Outside `/api` (in `index.js`): `/healthz` (public; runs `SELECT 1` and checks the schema version, answering `503 {ok:false, reason:"database"}` with no detail if either fails), `/stripe/webhook` (raw body, signature),
 `/podcast.xml`, manifests and app icons, `/uploads/app/*` (public pictures) and `/uploads/*`
-(volunteer+, since photos include children), page routes.
+(volunteer+, since photos include children; `/uploads/chat` and `/uploads/songs` always 404), page routes.
 
 ### Check-in app version (`x-checkin-version`)
 
