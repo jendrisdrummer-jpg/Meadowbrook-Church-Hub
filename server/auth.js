@@ -260,6 +260,8 @@ export function userForEmail(db, email, profile = {}) {
       title: `New app sign-up: ${first} ${String(profile.last_name || '').trim()}`.trim(),
       body: `${email} created an account and was added to People. Say hello!`,
       url: '/#/connect?tab=signups',
+      push_title: 'New app sign-up',
+      push_body: 'Someone created an account in the app. Open the Hub to say hello.',
       app_url: `${(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')}/#/connect?tab=signups`,
     });
   }

@@ -114,7 +114,7 @@
       wrong_domain: 'Please sign in with your church Google account.',
       not_set_up: 'Your account isn’t set up yet. Ask a church admin to add you.',
     };
-    if (q.has('error')) error(ERRORS[q.get('error')] || 'Sign-in didn’t work. Please try again.');
+    if (q.has('error')) error((Object.hasOwn(ERRORS, q.get('error')) && ERRORS[q.get('error')]) || 'Sign-in didn’t work. Please try again.');
 
     let email = '';
     let names = { first_name: '', last_name: '' };

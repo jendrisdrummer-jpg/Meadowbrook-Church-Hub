@@ -126,11 +126,11 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   app.use('/uploads/app', express.static(path.join(uploadDir, 'app'), { maxAge: '30d', fallthrough: false }));
   // Photos include children, so they are only served to signed-in users.
   // Chat and song files have their own checked routes (/api/chat-files, /api/song-files); never the open folder.
-  // The path is decoded first so %63hat can't slip past.
+  // The path is decoded and its dot segments resolved first, so %63hat, ./chat and x/../chat can't slip past.
   app.use('/uploads', (req, res, next) => {
-    let p = req.path;
-    try { p = decodeURIComponent(p); } catch { return res.status(404).end(); }
-    return /^\/+(chat|songs)(\/|$)/i.test(p) ? res.status(404).end() : next();
+    let p;
+    try { p = path.posix.normalize(decodeURIComponent(req.path)); } catch { return res.status(404).end(); }
+    return /^\/*(chat|songs)(\/|$)/i.test(p) ? res.status(404).end() : next();
   });
   app.use('/uploads', requireRole('volunteer'), express.static(uploadDir, {
     cacheControl: false, fallthrough: false,

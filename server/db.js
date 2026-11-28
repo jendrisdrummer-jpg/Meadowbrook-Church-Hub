@@ -1189,6 +1189,15 @@ function linkIndexStep(db, log) {
 // Sign-in tokens are stored as sha256 hex, so a copy of the database holds no usable cookie values.
 export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
+// Daily tidy-up: sessions past their end, and sign-in codes more than a day old (they last 15 minutes).
+// The newest code row always stays: ids aren't reused, and the sign-in cap compares code ids (capMarks in auth.js).
+export function purgeStale(db, now = new Date()) {
+  const sessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now.toISOString()).changes;
+  const dayAgo = new Date(now.getTime() - 864e5).toISOString().slice(0, 19).replace('T', ' '); // the format datetime('now') stores
+  const codes = db.prepare('DELETE FROM login_codes WHERE created_at < ? AND id < (SELECT MAX(id) FROM login_codes)').run(dayAgo).changes;
+  return { sessions, codes };
+}
+
 // One-off conversion for sessions made before tokens were hashed: any token that isn't a 64-char
 // hex hash is replaced by its hash. Real tokens are 43-char base64url, so the shape can't be
 // confused. Runs on every start, in one transaction, and does nothing once everything is hashed;
@@ -1197,14 +1206,6 @@ export const hashToken = (token) => crypto.createHash('sha256').update(String(to
 // still holds the raw tokens) stops being usable within 24 hours. BEGIN IMMEDIATE takes the write
 // lock up front, so two servers starting at once can't trip each other. If it fails anyway, the
 // server still starts: unconverted sessions simply don't match any more (those people sign in again).
-// Daily tidy-up: sessions past their end, and sign-in codes more than a day old (they last 15 minutes).
-export function purgeStale(db, now = new Date()) {
-  const sessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now.toISOString()).changes;
-  const dayAgo = new Date(now.getTime() - 864e5).toISOString().slice(0, 19).replace('T', ' '); // the format datetime('now') stores
-  const codes = db.prepare('DELETE FROM login_codes WHERE created_at < ?').run(dayAgo).changes;
-  return { sessions, codes };
-}
-
 export function hashSessionTokens(db, now = new Date()) {
   const cap = new Date(now.getTime() + 24 * 3600e3).toISOString();
   try {

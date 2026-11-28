@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { openDb, purgeStale, SCHEMA_VERSION } from '../server/db.js';
 import { createApp } from '../server/index.js';
-import { startSession } from '../server/auth.js';
+import { startSession, userForEmail } from '../server/auth.js';
 
 process.env.MB_PUSH_ALLOW_LOCAL = '1';
 let db, server, base, dir;
@@ -86,6 +86,24 @@ test('uploads are private-cached; chat and song files are never served from the 
   assert.equal((await fetch(`${base}/uploads/chat/${stored}`, { headers: { cookie: cookies.admin } })).status, 404);
 });
 
+// fetch() tidies dot segments away, so these go out as raw request paths.
+test('dot segments and encoded slashes can’t reach chat or song files through /uploads', async () => {
+  for (const d of ['chat', 'songs']) {
+    fs.mkdirSync(path.join(dir, d), { recursive: true });
+    fs.writeFileSync(path.join(dir, d, 'f.txt'), 'secret');
+  }
+  const raw = (p) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: server.address().port, path: p, headers: { cookie: cookies.admin } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }).on('error', reject);
+  });
+  // Control: the same trick on an ordinary folder is served, so the 404s below come from the block.
+  fs.mkdirSync(path.join(dir, 'photos'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'photos', 'f.txt'), 'ok');
+  assert.equal(await raw('/uploads/x/../photos/f.txt'), 200);
+  for (const p of ['/uploads/./chat/f.txt', '/uploads/x/../chat/f.txt', '/uploads/x/%2e%2e/chat/f.txt', '/uploads/a%2f..%2fsongs/f.txt', '/uploads/./songs/f.txt', '/uploads/%E0%A4%A/f.txt']) {
+    assert.equal(await raw(p), 404, p);
+  }
+});
+
 test('baseline security headers', async () => {
   for (const url of ['/healthz', '/login']) {
     const res = await fetch(base + url);
@@ -146,9 +164,18 @@ test('push notices for connect cards and office requests carry generic text; the
   const p2 = decryptPush(pushes[1], ua, authSecret);
   assert.equal(p2.body, 'Someone sent a message to the office.');
   assert.ok(!JSON.stringify(p2).includes('PRIVATE-OFFICE-NOTE'));
+  assert.ok(!JSON.stringify(p1).includes('Gus') && !JSON.stringify(p1).includes('gus@example.com'), 'no name or email in the connect card push');
+  assert.ok(!JSON.stringify(p2).includes('vol Test') && !/vol@h\.test/.test(JSON.stringify(p2)), 'no name or email in the office push');
+
+  // A new app sign-up: name and email stay in the inbox only.
+  userForEmail(db, 'nia.newcomer@example.com', { first_name: 'Nia', last_name: 'Newcomer' });
+  await waitFor(3);
+  const p3 = JSON.stringify(decryptPush(pushes[2], ua, authSecret));
+  assert.ok(!/Nia|Newcomer|nia\.newcomer/i.test(p3), p3);
 
   const inbox = JSON.stringify((await api('admin', 'GET', '/notifications')).data);
   assert.ok(inbox.includes('SECRET-PRAYER-TEXT') && inbox.includes('PRIVATE-OFFICE-NOTE'), 'in-app items keep the detail');
+  assert.ok(inbox.includes('Gus') && inbox.includes('nia.newcomer@example.com'), 'inbox titles and bodies keep names');
 });
 
 test('a bad cookie is no cookie, and a missing upload is a quiet 404', async (t) => {
@@ -172,6 +199,11 @@ test('purgeStale removes expired sessions and day-old login codes, by a fixed cl
   assert.deepEqual(purgeStale(d, new Date('2030-01-15T12:00:00Z')), { sessions: 1, codes: 1 });
   assert.deepEqual(d.prepare('SELECT token FROM sessions').all().map((r) => r.token), ['live']);
   assert.equal(d.prepare('SELECT COUNT(*) n FROM login_codes').get().n, 1);
+  // Even when every code is old, the newest row stays so ids never go backwards.
+  d.prepare("UPDATE login_codes SET created_at = '2000-01-01 00:00:00'").run();
+  const top = d.prepare('SELECT MAX(id) n FROM login_codes').get().n;
+  purgeStale(d, new Date('2030-01-15T12:00:00Z'));
+  assert.deepEqual(d.prepare('SELECT id FROM login_codes').all().map((r) => r.id), [top]);
 });
 
 test('migration 42 adds the two indexes', () => {

@@ -113,6 +113,7 @@ export default function meRoutes(db) {
       kind: 'account',
       title: `${name}: ${TOPICS[topic]}`,
       body: message,
+      push_title: 'New message to the office',
       push_body: 'Someone sent a message to the office.',
       url: `/#/people/${p.id}`,
     });
