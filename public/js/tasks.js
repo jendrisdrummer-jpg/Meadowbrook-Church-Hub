@@ -265,10 +265,11 @@ export async function taskPage(el, id, { setTitle, q, base = '#/tasks', showBack
       }
       if (b.dataset.unstep !== undefined) {
         if (isNew) t.checklist.splice(Number(b.dataset.unstep), 1);
+        else if (!(await confirm('Delete this step?', 'It will be removed from the checklist.'))) return;
         else t = await del(`/task-items/${b.dataset.unstep}`);
         return draw();
       }
-      if (b.dataset.uncomment) { t = await del(`/task-comments/${b.dataset.uncomment}`); return draw(); }
+      if (b.dataset.uncomment) { if (!(await confirm('Delete this comment?', 'This can’t be undone.'))) return; t = await del(`/task-comments/${b.dataset.uncomment}`); return draw(); }
       if (b.matches('[data-delete]')) {
         if (!(await confirm('Delete this task?', 'Its checklist and comments go too.'))) return;
         await del(`/tasks/${t.id}`);

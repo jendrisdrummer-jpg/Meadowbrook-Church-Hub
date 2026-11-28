@@ -60,7 +60,7 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     const fundName = cfg.funds.find((f) => f.id === state.fund)?.name || '';
     mount(el, html`<form class="card give-form" autocomplete="on" novalidate>
       <label class="give-amount"><span>$</span><input type="text" inputmode="decimal" name="amount" placeholder="0" value="${state.amount}" aria-label="Amount"></label>
-      <div class="give-quick" role="group" aria-label="Quick amounts">${PRESETS.map((n) => html`<button type="button" data-preset="${n}" class="${cents(state.amount) === n * 100 ? 'on' : ''}">$${n}</button>`)}</div>
+      <div class="give-quick" role="group" aria-label="Quick amounts">${PRESETS.map((n) => html`<button type="button" data-preset="${n}" class="${cents(state.amount) === n * 100 ? 'on' : ''}" aria-pressed="${cents(state.amount) === n * 100}">$${n}</button>`)}</div>
       <div class="give-list">
         <label class="give-pick"><span>Fund</span><b data-show="fund">${fundName}</b>${icon('down')}
           <select name="fund" aria-label="Fund">${sections.map((sec) => html`<optgroup label="${sec || 'Funds'}">${cfg.funds.filter((f) => f.section === sec).map((f) => html`<option value="${f.id}" ${f.id === state.fund ? 'selected' : ''}>${f.name}</option>`)}</optgroup>`)}</select></label>
@@ -93,7 +93,7 @@ export function giveForm(el, cfg, { returnTo = 'app', mineHref = '' } = {}) {
     const go = el.querySelector('.give-go');
     go.disabled = total().a < 100;
     go.textContent = goText();
-    el.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', total().a === Number(b.dataset.preset) * 100));
+    el.querySelectorAll('[data-preset]').forEach((b) => { const on = total().a === Number(b.dataset.preset) * 100; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     el.querySelector('[data-cover]').textContent = coverText();
     el.querySelector('[data-show=fund]').textContent = cfg.funds.find((f) => f.id === state.fund)?.name || '';
     el.querySelector('[data-show=every]').textContent = everyLabel(state.every, cfg);

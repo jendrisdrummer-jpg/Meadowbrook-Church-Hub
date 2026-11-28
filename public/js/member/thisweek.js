@@ -63,7 +63,7 @@ export function thisWeekInner(w, ctx, h) {
   const servingBlock = !app.user.linked
     ? html`<p class="w-sub" style="margin:0">Once the office connects your account to your record, what you’re serving will show here.</p>`
     : serving.length ? serving.slice(0, 3).map((a) => html`<a class="tw-row" href="${serveTab}">${icon('calendar')}<span class="grow"><b>${a.position}</b> · ${a.team}<br>
-        <span class="w-sub">${fmtDate(a.starts_at, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmtTime(a.starts_at)}</span></span>
+        <span class="w-sub">${fmtDate(a.starts_at, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmtTime(a.starts_at)}${a.campus ? ` · ${a.campus}` : ''}</span></span>
         <span class="pill ${a.status === 'accepted' ? 'good' : 'warn'}">${a.status === 'accepted' ? 'Accepted' : 'Needs a reply'}</span></a>`)
       : html`<p class="w-sub" style="margin:0">Nothing on your schedule this week. Enjoy the rest.</p>`;
   const eventsBlock = events.length ? events.map((e) => html`<a class="tw-row" href="#/events/${e.id}">${icon('calendar')}<span class="grow"><b>${e.title}</b><br><span class="w-sub">${whenText(e)}</span></span></a>`)

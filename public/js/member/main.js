@@ -1,6 +1,6 @@
 // The member app: what's on it comes from the dashboard's App Builder. Anyone can use it;
 // signing in adds the person's serving schedule, service plans and notifications.
-import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options, scrollBehavior } from '../lib.js';
+import { get, post, patch, html, raw, mount, icon, displayName, fmtDate, fmtTime, toast, fail, dialog, formData, options, scrollBehavior, fieldError, clearFieldErrors } from '../lib.js';
 import { timeline } from '../plan.js';
 import { drawSchedule, drawNotifyCard } from '../myschedule.js';
 import { isIOS, isMobile, isInstalled, inShell, canPromptInstall, promptInstall, currentSubscription, pushSupported, enableGuestPush, disableGuestPush } from '../push.js';
@@ -405,14 +405,14 @@ function connect(el, tab) {
   setTitle(tab.label);
   const c = app.config.connect;
   const camps = app.campuses;
-  mount(el, html`<form class="card m-form" autocomplete="on">
+  mount(el, html`<form class="card m-form" autocomplete="on" novalidate>
     <h2 style="margin:0 0 4px">${c.title}</h2>${c.intro ? html`<p class="muted" style="margin:0 0 14px">${c.intro}</p>` : ''}
     <div class="form">
       <label class="field">First name<input type="text" name="first_name" required autocomplete="given-name"></label>
       <label class="field">Last name<input type="text" name="last_name" autocomplete="family-name"></label>
       <label class="field">Email<input type="email" name="email" autocomplete="email"></label>
-      <label class="field">Phone<input type="tel" name="phone" autocomplete="tel"></label>
-      ${camps.length > 1 ? html`<label class="field wide">Campus<select name="campus_id">${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
+      <label class="field">Phone<input type="tel" name="phone" autocomplete="tel" required></label>
+      ${camps.length > 1 ? html`<label class="field wide">Campus<select name="campus_id"><option value="">Choose a campus…</option>${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
     </div>
     <label class="check"><input type="checkbox" name="first_time"> This is my first time here</label>
     ${c.interests.length ? html`<p style="margin:14px 0 0"><b>I’m interested in…</b></p><div class="checks">${c.interests.map((x) => html`<label class="check"><input type="checkbox" name="interest" value="${x}"> ${x}</label>`)}</div>` : ''}
@@ -424,6 +424,11 @@ function connect(el, tab) {
   f.onsubmit = async (e) => {
     e.preventDefault();
     if (preview) return toast('This is a preview.');
+    clearFieldErrors(f);
+    const digits = f.phone.value.replace(/\D/g, '').length;
+    if (!f.phone.value.trim()) return fieldError(f.phone, 'Please add a phone number so we can reach you.');
+    if (digits < 7) return fieldError(f.phone, 'That phone number doesn’t look right. For example: 555-123-4567.');
+    if (f.campus_id && !f.campus_id.value) return fieldError(f.campus_id, 'Please choose the campus you visited.');
     const body = {
       first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value, phone: f.phone.value,
       campus_id: f.campus_id?.value || camps[0]?.id, first_time: f.first_time.checked, message: f.message.value, website: f.website.value,

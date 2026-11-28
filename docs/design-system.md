@@ -61,6 +61,7 @@ device's local time and the person's first name. `home.js` adds `.greeting` to t
 | `--line`, `--line-2`, `--line-input` | `#e2d9ca`, `#d0c5b2`, `#8a7f6e` / `#383128`, `#4d463c`, `#8a8070` | Hairlines; button borders; input and checkbox borders (3:1) |
 | `--text`, `--text-2`, `--muted` | `#1e1a16`, `#4a433a`, `#6b6256` / `#f1eadf`, `#c9c0b2`, `#a39a8b` | Main, secondary, quiet text (muted is at least 4.5:1 on every surface) |
 | `--good` / `--warn` / `--bad` (+ `-soft`) | `#3f5c3b` on `#e3ebdb`; `#7a5200` on `#f7ebc4`; `#b3342a` on `#f8e3dd` / `#a5c29c` on `#26302a`; `#e3b057` on `#33291a`; `#f08278` on `#3a211e` | Status text and tints (pills, alerts). Fills for bars: `--good-fill` (sage), `--warn-fill` (amber) |
+| `--on-bad` | `#fff` / `#1a1512` | Text on a solid `--bad` fill (error toast, bell count); white on dark-mode `--bad` is only 2.6:1 |
 | `--kids` | sage | Kids series in charts |
 | `--radius` 16px, `--r-ctl` 10px | | Cards; controls |
 | `--shadow`, `--shadow-pop` | warm brown, soft / none in dark | Cards; menus |

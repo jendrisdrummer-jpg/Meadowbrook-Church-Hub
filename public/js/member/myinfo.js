@@ -17,7 +17,7 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
       <p>We’ve let the church office know. They’ll connect it, and then you can update your info here. There’s nothing else you need to do.</p></div>`);
   }
   const draw = () => mount(el, html`<form class="card m-form" data-info novalidate>
-      <h2 style="margin-top:0">${me.first_name} ${me.last_name}</h2>
+      <h2 style="margin-top:0" tabindex="-1" data-info-title>${me.first_name} ${me.last_name}</h2>
       <p class="muted small" style="margin-top:0">Changes here save straight to your record at ${app.church_name}.</p>
       <div class="form">
         <label class="field">Phone<input type="tel" name="phone" autocomplete="tel" maxlength="40" value="${me.phone}"></label>
@@ -62,14 +62,18 @@ export async function myInfoPage(el, { app, setTitle, signInHref }) {
     go.disabled = true;
     try {
       if (form.matches('[data-info]')) {
+        const phone = form.elements.phone;
+        if (phone.value.trim() && phone.value.replace(/\D/g, '').length < 7) { go.disabled = false; fieldError(phone, 'That phone number doesn’t look right. For example: 555-123-4567.'); return; }
         me = await patch('/me/person', { phone: form.elements.phone.value, ...(form.elements.birthdate ? { birthdate: form.elements.birthdate.value } : {}) });
         toast('Saved. Thank you!');
         draw();
+        el.querySelector('[data-info-title]')?.focus({ preventScroll: true });
       } else if (form.matches('[data-address]')) {
         const f = form.elements;
         me = await patch('/me/address', { address: f.address.value, city: f.city.value, state: f.state.value, zip: f.zip.value });
         toast('Address saved for your household.');
         draw();
+        el.querySelector('[data-info-title]')?.focus({ preventScroll: true });
       } else {
         const message = form.elements.message.value.trim();
         if (!message) { go.disabled = false; fieldError(form.elements.message, 'Please add a short message first.'); return; }
