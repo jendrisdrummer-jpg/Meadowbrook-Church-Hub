@@ -358,7 +358,7 @@ steps use **your admin account** unless they say otherwise.
 | 7 | The church app on a phone | 5 min |
 | 8 | App Builder: the church changes its own app | 3 min |
 | 9 | Media: Sunday videos | 3 min |
-| 10 | Bible studies | 2 min |
+| 10 | Bible studies (optional: only if asked) | 0–1 min |
 | 11 | Connect cards and forms | 2 min |
 | 12 | Safe by design: roles, Checks, backups | 3 min |
 | 13 | Kids' check-in: what's coming | 2 min |
@@ -443,6 +443,8 @@ steps use **your admin account** unless they say otherwise.
   Church Hub isn't sure about. Nothing changes on YouTube."
 - **If the channel isn't connected yet** on live: say "this is the Library after we connect the
   channel" and show **Setup** instead. Check this beforehand.
+- **Next, if asked:** live streaming inside the app through Mux, recorded to Mux and YouTube at the
+  same time; recent services play from Mux, older ones from YouTube. Expected cost about $0–20 a month.
 - **Why it matters:** replaces the Subsplash media library. Live streaming and uploads are not part
   of this.
 
@@ -453,6 +455,9 @@ steps use **your admin account** unless they say otherwise.
   which material and who finished. Later, members will be able to ask for a study from the app. That
   part is next; today it's the office side."
 - **Why it matters:** replaces a spreadsheet and the memory of whoever coordinates.
+- **Keep it light.** Skip this step unless someone asks. Discipleship gets one sentence in the talk
+  (on the "What we're working on next" slide): it will be built in more fully over time, next to
+  everything else we keep about each person. Don't compare it with other discipleship tools.
 
 #### 11. Connect cards and forms (2 min)
 - **Click:** **Connect cards** (your test card only, **To follow up** and **Followed up**). Then
@@ -522,7 +527,7 @@ Honest answers. Where something is the owner's decision, it says so.
 
 | Question | Answer |
 |---|---|
-| **What does it cost?** | The Church Hub runs on one small server at Render (the README estimates $6–25 a month for a server this size). Google sign-in, Google Drive backups and automated testing on GitHub use free tiers. The development team's tools are covered by the owner's existing subscription. No new paid service starts without the owner's approval. Later, possible costs: Stripe keeps a small part of each online gift; text messages would need a paid provider; Apple charges a yearly fee (about $99) and Google a one-time fee (about $25) to be in their app stores, which is not yet decided. **Saving comes as Faith Teams, Google Chat and Subsplash are retired.** Bring the real yearly figures for those three so leaders can compare. This guide doesn't hold them. |
+| **What does it cost?** | Subsplash costs us **$2,990 a year** (about $249 a month). The Church Hub, with everything we plan, comes to **under $600 a year** at the high end (about $46 a month): the server at Render about $8 a month, live stream and videos in the app (Mux) up to $20 a month, Apple's App Store fee $99 a year (may be waived for nonprofits), and kids' check-in labels up to $120 a year. Google Play is $25 once. That is about **$2,400 a year saved on Subsplash alone**, before Faith Teams. Online giving has no monthly fee: Stripe keeps 2.2% + 30¢ per card gift at the nonprofit rate, 0.8% (at most $5) for bank payments. Group texting, if we add it, would be about $15–50 a month. The development team's tools are covered by the owner's own subscription, not church money. No new paid service starts without the owner's approval. Fill in Faith Teams' yearly cost before Tuesday to show the full saving. |
 | **Is our data safe? What about backups?** | The data sits in one database on the church's own server disk, not in a vendor's system. Every night after 3 a.m. a copy is made, locked with a password only the church holds, and sent to Google Drive. The last 14 nightly copies and one a month for a year are kept. An admin can press **Back up now**. A restore drill, opening a real backup on a spare computer, was done before the deploy of attendance access (see [restore-drill.md](restore-drill.md)). Check **Settings → Backups** shows today's date before you present. People can be exported to a spreadsheet at any time. |
 | **Who can see what?** | Four roles: volunteer, leader, staff, admin. Volunteers see their own schedule and the services they serve at. Leaders see their own teams and don't see medical notes, private notes or pickup lists. Staff and admins can be limited to a campus. Giving is shown only to accounts with the **Finance** switch, even admins. Connect-card prayer messages are staff only. Small groups are adults only. Bible-study student contact details reach the teacher only if the student agreed. Admins decide who can sign in, and today only accounts an admin adds can. |
 | **What about kids' safety?** | Kids' check-in is **not** moving yet. It stays on Subsplash. Much of the safety work is built but held back and switched on later: a guard on check-out, a protected history, a switch for who may use check-in, new pickup codes, medical-note levels, holds on a pickup, and settings per campus (including any-campus check-in). We'll pilot at one campus first and move others after Easter. The part that is live is a behind-the-scenes record and a check that shows which iPads are up to date. No child's information is shown to people who don't need it. |
@@ -533,7 +538,8 @@ Honest answers. Where something is the owner's decision, it says so.
 | **Who looks after it?** | The owner, working with an AI-assisted development team that writes, tests and reviews changes. Nothing reaches the live site without the owner's approval. It's built with plain tools and written documents, so another developer could take it on. A small team is a real risk. Backups, automated tests and the written guides are how we reduce it. |
 | **Does it work across campuses?** | Yes: each campus has its own services, rooms and staff limits, and a volunteer can serve at more than one campus if an admin allows it. |
 | **What about giving?** | Online giving is live with Stripe. One real card gift and its refund were tested on 26 November. Bank transfers, Apple and Google Pay, repeating gifts and gifts from guests are built but not yet tried live. Only people with the **Finance** switch see giving. We don't show it in the demo. |
-| **Can it send text messages?** | Not yet. It needs a paid provider, which is an owner decision. Today it's app notices, the in-app inbox, and email. |
+| **Can it send text messages?** | Not yet. It needs a paid texting provider (Twilio or Telnyx), which is a leadership decision. For a church our size: about $20–60 once to register the church with the phone carriers, then about $15–50 a month depending on how much we text (about 1¼¢ per text, plus a few dollars a month for the number). People would opt in, "Reply STOP" always works, and no texts would go out late at night. Today it's app notices, the in-app inbox and email. |
+| **What about discipleship tools other churches use?** | Be gracious and brief. "There are good tools built for discipleship, and people have put a lot of care into them. For us, discipleship will be built in more fully over time, right next to everything else we know about each person, so nothing has to be typed twice. If a tool ever serves Meadowbrook better, we'd look at working with it rather than against it." Don't compare features or name names. |
 | **Is it easy enough for our older members and volunteers?** | We have tried to make it so: large tap areas, readable text, a Help page, and Accept by email link with no account needed. We'll keep asking for feedback from volunteers of every age. The accessibility pass is done on the member app and the staff pages, but nothing replaces real people trying it. |
 
 ---

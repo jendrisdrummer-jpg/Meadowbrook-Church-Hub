@@ -76,7 +76,7 @@ export async function drawRollCall(panel, s, opts = {}) {
         ${g.members.length > 1 ? html`<button type="button" class="btn small" data-family="${g.members.map((m) => m.id).join(',')}">${g.members.every(isHere) ? html`${icon('check')} All here` : 'Mark family'}</button>` : ''}</span></div>` : ''}
       ${g.members.map((p) => html`<button type="button" class="roll-person ${isHere(p) ? 'here' : ''}" data-person="${p.id}" ${kids.has(p.id) ? 'disabled' : ''} aria-pressed="${String(isHere(p))}">
         <span class="roll-check">${icon('check')}</span>${avatar(p)}
-        <span class="roll-name">${displayName(p)}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}${p.status === 'guest' ? html` <span class="pill warn">Guest</span>` : ''}</span>
+        <span class="roll-name">${displayName(p)}${p.household_role === 'child' ? html` <span class="pill">Child</span>` : ''}${p.status === 'guest' ? html` <span class="pill warn">New</span>` : ''}</span>
         ${kids.has(p.id) ? html`<span class="muted small">Checked in</span>` : ''}
       </button>`)}</div>`)
       : html`<div class="empty">${q ? html`No one by that name. Add them as a new guest, or <button type="button" class="btn small" data-church-search>Search the whole church</button>` : 'No one here yet.'}</div>`);
