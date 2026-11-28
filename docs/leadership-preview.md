@@ -53,7 +53,7 @@ decisions in [roadmap §13](master-product-roadmap.md#13-decisions-and-facts-nee
 1. **Make a test team with only you on it.** **Teams → New team**, name it "TEST – please ignore",
    your campus. Add only yourself to the roster and tick **Leader**.
 2. **Make a test service with only that team.** **Services → New service**: your campus, a date
-   in the next week or two, **Repeats: Does not repeat** (it starts on "Every week": change it),
+   in the next week or two, **How often: One time** (neither choice is picked at first, so choose it),
    **Title** "TEST – please ignore". Schedule only yourself.
 3. **Before any "Send" button, read the list.** Send requests shows every name it will contact;
    it should be only yours. An announcement asks "goes to N people": it should be 1.
@@ -107,7 +107,7 @@ People, Services and Check-in; other pages are under the search button at the to
 | **People**: search a name, try the filters (Everyone, Members, Guests, Adults & kids) | Results appear as you type | Missing people, or wrong counts | You (admin) |
 | **Add person** "Test Person", then on their page **Start household** | The page shows the household; **Edit** lets you change details | Saving fails, or the household doesn't appear | You (admin) |
 | Add a second "Test Person", then on the first one **Merge duplicate** | One record remains | Both remain, or the wrong one was kept | You (admin) |
-| **Export** on People | A CSV file downloads | No file, or names missing | You (admin) |
+| **···** menu on People → **Export everyone (CSV)** | A CSV file downloads | No file, or names missing | You (admin) |
 | Afterwards: **Archive this person** on each test record | They leave the list | | You (admin) |
 
 Please don't open medical or private notes for real people during testing unless you need to.
@@ -130,7 +130,7 @@ Don't add a test campus: campuses can't be deleted.
 ### 5. Services
 | Do | Expect | Problem if | Account |
 |---|---|---|---|
-| **Services → New service** (see "Staying safe" step 2). Under **Positions needed**, put 1 Tester | The service opens on **Details** | It was created as repeating (check **Repeats**) | You (admin) |
+| **Services → New service** (see "Staying safe" step 2). Under **Positions needed**, put 1 Tester | The service opens on **Order of service** | It was created as repeating (check **How often**) | You (admin) |
 | **Order of service** tab: add a few items, or start from a template | Items save and can be reordered | Items disappear on reload | You (admin) |
 | Back on **Services**, switch **Month** / **List** | The test service shows on its date | It shows on the wrong day or campus | You (admin) |
 
@@ -190,7 +190,7 @@ first, and use the name "Test – please ignore".
 
 | Do | Expect | Problem if | Account |
 |---|---|---|---|
-| In the app (`/app/`), the **Connect** tab (or More, or the "I'm new here" button), fill in a card with a prayer line | "Thank you, …!" | An error | Phone |
+| In the app (`/app/`), the **I'm new here** button on the app Home, fill in a card with a prayer line | "Thank you, …!" | An error | Phone |
 | **Connect cards → To follow up** | The card is there with the message | Missing | You (admin) |
 | A leader opens Connect cards | They see the card but **not** the prayer message | They can read the message | Needs another role |
 | **Followed up**, then delete it (bin icon) | It leaves the list | | You (admin) |
@@ -293,7 +293,7 @@ A short checklist for the owner. Do it the day before, then again 15 minutes ahe
 
 **2. Test team and test service (see [section a](#a-how-youll-test))**
 - [ ] A team named "TEST – please ignore" with only you on it, and a service dated this week with only
-  that team, set to **Does not repeat**.
+  that team, set to **How often: One time**.
 - [ ] You're scheduled and a request has been sent, so **Please reply** shows on your phone.
 - [ ] Tell staff in advance. Everything you send in the demo reaches **real people** if the test team
   has anyone else on it.

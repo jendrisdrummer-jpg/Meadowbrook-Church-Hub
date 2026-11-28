@@ -413,8 +413,8 @@ function connect(el, tab) {
       <label class="field">First name<input type="text" name="first_name" required autocomplete="given-name"></label>
       <label class="field">Last name<input type="text" name="last_name" autocomplete="family-name"></label>
       <label class="field">Email<input type="email" name="email" autocomplete="email"></label>
-      <label class="field">Phone<input type="tel" name="phone" autocomplete="tel" required></label>
-      ${camps.length > 1 ? html`<label class="field wide">Campus<select name="campus_id"><option value="">Choose a campus…</option>${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
+      <label class="field">Phone (required)<input type="tel" name="phone" autocomplete="tel" required></label>
+      ${camps.length > 1 ? html`<label class="field wide">Campus (required)<select name="campus_id"><option value="">Choose a campus…</option>${camps.map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label>` : ''}
     </div>
     <label class="check"><input type="checkbox" name="first_time"> This is my first time here</label>
     ${c.interests.length ? html`<p style="margin:14px 0 0"><b>I’m interested in…</b></p><div class="checks">${c.interests.map((x) => html`<label class="check"><input type="checkbox" name="interest" value="${x}"> ${x}</label>`)}</div>` : ''}

@@ -116,6 +116,8 @@ Recording never makes a check-in or check-out fail or roll back: an oversized ev
 
 | Route | Behaviour |
 |---|---|
+| `GET /finance/people?q=` | `requireFinance` (Finance flag, even for admins; 401/403 otherwise). The person search behind the giving pickers (`pickPerson(…, { endpoint })` in `lib.js`), so a volunteer with Finance doesn’t need leader access to `/people`. Needs 2+ letters (fewer returns `{rows: []}`); matches name, nickname or email with `%` and `_` escaped; active people only; at most 20; each row is only `id, first_name, last_name, nickname, email`. Not campus-limited, matching the other `/finance/*` routes (gifts, batches and donors span campuses). |
+| `GET /finance/statements/:key` | The page’s “Issued” date is written out (“November 28, 2026”). |
 | `GET /finance/gifts.csv` | Holds **every** gift in the range (no row limit); `GET /finance/gifts` (the on-screen list) still stops at 2,000. The `finance.export` audit detail is `{from, to, rows}`. |
 | `DELETE /services/:id` | 409 “This service has already happened, so it can’t be deleted. Its attendance and history are kept.” once the service has started, judged on its campus's clock (`campusNow` in `server/http.js`; `createApp({ now })` injects the clock in tests). |
 | `DELETE /series/:id?from=` | Only services that haven't started are removed. A `from` in the past (or none) is **moved up to today** on the campus clock instead of refused, and the response is `{removed, from}` with the date actually used; `ends_on` is set to the day before it. A service today that has already started stays. |

@@ -11,6 +11,8 @@ import { sendMail, canSendMail } from '../mail.js';
 const money = (c) => `$${((c || 0) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const name = (p) => (p?.first_name ? `${p.nickname || p.first_name} ${p.last_name || ''}`.trim() : '');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const longDate = (iso) => { const [y, m, d] = String(iso).split('-').map(Number); return MONTHS[m - 1] ? `${MONTHS[m - 1]} ${d}, ${y}` : String(iso); };
 const METHODS = ['cash', 'check', 'other'];
 export const STATEMENT_DEFAULTS = { org: '', address: '', ein: '', signer: '', note: 'Thank you for your faithful generosity. No goods or services were provided in exchange for these contributions.' };
 
@@ -42,6 +44,20 @@ export default function financeRoutes(db) {
       };
     });
   }
+
+  // Person search for the giving pickers. /people needs leader, so a volunteer with the Finance flag
+  // gets this slimmer one instead: names and email only, active people, 20 at most. Finance isn't
+  // campus-limited today (gifts, batches and donors span every campus), so neither is this.
+  r.get('/finance/people', requireFinance, (req, res) => {
+    const q = str(req.query.q, 100).toLowerCase();
+    if (q.length < 2) return res.json({ rows: [] });
+    // % and _ in what was typed are ordinary characters, not wildcards.
+    const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+    const rows = db.prepare(`SELECT id, first_name, last_name, nickname, email FROM people
+      WHERE archived = 0 AND (lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\\' OR lower(nickname || ' ' || last_name) LIKE ? ESCAPE '\\' OR lower(email) LIKE ? ESCAPE '\\')
+      ORDER BY last_name, first_name LIMIT 20`).all(like, like, like);
+    res.json({ rows });
+  });
 
   // A batch: the gifts counted together (e.g. Sunday 9am offering), all on one date.
   r.get('/finance/batches', requireFinance, (req, res) => {
@@ -133,7 +149,7 @@ export default function financeRoutes(db) {
     const body = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1d2433;max-width:680px;margin:0 auto;padding:24px;font-size:14px;line-height:1.45">
       <table style="width:100%;border-collapse:collapse"><tr><td style="vertical-align:top"><div style="font-size:20px;font-weight:bold">${esc(i.org)}</div>
         <div style="white-space:pre-line;color:#555">${esc(i.address)}</div>${i.ein ? `<div style="color:#555">EIN ${esc(i.ein)}</div>` : ''}</td>
-        <td style="text-align:right;vertical-align:top"><div style="font-size:18px;font-weight:bold">${esc(year)} Giving Statement</div><div style="color:#555">Issued ${esc(today())}</div></td></tr></table>
+        <td style="text-align:right;vertical-align:top"><div style="font-size:18px;font-weight:bold">${esc(year)} Giving Statement</div><div style="color:#555">Issued ${esc(longDate(today()))}</div></td></tr></table>
       <div style="margin:22px 0"><b>${esc(d.name)}</b>${d.address ? `<br><span style="color:#555">${esc(d.address)}</span>` : ''}</div>
       <p>Thank you for your gifts to ${esc(i.org)} in ${esc(year)}. Your total contributions were <b>${money(total)}</b>.</p>
       <table style="width:100%;border-collapse:collapse;margin:12px 0">${[...byFund].map(([f, c]) => `<tr><td style="padding:4px 0">${esc(f)}</td><td style="text-align:right">${money(c)}</td></tr>`).join('')}
