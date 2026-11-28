@@ -668,6 +668,8 @@ test('sending requests: drafts, one notice per person, email reply links, remova
   const n = outbox.length;
   await api('admin', 'DELETE', `/assignments/${other.id}`);
   assert.match(outbox.at(-1).subject, /Schedule change/);
+  assert.match(JSON.stringify(outbox.at(-1)), /We’ve found cover for .*\. Thank you for being willing\./);
+  assert.doesNotMatch(JSON.stringify(outbox.at(-1)), /no longer needed/i);
   assert.equal(outbox.length, n + 1);
   await api('admin', 'POST', `/services/${s2.id}/assignments`, { position_id: door.id, person_id: pat.id });
   const draft = db.prepare('SELECT id FROM assignments WHERE person_id = ? AND service_id = ? AND position_id = ?').get(pat.id, s2.id, door.id);
