@@ -134,7 +134,7 @@ export default function peopleRoutes(db, { uploadDir }) {
   // The account linked to a person, as shown on their page. For an admin it says whether they may
   // change it (`editable`): a campus-limited admin can't touch their own, an admin's or another campus's.
   function accountFor(req, personId) {
-    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.app_editor, u.person_id,
+    const u = db.prepare(`SELECT u.id, u.role, u.email, u.active, u.last_login, u.campus_ids, u.role_auto, u.finance, u.announce, u.attendance, u.app_editor, u.studies, u.person_id,
         u.password_hash IS NOT NULL has_password, p.campus_id person_campus_id FROM users u LEFT JOIN people p ON p.id = u.person_id WHERE u.person_id = ?`).get(personId);
     if (!u) return null;
     const { person_id: _p, person_campus_id: campusId, ...account } = u;
@@ -305,6 +305,22 @@ export default function peopleRoutes(db, { uploadDir }) {
       db.prepare('DELETE FROM group_members WHERE person_id = ?').run(dup.id);
       db.prepare('UPDATE OR IGNORE serving_campuses SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
       db.prepare('DELETE FROM serving_campuses WHERE person_id = ?').run(dup.id);
+      // Bible studies: who teaches or studies, finished studies and requests all move to the kept person.
+      // A study both of them were in keeps the kept person's row (the duplicate's is dropped).
+      // Where the duplicate was active and the kept person had left, they are back, in the duplicate's role.
+      db.prepare(`UPDATE study_people SET removed_at = NULL,
+          role = (SELECT d.role FROM study_people d WHERE d.study_id = study_people.study_id AND d.person_id = ?),
+          share_contact = (SELECT d.share_contact FROM study_people d WHERE d.study_id = study_people.study_id AND d.person_id = ?)
+        WHERE person_id = ? AND removed_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM study_people d WHERE d.study_id = study_people.study_id AND d.person_id = ? AND d.removed_at IS NULL)`).run(dup.id, dup.id, keep.id, dup.id);
+      db.prepare('UPDATE OR IGNORE study_people SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('DELETE FROM study_people WHERE person_id = ?').run(dup.id);
+      db.prepare('UPDATE OR IGNORE study_completions SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      db.prepare('UPDATE study_requests SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);
+      // One waiting request per person: keep the oldest, close the rest as duplicates.
+      db.prepare("UPDATE study_requests SET status = 'closed', close_reason = 'duplicate', handled_at = datetime('now') WHERE person_id = ? AND status = 'waiting' AND id NOT IN (SELECT MIN(id) FROM study_requests WHERE person_id = ? AND status = 'waiting')").run(keep.id, keep.id);
+      db.prepare(`UPDATE study_completions SET teacher_ids = (SELECT json_group_array(DISTINCT CASE WHEN value = ? THEN ? ELSE value END) FROM json_each(teacher_ids))
+        WHERE EXISTS (SELECT 1 FROM json_each(study_completions.teacher_ids) WHERE value = ?)`).run(dup.id, keep.id, dup.id);
       db.prepare('DELETE FROM assignments WHERE person_id = ?').run(dup.id);
       movedUsers.push(...db.prepare('SELECT id FROM users WHERE person_id = ?').all(dup.id).map((u) => u.id));
       db.prepare('UPDATE users SET person_id = ? WHERE person_id = ?').run(keep.id, dup.id);

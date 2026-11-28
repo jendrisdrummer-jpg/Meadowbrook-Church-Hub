@@ -18,6 +18,8 @@ const NAV = [
     { path: '/people', label: 'People', icon: 'people', min: 'leader', mobile: true },
     { path: '/teams', label: 'Teams', icon: 'teams', min: 'leader' },
     { path: '/groups', label: 'Groups', icon: 'groups', min: 'volunteer' },
+    // Coordinators (the Bible studies switch) and staff. The server checks the same rule on every request.
+    { path: '/studies', label: 'Bible studies', icon: 'book', min: 'volunteer', studies: true },
   ] },
   { group: 'Services', items: [
     { path: '/services', label: 'Services', icon: 'calendar', min: 'volunteer' },
@@ -74,6 +76,7 @@ const ROUTES = [
   [/^\/teams\/(\d+)$/, 'team'],
   [/^\/groups$/, 'groups'],
   [/^\/groups\/(\d+)$/, 'group'],
+  [/^\/studies$/, 'studies'],
   [/^\/services$/, 'services'],
   [/^\/services\/(\d+)$/, 'service'],
   [/^\/schedule$/, 'schedule'],
@@ -236,7 +239,7 @@ document.addEventListener('click', (e) => {
 // The pages this account can open. Finance pages are for accounts with the Finance permission,
 // whatever their role; Announcements and Edit the app (App Builder) likewise.
 const searchPages = () => [...visibleNav().flatMap((g) => g.items), ...HELP_LINKS.filter((n) => can(n.min))];
-const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.attendanceOnly || (state.me.attendance && !can('leader')))) })).filter((g) => g.items.length);
+const visibleNav = () => NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(n.min) && (!n.finance || state.me.finance) && (!n.announce || state.me.announce) && (!n.appEditor || state.me.appEditor) && (!n.attendanceOnly || (state.me.attendance && !can('leader'))) && (!n.studies || state.me.studies || can('staff'))) })).filter((g) => g.items.length);
 
 function drawChrome() {
   const groups = visibleNav();
@@ -361,7 +364,7 @@ document.addEventListener('click', (e) => {
 
 // Pages whose forms must not open by URL for people the server would refuse anyway (the server guards
 // hold; this just shows the normal refusal instead of a form or an error).
-const PAGE_RULES = { 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
+const PAGE_RULES = { studies: (me) => me.studies || can('staff'), 'take-attendance': (me) => me.attendance || can('leader'), giving: (me) => me.finance, settings: () => can('admin'), appbuilder: (me) => me.appEditor, announcements: (me) => me.announce || can('admin') };
 
 let renderSeq = 0;
 async function route() {

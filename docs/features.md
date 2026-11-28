@@ -61,6 +61,12 @@ Replaces: **FT** Faith Teams · **SS** Subsplash · **GC** Google Chat.
 | Child-safety V1 (unique pickup codes, custody alerts, full audit) | Partial: the plan is written; these requirements are not built ([plans/child-safety](plans/child-safety/README.md)) | | |
 | Check-in iPads (stations) paired with a code | Needs more testing (pairing a real iPad not tried) | `routes/stations.js` | `pages/stations.js` |
 
+## Bible studies
+| Feature | Status | Server | Hub / app |
+|---|---|---|---|
+| Bible studies (personal studies, mostly one-on-one, with a teacher, one or more students and an approved material): an admin switches on the **Bible studies coordinator** flag (Settings → Accounts, or the person's access dialog); coordinators and staff see the **Bible studies** page with tiles (active, paused, finished this year, waiting for a match) and tabs Waiting, Studies (status and campus filters, grouped by teacher or material, Download CSV), Teachers and Materials (completions per material by year). Studies are church-wide (campus optional, for reporting) and every lesson number is optional ("Lesson 3 of 8", "6 sessions" or "Active since March"). A study needs a teacher and a student; a teacher with no account is allowed and the coordinator is prompted to invite them. Teachers with an account update only their own study and mark their students finished; a coordinator can undo a finish (soft, audited). A student's phone and email reach their teacher only if they ticked "share my contact details with my teacher". Short coordinator-only note (280 characters). People page: a Bible studies card (studying now, completed, taught) with "Add a completed study". Admins can import past completions from a CSV with a preview (People id or exact unique email only, never creates people) | Needs more testing | `routes/studies.js`, `auth.js` (`canStudies`, `requireStudies`), `routes/setup.js`, `routes/people.js` (merge), `db.js` (41) | `pages/studies.js`, `studies-card.js`, `pages/person.js`, `pages/settings.js`, `app.js` |
+| Ask for a Bible study (member app, API only so far): `POST /me/study-request` (one-on-one or small group, an optional material or topic, good times, contact consent; one waiting request at a time) tells every coordinator in-app and by email without a name; `GET /me/studies` lists a person's studies as a student and as a teacher with progress and what they finished. The app screens come in a later release | Built (API); app screens not built | `routes/studies.js`, `notify.js` | (none yet) |
+
 ## Communication (GC, SS)
 | Feature | Status | Server | Hub / app |
 |---|---|---|---|
@@ -122,7 +128,7 @@ YouTube-first. Videos come into the app on their own (no approval inbox); staff 
 | Demo data (made-up people, for developers; refuses to run on Render or over real data) | Verified | `scripts/seed-demo.js` | `npm run demo` |
 
 ## Not built yet (see [roadmap.md](roadmap.md))
-Discipleship (growth pathway, mentors) · Small-group meetings with attendance, finder and join
+Bible studies in the member app (the request form and My Bible studies screens) · Discipleship (growth pathway, mentors) · Small-group meetings with attendance, finder and join
 requests · Classes/training with watch-to-the-end and quizzes · Member directory and member tier ·
 Adult direct messages · Church-wide email · SMS · Attendance trends · Recurring availability ·
 Swaps · Public website · Website embed for the Watch library · Multi-church (SaaS).

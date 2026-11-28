@@ -36,21 +36,24 @@ const freePort = () => new Promise((resolve) => {
   const s = net.createServer().listen(0, () => { const { port } = s.address(); s.close(() => resolve(port)); });
 });
 
-const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/attendance', '/services', '/schedule', '/songs',
+const HUB = ['/', '/my', '/chat', '/tasks', '/help', '/people', '/teams', '/groups', '/studies', '/attendance', '/services', '/schedule', '/songs',
   '/events', '/templates', '/giving', '/media', '/media/setup', '/connect', '/forms', '/forms/new', '/forms/1', '/forms/1/responses', '/announcements', '/app-builder', '/stations', '/settings', '/settings/accounts', '/settings/checks'];
 const APP = ['/', '/serve', '/events', '/watch', '/give', '/more', '/help', '/tasks', '/chat', '/form/volunteer-interest'];
 // leader and finance are added to the throwaway database below; the others come from the demo seed.
 const ACCOUNTS = [['admin', 'pastor@meadowbrook.church'], ['staff', 'south@meadowbrook.church'], ['volunteer', 'volunteer@meadowbrook.church'],
-  ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church']];
+  ['leader', 'leader@meadowbrook.church'], ['finance', 'finance@meadowbrook.church'], ['coordinator', 'coordinator@meadowbrook.church']];
 // The sidebar each role should see, in order (the demo admin has the announce flag). Rules: min role per item, Giving needs the Finance flag, Announcements the announce flag.
 const EVERYDAY = ['Home', 'My schedule', 'Chat', 'Tasks'];
 const NAV_WANT = {
   volunteer: [...EVERYDAY, 'Groups', 'Services'],
   finance: [...EVERYDAY, 'Groups', 'Services', 'Giving'],
+  // A volunteer-level account with the Bible studies coordinator switch: the page, and nothing else extra.
+  coordinator: [...EVERYDAY, 'Groups', 'Bible studies', 'Services'],
   leader: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Connect cards', 'Kids Check-in'],
-  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
-  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
+  staff: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Bible studies', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Forms', 'Connect cards', 'Media', 'Kids Check-in', 'Check-in iPads'],
+  admin: [...EVERYDAY, 'People', 'Teams', 'Groups', 'Bible studies', 'Services', 'Attendance', 'Volunteer schedule', 'Songs', 'Templates', 'Events', 'Announcements', 'Forms', 'Connect cards', 'Media', 'App Builder', 'Kids Check-in', 'Check-in iPads', 'Settings'],
 };
+let smokeStudyPerson = 0; // a teacher with studies, to open their page
 const SIZES = [['desktop', { width: 1360, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]];
 
 async function main() {
@@ -67,6 +70,22 @@ async function main() {
     const db = new DatabaseSync(env.MB_DB);
     db.prepare("INSERT INTO users (email, role) VALUES ('leader@meadowbrook.church', 'leader')").run();
     db.prepare("INSERT INTO users (email, role, finance) VALUES ('finance@meadowbrook.church', 'volunteer', 1)").run();
+    db.prepare("INSERT INTO users (email, role, studies) VALUES ('coordinator@meadowbrook.church', 'volunteer', 1)").run();
+    // A little Bible studies data, so the page and the person card are checked with real rows.
+    const ppl = db.prepare('SELECT id FROM people WHERE archived = 0 ORDER BY id LIMIT 6').all().map((r) => r.id);
+    // People with no campus are open to campus staff too, so every account that may see the page can open their cards.
+    db.prepare(`UPDATE people SET campus_id = NULL WHERE id IN (${ppl.join(',')})`).run();
+    const mat = (t, a, n) => Number(db.prepare('INSERT INTO study_materials (title, author, lessons) VALUES (?, ?, ?)').run(t, a, n).lastInsertRowid);
+    const foundations = mat('Foundations', 'A. Writer', 8);
+    const john = mat('The Gospel of John', '', null);
+    const study = (m, rhythm, lesson) => Number(db.prepare("INSERT INTO studies (material_id, started_on, rhythm, lesson, coordinator_note) VALUES (?, '2026-03-03', ?, ?, 'Prefers mornings')").run(m, rhythm, lesson).lastInsertRowid);
+    const s1 = study(foundations, 'Tuesdays, coffee shop', 3);
+    const s2 = study(john, '', null);
+    const link = (s, p, role, share = 0) => db.prepare('INSERT INTO study_people (study_id, person_id, role, share_contact) VALUES (?, ?, ?, ?)').run(s, p, role, share);
+    link(s1, ppl[0], 'teacher'); link(s1, ppl[1], 'student', 1); link(s2, ppl[0], 'teacher'); link(s2, ppl[2], 'student'); link(s2, ppl[3], 'student');
+    db.prepare("INSERT INTO study_completions (person_id, material_id, material_title, teacher_names, teacher_ids, completed_on, source) VALUES (?, ?, 'Foundations', 'A past teacher', ?, '2025-11-02', 'profile')").run(ppl[1], foundations, JSON.stringify([ppl[0]]));
+    db.prepare("INSERT INTO study_requests (person_id, format, topic, times, share_contact) VALUES (?, 'one_on_one', ?, 'Weekday evenings', 1)").run(ppl[4], `Prayer and the life of a disciple ${'with very long words like supercalifragilisticexpialidocious '.repeat(3)}`.slice(0, 200));
+    smokeStudyPerson = ppl[0];
     // A paired check-in iPad, so the Stations page is checked with a real row (its table once ran off phones).
     db.prepare("INSERT INTO checkin_devices (name, campus_id, token_hash, device) VALUES ('Kids hallway iPad', (SELECT MIN(id) FROM campuses), 'ui-smoke-token-hash', 'iPad (10th generation)')").run();
     db.close();
@@ -144,6 +163,46 @@ async function main() {
             if (await tag.isVisible()) problems.push('"… only" label still showing for all campuses');
           }
           results.push({ area: 'hub', page: '/ (sidebar menu)', who, size, ok: !problems.length, problems, screenshot: '' });
+        }
+        // The Bible studies page: tiles and tabs for coordinators and staff, and the card on a teacher's page.
+        if (['admin', 'staff', 'coordinator'].includes(who) && only !== 'app') {
+          problems = [];
+          await page.goto(`${base}/#/studies`);
+          await page.waitForSelector('.stats .stat', { timeout: 4000 }).catch(() => problems.push('Bible studies tiles did not appear'));
+          const tiles = await page.$$eval('.stats .stat span', (s) => s.map((x) => x.textContent.trim()));
+          if (tiles.join('|') !== 'Active studies|Paused|Finished this year|Waiting for a match') problems.push(`tiles show [${tiles.join(', ')}]`);
+          const tabs = await page.$$eval('[role=tab]', (s) => s.map((x) => x.textContent.trim().replace(/\s+\d+$/, '')));
+          if (tabs.join('|') !== 'Waiting|Studies|Teachers|Materials|People') problems.push(`tabs show [${tabs.join(', ')}]`);
+          await page.click('[data-tab=waiting]');
+          await page.waitForSelector('[data-start]', { timeout: 3000 }).catch(() => problems.push('The waiting request did not show'));
+          // A 200-character topic must wrap, not push the page sideways.
+          const over = await page.evaluate((vw) => document.documentElement.scrollWidth - vw, viewport.width);
+          if (size === 'phone' && over > 2) problems.push(`The Waiting tab scrolls sideways by ${over}px on a phone`);
+          await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-waiting.png`), fullPage: true });
+          await page.click('[data-tab=materials]');
+          await page.waitForSelector('[data-add-material]', { timeout: 3000 }).catch(() => problems.push('The materials tab did not open'));
+          await page.click('[data-tab=studies]');
+          await page.waitForSelector('[data-study]', { timeout: 3000 }).catch(() => problems.push('No studies listed'));
+          await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-list.png`), fullPage: true });
+          await page.click('[data-study]');
+          await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => problems.push('A study did not open'));
+          await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-detail.png`) });
+          await page.keyboard.press('Escape');
+          // People view: find someone by name and get their card, with the Add button, without opening People.
+          await page.click('[data-tab=people]');
+          await page.fill('[data-q]', 'And');
+          await page.waitForSelector('[data-list] button[data-i]', { timeout: 3000 }).catch(() => problems.push('People search found no one'));
+          await page.click('[data-list] button[data-i]').catch(() => {});
+          await page.waitForSelector('[data-card] [data-add-done]', { timeout: 3000 }).catch(() => problems.push('The People view did not show a card with Add a completed study'));
+          const overP = await page.evaluate((vw) => document.documentElement.scrollWidth - vw, viewport.width);
+          if (size === 'phone' && overP > 2) problems.push(`The People view scrolls sideways by ${overP}px on a phone`);
+          await page.screenshot({ path: path.join(out, `hub-${who}-${size}-studies-people.png`), fullPage: true });
+          if (who !== 'coordinator') {
+            await page.goto(`${base}/#/people/${smokeStudyPerson}`);
+            await page.waitForSelector('[data-studies] .card', { timeout: 4000 }).catch(() => problems.push('The Bible studies card did not appear on the person page'));
+            await page.screenshot({ path: path.join(out, `hub-${who}-${size}-person-studies-card.png`), fullPage: true });
+          }
+          results.push({ area: 'hub', page: '/studies (tiles, tabs, a study, the person card)', who, size, ok: !problems.length, problems, screenshot: `hub-${who}-${size}-studies-list.png` });
         }
         // The forms editor's Save lives in the page header; once it silently did nothing. Click it for real.
         if (who === 'admin' && only !== 'app') {

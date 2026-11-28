@@ -40,11 +40,12 @@ import financeRoutes from './routes/finance.js';
 import feedbackRoutes from './routes/feedback.js';
 import formRoutes from './routes/forms.js';
 import meRoutes from './routes/me.js';
+import studyRoutes from './routes/studies.js';
 import { sendReminders } from './notify.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS || path.join(root, 'data', 'uploads') } = {}) {
+export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS || path.join(root, 'data', 'uploads'), now } = {}) {
   const app = express();
   app.disable('x-powered-by');
   // Behind a cloud load balancer / tunnel, trust its X-Forwarded-Proto so cookies are marked Secure.
@@ -101,6 +102,7 @@ export function createApp({ db = openDb(), uploadDir = process.env.MB_UPLOADS ||
   api.use(financeRoutes(db));
   api.use(feedbackRoutes(db));
   api.use(formRoutes(db));
+  api.use(studyRoutes(db, { now }));
   api.use(meRoutes(db));
   api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
   app.use('/api', api);

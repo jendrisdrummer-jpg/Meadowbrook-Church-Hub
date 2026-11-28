@@ -80,6 +80,7 @@ function toUser(row) {
     photo: row.photo || null,
     finance: Boolean(row.finance),
     attendance: Boolean(row.attendance),
+    studies: Boolean(row.studies),
     announce: Boolean(row.announce) || row.role === 'admin',
     appEditor: Boolean(row.app_editor) || row.role === 'admin',
     homeLayout: parseLayout(row.home_layout),
@@ -129,6 +130,17 @@ export function requireAttendance(req, res, next) {
   if (!canTakeAttendance(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
   next();
 }
+// Bible studies: staff and admins, plus any account an admin gave the Bible studies coordinator switch
+// (users.studies), whatever its role. Leaders and volunteers get nothing extra. Studies belong to the
+// whole church, so the switch is not campus-limited; lists still follow campusFilter on a study's
+// optional campus (a study with no campus is open to everyone who passes this guard). Teachers and
+// students reach only their own studies, by their linked person, inside the routes themselves.
+export const canStudies = (user) => Boolean(user) && (rank(user.role) >= rank('staff') || Boolean(user.studies));
+export function requireStudies(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+  if (!canStudies(req.user)) return res.status(403).json({ error: 'You don’t have access to that.' });
+  next();
+}
 // Is this campus one the account may take attendance at? Leaders: as canCampus. A switch-only
 // account must have a campus list when the church has more than one campus (the account dialog
 // requires one); with no list on a multi-campus church it fails closed rather than meaning "all".
@@ -161,8 +173,8 @@ export function requireAllCampuses(req, res, next) {
 export function accountInReach(user, t) {
   if (!user.campusIds) return true;
   if (t.id === user.id || t.role === 'admin') return false;
-  // Finance and Announcements are church-wide, so accounts holding them are for unrestricted admins.
-  if (t.finance || t.announce || t.app_editor) return false;
+  // Finance, Announcements, Edit the app and Bible studies are church-wide, so accounts holding them are for unrestricted admins.
+  if (t.finance || t.announce || t.app_editor || t.studies) return false;
   // Volunteers: unlinked, or linked to someone at their campuses or with no campus yet (as canCampus treats
   // unassigned people); giving them more access still needs campus_ids inside the admin's campuses.
   // A volunteer's own campus list, if set (e.g. staff who stepped down), must also sit inside theirs.

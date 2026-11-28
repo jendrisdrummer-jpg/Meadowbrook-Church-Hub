@@ -1020,6 +1020,104 @@ const MIGRATIONS = [
   ALTER TABLE checkin_devices ADD COLUMN app_version TEXT NOT NULL DEFAULT '';
   ALTER TABLE checkin_devices ADD COLUMN app_version_at TEXT;
   `,
+  // 41: Bible studies. Personal studies (mostly one-on-one) are their own small module, not small
+  // groups. Studies belong to the whole church (campus_id is optional, for reporting only), and every
+  // lesson/progress number is optional. users.studies is the "Bible studies coordinator" flag, like
+  // attendance. study_completions outlives the study (snapshots, SET NULL) and is revoked softly.
+  // Additive only. (Number 41 is its place on milestone-1; renumber at merge if another migration lands first.)
+  `
+  CREATE TABLE study_materials (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    lessons INTEGER,                                -- number of lessons, optional
+    teacher_notes TEXT NOT NULL DEFAULT '',         -- shown to teachers
+    active INTEGER NOT NULL DEFAULT 1,              -- retired materials stay on history but can't start new studies
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE study_requests (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,   -- always the signed-in account's own person
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,         -- from the person; for reporting
+    format TEXT NOT NULL DEFAULT 'either' CHECK (format IN ('one_on_one', 'small_group', 'either')),
+    material_id INTEGER REFERENCES study_materials(id) ON DELETE SET NULL,
+    topic TEXT NOT NULL DEFAULT '',
+    times TEXT NOT NULL DEFAULT '',
+    share_contact INTEGER NOT NULL DEFAULT 0,       -- ok to share contact details with the teacher
+    status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'matched', 'closed')),
+    close_reason TEXT NOT NULL DEFAULT '',
+    study_id INTEGER REFERENCES studies(id) ON DELETE SET NULL,   -- the study it became
+    handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    handled_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX study_requests_status ON study_requests(status, created_at);
+  CREATE INDEX study_requests_person ON study_requests(person_id);
+  CREATE TABLE studies (
+    id INTEGER PRIMARY KEY,
+    material_id INTEGER REFERENCES study_materials(id) ON DELETE RESTRICT,   -- NULL until the teacher or coordinator picks one
+    campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL,            -- NULL = church-wide; reporting only
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'finished')),
+    started_on TEXT NOT NULL,
+    finished_on TEXT,
+    rhythm TEXT NOT NULL DEFAULT '',                -- free text, 120 max: "Tuesdays, coffee shop"
+    planned_lessons INTEGER,                        -- optional; falls back to the material's lesson count
+    lesson INTEGER,                                 -- optional: the lesson they are on
+    sessions INTEGER,                               -- optional: how many times they have met
+    coordinator_note TEXT NOT NULL DEFAULT '',      -- 280 max; coordinators and staff only
+    request_id INTEGER REFERENCES study_requests(id) ON DELETE SET NULL,
+    -- Groundwork for studies a teacher starts and reports without approval (member-app PR; nothing uses these yet):
+    source TEXT NOT NULL DEFAULT 'coordinator' CHECK (source IN ('coordinator', 'self')),
+    reviewed_at TEXT,                               -- when a coordinator looked at a 'self' study
+    material_text TEXT NOT NULL DEFAULT '',         -- a material typed in by a teacher, until a coordinator approves it into the list
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX studies_status ON studies(status);
+  CREATE INDEX studies_material ON studies(material_id);
+  CREATE TABLE study_people (
+    study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('teacher', 'student')),
+    share_contact INTEGER NOT NULL DEFAULT 0,       -- students only: ok to show their phone and email to the teachers
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    removed_at TEXT,                                -- leaving is soft, so "taught" history stays
+    PRIMARY KEY (study_id, person_id)
+  );
+  CREATE INDEX study_people_person ON study_people(person_id);
+  CREATE TABLE study_pending_people (
+    id INTEGER PRIMARY KEY,
+    study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,                     -- a student listed by name only, not yet linked to a person in People
+    role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('teacher', 'student')),
+    share_contact INTEGER NOT NULL DEFAULT 0,
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,   -- set when a coordinator links them
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX study_pending_study ON study_pending_people(study_id);
+  CREATE TABLE study_completions (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    material_id INTEGER NOT NULL REFERENCES study_materials(id) ON DELETE RESTRICT,
+    study_id INTEGER REFERENCES studies(id) ON DELETE SET NULL,   -- NULL for history added by hand or imported
+    material_title TEXT NOT NULL DEFAULT '',        -- snapshots, so it reads right after renames
+    teacher_names TEXT NOT NULL DEFAULT '',
+    teacher_ids TEXT NOT NULL DEFAULT '[]',         -- JSON array of people ids at completion
+    completed_on TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'teacher' CHECK (source IN ('teacher', 'coordinator', 'profile', 'import')),
+    by_user INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at TEXT,
+    revoked_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX study_completions_person ON study_completions(person_id, completed_on);
+  CREATE INDEX study_completions_material ON study_completions(material_id);
+  CREATE UNIQUE INDEX study_completions_once ON study_completions(study_id, person_id) WHERE study_id IS NOT NULL AND revoked_at IS NULL;
+  ALTER TABLE users ADD COLUMN studies INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

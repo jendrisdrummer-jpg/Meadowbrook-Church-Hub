@@ -7,7 +7,7 @@ import { vapidKeys, sendPush } from './push.js';
 import { seesTeamDetail } from './team-scope.js';
 import { sendMail, mailConfigured, canSendMail } from './mail.js';
 
-export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'form', 'chat', 'task', 'call', 'email', 'account'];
+export const KINDS = ['announcement', 'media', 'scheduled', 'reminder', 'declined', 'accepted', 'connect', 'form', 'chat', 'task', 'call', 'email', 'account', 'study'];
 // Notices that stay off until someone turns them on.
 export const OFF_BY_DEFAULT = new Set(['accepted']);
 
@@ -48,6 +48,32 @@ export function notify(db, userIds, msg) {
     if (subs.length) pushAll(db, subs, { ...msg, id });
   }
   return made;
+}
+
+// A new Bible study request: every coordinator hears, in the app and (unless they turned emails off) by
+// email. Push and email never carry a name; the request itself is in the Hub.
+export function notifyStudyRequest(db, userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return;
+  notify(db, ids, {
+    kind: 'study',
+    title: 'Someone would like a Bible study',
+    body: 'Open Bible studies in the Hub to see who is waiting.',
+    url: '/#/studies?tab=waiting',
+    app_url: hub('/#/studies?tab=waiting'),
+    tag: 'study-request',
+  });
+  if (!(mailConfigured() || canSendMail())) return;
+  const church = getSetting(db, 'church_name', 'Church');
+  for (const u of db.prepare(`SELECT id, email, notify FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids)) {
+    if (prefs(u).email === false || prefs(u).study === false) continue;
+    // At most one email per coordinator every 15 minutes (the in-app notice always arrives).
+    if (db.prepare("SELECT 1 FROM audit_log WHERE action = 'study.request_email' AND json_extract(detail, '$.to') = ? AND at > datetime('now', '-15 minutes')").get(u.id)) continue;
+    db.prepare("INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, 'study.request_email', ?)").run(JSON.stringify({ to: u.id }));
+    sendMail({ to: u.email, subject: 'A new Bible study request',
+      text: [`Hi,`, 'Someone would like to do a Bible study. Open Bible studies in the Hub to see who is waiting and find them a teacher:', hub('/#/studies?tab=waiting'), '', `${church}`].join('\n') })
+      .catch((e) => console.error(`Email to ${u.email} failed:`, e.message));
+  }
 }
 
 // A push only, with no inbox item: chat messages have their own unread counts.
