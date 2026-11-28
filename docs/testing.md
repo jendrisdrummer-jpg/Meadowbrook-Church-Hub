@@ -9,7 +9,7 @@ what was run, as whom, at what size, and what was seen. "Should work" is not a r
 
 | Layer | Tool | Command | What it covers |
 |---|---|---|---|
-| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test), `test/studies.test.js` (Bible studies, with a fixed clock) |
+| API end-to-end | `node:test`, in-memory SQLite, stand-in servers for Google/Stripe/Daily/YouTube/Mux | `npm test` | Every area's routes, permissions, workflows, background jobs called directly. `test/api.test.js`, `test/forms.test.js` (own app per test), `test/studies.test.js` (Bible studies, with a fixed clock), `test/audit-fixes.test.js` (the weekly audit's server fixes; the reply-link clock is injected through `createApp({ now })`), `test/migration-43-indexes.test.js` (`EXPLAIN QUERY PLAN` shows each slow lookup uses its index) |
 | Shared rules | `node:test` | `npm test` | Check-in room rules (`test/rules.test.js`), service worker (`test/sw.test.js`) |
 | Browser smoke / regression | Playwright (installed globally, not a project dependency) | `npm run test:ui` | Every main hub and member app page (including Help, `#/help`, in both) as admin, campus staff and volunteer, at desktop (1360px) and phone (390px): script errors, server errors, error screens, sideways scrolling, plus a screenshot of each. Report and screenshots in `data/ui-smoke/` (git-ignored) |
 | Workflow checks | Playwright scripts or by hand | — | The workflows below, for features that changed |

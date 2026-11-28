@@ -3,9 +3,9 @@
 // Email, family, status, campus and notes are the office's to change. Anything else goes through "Tell the office", which notifies staff.
 import { Router } from 'express';
 import { requireRole } from '../auth.js';
-import { HttpError, bad, str, required, audit } from '../http.js';
+import { HttpError, bad, str, required, audit, NOT_LINKED } from '../http.js';
 import { notify } from '../notify.js';
-import { personFields } from './people.js';
+import { personFields, digits } from './people.js';
 
 const EDITABLE = ['phone', 'birthdate'];
 // A teen's account can't change its own birthday: age decides kids' check-in rooms.
@@ -43,7 +43,7 @@ export default function meRoutes(db) {
 
   // The caller's own person record, never one named in the request.
   function mine(req) {
-    if (!req.user.personId) throw new HttpError(409, 'Your account isn’t connected to your record in the church directory yet. Please ask the office to link it.');
+    if (!req.user.personId) throw new HttpError(409, NOT_LINKED);
     const p = db.prepare('SELECT * FROM people WHERE id = ? AND archived = 0').get(req.user.personId);
     if (!p) throw new HttpError(409, 'We couldn’t find your record in the church directory. Please ask the office to take a look.');
     return p;
@@ -70,6 +70,8 @@ export default function meRoutes(db) {
     const allowed = editable(p);
     const extra = Object.keys(b).filter((k) => !allowed.includes(k));
     if (extra.length) throw bad('You can change your phone and birthday here. For anything else, use “Tell the office”.');
+    // Blank is fine (it clears the number); otherwise it needs enough digits to be a phone number.
+    if (b.phone && digits(b.phone).length < 7) throw bad('That phone number doesn’t look right. For example: 555-123-4567.');
     const f = personFields(b, true);
     const changed = allowed.filter((k) => f[k] !== undefined && (f[k] ?? '') !== (p[k] ?? ''));
     if (changed.length) {

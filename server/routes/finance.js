@@ -16,7 +16,12 @@ export const STATEMENT_DEFAULTS = { org: '', address: '', ein: '', signer: '', n
 
 export default function financeRoutes(db) {
   const r = Router();
-  const cents = (v) => Math.round(Number(String(v ?? '').replace(/[$,\s]/g, '')) * 100);
+  // Dollars to cents. Only a plain decimal counts ("25", "25.50", "$1,200"); "1e3" and the like are NaN.
+  const cents = (v) => {
+    const t = String(v ?? '').replace(/[$,\s]/g, '');
+    return /^(\d+\.?\d*|\.\d+)$/.test(t) ? Math.round(Number(t) * 100) : NaN;
+  };
+  const MAX_GIFT_CENTS = 100_000_000 - 1; // a single gift is under $1,000,000
   const today = () => localNow(db.prepare('SELECT timezone FROM campuses ORDER BY sort, id LIMIT 1').get()?.timezone || 'UTC').date;
   const info = () => ({ ...STATEMENT_DEFAULTS, org: getSetting(db, 'church_name', ''), ...getSetting(db, 'statement_info', {}) });
 
@@ -26,6 +31,7 @@ export default function financeRoutes(db) {
     return list.slice(0, 500).map((g, i) => {
       const amount = cents(g.amount);
       if (!Number.isFinite(amount) || amount <= 0) throw bad(`Line ${i + 1}: enter an amount.`);
+      if (amount > MAX_GIFT_CENTS) throw bad(`Line ${i + 1}: That amount looks too large. Please check it.`);
       const fund = db.prepare('SELECT id FROM funds WHERE id = ?').get(int(g.fund_id, 'fund'));
       if (!fund) throw bad(`Line ${i + 1}: pick a fund.`);
       const person = g.person_id ? db.prepare('SELECT id, first_name, last_name, nickname, email, campus_id FROM people WHERE id = ?').get(int(g.person_id)) : null;
@@ -81,6 +87,7 @@ export default function financeRoutes(db) {
   });
   r.delete('/finance/batches/:id', requireFinance, (req, res) => {
     const id = int(req.params.id);
+    if (!db.prepare('SELECT 1 FROM gift_batches WHERE id = ?').get(id)) throw notFound('Batch');
     db.prepare('DELETE FROM gift_batches WHERE id = ?').run(id);
     audit(db, req, 'finance.batch.delete', { id });
     res.json({ ok: true });
