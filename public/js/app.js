@@ -383,7 +383,9 @@ async function route() {
   const [m, page] = hit;
   if (PAGE_RULES[page] && !PAGE_RULES[page](state.me)) {
     setTitle('No access');
-    mount(content, html`<div class="empty">You don’t have access to this page. If you think you should, ask an admin.</div>`);
+    mount(content, page === 'giving'
+      ? html`<div class="empty">${can('admin') ? 'Giving is private. It needs the Finance switch on your account (Settings → Sign-in & accounts). Admins don’t get it automatically.' : 'Giving is private. It needs the Finance switch on your account. Ask an admin if you think you should have it.'}</div>`
+      : html`<div class="empty">You don’t have access to this page. If you think you should, ask an admin.</div>`);
     return;
   }
   try {

@@ -29,6 +29,12 @@ const RELOAD_MESSAGE = 'This iPad needs the latest check-in. Close the app and o
 const state = { needsReload: false, station: store.get(KEY.station, null), token: store.get(KEY.token, null), roster: null, mode: 'in', online: navigator.onLine, authed: true, campuses: [] };
 const $main = document.querySelector('[data-main]');
 
+// Someone without check-in access sees the reason, and none of the Check in / Check out / Rooms tabs.
+function showDenied(message) {
+  document.querySelector('[data-modes]').hidden = true;
+  mount($main, html`<div class="alert bad">${message}</div>`);
+}
+
 async function call(method, url, body) {
   const headers = { 'x-mb': '1', 'content-type': 'application/json', 'x-checkin-version': String(CHECKIN_APP_VERSION) };
   if (state.token) headers['x-station'] = state.token;
@@ -69,7 +75,7 @@ async function boot() {
   if (!state.station) { await setup(); return; }
   state.roster = store.get(KEY.roster(state.station.campusId), null);
   await refreshRoster();
-  if (state.denied) { mount($main, html`<div class="alert bad">${state.denied}</div>`); return; }
+  if (state.denied) { showDenied(state.denied); return; }
   if (!state.roster && state.needsReload) { mount($main, html`<div class="alert bad">${RELOAD_MESSAGE}</div>`); return; }
   if (!state.roster) { mount($main, html`<div class="alert bad">This station has no family list yet. Connect to the internet and reload.</div>`); return; }
   drawHeader();
@@ -164,8 +170,13 @@ async function setup() {
   }
   // Only campuses this account can use; someone without check-in access hears so before the form.
   let allowed = state.campuses;
+  // A volunteer can never check in kids, so say so without asking the server (which would log a 403).
+  try {
+    const me = await call('GET', '/me');
+    if (me.role === 'volunteer') { showDenied('Kids’ check-in is for staff and people an admin has authorised. Ask an admin if you need it.'); return; }
+  } catch { /* fall through; the server still decides */ }
   try { allowed = await call('GET', '/checkin/campuses'); } catch (e) {
-    if (e.status === 403) { mount($main, html`<div class="alert bad">${e.message}</div>`); return; }
+    if (e.status === 403) { showDenied(e.message); return; }
   }
   const camps = allowed.filter((c) => c.active);
   if (!camps.length) { mount($main, html`<div class="alert bad">Sign in, and make sure at least one campus is set up in Settings.</div>`); return; }

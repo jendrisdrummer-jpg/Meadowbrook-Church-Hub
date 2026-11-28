@@ -22,7 +22,12 @@ Where data lives: [database.md](database.md#sensitive-data).
    signed webhooks.
 8. **No destructive data operations without the owner's approval and a fresh backup.**
 9. **Security controls are never weakened to make something work.** Find another way or ask.
-10. `MB_DEV_LOGIN` must never be set in production.
+10. `MB_DEV_LOGIN` must never be set in production. The server enforces it: test sign-in (`/auth/dev`,
+    the first-admin shortcut, the dev option on the sign-in page, mail printing) needs
+    `MB_DEV_LOGIN=1` **and** neither `RENDER` nor `NODE_ENV=production`, so a leftover flag on a live
+    server does nothing. Startup logs one loud warning when it is set but refused, and Settings →
+    Checks still asks you to remove it (`server/devlogin.js`, same rule as the demo seed guard in
+    `sample.js`).
 
 ## What exists today
 

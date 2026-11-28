@@ -562,6 +562,13 @@ export default function serviceRoutes(db) {
   r.post('/assignments/send', requireRole('leader'), (req, res) => {
     const list = drafts(req, (req.body?.service_ids || []).map(Number), int(req.body?.team_id));
     if (!list.length) return res.json({ sent: 0, people: 0 });
+    // Recording who served on a past date is fine; asking people to serve on one is not.
+    const tzOf = new Map();
+    const dayOf = (cid) => {
+      if (!tzOf.has(cid)) tzOf.set(cid, localNow(db.prepare('SELECT timezone FROM campuses WHERE id = ?').get(cid)?.timezone || 'UTC').date);
+      return tzOf.get(cid);
+    };
+    if (list.some((a) => a.starts_at.slice(0, 10) < dayOf(a.campus_id))) throw bad('That service has already happened.');
     db.prepare(`UPDATE assignments SET sent_at = datetime('now'), sent_by = ? WHERE id IN (${list.map(() => '?').join(',')})`).run(req.user.id, ...list.map((a) => a.id));
     notifyScheduled(db, list.map((a) => a.id)); // including the sender, if they scheduled themselves
     audit(db, req, 'schedule.send', `${list.length} requests`);

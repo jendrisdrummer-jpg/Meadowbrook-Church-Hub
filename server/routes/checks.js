@@ -8,6 +8,7 @@ import { getSetting } from '../db.js';
 import { mailConfigured } from '../mail.js';
 import { backupStatus } from '../backup.js';
 import { isOffline } from '../offline.js';
+import { devLoginAllowed, devLoginRequested } from '../devlogin.js';
 
 // `ip` is the requesting admin's own address as this server sees it; it is shown to them and not stored.
 // `codeCapHitAt` is when the sign-in code limit for new accounts last refused someone (ms; 0 = never).
@@ -16,9 +17,12 @@ export function productionChecks(db, env = process.env, { ip, codeCapHitAt = 0 }
   const out = [];
   const add = (id, label, status, detail) => out.push({ id, label, status, detail }); // status: ok | warn | bad | info
 
-  const dev = env.MB_DEV_LOGIN === '1';
+  const dev = devLoginRequested(env);
+  // Set but refused on a live server: sign-in stays safe, but the leftover setting should still go.
   add('dev_login', 'Test sign-in is off', dev ? (hosted ? 'bad' : 'warn') : 'ok',
-    dev ? 'MB_DEV_LOGIN is on: anyone who opens the sign-in page can sign in as anyone. Remove it in the host’s environment settings.' : 'MB_DEV_LOGIN isn’t set.');
+    !dev ? 'MB_DEV_LOGIN isn’t set.'
+      : devLoginAllowed(env) ? 'MB_DEV_LOGIN is on: anyone who opens the sign-in page can sign in as anyone. Remove it in the host’s environment settings.'
+        : 'MB_DEV_LOGIN is set but ignored, because this server looks live. Remove it in the host’s environment settings.');
 
   const tp = (env.MB_TRUST_PROXY ?? '').trim();
   // A small number of proxy hops (Render today: its Cloudflare edge plus its load balancer = 2). The
