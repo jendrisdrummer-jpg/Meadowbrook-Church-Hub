@@ -63,4 +63,6 @@ production when `milestone-1` is merged to `main`, which needs the owner's appro
 
 **Deployed 27 November 2026, about 10:53 AM CT:** PR #135 (#133: hub accessibility polish, the iPhone app's in-app file viewer and permission wording, launch communication drafts, merge log; #134: QA fixes from the #129 regression, the Stations table on phones and long emails wrapping). Merged by the owner. No migrations. Rollback: none so far.
 
+**Deployed 27 November 2026, about 8:46 PM CT:** PR #144. It contained #143 (Bible studies, Hub side: the coordinator flag, approved materials, personal studies, completions on profiles, the Bible studies page; migration 41, additive) and #142 (sign-in leak fixes: the same reply for every wrong code, a fixed amount of password work, limits on code guesses). Merged by the owner after a fresh backup. Rollback: none so far. After deploy: turn on "Bible studies coordinator" for the Bible study team leader.
+
 **Open owner decisions:** kept in one place, [master roadmap §13](master-product-roadmap.md#13-decisions-and-facts-needed-before-implementation).
