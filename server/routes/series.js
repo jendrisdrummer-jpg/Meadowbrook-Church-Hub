@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter } from '../auth.js';
 import { tx } from '../db.js';
-import { bad, notFound, forbidden, int, str, required, isDate, audit } from '../http.js';
+import { bad, notFound, forbidden, int, str, required, isDate, isTime, lengthMin, audit } from '../http.js';
 import { applyTemplate } from './templates.js';
 
 const AHEAD_DAYS = 120;
@@ -93,7 +93,7 @@ export default function seriesRoutes(db) {
 
   const time = (t, fallback) => {
     if (t == null || t === '') return fallback;
-    if (!/^\d{2}:\d{2}$/.test(t)) throw bad('Times look like 09:30.');
+    if (!isTime(t)) throw bad('Times look like 09:30.');
     return t;
   };
 
@@ -148,7 +148,7 @@ export default function seriesRoutes(db) {
     const id = tx(db, () => {
       const info = db.prepare(`INSERT INTO service_types (campus_id, name, day_of_week, start_time, duration_min, every_weeks, starts_on, ends_on, default_title, template_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(campusId, name, dayOfWeek(b.starts_on), startTime, int(b.duration_min) ?? 75, everyWeeks, b.starts_on, b.ends_on || null, str(b.title, 200), templateId(b.template_id));
+        .run(campusId, name, dayOfWeek(b.starts_on), startTime, lengthMin(b.duration_min, 75), everyWeeks, b.starts_on, b.ends_on || null, str(b.title, 200), templateId(b.template_id));
       saveNeeds(info.lastInsertRowid, cleanNeeds(b.needs) || []);
       return Number(info.lastInsertRowid);
     });
@@ -164,9 +164,11 @@ export default function seriesRoutes(db) {
     const b = req.body || {};
     const from = isDate(b.from_date) ? b.from_date : today();
     const startTime = time(b.start_time, t.start_time);
-    const duration = int(b.duration_min) ?? t.duration_min;
+    const duration = lengthMin(b.duration_min, t.duration_min);
     const needs = cleanNeeds(b.needs);
     if (b.ends_on && !isDate(b.ends_on)) throw bad('Pick a valid last date.');
+    // An end date before the series began would remove every future service.
+    if (b.ends_on && t.starts_on && b.ends_on < t.starts_on) throw bad('The last date must be after the first.');
     tx(db, () => {
       db.prepare('UPDATE service_types SET name = ?, start_time = ?, duration_min = ?, default_title = ?, ends_on = ?, template_id = ? WHERE id = ?')
         .run(b.name !== undefined ? required(b.name, 'Name') : t.name, startTime, duration,

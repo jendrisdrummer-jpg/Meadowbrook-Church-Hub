@@ -1123,6 +1123,14 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS checkins_person ON checkins(person_id);
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
   `,
+  // 43: indexes only. The weekly attendance page looks up check-ins by service, and deleting a chat
+  // looks up replies, attached files and push subscriptions by the row being removed.
+  `
+  CREATE INDEX IF NOT EXISTS checkins_service ON checkins(service_id, person_id, kind);
+  CREATE INDEX IF NOT EXISTS messages_reply ON messages(reply_to) WHERE reply_to IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS message_files_message ON message_files(message_id);
+  CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(user_id);
+  `,
 ];
 
 // The schema version a fully migrated database has (PRAGMA user_version).

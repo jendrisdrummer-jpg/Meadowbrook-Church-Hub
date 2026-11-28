@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { requireRole, canCampus, campusFilter, rank } from '../auth.js';
 import { updateFields, tx, getSetting } from '../db.js';
-import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, audit, localNow } from '../http.js';
+import { bad, notFound, forbidden, int, str, oneOf, isDate, isDateTime, lengthMin, audit, localNow } from '../http.js';
 import { ensureServices } from './series.js';
 import { applyTemplate } from './templates.js';
 import { filesForSongs } from './songfiles.js';
@@ -89,7 +89,7 @@ export default function serviceRoutes(db) {
     if (!isDateTime(b.starts_at)) throw bad('Pick a date and time.');
     const id = tx(db, () => {
       const info = db.prepare('INSERT INTO services (campus_id, title, series, starts_at, duration_min, notes) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(campusId, str(b.title, 200), str(b.series, 200), b.starts_at, int(b.duration_min) ?? 75, str(b.notes));
+        .run(campusId, str(b.title, 200), str(b.series, 200), b.starts_at, lengthMin(b.duration_min, 75), str(b.notes));
       saveNeeds(info.lastInsertRowid, b.needs);
       const tpl = int(b.template_id);
       if (tpl && db.prepare('SELECT 1 FROM service_templates WHERE id = ?').get(tpl)) {
@@ -174,6 +174,7 @@ export default function serviceRoutes(db) {
     }
     if (b.starts_at !== undefined && !isDateTime(b.starts_at)) throw bad('Pick a date and time.');
     for (const k of ['title', 'series', 'notes']) if (b[k] !== undefined) b[k] = str(b[k]);
+    if (b.duration_min !== undefined) b.duration_min = lengthMin(b.duration_min, s.duration_min);
     tx(db, () => {
       // Moving one service of a series to another day: skip its old day so it isn't recreated.
       if (s.service_type_id && b.starts_at && b.starts_at.slice(0, 10) !== s.starts_at.slice(0, 10)) {
@@ -218,7 +219,13 @@ export default function serviceRoutes(db) {
     if (b.is_start !== undefined) out.is_start = b.is_start ? 1 : 0;
     if (b.song_id !== undefined) out.song_id = int(b.song_id);
     if (b.person_id !== undefined) out.person_id = int(b.person_id);
-    if (b.length_sec !== undefined) out.length_sec = Math.max(0, int(b.length_sec) ?? 0);
+    if (out.song_id && !db.prepare('SELECT 1 FROM songs WHERE id = ?').get(out.song_id)) throw bad('That song wasn’t found. Please pick one from the list.');
+    if (out.person_id && !db.prepare('SELECT 1 FROM people WHERE id = ?').get(out.person_id)) throw bad('That person wasn’t found. Please pick one from the list.');
+    // 0 means "no length" (the screen sends it for a blank box); less than that is a mistake.
+    if (b.length_sec !== undefined) {
+      out.length_sec = int(b.length_sec) ?? 0;
+      if (out.length_sec < 0) throw bad('Length can’t be less than 0.');
+    }
     return out;
   }
 
@@ -404,7 +411,8 @@ export default function serviceRoutes(db) {
     const accepted = req.body?.status === 'accepted';
     db.prepare(`INSERT INTO assignments (service_id, position_id, person_id, status, sent_at) VALUES (?, ?, ?, ?, ${accepted ? "datetime('now')" : 'NULL'})
       ON CONFLICT(service_id, position_id, person_id) DO UPDATE SET status = excluded.status, responded_at = NULL, decline_reason = '', reminded_at = NULL,
-        sent_at = CASE WHEN excluded.sent_at IS NOT NULL THEN excluded.sent_at WHEN assignments.status = 'declined' THEN NULL ELSE assignments.sent_at END`)
+        sent_at = CASE WHEN excluded.sent_at IS NOT NULL THEN excluded.sent_at WHEN assignments.status = 'declined' THEN NULL ELSE assignments.sent_at END
+      WHERE NOT (assignments.status = 'accepted' AND excluded.status = 'pending')`) // adding someone who already said yes changes nothing
       .run(s.id, positionId, personId, accepted ? 'accepted' : 'pending');
     const a = db.prepare('SELECT id FROM assignments WHERE service_id = ? AND position_id = ? AND person_id = ?').get(s.id, positionId, personId);
     res.status(201).json({ ok: true, id: a.id, conflicts });

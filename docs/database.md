@@ -1,7 +1,7 @@
 # Database
 
 SQLite through `node:sqlite`, one file per church (`MB_DB`). The schema is defined only by the
-`MIGRATIONS` array in `server/db.js` (42 migrations). This page is a map; when it and
+`MIGRATIONS` array in `server/db.js` (43 migrations). This page is a map; when it and
 `db.js` disagree, `db.js` is right, and this page should be fixed in the same pull request.
 
 ## Rules for changing the schema
@@ -64,7 +64,7 @@ Arrows show the main references.
 | `attendance` → services, people | Roll call (marked by the attendance team). |
 | `headcounts` → services | Counts per area. |
 | `rooms` → campuses | Kids' rooms by age/grade. |
-| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Indexes: `checkins_day`, `checkins_code`, and `checkins_person` on `person_id` (migration 42). |
+| `checkins` → people, rooms, services | Kids' check-ins with security codes and check-out. Indexes: `checkins_day`, `checkins_code`, `checkins_person` on `person_id` (migration 42), and `checkins_service` on `(service_id, person_id, kind)` (migration 43: the weekly attendance page looks up kids checked in per service). |
 | `checkin_devices`, `device_pairings` | iPads paired as check-in stations (token stored as a hash). `app_version` / `app_version_at` (migration 40): the check-in app version the iPad last reported in `x-checkin-version` (`''` = never, or not a whole number), and when. |
 | `checkin_events` | **Append-only** record of what happened at kids' check-in (migration 40): `at` (server time), `day` (the campus's local date), `client_at`, `campus_id`, `action` (a closed list in `server/checkin-events.js`), plain ids (`checkin_id`, `person_id`, `household_id`, `device_id`, `user_id`) with name snapshots (`device_name`, `user_name`), `security_code`, `app_version` and a small JSON `detail`. Written by `recordEvent` in the same transaction as the change it records. Read through `GET /checkin/events` (staff and up). |
 
@@ -87,11 +87,11 @@ Merging two people moves their `study_people`, `study_completions` (and the teac
 |---|---|
 | `chats`, `chat_members`, `chat_reads` | Team chats (members follow the roster) and groups. |
 | `groups`, `group_members` → people | **Small groups** (Bible study, home groups), separate from serving teams. `groups.campus_id` NULL = church-wide; `group_members.is_leader` marks the people who run the roster. A group never touches `users.role`. Each group has one chat: `chats.group_id` (unique), `chats.kind = 'smallgroup'`; its members are read live from `group_members` (no copy), so leaving the group leaves the chat. `chats.name` mirrors the group name for task and call cards. Migration 33. |
-| `messages` (+ `message_files`, `message_reactions`) | Messages with replies, mentions, files, reactions, task and call cards. **Private.** |
+| `messages` (+ `message_files`, `message_reactions`) | Messages with replies, mentions, files, reactions, task and call cards. **Private.** Indexes (migration 43): `messages_reply` on `reply_to` (only rows that are replies) and `message_files_message` on `message_id`, so deleting a group chat doesn’t scan every message and file. |
 | `calls` → chats | Video calls/meetings (Daily rooms). |
 | `tasks`, `task_items`, `task_comments` | Personal, team and chat tasks with checklists, comments, repeats. |
 | `notifications` → users | Each account's inbox. |
-| `push_subscriptions` → users, `guest_push` | Devices that allowed push (accounts and guests). |
+| `push_subscriptions` → users, `guest_push` | Devices that allowed push (accounts and guests). Index `push_subscriptions_user` on `user_id` (migration 43). |
 | `announcements` | Congregation announcements (audience, schedule, reach). |
 | `connect_cards` → people | Cards guests fill in from the app. |
 
